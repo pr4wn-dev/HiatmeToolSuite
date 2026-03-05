@@ -1,0 +1,150 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "C:\\Users\\rneal\\source\\repos\\Hiatme Tool Suite v3\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{3B1A6A09-B0CB-4B51-8F63-05E1FE55E0F6}|Hiatme Tool Suite v3\\Hiatme Tool Suite v3.csproj|c:\\users\\rneal\\source\\repos\\hiatme tool suite v3\\hiatme tool suite v3\\form1.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}|Form",
+      "RelativeMoniker": "D:0:0:{3B1A6A09-B0CB-4B51-8F63-05E1FE55E0F6}|Hiatme Tool Suite v3\\Hiatme Tool Suite v3.csproj|solutionrelative:hiatme tool suite v3\\form1.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}|Form"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{3B1A6A09-B0CB-4B51-8F63-05E1FE55E0F6}|Hiatme Tool Suite v3\\Hiatme Tool Suite v3.csproj|C:\\Users\\rneal\\source\\repos\\Hiatme Tool Suite v3\\hiatme tool suite v3\\form1.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{3B1A6A09-B0CB-4B51-8F63-05E1FE55E0F6}|Hiatme Tool Suite v3\\Hiatme Tool Suite v3.csproj|solutionrelative:hiatme tool suite v3\\form1.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{3B1A6A09-B0CB-4B51-8F63-05E1FE55E0F6}|Hiatme Tool Suite v3\\Hiatme Tool Suite v3.csproj|C:\\Users\\rneal\\source\\repos\\Hiatme Tool Suite v3\\hiatme tool suite v3\\mctimecorrection.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{3B1A6A09-B0CB-4B51-8F63-05E1FE55E0F6}|Hiatme Tool Suite v3\\Hiatme Tool Suite v3.csproj|solutionrelative:hiatme tool suite v3\\mctimecorrection.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{3B1A6A09-B0CB-4B51-8F63-05E1FE55E0F6}|Hiatme Tool Suite v3\\Hiatme Tool Suite v3.csproj|C:\\Users\\rneal\\source\\repos\\Hiatme Tool Suite v3\\hiatme tool suite v3\\form1.designer.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{3B1A6A09-B0CB-4B51-8F63-05E1FE55E0F6}|Hiatme Tool Suite v3\\Hiatme Tool Suite v3.csproj|solutionrelative:hiatme tool suite v3\\form1.designer.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{3B1A6A09-B0CB-4B51-8F63-05E1FE55E0F6}|Hiatme Tool Suite v3\\Hiatme Tool Suite v3.csproj|C:\\Users\\rneal\\source\\repos\\Hiatme Tool Suite v3\\hiatme tool suite v3\\livescreen.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{3B1A6A09-B0CB-4B51-8F63-05E1FE55E0F6}|Hiatme Tool Suite v3\\Hiatme Tool Suite v3.csproj|solutionrelative:hiatme tool suite v3\\livescreen.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{3B1A6A09-B0CB-4B51-8F63-05E1FE55E0F6}|Hiatme Tool Suite v3\\Hiatme Tool Suite v3.csproj|C:\\Users\\rneal\\source\\repos\\Hiatme Tool Suite v3\\hiatme tool suite v3\\kamera.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}|Form",
+      "RelativeMoniker": "D:0:0:{3B1A6A09-B0CB-4B51-8F63-05E1FE55E0F6}|Hiatme Tool Suite v3\\Hiatme Tool Suite v3.csproj|solutionrelative:hiatme tool suite v3\\kamera.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}|Form"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{3B1A6A09-B0CB-4B51-8F63-05E1FE55E0F6}|Hiatme Tool Suite v3\\Hiatme Tool Suite v3.csproj|C:\\Users\\rneal\\source\\repos\\Hiatme Tool Suite v3\\hiatme tool suite v3\\kamera.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{3B1A6A09-B0CB-4B51-8F63-05E1FE55E0F6}|Hiatme Tool Suite v3\\Hiatme Tool Suite v3.csproj|solutionrelative:hiatme tool suite v3\\kamera.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 1,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedHeight": 61,
+          "SelectedChildIndex": 6,
+          "Children": [
+            {
+              "$type": "Bookmark",
+              "Name": "ST:128:0:{1fc202d4-d401-403c-9834-5b218574bb67}"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 3,
+              "Title": "Form1.Designer.cs",
+              "DocumentMoniker": "C:\\Users\\rneal\\source\\repos\\Hiatme Tool Suite v3\\Hiatme Tool Suite v3\\Form1.Designer.cs",
+              "RelativeDocumentMoniker": "Hiatme Tool Suite v3\\Form1.Designer.cs",
+              "ToolTip": "C:\\Users\\rneal\\source\\repos\\Hiatme Tool Suite v3\\Hiatme Tool Suite v3\\Form1.Designer.cs",
+              "RelativeToolTip": "Hiatme Tool Suite v3\\Form1.Designer.cs",
+              "ViewState": "AgIAAIwIAAAAAAAAAAAlwJ0IAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2024-07-22T16:17:13.912Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "MCTimeCorrection.cs",
+              "DocumentMoniker": "C:\\Users\\rneal\\source\\repos\\Hiatme Tool Suite v3\\Hiatme Tool Suite v3\\MCTimeCorrection.cs",
+              "RelativeDocumentMoniker": "Hiatme Tool Suite v3\\MCTimeCorrection.cs",
+              "ToolTip": "C:\\Users\\rneal\\source\\repos\\Hiatme Tool Suite v3\\Hiatme Tool Suite v3\\MCTimeCorrection.cs",
+              "RelativeToolTip": "Hiatme Tool Suite v3\\MCTimeCorrection.cs",
+              "ViewState": "AQIAAFgBAAAAAAAAAAAmwGsBAAAUAAAA",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2024-07-18T15:05:00.688Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 6,
+              "Title": "Kamera.cs",
+              "DocumentMoniker": "C:\\Users\\rneal\\source\\repos\\Hiatme Tool Suite v3\\Hiatme Tool Suite v3\\Kamera.cs",
+              "RelativeDocumentMoniker": "Hiatme Tool Suite v3\\Kamera.cs",
+              "ToolTip": "C:\\Users\\rneal\\source\\repos\\Hiatme Tool Suite v3\\Hiatme Tool Suite v3\\Kamera.cs",
+              "RelativeToolTip": "Hiatme Tool Suite v3\\Kamera.cs",
+              "ViewState": "AQIAABIAAAAAAAAAAAD4vyMAAAAZAAAA",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003525|",
+              "WhenOpened": "2024-07-09T16:19:36.088Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 5,
+              "Title": "Kamera.cs [Design]",
+              "DocumentMoniker": "C:\\Users\\rneal\\source\\repos\\Hiatme Tool Suite v3\\Hiatme Tool Suite v3\\Kamera.cs",
+              "RelativeDocumentMoniker": "Hiatme Tool Suite v3\\Kamera.cs",
+              "ToolTip": "C:\\Users\\rneal\\source\\repos\\Hiatme Tool Suite v3\\Hiatme Tool Suite v3\\Kamera.cs [Design]",
+              "RelativeToolTip": "Hiatme Tool Suite v3\\Kamera.cs [Design]",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003525|",
+              "WhenOpened": "2024-07-09T16:19:28.941Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 4,
+              "Title": "livescreen.cs",
+              "DocumentMoniker": "C:\\Users\\rneal\\source\\repos\\Hiatme Tool Suite v3\\Hiatme Tool Suite v3\\livescreen.cs",
+              "RelativeDocumentMoniker": "Hiatme Tool Suite v3\\livescreen.cs",
+              "ToolTip": "C:\\Users\\rneal\\source\\repos\\Hiatme Tool Suite v3\\Hiatme Tool Suite v3\\livescreen.cs",
+              "RelativeToolTip": "Hiatme Tool Suite v3\\livescreen.cs",
+              "ViewState": "AQIAABsAAAAAAAAAAAAowBsAAAAoAAAA",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003525|",
+              "WhenOpened": "2024-07-09T14:38:54.453Z"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "Form1.cs [Design]",
+              "DocumentMoniker": "C:\\Users\\rneal\\source\\repos\\Hiatme Tool Suite v3\\Hiatme Tool Suite v3\\Form1.cs",
+              "RelativeDocumentMoniker": "Hiatme Tool Suite v3\\Form1.cs",
+              "ToolTip": "C:\\Users\\rneal\\source\\repos\\Hiatme Tool Suite v3\\Hiatme Tool Suite v3\\Form1.cs [Design]",
+              "RelativeToolTip": "Hiatme Tool Suite v3\\Form1.cs [Design]",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2023-12-09T20:37:19.763Z",
+              "EditorCaption": " [Design]"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "Form1.cs",
+              "DocumentMoniker": "C:\\Users\\rneal\\source\\repos\\Hiatme Tool Suite v3\\Hiatme Tool Suite v3\\Form1.cs",
+              "RelativeDocumentMoniker": "Hiatme Tool Suite v3\\Form1.cs",
+              "ToolTip": "C:\\Users\\rneal\\source\\repos\\Hiatme Tool Suite v3\\Hiatme Tool Suite v3\\Form1.cs",
+              "RelativeToolTip": "Hiatme Tool Suite v3\\Form1.cs",
+              "ViewState": "AQIAADAKAAAAAAAAAAAIwPEBAAAAAAAA",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003525|",
+              "WhenOpened": "2024-04-15T13:27:49.369Z"
+            }
+          ]
+        },
+        {
+          "DockedHeight": 32,
+          "SelectedChildIndex": -1,
+          "Children": [
+            {
+              "$type": "Bookmark",
+              "Name": "ST:0:0:{d78612c7-9962-4b83-95d9-268046dad23a}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:0:0:{34e76e81-ee4a-11d0-ae2e-00a0c90fffc3}"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
