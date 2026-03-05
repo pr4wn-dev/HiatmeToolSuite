@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hiatme Server – Dashboard</title>
+  <link rel="stylesheet" href="dashboard.css">
+</head>
+<body>
+  <header class="header">
+    <h1>Hiatme Server</h1>
+    <nav class="nav">
+      <a href="/" class="nav-link active">Dashboard</a>
+      <a href="/api/health" class="nav-link" target="_blank">API Health</a>
+      <a href="/api/clients" class="nav-link" target="_blank">API Clients (JSON)</a>
+    </nav>
+  </header>
+
+  <main class="main">
+    <section class="card status-card">
+      <h2>Server status</h2>
+      <div class="status-grid">
+        <div class="status-item">
+          <span class="status-label">Status</span>
+          <span id="status-value" class="status-value">—</span>
+        </div>
+        <div class="status-item">
+          <span class="status-label">Connected clients</span>
+          <span id="clients-count" class="status-value">—</span>
+        </div>
+        <div class="status-item">
+          <span class="status-label">Uptime</span>
+          <span id="uptime-value" class="status-value">—</span>
+        </div>
+      </div>
+      <div class="actions">
+        <button type="button" class="btn btn-secondary" id="btn-refresh">Refresh</button>
+        <button type="button" class="btn btn-danger" id="btn-restart">Restart server</button>
+      </div>
+    </section>
+
+    <section class="card clients-card">
+      <div class="card-header">
+        <h2>Connected clients</h2>
+        <button type="button" class="btn btn-secondary btn-sm" id="btn-refresh-clients">Refresh list</button>
+      </div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>PC name</th>
+              <th>Language</th>
+              <th>Model</th>
+              <th>Version</th>
+              <th>Connected at</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="clients-tbody">
+            <tr><td colspan="7" class="empty">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="dashboard.js"></script>
+</body>
+</html>

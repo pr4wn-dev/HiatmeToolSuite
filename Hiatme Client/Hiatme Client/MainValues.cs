@@ -1,8 +1,10 @@
-﻿
 namespace Hiatme_Client
 {
     public static class MainValues
     {
+        /// <summary>WebSocket URL for the Node server. Use 127.0.0.1 to avoid IPv6/localhost issues.</summary>
+        public static string ServerWsUrl = "ws://127.0.0.1:3000/ws";
+
         public const string ACTION_START_SERVICE = "START_SERVICE";
         public const string ACTION_STOP_SERVICE = "STOP_SERVICE";
         public const string ACTION_MAIN_ACTIVITY = "MAIN_ACTIVITY";

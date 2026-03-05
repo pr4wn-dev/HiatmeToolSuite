@@ -1,0 +1,20 @@
+{
+  "name": "hiatme-server",
+  "version": "1.0.0",
+  "description": "Middleman server for Hiatme (runs alongside XAMPP). Clients connect here; Tool Suite and website request video/pictures from clients through this server.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "ws": "^8.18.0"
+  }
+}
