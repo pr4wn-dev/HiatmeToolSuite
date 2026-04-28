@@ -89,6 +89,65 @@ namespace Hiatme_Tool_Suite_v3
             analyzer.HideLoadingScreen += loadinggifhandler_hidescreen;
 
             portlbl.Text = portlbl.Text + port_no.ToString();
+
+            WellRydeLog.Changed += WellRydeLog_Changed;
+        }
+
+        protected override void OnFormClosed(FormClosedEventArgs e)
+        {
+            WellRydeLog.Changed -= WellRydeLog_Changed;
+            base.OnFormClosed(e);
+        }
+
+        private void WellRydeLog_Changed(object sender, EventArgs e)
+        {
+            if (IsDisposed || !IsHandleCreated)
+                return;
+            if (InvokeRequired)
+            {
+                BeginInvoke(new Action(SyncWellRydeLogTextBox));
+                return;
+            }
+            SyncWellRydeLogTextBox();
+        }
+
+        private void SyncWellRydeLogTextBox()
+        {
+            try
+            {
+                wellRydeLogTextBox.Text = WellRydeLog.GetText();
+                wellRydeLogTextBox.SelectionStart = wellRydeLogTextBox.Text.Length;
+                wellRydeLogTextBox.ScrollToCaret();
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+            catch (InvalidOperationException)
+            {
+            }
+        }
+
+        private void wellRydeLogCopyBtn_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                var t = WellRydeLog.GetText();
+                if (string.IsNullOrEmpty(t))
+                {
+                    MessageBox.Show("Log is empty.", "WellRyde log", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+                Clipboard.SetText(t);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Could not copy: " + ex.Message, "WellRyde log", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+
+        private void wellRydeLogClearBtn_Click(object sender, EventArgs e)
+        {
+            WellRydeLog.Clear();
         }
 
 
@@ -340,7 +399,8 @@ namespace Hiatme_Tool_Suite_v3
             else
             {
                 EnableWRLogin();
-                if (!wrLoginHandler.IntentionalLogout)
+                // Avoid stacking a second WRLogin while one is already running (session/CSRF refresh can flicker Connected).
+                if (!wrLoginHandler.IntentionalLogout && !wrLoginHandler.IsLoginInProgress)
                 {
                     await SetLoadingGifLabel("Logging into Wellryde");
                     await WRLogin();
@@ -934,31 +994,19 @@ namespace Hiatme_Tool_Suite_v3
             await SetLoadingGifLabel("Checking connections");
             if (!wrLoginHandler.Connected)
             {
-                loginCB.SelectedIndex = 0; loginCB.Focus();
-                await wrLoginHandler.ResetConnection();
-                if (wrBillingTool != null)
-                {
-                    billedtrips = await wrBillingTool.SendBill(wrLoginHandler, billingmmcb.CheckState, billingallcb.CheckState);
-                    await SetLoadingGifLabel("Waiting for trips to arrive. 0 / " + billedtrips.Count + " trips billed..");
-                }
-                else
-                {
-                    loadinggifhandler_hidescreen();
-                    MessageBox.Show("You haven't loaded a list yet.");
-                    return;
-                }
+                loadinggifhandler_hidescreen();
+                MessageBox.Show("WellRyde is not connected. Use the login panel to connect, then submit again.");
+                return;
             }
-            else
+            try
             {
-                try
-                {
-                    billedtrips = await wrBillingTool.SendBill(wrLoginHandler, billingmmcb.CheckState, billingallcb.CheckState);
-                    await SetLoadingGifLabel("Waiting for trips to arrive. 0 / " + billedtrips.Count + " trips billed..");
-                }catch (NullReferenceException ex)
-                {
-                    MessageBox.Show("You haven't loaded a list yet.");
-                    return;
-                }
+                billedtrips = await wrBillingTool.SendBill(wrLoginHandler, billingmmcb.CheckState, billingallcb.CheckState);
+                await SetLoadingGifLabel("Waiting for trips to arrive. 0 / " + billedtrips.Count + " trips billed..");
+            }
+            catch (NullReferenceException ex)
+            {
+                MessageBox.Show("You haven't loaded a list yet.");
+                return;
             }
 
             if (billedtrips.Count == 0)

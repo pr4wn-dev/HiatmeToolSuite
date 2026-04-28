@@ -17,9 +17,8 @@ namespace Hiatme_Tool_Suite_v3
         public async Task DownloadTrips(string longdatestr, int dayint, int yearint, WRLoginHandler wrlgnhandler)
         {
             WRTripDownloader wrtd = new WRTripDownloader();
-            WRTripList = new List<WRDownloadedTrip>();
-            WRTripList = await wrtd.DownloadTripRecords(longdatestr, dayint, yearint, wrlgnhandler);
-          
+            WRTripList = await wrtd.DownloadTripRecords(longdatestr, dayint, yearint, wrlgnhandler)
+                ?? new List<WRDownloadedTrip>();
             WRCalculations = new WRCalculations(WRTripList);
         }
         public Dictionary<WRDownloadedTrip, WRDownloadedTrip> FindTripPriceMismatches()
@@ -41,45 +40,43 @@ namespace Hiatme_Tool_Suite_v3
         }
         private async Task<string> SendBillRequest(string formData, WRLoginHandler wrloginhandler)
         {
-            try
+            string lastBody = "";
+            for (int attempt = 0; attempt < 3; attempt++)
             {
-                string data = formData;
-
-                var formContent = new FormUrlEncodedContent(new[]{
-                new KeyValuePair<string, string>("formData", data),
-                new KeyValuePair<string, string>("saveSubmit", "true"),
-                new KeyValuePair<string, string>("_csrf", wrloginhandler._CsrfToken),
-                });
-
-                HttpResponseMessage res = await wrloginhandler.Client.PostAsync("https://portal.app.wellryde.com/portal/trip/saveBillData", formContent);
-                var response = await res.Content.ReadAsStringAsync();
-
-                if (res.IsSuccessStatusCode)
+                try
                 {
-                    //MessageBox.Show("Batch successfully submitted!");
-                }
-                else
-                {
-                    Console.WriteLine(res.StatusCode.ToString());
-                    await wrloginhandler.ResetConnection();
-                    await SendBillRequest(formData, wrloginhandler);
-                    
-                }
+                    if (string.IsNullOrEmpty(wrloginhandler._CsrfToken))
+                        await wrloginhandler.TryRefreshPortalCsrfAsync();
 
-                return response;
+                    var formContent = new FormUrlEncodedContent(new[]{
+                    new KeyValuePair<string, string>("formData", formData),
+                    new KeyValuePair<string, string>("saveSubmit", "true"),
+                    new KeyValuePair<string, string>("_csrf", wrloginhandler._CsrfToken ?? ""),
+                    });
+
+                    using (var res = await wrloginhandler.Client.PostAsync(WellRydeConfig.TripSaveBillDataUrl, formContent))
+                    {
+                        lastBody = await res.Content.ReadAsStringAsync();
+                        if (res.IsSuccessStatusCode && WellRydeTripParsing.BillSubmitBodyIndicatesSuccess(lastBody))
+                            return "SUCCESS";
+                        if (res.IsSuccessStatusCode && !WellRydeTripParsing.BillSubmitBodyIndicatesSuccess(lastBody))
+                            Console.WriteLine("saveBillData: unexpected body (not SUCCESS): " + (lastBody?.Length > 200 ? lastBody.Substring(0, 200) : lastBody));
+                        else
+                            Console.WriteLine("saveBillData: " + res.StatusCode);
+                    }
+                    await wrloginhandler.TryRefreshPortalCsrfAsync();
+                    await Task.Delay(400);
+                }
+                catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
+                {
+                    Console.WriteLine("Timed out: " + ex.Message);
+                }
+                catch (TaskCanceledException ex)
+                {
+                    Console.WriteLine("Canceled: " + ex.Message);
+                }
             }
-            // Filter by InnerException.
-            catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
-            {
-                // Handle timeout.
-                Console.WriteLine("Timed out: " + ex.Message);
-            }
-            catch (TaskCanceledException ex)
-            {
-                // Handle cancellation.
-                Console.WriteLine("Canceled: " + ex.Message);
-            }
-            return "";
+            return lastBody ?? "";
         }
     }
     internal class BillableTrip

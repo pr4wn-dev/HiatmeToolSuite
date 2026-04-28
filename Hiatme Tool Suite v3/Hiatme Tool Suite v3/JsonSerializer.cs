@@ -12,23 +12,32 @@ namespace Hiatme_Tool_Suite_v3
         //deserialize jsonstring into a dynamic object
         public WRBatchData DeserializeJSONString(string jsonstr)
         {
-            if (jsonstr != null)
+            if (string.IsNullOrWhiteSpace(jsonstr))
+                return null;
+            var trimmed = jsonstr.TrimStart();
+            if (trimmed.StartsWith("<", StringComparison.Ordinal))
+                return null;
+            try
             {
-                WRBatchData wrBatchData = JsonConvert.DeserializeObject<WRBatchData>(jsonstr);
-                return wrBatchData;
+                return JsonConvert.DeserializeObject<WRBatchData>(jsonstr);
             }
-            return null;
+            catch (JsonException)
+            {
+                return null;
+            }
         }
         public string DeserializeDriverJSONString(string jsonstr)
         {
-            if (jsonstr != null)
+            if (string.IsNullOrWhiteSpace(jsonstr))
+                return null;
+            try
             {
                 WRDriverInfo wrDriverData = JsonConvert.DeserializeObject<WRDriverInfo>(jsonstr);
                 if (wrDriverData != null)
-                {
-                    string driverName = wrDriverData.ColumnValue;
-                    return driverName;
-                }
+                    return wrDriverData.ColumnValue;
+            }
+            catch (JsonException)
+            {
             }
             return null;
         }

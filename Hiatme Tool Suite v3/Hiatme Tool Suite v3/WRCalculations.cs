@@ -15,8 +15,7 @@ namespace Hiatme_Tool_Suite_v3
         private Dictionary<WRDownloadedTrip, WRDownloadedTrip> WRPriceMismatchTripList { get; set; }
         public WRCalculations(List<WRDownloadedTrip> triplist) 
         {
-            WRTripList = new List<WRDownloadedTrip>();
-            WRTripList = triplist;  
+            WRTripList = triplist ?? new List<WRDownloadedTrip>();
         }
         public List<BillableTrip> BillableTrips(System.Windows.Forms.CheckState sendmismatches, System.Windows.Forms.CheckState sendall)
         {

@@ -1,11 +1,13 @@
 ﻿using Hiatme_Tools;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq.Expressions;
 using System.Net;
 using System.Net.Http;
-using System.Text.RegularExpressions;
+using System.Text;
 using System.Threading.Tasks;
 using System.Web;
 using System.Web.UI.WebControls;
@@ -26,27 +28,15 @@ namespace Hiatme_Tool_Suite_v3
         }
         public async Task<List<WRDownloadedTrip>> DownloadTripRecords(string longdate, int day, int year, WRLoginHandler loginhandler)
         {
-            Console.WriteLine("Downloading wellrydes records..");
+            WellRydeLog.WriteLine("Downloading wellrydes records..");
             retrycounter = 0;
-            return BuildWRTripList(DeserializeJSONBatch(await PostTripBatchDetails(GetFilterDate(longdate, day, year), loginhandler)));
+            var batchJson = await PostTripBatchDetails(longdate, day, year, loginhandler);
+            if (string.IsNullOrWhiteSpace(batchJson))
+                WellRydeLog.WriteLine("WellRyde: trip batch download failed (no JSON). Check login, CSRF, and App.config WellRydeListDefId if trips stay empty.");
+            var trips = BuildWRTripList(DeserializeJSONBatch(batchJson));
+            return trips ?? new List<WRDownloadedTrip>();
         }
-        private string GetFilterDate(string ld, int d, int y)
-        {
-            //return string should be similar to "November+19%2C+2022"
-            string finalmonth;
-            //Console.WriteLine(datefilter);
-            //Get month from between commas
-            string monthandday = Regex.Match(ld, @"(?<=^([^,]*,){1})([^,]*)").Value;
-            //Console.WriteLine(monthandday);
-            //Get month from between spaces
-            string actualmonth = Regex.Match(monthandday, @"(?<=^([^ ]* ){1})([^ ]*)").Value;
-            finalmonth = actualmonth;
-            //Console.WriteLine(actualmonth);
-            //Get month complete
 
-            //Console.WriteLine(finalmonth + "+" + dateTimePicker1.Value.Day + "%2C+" + dateTimePicker1.Value.Year);
-            return finalmonth + "+" + d + "%2C+" + y;
-        }
         private WRBatchData DeserializeJSONBatch(string jsonstring)
         {
             //Console.WriteLine(jsonstring);
@@ -54,73 +44,254 @@ namespace Hiatme_Tool_Suite_v3
             WRBatchData dynjsonobj = jsonserializer.DeserializeJSONString(jsonstring);
             return dynjsonobj;
         }
-        public async Task<string> PostTripBatchDetails(string filterdate, WRLoginHandler wrloginhandler)
+
+        public async Task<string> PostTripBatchDetails(string longdate, int day, int year, WRLoginHandler wrloginhandler)
         {
             if (retrycounter == 3) { return null; }
             try
             {
-                string finaldate = filterdate;
-
-                string decodedfilterlist = HttpUtility.UrlDecode("%5B%7B%22sequence%22%3A%221%22%2C%22value%22%3A%22-1%22%7D%2C%7B%22sequence%22%3A%222%22%2C%22value%22%3A%22-1%22%7D%2C%7B%22sequence%22%3A%223%22%2C%22value%22%3A%22-1%22%7D%2C%7B%22sequence%22%3A%224%22%2C%22value%22%3A%22-1%22%7D%2C%7B%22sequence%22%3A%225%22%2C%22value%22%3A%22-1%22%7D%2C%7B%22sequence%22%3A%226%22%2C%22value%22%3A%22-1%22%7D%2C%7B%22sequence%22%3A%227%22%2C%22value%22%3A%22%7B%5C%22specificDate%5C%22%3A%5C%22" + finaldate + "%5C%22%7D%22%7D%2C%7B%22sequence%22%3A%228%22%2C%22value%22%3A%22-1%22%7D%2C%7B%22sequence%22%3A%229%22%2C%22value%22%3A%22-1%22%7D%2C%7B%22sequence%22%3A%2210%22%2C%22value%22%3A%22-1%22%7D%5D");
-                string decodedfilterArgsJson = HttpUtility.UrlDecode("%7B%22fetchColumnInfo%22%3Afalse%7D");
-                string decodedfilterValues = HttpUtility.UrlDecode("%5B%5D");
-
-                var formContent = new FormUrlEncodedContent(new[]{
-             new KeyValuePair<string, string>("filterList", decodedfilterlist),
-             new KeyValuePair<string, string>("listDefId", "271"),
-             new KeyValuePair<string, string>("customListDefId", ""),
-             new KeyValuePair<string, string>("canDelete", "false"),
-             new KeyValuePair<string, string>("canEdit", "false"),
-             new KeyValuePair<string, string>("canShow", "false"),
-             new KeyValuePair<string, string>("canSelect", "true"),
-             new KeyValuePair<string, string>("page", "1"),
-             new KeyValuePair<string, string>("currentPageSize", ""),
-             new KeyValuePair<string, string>("maxResult", "500"),
-             new KeyValuePair<string, string>("defaultSize", "500"),
-             new KeyValuePair<string, string>("userDefaultFilter", "true"),
-             new KeyValuePair<string, string>("filterArgsJson", decodedfilterArgsJson),
-             new KeyValuePair<string, string>("filterValues", decodedfilterValues),
-             new KeyValuePair<string, string>("_csrf", wrloginhandler._CsrfToken),
-             });
-
-                HttpResponseMessage res = await wrloginhandler.Client.PostAsync("https://portal.app.wellryde.com/portal/filterdata", formContent);
-                var response = await res.Content.ReadAsStringAsync();
-
-                string responseUri = res.RequestMessage.RequestUri.ToString();
-
-                if (response.Length == 0)
+                var tripDate = WellRydeTripParsing.ResolveTripDate(longdate, day, year);
+                if (!await wrloginhandler.TryRefreshTripsNuCsrfAsync(tripDate))
                 {
-                    await wrloginhandler.ResetConnection();
-                    return await PostTripBatchDetails(filterdate, wrloginhandler);
+                    retrycounter++;
+                    WellRydeLog.WriteLine("WellRyde: trips CSRF refresh failed (attempt " + retrycounter + "/3). listDefId=" + WellRydeConfig.TripFilterListDefId);
+                    if (retrycounter >= 3)
+                        return null;
+                    await wrloginhandler.TryRefreshPortalCsrfAsync();
+                    await Task.Delay(500);
+                    return await PostTripBatchDetails(longdate, day, year, wrloginhandler);
+                }
+
+                var specificDate = tripDate.ToString("MMMM d, yyyy", CultureInfo.InvariantCulture);
+                string filterListJson;
+                if (WellRydeConfig.UsesVtTripBillingFilterListShape())
+                {
+                    // Chrome: sequence is string "1","2",…; date slot value is a JSON object serialized as a string (not a nested object).
+                    var dateSlotInner = JsonConvert.SerializeObject(new { specificDate = specificDate });
+                    var vtList = new object[]
+                    {
+                        new { sequence = "1", value = "-1" },
+                        new { sequence = "2", value = dateSlotInner },
+                        new { sequence = "3", value = "-1" },
+                        new { sequence = "4", value = "-1" },
+                        new { sequence = "5", value = "-1" },
+                        new { sequence = "6", value = "-1" },
+                    };
+                    filterListJson = JsonConvert.SerializeObject(vtList);
                 }
                 else
                 {
-                    if (responseUri.Contains("login"))
+                    // Match PHP WellRydeScraper::getTripsViaApi: sequence "1".."10" as strings; date slot value is a JSON string (not a nested object).
+                    var dateSlotInner = JsonConvert.SerializeObject(new { specificDate = specificDate });
+                    var filterList = new object[]
                     {
-                        await wrloginhandler.ResetConnection();
-                        return await PostTripBatchDetails(filterdate, wrloginhandler);
-                    }
-                    else
-                    {
-                        return response;
-                    }   
+                        new { sequence = "1", value = "-1" },
+                        new { sequence = "2", value = "-1" },
+                        new { sequence = "3", value = "-1" },
+                        new { sequence = "4", value = "-1" },
+                        new { sequence = "5", value = "-1" },
+                        new { sequence = "6", value = "-1" },
+                        new { sequence = "7", value = dateSlotInner },
+                        new { sequence = "8", value = "-1" },
+                        new { sequence = "9", value = "-1" },
+                        new { sequence = "10", value = "-1" },
+                    };
+                    filterListJson = JsonConvert.SerializeObject(filterList);
                 }
-            }
 
+                var useVtShape = WellRydeConfig.UsesVtTripBillingFilterListShape();
+                WellRydeLog.WriteLine("WellRyde: filterdata request listDefId=" + WellRydeConfig.TripFilterListDefId
+                    + " vtTripBillingShape=" + useVtShape + " tripDate=" + tripDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+
+                var allValues = new JArray();
+                int totalRecords = 0;
+                JObject lastDecoded = null;
+
+                for (int page = 1; ; page++)
+                {
+                    var didShellHarvestRepost = false;
+                shellHarvestRetry:
+                    // Chrome HAR: fetchColumnInfo false; currentPageSize empty; _csrf last.
+                    var filterArgsJson = "{\"fetchColumnInfo\":false}";
+                    var pageSizeStr = WellRydeConfig.FilterDataPageSize.ToString(CultureInfo.InvariantCulture);
+                    var formPairs = new List<KeyValuePair<string, string>>
+                    {
+                        new KeyValuePair<string, string>("filterList", filterListJson),
+                        new KeyValuePair<string, string>("listDefId", WellRydeConfig.TripFilterListDefId),
+                        new KeyValuePair<string, string>("customListDefId", ""),
+                        new KeyValuePair<string, string>("canDelete", "false"),
+                        new KeyValuePair<string, string>("canEdit", "false"),
+                        new KeyValuePair<string, string>("canShow", "false"),
+                        new KeyValuePair<string, string>("canSelect", "true"),
+                        new KeyValuePair<string, string>("page", page.ToString(CultureInfo.InvariantCulture)),
+                        new KeyValuePair<string, string>("currentPageSize", ""),
+                        new KeyValuePair<string, string>("maxResult", pageSizeStr),
+                        new KeyValuePair<string, string>("defaultSize", pageSizeStr),
+                        new KeyValuePair<string, string>("userDefaultFilter", "true"),
+                        new KeyValuePair<string, string>("filterArgsJson", filterArgsJson),
+                        new KeyValuePair<string, string>("filterValues", "[]"),
+                        new KeyValuePair<string, string>("_csrf", wrloginhandler._CsrfToken ?? ""),
+                    };
+                    var encodedFilterForm = EncodePhpStyleFilterForm(formPairs);
+                    var formContent = CreatePhpStyleFilterFormContent(encodedFilterForm);
+
+                    // Referer matches GET nu?date=… used for _csrf (VTripBilling / SPA often requires ?date= on Referer for JSON).
+                    HttpResponseMessage res = await wrloginhandler.PostWellRydeFilterDataAsync(formContent, wrloginhandler.TripsRefererForWellRydeAjax);
+                    string contentType = null;
+                    try
+                    {
+                        contentType = res.Content.Headers.ContentType?.ToString();
+                    }
+                    catch { /* ignore */ }
+                    var response = await res.Content.ReadAsStringAsync();
+                    string responseUri = res.RequestMessage?.RequestUri?.ToString() ?? "";
+                    int status = (int)res.StatusCode;
+
+                    if (response.Length == 0 || WellRydeTripParsing.LooksLikeNonJsonPayload(response))
+                    {
+                        if (!didShellHarvestRepost && page == 1 && status == 200
+                            && response.IndexOf("meta name=\"_csrf\"", StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            didShellHarvestRepost = true;
+                            wrloginhandler.TryIngestJsessionFromFilterDataHtmlShell(response);
+                            var shellCsrf = wrloginhandler.GrabCSRFToken(response);
+                            if (!string.IsNullOrEmpty(shellCsrf))
+                                wrloginhandler._CsrfToken = shellCsrf;
+                            if (WellRydeConfig.DebugPortalTraffic)
+                                WellRydeLog.WriteLine("WellRyde: filterdata HTML shell — scraped servlet session / CSRF, retrying once.");
+                            goto shellHarvestRetry;
+                        }
+                        var hint401 = status == 401
+                            ? " — if this persists, set App.config WellRydeManualJsessionId (Chrome → Application → Cookies → JSESSIONID for portal.app.wellryde.com)."
+                            : "";
+                        WellRydeLog.WriteLine("WellRyde: filterdata bad body HTTP " + status + " content-type=" + (contentType ?? "(unknown)") + " len=" + response.Length + " prefix=" + TrimForLog(response, 350) + hint401);
+                        try
+                        {
+                            WellRydeHttpDiagnostics.DumpFilterDataMismatch(res.RequestMessage, res, response, WRLoginHandler.CookieJar, encodedFilterForm);
+                        }
+                        catch
+                        {
+                            /* ignore logging failures */
+                        }
+                        retrycounter++;
+                        if (retrycounter >= 3)
+                            return null;
+                        await wrloginhandler.TryRefreshTripsNuCsrfAsync(tripDate);
+                        await Task.Delay(500);
+                        return await PostTripBatchDetails(longdate, day, year, wrloginhandler);
+                    }
+
+                    if (responseUri.IndexOf("login", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        WellRydeLog.WriteLine("WellRyde: filterdata redirected toward login. Request URI=" + responseUri);
+                        retrycounter++;
+                        if (retrycounter >= 3)
+                            return null;
+                        await wrloginhandler.TryRefreshTripsNuCsrfAsync(tripDate);
+                        await Task.Delay(500);
+                        return await PostTripBatchDetails(longdate, day, year, wrloginhandler);
+                    }
+
+                    if (!res.IsSuccessStatusCode)
+                    {
+                        WellRydeLog.WriteLine("WellRyde: filterdata HTTP " + status + " prefix=" + TrimForLog(response, 350));
+                        retrycounter++;
+                        if (retrycounter >= 3)
+                            return null;
+                        await wrloginhandler.TryRefreshTripsNuCsrfAsync(tripDate);
+                        await Task.Delay(500);
+                        return await PostTripBatchDetails(longdate, day, year, wrloginhandler);
+                    }
+
+                    lastDecoded = JsonConvert.DeserializeObject<JObject>(response);
+                    if (lastDecoded == null)
+                    {
+                        WellRydeLog.WriteLine("WellRyde: filterdata JSON is not an object (wrong listDefId or API shape). prefix=" + TrimForLog(response, 400));
+                        retrycounter++;
+                        if (retrycounter >= 3)
+                            return null;
+                        await wrloginhandler.TryRefreshTripsNuCsrfAsync(tripDate);
+                        await Task.Delay(500);
+                        return await PostTripBatchDetails(longdate, day, year, wrloginhandler);
+                    }
+
+                    var pageValues = lastDecoded["values"] as JArray;
+                    if (pageValues == null)
+                        pageValues = new JArray();
+
+                    foreach (var row in pageValues)
+                        allValues.Add(row);
+
+                    if (page == 1)
+                        totalRecords = WellRydeTripParsing.ParseWellRydeTotalRecords(lastDecoded["totalRecords"]);
+
+                    bool fullPage = pageValues.Count >= WellRydeConfig.FilterDataPageSize;
+                    if (!fullPage)
+                        break;
+                    if (totalRecords > 0 && allValues.Count >= totalRecords)
+                        break;
+                }
+
+                var merged = new JObject
+                {
+                    ["values"] = allValues,
+                    ["totalRecords"] = totalRecords.ToString(CultureInfo.InvariantCulture),
+                };
+                if (lastDecoded != null && lastDecoded["entityName"] != null)
+                    merged["entityName"] = lastDecoded["entityName"];
+
+                return merged.ToString(Formatting.None);
+            }
             catch (Exception ex)
             {
+                WellRydeLog.WriteLine("WellRyde: PostTripBatchDetails exception: " + ex.GetType().Name + ": " + ex.Message);
                 return null;
             }
-            
+        }
+
+        /// <summary>
+        /// Match PHP <c>http_build_query($postData)</c> for <c>filterdata</c>: spaces as <c>+</c>, same rules as <c>urlencode</c>.
+        /// <see cref="Uri.EscapeDataString"/> uses <c>%20</c> for spaces (RFC 3986) and can change how strict parsers read the body vs the portal/PHP client.
+        /// </summary>
+        private static string EncodePhpStyleFilterForm(IEnumerable<KeyValuePair<string, string>> pairs)
+        {
+            var sb = new StringBuilder(2048);
+            var first = true;
+            foreach (var kv in pairs)
+            {
+                if (!first)
+                    sb.Append('&');
+                first = false;
+                sb.Append(HttpUtility.UrlEncode(kv.Key, Encoding.UTF8))
+                    .Append('=')
+                    .Append(HttpUtility.UrlEncode(kv.Value ?? "", Encoding.UTF8));
+            }
+            return sb.ToString();
+        }
+
+        private static HttpContent CreatePhpStyleFilterFormContent(string encodedBody)
+        {
+            var content = new StringContent(encodedBody, Encoding.UTF8, "application/x-www-form-urlencoded");
+            content.Headers.ContentType.CharSet = "utf-8";
+            return content;
+        }
+
+        private static string TrimForLog(string s, int maxLen)
+        {
+            if (string.IsNullOrEmpty(s))
+                return "(empty)";
+            s = s.Replace('\r', ' ').Replace('\n', ' ');
+            return s.Length <= maxLen ? s : s.Substring(0, maxLen) + "...";
         }
         private List<WRDownloadedTrip> BuildWRTripList(WRBatchData wrBatchObj)
         {
             List<WRDownloadedTrip> triprcdlist = new List<WRDownloadedTrip>();
             //Console.WriteLine("BuildWRTripList");
-            if (wrBatchObj == null) { return null; }
+            if (wrBatchObj == null)
+                return triprcdlist;
             try
             {
-                Console.WriteLine("Wellryde Downloaded Trips: " + wrBatchObj.totalRecords);
+                WellRydeLog.WriteLine("Wellryde Downloaded Trips: " + wrBatchObj.totalRecords);
 
                 JsonSerializer serializer = new JsonSerializer();
                 foreach (dynamic trip in wrBatchObj.values)
@@ -156,25 +327,51 @@ namespace Hiatme_Tool_Suite_v3
         }
         public async Task <List<WRDrivers>> GetAllDrivers(WRLoginHandler loginhandler) 
         {
-            List<WRDrivers> wrdrivers = new List<WRDrivers>();
-
-            try
+            for (int attempt = 0; attempt < 3; attempt++)
             {
-                HttpResponseMessage res = await loginhandler.Client.GetAsync("https://portal.app.wellryde.com/portal/trip/getAllDriversForTripAssignment?bpartnerId=0");
-                var response = await res.Content.ReadAsStringAsync();
-                //Console.WriteLine(response);
-                wrdrivers = JsonConvert.DeserializeObject<List<WRDrivers>>(response);
-
-                foreach (WRDrivers driver in wrdrivers)
+                try
                 {
-                    Console.WriteLine("Driver Name: " + driver.text + " Driver ID: " + driver.value);
+                    if (string.IsNullOrEmpty(loginhandler._CsrfToken))
+                        await loginhandler.TryRefreshPortalCsrfAsync();
+
+                    HttpResponseMessage res = await loginhandler.Client.GetAsync(WellRydeConfig.TripGetAllDriversForTripAssignmentUrl);
+                    var response = await res.Content.ReadAsStringAsync();
+
+                    if (!res.IsSuccessStatusCode || WellRydeTripParsing.ResponseIndicatesPortalLogin(res)
+                        || WellRydeTripParsing.LooksLikeNonJsonPayload(response) || !WellRydeTripParsing.LooksLikeJsonArray(response))
+                    {
+                        WellRydeLog.WriteLine("getAllDrivers: retry after status=" + res.StatusCode + " bodyPrefix=" + (response?.Length > 200 ? response.Substring(0, 200) : response));
+                        await loginhandler.TryRefreshPortalCsrfAsync();
+                        await Task.Delay(400);
+                        continue;
+                    }
+
+                    var wrdrivers = JsonConvert.DeserializeObject<List<WRDrivers>>(response);
+                    if (wrdrivers == null)
+                    {
+                        await loginhandler.TryRefreshPortalCsrfAsync();
+                        await Task.Delay(400);
+                        continue;
+                    }
+
+                    foreach (WRDrivers driver in wrdrivers)
+                        WellRydeLog.WriteLine("Driver Name: " + driver.text + " Driver ID: " + driver.value);
+
+                    return wrdrivers;
+                }
+                catch (JsonException)
+                {
+                    await loginhandler.TryRefreshPortalCsrfAsync();
+                    await Task.Delay(400);
+                }
+                catch (HttpRequestException)
+                {
+                    await loginhandler.TryRefreshPortalCsrfAsync();
+                    await Task.Delay(400);
                 }
             }
-            catch(NullReferenceException ex)
-            {
-                return null;
-            }
-            return wrdrivers;
+
+            return null;
         }
 
 

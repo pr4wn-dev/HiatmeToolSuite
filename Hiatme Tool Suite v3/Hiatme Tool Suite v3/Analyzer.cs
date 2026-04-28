@@ -95,6 +95,8 @@ namespace Hiatme_Tool_Suite_v3
         private WRLoginHandler wellrydeloginHandler { get; set; }
         public List<WRDrivers> WRDriverList { get; set; }
         private string scheduledate { get; set; }
+        /// <summary>Trip calendar date for the current WellRyde analysis (CSRF refresh on /portal/nu?date=).</summary>
+        private DateTime _wellRydeScheduleDate;
         private List<MCDownloadedTrip> modivcareDownloadedTrips { get; set; }
         public List<MCDriverTab> drivertablist { get; set; }
         public List<MCDownloadedTrip> loggedScheduleTrips { get; set; }
@@ -106,6 +108,7 @@ namespace Hiatme_Tool_Suite_v3
         }
         public async Task StartAnalysis(string longdatestr, int dayint, int yearint, DateTime mcdate)
         {
+            _wellRydeScheduleDate = WellRydeTripParsing.ResolveTripDate(longdatestr, dayint, yearint);
             notecount = 0;
             drivertablist = new List<MCDriverTab>();
             WRTripDownloader wrtd = new WRTripDownloader();
@@ -892,56 +895,76 @@ namespace Hiatme_Tool_Suite_v3
                 await UnassignTripBatch(unassignabletrips);
             }
         }
-        private async Task UnassignTripBatch(List<string> trips)
+        private async Task UnassignTripBatch(List<string> trips, int attempt = 0)
         {
-            //Console.WriteLine("About to submit trips for driver id: " + id);
+            if (trips == null || trips.Count == 0)
+                return;
+            if (attempt >= 3)
+            {
+                Console.WriteLine("UnassignTripBatch: validation failed after CSRF retries; skipping finalize.");
+                return;
+            }
+
             string tripformlist = "";
             foreach (string trip in trips)
-            {
                 tripformlist += trip + ",";
-
-            }
-            //Console.WriteLine(tripformlist);
 
             var formContent = new FormUrlEncodedContent(new[]{
              new KeyValuePair<string, string>("tripUUIDs", tripformlist),
-            // new KeyValuePair<string, string>("hasAssigned", "0"),
-             new KeyValuePair<string, string>("_csrf", wellrydeloginHandler._CsrfToken),
+             new KeyValuePair<string, string>("_csrf", wellrydeloginHandler._CsrfToken ?? ""),
              });
 
-            HttpResponseMessage res = await wellrydeloginHandler.Client.PostAsync("https://portal.app.wellryde.com/portal//trip/unAssignValidation", formContent);
+            HttpResponseMessage res = await wellrydeloginHandler.Client.PostAsync(WellRydeConfig.TripUnAssignValidationUrl, formContent);
             var response = await res.Content.ReadAsStringAsync();
 
             Console.WriteLine(response.Length);
-            if (response.Length == 0)
+            bool sessionLost = string.IsNullOrEmpty(response)
+                || WellRydeTripParsing.LooksLikeNonJsonPayload(response)
+                || WellRydeTripParsing.ResponseIndicatesPortalLogin(res);
+
+            if (sessionLost)
             {
-                await wellrydeloginHandler.ResetConnection();
-                await UnassignTripBatch(trips);
+                Console.WriteLine("UnassignTripBatch: retry validation attempt " + (attempt + 1) + " bodyPrefix=" + (response?.Length > 200 ? response.Substring(0, 200) : response));
+                await wellrydeloginHandler.TryRefreshTripsNuCsrfAsync(_wellRydeScheduleDate);
+                await wellrydeloginHandler.TryRefreshPortalCsrfAsync();
+                await Task.Delay(400);
+                await UnassignTripBatch(trips, attempt + 1);
+                return;
             }
-            else
-            {
-                await FinalizeUnassignTripBatch(trips);
-            }
+
+            await FinalizeUnassignTripBatch(trips);
         }
-        private async Task FinalizeUnassignTripBatch(List<string> tripscopy)
+        private async Task FinalizeUnassignTripBatch(List<string> tripscopy, int attempt = 0)
         {
-            //Console.WriteLine("About to submit trips for driver id: " + id);
+            if (tripscopy == null || tripscopy.Count == 0)
+                return;
+            if (attempt >= 3)
+            {
+                Console.WriteLine("FinalizeUnassignTripBatch: gave up after retries.");
+                return;
+            }
+
             string tripformlist = "";
             foreach (string trip in tripscopy)
-            {
                 tripformlist += trip + ",";
-
-            }
-            //Console.WriteLine(tripformlist);
 
             var formContent = new FormUrlEncodedContent(new[]{
              new KeyValuePair<string, string>("vizzonIds", tripformlist),
              new KeyValuePair<string, string>("viewName", "trip"),
-             new KeyValuePair<string, string>("_csrf", wellrydeloginHandler._CsrfToken),
+             new KeyValuePair<string, string>("_csrf", wellrydeloginHandler._CsrfToken ?? ""),
              });
 
-            HttpResponseMessage res = await wellrydeloginHandler.Client.PostAsync("https://portal.app.wellryde.com/portal/trip/unassign", formContent);
+            HttpResponseMessage res = await wellrydeloginHandler.Client.PostAsync(WellRydeConfig.TripUnassignUrl, formContent);
             var response = await res.Content.ReadAsStringAsync();
+
+            if (!res.IsSuccessStatusCode || WellRydeTripParsing.LooksLikeNonJsonPayload(response))
+            {
+                Console.WriteLine("FinalizeUnassignTripBatch: retry unassign attempt " + (attempt + 1));
+                await wellrydeloginHandler.TryRefreshTripsNuCsrfAsync(_wellRydeScheduleDate);
+                await wellrydeloginHandler.TryRefreshPortalCsrfAsync();
+                await Task.Delay(400);
+                await FinalizeUnassignTripBatch(tripscopy, attempt + 1);
+            }
         }
         private async Task AssignTrips(string longdatestring, int dayintnum, int yearintnum, DateTime mcdatedt)
         {
@@ -989,29 +1012,39 @@ namespace Hiatme_Tool_Suite_v3
                 wellrydeDownloadedTrips = await wrtd.DownloadTripRecords(longdatestring, dayintnum, yearintnum, wellrydeloginHandler);
             }
         }
-        private async Task SubmitTripBatch(string id, List<string> trips)
+        private async Task SubmitTripBatch(string id, List<string> trips, int attempt = 0)
         {
             Console.WriteLine("About to submit trips for driver id: " + id);
+            if (trips == null || trips.Count == 0)
+                return;
+            if (attempt >= 3)
+            {
+                Console.WriteLine("SubmitTripBatch: assignTripDriver failed after retries for driver " + id);
+                return;
+            }
+
             string tripformlist = "";
             foreach (string trip in trips)
-            {
                 tripformlist += trip + ",";
-            }
-            //Console.WriteLine(tripformlist);
-
-            //string decodedfilterlist = HttpUtility.UrlDecode("%5B%7B%22sequence%22%3A%221%22%2C%22value%22%3A%22-1%22%7D%2C%7B%22sequence%22%3A%222%22%2C%22value%22%3A%22-1%22%7D%2C%7B%22sequence%22%3A%223%22%2C%22value%22%3A%22-1%22%7D%2C%7B%22sequence%22%3A%224%22%2C%22value%22%3A%22-1%22%7D%2C%7B%22sequence%22%3A%225%22%2C%22value%22%3A%22-1%22%7D%2C%7B%22sequence%22%3A%226%22%2C%22value%22%3A%22-1%22%7D%2C%7B%22sequence%22%3A%227%22%2C%22value%22%3A%22%7B%5C%22specificDate%5C%22%3A%5C%22" + finaldate + "%5C%22%7D%22%7D%2C%7B%22sequence%22%3A%228%22%2C%22value%22%3A%22-1%22%7D%2C%7B%22sequence%22%3A%229%22%2C%22value%22%3A%22-1%22%7D%2C%7B%22sequence%22%3A%2210%22%2C%22value%22%3A%22-1%22%7D%5D");
-            //string decodedfilterArgsJson = HttpUtility.UrlDecode("%7B%22fetchColumnInfo%22%3Afalse%7D");
-            //string decodedfilterValues = HttpUtility.UrlDecode("%5B%5D");
 
             var formContent = new FormUrlEncodedContent(new[]{
              new KeyValuePair<string, string>("tripUUIDs", tripformlist),
              new KeyValuePair<string, string>("driverId", id),
              new KeyValuePair<string, string>("hasAssigned", "0"),
-             new KeyValuePair<string, string>("_csrf", wellrydeloginHandler._CsrfToken),
+             new KeyValuePair<string, string>("_csrf", wellrydeloginHandler._CsrfToken ?? ""),
              });
 
-            HttpResponseMessage res = await wellrydeloginHandler.Client.PostAsync("https://portal.app.wellryde.com/portal/trip/assignTripDriver", formContent);
+            HttpResponseMessage res = await wellrydeloginHandler.Client.PostAsync(WellRydeConfig.TripAssignTripDriverUrl, formContent);
             var response = await res.Content.ReadAsStringAsync();
+
+            if (!res.IsSuccessStatusCode || WellRydeTripParsing.LooksLikeNonJsonPayload(response))
+            {
+                Console.WriteLine("SubmitTripBatch: retry assign attempt " + (attempt + 1) + " status=" + res.StatusCode);
+                await wellrydeloginHandler.TryRefreshTripsNuCsrfAsync(_wellRydeScheduleDate);
+                await wellrydeloginHandler.TryRefreshPortalCsrfAsync();
+                await Task.Delay(400);
+                await SubmitTripBatch(id, trips, attempt + 1);
+            }
         }
 
 

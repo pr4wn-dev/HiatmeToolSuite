@@ -58,6 +58,7 @@
     <Reference Include="Newtonsoft.Json, Version=13.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
       <HintPath>..\packages\Newtonsoft.Json.13.0.3\lib\net45\Newtonsoft.Json.dll</HintPath>
     </Reference>
+    <Reference Include="System.Configuration" />
     <Reference Include="System" />
     <Reference Include="System.ComponentModel.DataAnnotations" />
     <Reference Include="System.Core" />
@@ -143,6 +144,13 @@
     <Compile Include="RJDatePicker.cs">
       <SubType>Component</SubType>
     </Compile>
+    <Compile Include="WellRydeConfig.cs" />
+    <Compile Include="WellRydeCookieHelper.cs" />
+    <Compile Include="WellRydeCurlFilterData.cs" />
+    <Compile Include="WellRydeHttpDiagnostics.cs" />
+    <Compile Include="WellRydePortalCookieInjectingHandler.cs" />
+    <Compile Include="WellRydeLog.cs" />
+    <Compile Include="WellRydePortalHttp.cs" />
     <Compile Include="WRBillingTool.cs" />
     <Compile Include="WRCalculations.cs" />
     <Compile Include="WRCompanyInfo.cs" />
