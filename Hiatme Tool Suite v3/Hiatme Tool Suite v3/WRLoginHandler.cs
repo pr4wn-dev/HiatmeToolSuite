@@ -608,6 +608,9 @@ namespace Hiatme_Tool_Suite_v3
                     SyncXsrfTokenCookieFromCurrentCsrf();
                     UpdateHandlerHeaders();
                     _lastTripsNuRefererWithDate = url;
+                    if (!PortalCookieHeaderHasJsessionId())
+                        await PostAuthenticatedNpsTimezoneServletPrimeAsync(url).ConfigureAwait(false);
+                    WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
                     await TryResolveVtTripBillingListDefIfNeededAsync();
                     if (!PortalCookieHeaderHasJsessionId())
                         await TryPrimeTripFilterListServletSessionAsync(url);
@@ -712,6 +715,11 @@ namespace Hiatme_Tool_Suite_v3
         {
             try
             {
+                PreferPortalXsrfCookieForCsrfToken();
+                SyncXsrfTokenCookieFromCurrentCsrf();
+                if (!PortalCookieHeaderHasJsessionId())
+                    await PostAuthenticatedNpsTimezoneServletPrimeAsync(WellRydeConfig.TripsPageAbsoluteUrl).ConfigureAwait(false);
+                WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
                 using (var r1 = await GetPortalHtmlDocumentAsync(WellRydeConfig.PortalShellUrl, WellRydeConfig.PortalOrigin + "/"))
                 {
                     WellRydeCookieHelper.IngestSetCookieHeaders(r1, CookieJar);
@@ -1177,6 +1185,57 @@ namespace Hiatme_Tool_Suite_v3
             catch
             {
                 // Browser sends this before login; failure is non-fatal for some tenants.
+            }
+        }
+
+        /// <summary>
+        /// Chrome POSTs <c>/portal/nps/timezone</c> again after auth with the SPA CSRF. That servlet hit is often when Tomcat first
+        /// <c>Set-Cookie: JSESSIONID</c> binds to the Spring <c>SESSION</c>. We only mirrored the pre-login POST before.
+        /// </summary>
+        private async Task PostAuthenticatedNpsTimezoneServletPrimeAsync(string referer)
+        {
+            if (string.IsNullOrEmpty(_CsrfToken))
+                return;
+            try
+            {
+                var tz = FormatWellrydeGmtOffset(TimeZoneInfo.Local.GetUtcOffset(DateTime.UtcNow));
+                var tzForm = new FormUrlEncodedContent(new[]
+                {
+                    new KeyValuePair<string, string>("timeZone", tz),
+                    new KeyValuePair<string, string>("_csrf", _CsrfToken),
+                });
+                var refererVal = string.IsNullOrEmpty(referer) ? WellRydeConfig.TripsPageAbsoluteUrl : referer;
+                using (var req = new HttpRequestMessage(HttpMethod.Post, WellRydeConfig.NpsTimezoneUrl))
+                {
+                    req.Content = tzForm;
+                    req.Headers.TryAddWithoutValidation("User-Agent", PortalBrowserUserAgent);
+                    req.Headers.TryAddWithoutValidation("Accept", "application/json, text/javascript, */*;q=0.01");
+                    req.Headers.TryAddWithoutValidation("Accept-Language", "en-US,en;q=0.9");
+                    req.Headers.TryAddWithoutValidation("Accept-Encoding", "gzip, deflate");
+                    req.Headers.TryAddWithoutValidation("Origin", WellRydeConfig.PortalOrigin);
+                    req.Headers.TryAddWithoutValidation("Referer", refererVal);
+                    req.Headers.TryAddWithoutValidation("X-Requested-With", "XMLHttpRequest");
+                    req.Headers.TryAddWithoutValidation("X-CSRF-TOKEN", _CsrfToken);
+                    req.Headers.TryAddWithoutValidation("X-XSRF-TOKEN", _CsrfToken);
+                    req.Headers.TryAddWithoutValidation("Sec-Fetch-Site", "same-origin");
+                    req.Headers.TryAddWithoutValidation("Sec-Fetch-Mode", "cors");
+                    req.Headers.TryAddWithoutValidation("Sec-Fetch-Dest", "empty");
+                    req.Headers.TryAddWithoutValidation("sec-ch-ua", PortalFilterDataSecChUa);
+                    req.Headers.TryAddWithoutValidation("sec-ch-ua-mobile", "?0");
+                    req.Headers.TryAddWithoutValidation("sec-ch-ua-platform", "\"Windows\"");
+                    using (var resp = await _filterDataClient.SendAsync(req).ConfigureAwait(false))
+                    {
+                        WellRydeCookieHelper.IngestSetCookieHeaders(resp, CookieJar);
+                        WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
+                        if (WellRydeConfig.DebugPortalTraffic && resp.Headers.TryGetValues("Set-Cookie", out var sc))
+                            WellRydeLog.WriteLine("WellRyde: POST nps/timezone (authenticated) Set-Cookie: " + string.Join(" || ", sc));
+                        await resp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
+                    }
+                }
+            }
+            catch
+            {
+                /* non-fatal */
             }
         }
 

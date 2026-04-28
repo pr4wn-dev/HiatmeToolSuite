@@ -164,6 +164,78 @@ namespace Hiatme_Tool_Suite_v3
                     /* ignore */
                 }
             }
+            CollapsePortalPathSlashDuplicates(jar);
+        }
+
+        /// <summary>
+        /// Spring may store <c>SESSION</c>/<c>XSRF-TOKEN</c> as <c>Path=/portal</c> and <c>/portal/</c>; both match <c>/portal/filterdata</c>
+        /// and <see cref="CookieContainer.GetCookieHeader"/> then lists duplicates. Expire the <c>/portal</c> copy when values match (keep <c>/portal/</c>).
+        /// </summary>
+        static void CollapsePortalPathSlashDuplicates(CookieContainer jar)
+        {
+            if (jar == null)
+                return;
+            Uri fu;
+            try
+            {
+                fu = new Uri(WellRydeConfig.FilterDataUrl);
+            }
+            catch
+            {
+                return;
+            }
+            CookieCollection coll;
+            try
+            {
+                coll = jar.GetCookies(fu);
+            }
+            catch
+            {
+                return;
+            }
+            var byName = new Dictionary<string, List<Cookie>>(StringComparer.OrdinalIgnoreCase);
+            foreach (Cookie c in coll)
+            {
+                if (c.Expired)
+                    continue;
+                var path = c.Path ?? "";
+                if (path != "/portal" && path != "/portal/")
+                    continue;
+                var name = c.Name ?? "";
+                if (string.IsNullOrEmpty(name))
+                    continue;
+                if (!byName.TryGetValue(name, out var list))
+                {
+                    list = new List<Cookie>();
+                    byName[name] = list;
+                }
+                list.Add(c);
+            }
+            foreach (var kv in byName)
+            {
+                var list = kv.Value;
+                if (list.Count < 2)
+                    continue;
+                var withSlash = list.FirstOrDefault(c => c.Path == "/portal/");
+                var noSlash = list.FirstOrDefault(c => c.Path == "/portal");
+                if (withSlash == null || noSlash == null)
+                    continue;
+                if (!string.Equals(withSlash.Value, noSlash.Value, StringComparison.Ordinal))
+                    continue;
+                try
+                {
+                    jar.Add(new Cookie(noSlash.Name, noSlash.Value, noSlash.Path, noSlash.Domain)
+                    {
+                        Expires = DateTime.UtcNow.AddDays(-1),
+                        Secure = noSlash.Secure,
+                        HttpOnly = noSlash.HttpOnly,
+                    });
+                }
+                catch
+                {
+                    /* ignore */
+                }
+            }
         }
 
         /// <summary>

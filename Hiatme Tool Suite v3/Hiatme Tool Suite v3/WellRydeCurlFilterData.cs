@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Net;
@@ -9,9 +10,14 @@ namespace Hiatme_Tool_Suite_v3
     /// <summary>
     /// Uses Windows <c>curl.exe</c> (libcurl) with a Netscape cookie jar — same cookie merge behavior as PHP <c>WellRydeScraper</c>.
     /// Needed when <c>HttpClient</c> never stores <c>JSESSIONID</c> and <c>filterdata</c> returns the HTML shell.
+    /// Does not use <c>-K</c> (config file): 32-bit WOW64 often resolves to an older <c>SysWOW64\curl.exe</c> without that flag.
     /// </summary>
     internal static class WellRydeCurlFilterData
     {
+        /// <summary>Match <see cref="WRLoginHandler"/> filterdata XHR — omitting these can yield the HTML shell.</summary>
+        const string SecChUaChrome147 =
+            "\"Chromium\";v=\"147\", \"Not A(Brand\";v=\"24\", \"Google Chrome\";v=\"147\"";
+
         internal sealed class CurlPostResult
         {
             public int StatusCode { get; set; }
@@ -19,13 +25,24 @@ namespace Hiatme_Tool_Suite_v3
             public string ResponseContentType { get; set; }
         }
 
+        /// <summary>64-bit System32 curl when the app is 32-bit (WOW64); else standard System32 path.</summary>
         public static string TryResolveCurlPath()
         {
             try
             {
-                var sys = Path.Combine(Environment.GetEnvironmentVariable("SystemRoot") ?? "C:\\Windows", "System32", "curl.exe");
-                if (File.Exists(sys))
-                    return sys;
+                var win = Environment.GetEnvironmentVariable("SystemRoot") ?? "C:\\Windows";
+                var candidates = new List<string>();
+                if (!Environment.Is64BitProcess)
+                {
+                    /* 32-bit EXE: System32 is redirected to SysWOW64 — use Sysnative for real Windows curl. */
+                    candidates.Add(Path.Combine(win, "Sysnative", "curl.exe"));
+                }
+                candidates.Add(Path.Combine(win, "System32", "curl.exe"));
+                foreach (var p in candidates)
+                {
+                    if (File.Exists(p))
+                        return p;
+                }
             }
             catch
             {
@@ -54,24 +71,31 @@ namespace Hiatme_Tool_Suite_v3
             var curl = TryResolveCurlPath();
             if (curl == null || jar == null || string.IsNullOrEmpty(url))
                 return;
-            string cookieFile = null, cfgFile = null, bodyOut = null, hdrOut = null;
+            string cookieFile = null, bodyOut = null, hdrOut = null;
             try
             {
                 cookieFile = Path.GetTempFileName();
                 bodyOut = Path.GetTempFileName();
                 hdrOut = Path.GetTempFileName();
-                cfgFile = Path.GetTempFileName();
                 WellRydeCookieHelper.ExportJarToNetscapeCookieFile(jar, cookieFile);
-                var cfg = new StringBuilder();
-                cfg.AppendLine("request = GET");
-                cfg.AppendLine("url = \"" + EscapeCurlConfigString(url) + "\"");
-                cfg.AppendLine("header = \"" + EscapeCurlConfigString("User-Agent: " + userAgent) + "\"");
-                cfg.AppendLine("header = \"" + EscapeCurlConfigString("Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8") + "\"");
-                cfg.AppendLine("header = \"" + EscapeCurlConfigString("Accept-Language: en-US,en;q=0.9") + "\"");
+                var args = new StringBuilder();
+                args.Append("-sS --compressed ");
+                args.Append("-L --max-redirs 10 ");
+                args.Append("-b ").Append(Win32Arg(ToCurlPath(cookieFile))).Append(' ');
+                args.Append("-c ").Append(Win32Arg(ToCurlPath(cookieFile))).Append(' ');
+                args.Append("-D ").Append(Win32Arg(ToCurlPath(hdrOut))).Append(' ');
+                args.Append("-o ").Append(Win32Arg(ToCurlPath(bodyOut))).Append(' ');
+                args.Append("-H ").Append(Win32Arg("User-Agent: " + userAgent)).Append(' ');
+                args.Append("-H ").Append(Win32Arg("Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")).Append(' ');
+                args.Append("-H ").Append(Win32Arg("Accept-Language: en-US,en;q=0.9")).Append(' ');
+                args.Append("-H ").Append(Win32Arg("Sec-Fetch-Site: same-origin")).Append(' ');
+                args.Append("-H ").Append(Win32Arg("Sec-Fetch-Mode: navigate")).Append(' ');
+                args.Append("-H ").Append(Win32Arg("Sec-Fetch-Dest: document")).Append(' ');
+                args.Append("-H ").Append(Win32Arg("Upgrade-Insecure-Requests: 1")).Append(' ');
                 if (!string.IsNullOrEmpty(referer))
-                    cfg.AppendLine("header = \"" + EscapeCurlConfigString("Referer: " + referer) + "\"");
-                File.WriteAllText(cfgFile, cfg.ToString(), Encoding.UTF8);
-                if (RunCurl(curl, cookieFile, cookieFile, hdrOut, bodyOut, cfgFile, followRedirects: true))
+                    args.Append("-H ").Append(Win32Arg("Referer: " + referer)).Append(' ');
+                args.Append(Win32Arg(url));
+                if (RunCurl(curl, args.ToString()))
                     WellRydeCookieHelper.TryMergeNetscapeCookieFileIntoJar(jar, cookieFile);
             }
             catch (Exception ex)
@@ -80,7 +104,7 @@ namespace Hiatme_Tool_Suite_v3
             }
             finally
             {
-                TryDeleteFiles(cookieFile, cfgFile, bodyOut, hdrOut);
+                TryDeleteFiles(cookieFile, bodyOut, hdrOut);
             }
         }
 
@@ -89,35 +113,43 @@ namespace Hiatme_Tool_Suite_v3
             var curl = TryResolveCurlPath();
             if (curl == null || jar == null || body == null || string.IsNullOrEmpty(postUrl))
                 return null;
-            string cookieFile = null, bodyFile = null, bodyOut = null, hdrOut = null, cfgFile = null;
+            string cookieFile = null, bodyFile = null, bodyOut = null, hdrOut = null;
             try
             {
                 cookieFile = Path.GetTempFileName();
                 bodyFile = Path.GetTempFileName();
                 bodyOut = Path.GetTempFileName();
                 hdrOut = Path.GetTempFileName();
-                cfgFile = Path.GetTempFileName();
                 WellRydeCookieHelper.ExportJarToNetscapeCookieFile(jar, cookieFile);
                 File.WriteAllBytes(bodyFile, body);
-                var bodyPathFwd = bodyFile.Replace('\\', '/');
-                var cfg = new StringBuilder();
-                cfg.AppendLine("request = POST");
-                cfg.AppendLine("url = \"" + EscapeCurlConfigString(postUrl) + "\"");
-                cfg.AppendLine("data-binary = \"@" + EscapeCurlConfigString(bodyPathFwd) + "\"");
-                cfg.AppendLine("header = \"" + EscapeCurlConfigString("Content-Type: " + contentTypeHeader) + "\"");
-                cfg.AppendLine("header = \"" + EscapeCurlConfigString("Accept: application/json, text/javascript, */*;q=0.01") + "\"");
-                cfg.AppendLine("header = \"" + EscapeCurlConfigString("Accept-Language: en-US,en;q=0.9") + "\"");
-                cfg.AppendLine("header = \"" + EscapeCurlConfigString("Origin: " + WellRydeConfig.PortalOrigin) + "\"");
-                cfg.AppendLine("header = \"" + EscapeCurlConfigString("Referer: " + referer) + "\"");
-                cfg.AppendLine("header = \"" + EscapeCurlConfigString("X-Requested-With: XMLHttpRequest") + "\"");
+                var args = new StringBuilder();
+                args.Append("-sS --compressed ");
+                args.Append("-b ").Append(Win32Arg(ToCurlPath(cookieFile))).Append(' ');
+                args.Append("-c ").Append(Win32Arg(ToCurlPath(cookieFile))).Append(' ');
+                args.Append("-D ").Append(Win32Arg(ToCurlPath(hdrOut))).Append(' ');
+                args.Append("-o ").Append(Win32Arg(ToCurlPath(bodyOut))).Append(' ');
+                args.Append("-X POST ");
+                args.Append("-H ").Append(Win32Arg("Content-Type: " + contentTypeHeader)).Append(' ');
+                args.Append("-H ").Append(Win32Arg("Accept: application/json, text/javascript, */*;q=0.01")).Append(' ');
+                args.Append("-H ").Append(Win32Arg("Accept-Language: en-US,en;q=0.9")).Append(' ');
+                args.Append("-H ").Append(Win32Arg("Origin: " + WellRydeConfig.PortalOrigin)).Append(' ');
+                args.Append("-H ").Append(Win32Arg("Referer: " + referer)).Append(' ');
+                args.Append("-H ").Append(Win32Arg("X-Requested-With: XMLHttpRequest")).Append(' ');
+                args.Append("-H ").Append(Win32Arg("Sec-Fetch-Site: same-origin")).Append(' ');
+                args.Append("-H ").Append(Win32Arg("Sec-Fetch-Mode: cors")).Append(' ');
+                args.Append("-H ").Append(Win32Arg("Sec-Fetch-Dest: empty")).Append(' ');
+                args.Append("-H ").Append(Win32Arg("sec-ch-ua: " + SecChUaChrome147)).Append(' ');
+                args.Append("-H ").Append(Win32Arg("sec-ch-ua-mobile: ?0")).Append(' ');
+                args.Append("-H ").Append(Win32Arg("sec-ch-ua-platform: \"Windows\"")).Append(' ');
                 if (!string.IsNullOrEmpty(csrfToken))
                 {
-                    cfg.AppendLine("header = \"" + EscapeCurlConfigString("X-CSRF-TOKEN: " + csrfToken) + "\"");
-                    cfg.AppendLine("header = \"" + EscapeCurlConfigString("X-XSRF-TOKEN: " + csrfToken) + "\"");
+                    args.Append("-H ").Append(Win32Arg("X-CSRF-TOKEN: " + csrfToken)).Append(' ');
+                    args.Append("-H ").Append(Win32Arg("X-XSRF-TOKEN: " + csrfToken)).Append(' ');
                 }
-                cfg.AppendLine("header = \"" + EscapeCurlConfigString("User-Agent: " + userAgent) + "\"");
-                File.WriteAllText(cfgFile, cfg.ToString(), Encoding.UTF8);
-                if (!RunCurl(curl, cookieFile, cookieFile, hdrOut, bodyOut, cfgFile, followRedirects: false))
+                args.Append("-H ").Append(Win32Arg("User-Agent: " + userAgent)).Append(' ');
+                args.Append("--data-binary ").Append(Win32Arg("@" + ToCurlPath(bodyFile))).Append(' ');
+                args.Append(Win32Arg(postUrl));
+                if (!RunCurl(curl, args.ToString()))
                     return null;
                 var responseBody = File.Exists(bodyOut) ? File.ReadAllBytes(bodyOut) : Array.Empty<byte>();
                 var status = ParseHttpStatusFromCurlHeaderDump(hdrOut);
@@ -137,27 +169,74 @@ namespace Hiatme_Tool_Suite_v3
             }
             finally
             {
-                TryDeleteFiles(cookieFile, bodyFile, bodyOut, hdrOut, cfgFile);
+                TryDeleteFiles(cookieFile, bodyFile, bodyOut, hdrOut);
             }
         }
 
-        static string EscapeCurlConfigString(string s)
+        static string ToCurlPath(string path)
         {
-            if (string.IsNullOrEmpty(s))
-                return "";
-            return s.Replace("\\", "\\\\").Replace("\"", "\\\"");
+            if (string.IsNullOrEmpty(path))
+                return path;
+            return path.Replace('\\', '/');
         }
 
-        static bool RunCurl(string curlExe, string cookieInOut, string cookieOut, string headerDump, string bodyOut, string cfgFile, bool followRedirects)
+        /// <summary>Quote/escape one argv token for <see cref="ProcessStartInfo.Arguments"/> (Win32 <c>CommandLineToArgvW</c> rules).</summary>
+        static string Win32Arg(string arg)
         {
-            var args = "-sS --compressed " +
-                       (followRedirects ? "-L --max-redirs 10 " : "") +
-                       "-b \"" + cookieInOut + "\" " +
-                       "-c \"" + cookieOut + "\" " +
-                       "-D \"" + headerDump + "\" " +
-                       "-o \"" + bodyOut + "\" " +
-                       "-K \"" + cfgFile + "\"";
-            var psi = new ProcessStartInfo(curlExe, args)
+            if (string.IsNullOrEmpty(arg))
+                return "\"\"";
+            var needsQuotes = false;
+            for (var i = 0; i < arg.Length; i++)
+            {
+                if (arg[i] <= ' ' || arg[i] == '"')
+                {
+                    needsQuotes = true;
+                    break;
+                }
+            }
+            if (!needsQuotes)
+                return arg;
+            var b = new StringBuilder();
+            b.Append('"');
+            for (var i = 0; i < arg.Length;)
+            {
+                if (arg[i] == '\\')
+                {
+                    var k = i;
+                    while (k < arg.Length && arg[k] == '\\')
+                        k++;
+                    var run = k - i;
+                    if (k < arg.Length && arg[k] == '"')
+                    {
+                        b.Append('\\', run * 2 + 1);
+                        b.Append('"');
+                        i = k + 1;
+                    }
+                    else
+                    {
+                        b.Append('\\', run);
+                        i = k;
+                    }
+                }
+                else if (arg[i] == '"')
+                {
+                    b.Append('\\');
+                    b.Append('"');
+                    i++;
+                }
+                else
+                {
+                    b.Append(arg[i]);
+                    i++;
+                }
+            }
+            b.Append('"');
+            return b.ToString();
+        }
+
+        static bool RunCurl(string curlExe, string arguments)
+        {
+            var psi = new ProcessStartInfo(curlExe, arguments)
             {
                 UseShellExecute = false,
                 CreateNoWindow = true,
