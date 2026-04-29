@@ -38,6 +38,7 @@ namespace Hiatme.ToolSuite.WellRyde.Tests
             try
             {
                 WellRydeConfig.ResolvedTripListDefId = "SEC-S_XoEZX6lDWauVBtgu7FHw";
+                Assert.StartsWith("SEC-S_", WellRydeConfig.TripFilterListDefId, StringComparison.Ordinal);
                 Assert.True(WellRydeConfig.UsesVtTripBillingFilterListShape());
             }
             finally

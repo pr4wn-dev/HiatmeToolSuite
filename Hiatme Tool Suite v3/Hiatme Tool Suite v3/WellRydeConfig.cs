@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Configuration;
 using System.Globalization;
 
@@ -81,6 +82,49 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>Query name for <c>/portal/trip/filterlist</c> (Modivcare: VTripBilling).</summary>
         public static string TripFilterListName => ReadAppSetting("WellRydeTripFilterListName", "VTripBilling");
 
+        /// <summary>
+        /// When <c>true</c> (default if App.config omits the key), use <c>/portal//trip/filterlist</c> first — matches Chrome 2026 HAR on portal.app.
+        /// Set <c>WellRydeTripFilterListDoubleSlash=false</c> (or <c>0</c>) to prefer single slash <c>/portal/trip/filterlist</c> first for tenants that return HTTP 401 on the doubled path.
+        /// </summary>
+        public static bool TripFilterListDoubleSlashBeforeTrip
+        {
+            get
+            {
+                var v = ReadAppSetting("WellRydeTripFilterListDoubleSlash", "");
+                if (string.IsNullOrWhiteSpace(v))
+                    return true;
+                if (string.Equals(v, "false", StringComparison.OrdinalIgnoreCase) || v == "0")
+                    return false;
+                return string.Equals(v, "true", StringComparison.OrdinalIgnoreCase) || v == "1";
+            }
+        }
+
+        /// <summary>Full <c>GET</c> URL for trip filter list metadata (primes servlet session before <c>filterdata</c>).</summary>
+        public static string TripFilterListRequestUrl =>
+            PortalOrigin
+            + (TripFilterListDoubleSlashBeforeTrip ? "/portal//trip/filterlist" : "/portal/trip/filterlist")
+            + "?list_name=" + Uri.EscapeDataString(TripFilterListName);
+
+        /// <summary>
+        /// Yields the double-slash URL first when <see cref="TripFilterListDoubleSlashBeforeTrip"/> is true (default), else single-slash first. Some tenants return HTTP 401 on one path and succeed on the other.
+        /// </summary>
+        public static IEnumerable<string> EnumerateTripFilterListRequestUrls()
+        {
+            var q = "?list_name=" + Uri.EscapeDataString(TripFilterListName);
+            var single = PortalOrigin + "/portal/trip/filterlist" + q;
+            var dbl = PortalOrigin + "/portal//trip/filterlist" + q;
+            if (TripFilterListDoubleSlashBeforeTrip)
+            {
+                yield return dbl;
+                yield return single;
+            }
+            else
+            {
+                yield return single;
+                yield return dbl;
+            }
+        }
+
         /// <summary>If false, skip auto-resolve when <c>WellRydeListDefId</c> is unset. Default on.</summary>
         public static bool AutoResolveTripFilterListDef
         {
@@ -115,9 +159,23 @@ namespace Hiatme_Tool_Suite_v3
 
         public static string TripsPageAbsoluteUrl => Combine(PortalBaseUrl, TripsPath);
 
+        /// <summary>
+        /// Optional fragment appended to <c>GET /portal/nu?date=…</c> stored referer (e.g. <c>#/vtripbilling</c>) so XHR <c>Referer</c> matches Chrome SPA routing in HARs.
+        /// Empty by default; set <c>WellRydeTripsNuRefererHashFragment</c> in App.config if vendor requires hash parity.
+        /// </summary>
+        public static string TripsNuRefererHashFragment => ReadAppSetting("WellRydeTripsNuRefererHashFragment", "").Trim();
+
         public static string LoginPageAbsoluteUrl => Combine(PortalBaseUrl, LoginPath);
 
         public static string FilterDataUrl => PortalOrigin + "/portal/filterdata";
+
+        /// <summary>Chrome loads this XHR immediately before <c>POST /portal/filterdata</c> (VTripBilling shell).</summary>
+        public static string BuildListFilterDefsJsonUrl(string listDefId)
+        {
+            var id = string.IsNullOrWhiteSpace(listDefId) ? "" : listDefId.Trim();
+            return PortalOrigin + "/portal/listFilterDefsJson?listDefId=" + Uri.EscapeDataString(id)
+                   + "&customListDefId=&userDefaultFilter=true";
+        }
 
         public static string SpringSecurityCheckUrl => PortalOrigin + "/portal/j_spring_security_check";
 
@@ -169,7 +227,7 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         /// <summary>
-        /// When true and <c>Referer</c> is omitted, use bare <c>/portal/nu</c> (PHP scraper default). <c>Sec-Fetch-*</c> and <c>sec-ch-ua</c> are always sent on <c>filterdata</c> so Spring treats the POST as an XHR.
+        /// When true, add <c>X-CSRF-TOKEN</c> / <c>X-XSRF-TOKEN</c> on <c>filterdata</c> and <c>listFilterDefsJson</c> prime (PHP scraper style). Chrome HAR omits these on those endpoints — default <c>false</c>. Trip <c>filterlist</c> always sends XHR + CSRF headers when a token is known, independent of this flag.
         /// </summary>
         public static bool FilterDataPhpStyleHeaders
         {
@@ -177,7 +235,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 var v = ReadAppSetting("WellRydeFilterDataPhpHeaders", "");
                 if (string.IsNullOrWhiteSpace(v))
-                    return true;
+                    return false;
                 return !string.Equals(v, "false", StringComparison.OrdinalIgnoreCase) && v != "0";
             }
         }
@@ -212,17 +270,16 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         /// <summary>
-        /// Some tenants use VTripBilling <c>filterdata</c> (Chrome: <c>/portal//trip/filterlist?list_name=VTripBilling</c>): 6 filter slots with date/period in <b>sequence 2</b> and <c>listDefId</c> like <c>SEC-S_XoEZX6lDWauVBtgu7FHw</c>.
-        /// Legacy lists use 10 slots with date in sequence 7 (<c>SEC-J…</c> from PHP docs).
-        /// Set <c>WellRydeTripFilterShape</c> to <c>VtTripBilling</c> or <c>Legacy</c> to override auto-detection (<c>SEC-S_*</c> → VTripBilling).
+        /// <b>6-slot VT shape</b> (date in sequence 2) for <c>SEC-S_*</c> trip lists — matches Chrome <c>filterdata</c> (see repo HAR / curl gold).
+        /// Legacy <c>SEC-J…</c> uses 10 slots (date in sequence 7). Override: <c>WellRydeTripFilterShape</c> <c>Legacy</c> or <c>VtTripBilling</c>.
         /// </summary>
         public static bool UsesVtTripBillingFilterListShape()
         {
             var explicitShape = ReadAppSetting("WellRydeTripFilterShape", "").Trim();
-            if (string.Equals(explicitShape, "VtTripBilling", StringComparison.OrdinalIgnoreCase))
-                return true;
             if (string.Equals(explicitShape, "Legacy", StringComparison.OrdinalIgnoreCase))
                 return false;
+            if (string.Equals(explicitShape, "VtTripBilling", StringComparison.OrdinalIgnoreCase))
+                return true;
             return TripFilterListDefId.StartsWith("SEC-S_", StringComparison.Ordinal);
         }
 

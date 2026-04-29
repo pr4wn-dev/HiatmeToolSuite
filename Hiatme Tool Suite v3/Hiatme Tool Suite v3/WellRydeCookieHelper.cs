@@ -222,13 +222,47 @@ namespace Hiatme_Tool_Suite_v3
                     continue;
                 if (!string.Equals(withSlash.Value, noSlash.Value, StringComparison.Ordinal))
                     continue;
+                TryExpireCookieWithPastExpiryTryingDomainVariants(jar, noSlash);
+            }
+
+            // HttpClientHandler (UseCookies) can still emit two JSESSIONID= lines when Path=/portal and /portal/ both
+            // match and values differed transiently — some stacks return HTTP 401 on /portal/trip/*. Keep /portal/ only.
+            Cookie jPortal = null, jPortalSlash = null;
+            foreach (Cookie c in coll)
+            {
+                if (c.Expired || !string.Equals(c.Name, "JSESSIONID", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (c.Path == "/portal")
+                    jPortal = c;
+                else if (c.Path == "/portal/")
+                    jPortalSlash = c;
+            }
+            if (jPortal != null && jPortalSlash != null)
+                TryExpireCookieWithPastExpiryTryingDomainVariants(jar, jPortal);
+        }
+
+        /// <summary>
+        /// <see cref="CookieContainer"/> only replaces an existing cookie when <c>Name</c>, <c>Path</c>, and <c>Domain</c> match how it was stored.
+        /// Tomcat vs Spring sometimes differ on <c>Domain</c> (empty vs host vs leading dot) — a single <c>jar.Add(expired)</c> can silently fail and leave
+        /// duplicate <c>Path=/portal</c> + <c>/portal/</c> cookies. <see cref="HttpClientHandler"/> then emits two <c>JSESSIONID=</c> on <c>Client.GetAsync</c> (trip filterlist).
+        /// </summary>
+        internal static void TryExpireCookieWithPastExpiryTryingDomainVariants(CookieContainer jar, Cookie c)
+        {
+            if (jar == null || c == null)
+                return;
+            var tried = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            void tryDom(string dom)
+            {
+                dom = dom ?? "";
+                if (!tried.Add(dom))
+                    return;
                 try
                 {
-                    jar.Add(new Cookie(noSlash.Name, noSlash.Value, noSlash.Path, noSlash.Domain)
+                    jar.Add(new Cookie(c.Name, c.Value, c.Path, dom)
                     {
                         Expires = DateTime.UtcNow.AddDays(-1),
-                        Secure = noSlash.Secure,
-                        HttpOnly = noSlash.HttpOnly,
+                        Secure = c.Secure,
+                        HttpOnly = c.HttpOnly,
                     });
                 }
                 catch
@@ -236,12 +270,29 @@ namespace Hiatme_Tool_Suite_v3
                     /* ignore */
                 }
             }
+            if (!string.IsNullOrEmpty(c.Domain))
+                tryDom(c.Domain);
+            string host = null;
+            try
+            {
+                host = new Uri(WellRydeConfig.PortalOrigin).Host;
+            }
+            catch
+            {
+                /* ignore */
+            }
+            if (!string.IsNullOrEmpty(host))
+            {
+                tryDom(host);
+                if (!host.StartsWith(".", StringComparison.Ordinal))
+                    tryDom("." + host);
+            }
         }
 
         /// <summary>
-        /// Adds Tomcat <c>JSESSIONID</c> for portal APIs. Chrome stores it with <c>Path=/portal</c> (no trailing slash);
-        /// Spring <c>SESSION</c> uses <c>/portal/</c>. <see cref="CookieContainer"/> path matching can miss one variant for
-        /// <c>/portal/filterdata</c>, so we register both paths (same value).
+        /// Adds Tomcat <c>JSESSIONID</c> for portal APIs with <c>Path=/portal/</c> so it matches <c>/portal/nu</c>, <c>/portal/filterdata</c>,
+        /// and <c>/portal/trip/filterlist</c>. Registering both <c>/portal</c> and <c>/portal/</c> made <see cref="CookieContainer.GetCookieHeader"/>
+        /// emit two <c>JSESSIONID=</c> pairs; some stacks then returned HTTP 401 (trip XHR) or HTML shells instead of JSON for <c>filterdata</c>.
         /// </summary>
         public static void TryAddPortalJSessionIdCookie(CookieContainer jar, string value)
         {
@@ -253,20 +304,17 @@ namespace Hiatme_Tool_Suite_v3
             try
             {
                 var host = new Uri(WellRydeConfig.PortalOrigin).Host;
-                foreach (var path in new[] { "/portal", "/portal/" })
+                try
                 {
-                    try
+                    jar.Add(new Cookie("JSESSIONID", v, "/portal/", host)
                     {
-                        jar.Add(new Cookie("JSESSIONID", v, path, host)
-                        {
-                            Secure = true,
-                            HttpOnly = true,
-                        });
-                    }
-                    catch
-                    {
-                        /* duplicate for this path — ignore */
-                    }
+                        Secure = true,
+                        HttpOnly = true,
+                    });
+                }
+                catch
+                {
+                    /* duplicate for this path — ignore */
                 }
             }
             catch
@@ -313,6 +361,7 @@ namespace Hiatme_Tool_Suite_v3
             if (JsessionIdLooksSynthesizedFromSpringSession(jar, new Uri(WellRydeConfig.FilterDataUrl)))
                 return;
             TryAddPortalJSessionIdCookie(jar, found);
+            CollapseDuplicatePortalCookies(jar);
         }
 
         private static IEnumerable<Uri> EnumeratePortalCookieProbeUris()
@@ -467,6 +516,38 @@ namespace Hiatme_Tool_Suite_v3
             return u.GetLeftPart(UriPartial.Authority) + path + ";jsessionid=" + id;
         }
 
+        /// <summary>Non–synthetic <c>JSESSIONID</c> from the jar for <c>https://host/portal/filterdata</c> — used for <c>;jsessionid=</c> URL rewrite.</summary>
+        public static bool TryGetPortalJSessionIdCookieValue(CookieContainer jar, out string value)
+        {
+            value = null;
+            if (jar == null)
+                return false;
+            Uri fu;
+            try
+            {
+                fu = new Uri(WellRydeConfig.FilterDataUrl);
+            }
+            catch
+            {
+                return false;
+            }
+            if (JsessionIdLooksSynthesizedFromSpringSession(jar, fu))
+                return false;
+            foreach (Cookie c in jar.GetCookies(fu).Cast<Cookie>())
+            {
+                if (!string.Equals(c.Name, "JSESSIONID", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                var v = c.Value?.Trim();
+                if (string.IsNullOrEmpty(v) || v.Length < 8)
+                    continue;
+                if (IsJsessionTokenSpringUuidHex(jar, v))
+                    continue;
+                value = v;
+                return true;
+            }
+            return false;
+        }
+
         internal static bool IsJsessionTokenSpringUuidHex(CookieContainer jar, string candidate)
         {
             if (string.IsNullOrEmpty(candidate) || jar == null)
@@ -610,14 +691,15 @@ namespace Hiatme_Tool_Suite_v3
             {
                 return;
             }
-            var ch = jar.GetCookieHeader(fu);
+            var ch = GetCookieHeader(jar, fu);
             if (!string.IsNullOrEmpty(ch) && ch.IndexOf("JSESSIONID=", StringComparison.OrdinalIgnoreCase) >= 0)
                 return;
             TryAddPortalJSessionIdCookie(jar, manual);
         }
 
         /// <summary>Export jar to Netscape cookie file for <c>curl -b/-c</c> (PHP-style libcurl merge).</summary>
-        public static void ExportJarToNetscapeCookieFile(CookieContainer jar, string path)
+        /// <param name="excludeCookieNames">When non-null, skip these cookie names (e.g. omit <c>JSESSIONID</c> when Tomcat id is only in the POST URL).</param>
+        public static void ExportJarToNetscapeCookieFile(CookieContainer jar, string path, ICollection<string> excludeCookieNames = null)
         {
             if (jar == null || string.IsNullOrEmpty(path))
                 return;
@@ -653,6 +735,22 @@ namespace Hiatme_Tool_Suite_v3
                     var key = dom + "|" + pathVal + "|" + c.Name;
                     if (!seen.Add(key))
                         continue;
+                    if (excludeCookieNames != null && excludeCookieNames.Count > 0)
+                    {
+                        var skip = false;
+                        foreach (var ex in excludeCookieNames)
+                        {
+                            if (string.IsNullOrEmpty(ex))
+                                continue;
+                            if (string.Equals(c.Name, ex, StringComparison.OrdinalIgnoreCase))
+                            {
+                                skip = true;
+                                break;
+                            }
+                        }
+                        if (skip)
+                            continue;
+                    }
                     var includeSubdomains = "FALSE";
                     var secure = c.Secure ? "TRUE" : "FALSE";
                     long exp = 0;
@@ -710,6 +808,15 @@ namespace Hiatme_Tool_Suite_v3
         /// </summary>
         public static string BuildChromeLikeFilterDataCookieHeader(CookieContainer jar)
         {
+            return BuildChromeLikeFilterDataCookieHeader(jar, includeJsessionIdInHeader: true);
+        }
+
+        /// <summary>
+        /// When the POST URL uses Tomcat rewrite (<c>…/filterdata;jsessionid=…</c>), sending the same id in <c>Cookie: JSESSIONID=…</c>
+        /// can bind twice and yield HTTP 500 or HTML shells — set <paramref name="includeJsessionIdInHeader"/> to <c>false</c>.
+        /// </summary>
+        public static string BuildChromeLikeFilterDataCookieHeader(CookieContainer jar, bool includeJsessionIdInHeader)
+        {
             if (jar == null)
                 return string.Empty;
             Uri fu;
@@ -744,14 +851,65 @@ namespace Hiatme_Tool_Suite_v3
             }
             append("AWSALB");
             append("AWSALBCORS");
+            if (includeJsessionIdInHeader)
+            {
+                var jSessionWire = valueFor("JSESSIONID");
+                if (!string.IsNullOrEmpty(jSessionWire)
+                    && (!TryDecodeSpringSessionCookieToUuidHex(valueFor("SESSION"), out var synHex)
+                        || !string.Equals(jSessionWire, synHex, StringComparison.OrdinalIgnoreCase)))
+                    parts.Add("JSESSIONID=" + jSessionWire);
+            }
+            append("SESSION");
+            if (WellRydeConfig.FilterDataCookieIncludeXsrfToken)
+                append("XSRF-TOKEN");
+            return string.Join("; ", parts);
+        }
+
+        /// <summary>
+        /// Chrome <c>Copy as cURL</c> for <c>GET …/portal//trip/filterlist</c>: <c>SESSION</c>; <c>JSESSIONID</c> (real Tomcat only); <c>AWSALB</c>; <c>AWSALBCORS</c> — no <c>XSRF-TOKEN</c>.
+        /// </summary>
+        public static string BuildTripFilterListCookieHeaderChrome(CookieContainer jar)
+        {
+            if (jar == null)
+                return string.Empty;
+            Uri fu;
+            try
+            {
+                fu = new Uri(WellRydeConfig.FilterDataUrl);
+            }
+            catch
+            {
+                return string.Empty;
+            }
+            var coll = jar.GetCookies(fu);
+            if (coll == null || coll.Count == 0)
+                return string.Empty;
+            string valueFor(string cookieName)
+            {
+                foreach (Cookie c in coll)
+                {
+                    if (c.Expired)
+                        continue;
+                    if (string.Equals(c.Name, cookieName, StringComparison.OrdinalIgnoreCase))
+                        return c.Value;
+                }
+                return null;
+            }
+            var parts = new List<string>();
+            void append(string name)
+            {
+                var v = valueFor(name);
+                if (!string.IsNullOrEmpty(v))
+                    parts.Add(name + "=" + v);
+            }
+            append("SESSION");
             var jSessionWire = valueFor("JSESSIONID");
             if (!string.IsNullOrEmpty(jSessionWire)
                 && (!TryDecodeSpringSessionCookieToUuidHex(valueFor("SESSION"), out var synHex)
                     || !string.Equals(jSessionWire, synHex, StringComparison.OrdinalIgnoreCase)))
                 parts.Add("JSESSIONID=" + jSessionWire);
-            append("SESSION");
-            if (WellRydeConfig.FilterDataCookieIncludeXsrfToken)
-                append("XSRF-TOKEN");
+            append("AWSALB");
+            append("AWSALBCORS");
             return string.Join("; ", parts);
         }
 
@@ -765,12 +923,18 @@ namespace Hiatme_Tool_Suite_v3
                 var coll = jar.GetCookies(uri);
                 if (coll == null || coll.Count == 0)
                     return string.Empty;
+                // One wire entry per cookie name: Path=/portal and /portal/ often both match → duplicate JSESSIONID breaks some APIs.
+                var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 var parts = new List<string>();
-                foreach (Cookie c in coll.Cast<Cookie>().OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
+                foreach (Cookie c in coll.Cast<Cookie>()
+                             .Where(x => !x.Expired)
+                             .OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
+                             .ThenByDescending(x => (x.Path ?? "").Length))
                 {
-                    if (c.Expired)
+                    var name = c.Name ?? "";
+                    if (string.IsNullOrEmpty(name) || !seen.Add(name))
                         continue;
-                    parts.Add(c.Name + "=" + c.Value);
+                    parts.Add(name + "=" + c.Value);
                 }
                 return string.Join("; ", parts);
             }

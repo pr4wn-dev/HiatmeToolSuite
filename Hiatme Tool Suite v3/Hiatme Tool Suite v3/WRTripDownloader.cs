@@ -62,12 +62,17 @@ namespace Hiatme_Tool_Suite_v3
                     return await PostTripBatchDetails(longdate, day, year, wrloginhandler);
                 }
 
-                var specificDate = tripDate.ToString("MMMM d, yyyy", CultureInfo.InvariantCulture);
+                // VTripBilling sequence 2: Chrome uses <c>{"period":"0d"}</c> for today, else <c>specificDate</c> — see <see cref="WellRydeTripParsing.BuildVtTripBillingDateSlotValueJson"/>. Legacy SEC-J uses sequence 7 + specificDate.
+                string dateSlotInner = WellRydeConfig.UsesVtTripBillingFilterListShape()
+                    ? WellRydeTripParsing.BuildVtTripBillingDateSlotValueJson(tripDate)
+                    : JsonConvert.SerializeObject(new
+                    {
+                        specificDate = tripDate.ToString("MMMM d, yyyy", CultureInfo.InvariantCulture),
+                    });
                 string filterListJson;
                 if (WellRydeConfig.UsesVtTripBillingFilterListShape())
                 {
                     // Chrome: sequence is string "1","2",…; date slot value is a JSON object serialized as a string (not a nested object).
-                    var dateSlotInner = JsonConvert.SerializeObject(new { specificDate = specificDate });
                     var vtList = new object[]
                     {
                         new { sequence = "1", value = "-1" },
@@ -82,7 +87,6 @@ namespace Hiatme_Tool_Suite_v3
                 else
                 {
                     // Match PHP WellRydeScraper::getTripsViaApi: sequence "1".."10" as strings; date slot value is a JSON string (not a nested object).
-                    var dateSlotInner = JsonConvert.SerializeObject(new { specificDate = specificDate });
                     var filterList = new object[]
                     {
                         new { sequence = "1", value = "-1" },
@@ -111,8 +115,8 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     var didShellHarvestRepost = false;
                 shellHarvestRetry:
-                    // Chrome HAR: fetchColumnInfo false; currentPageSize empty; _csrf last.
-                    var filterArgsJson = "{\"fetchColumnInfo\":false}";
+                    // Chrome HAR (portal.app 2026): filterArgsJson is "{}" for trip VTripBilling filterdata.
+                    var filterArgsJson = "{}";
                     var pageSizeStr = WellRydeConfig.FilterDataPageSize.ToString(CultureInfo.InvariantCulture);
                     var formPairs = new List<KeyValuePair<string, string>>
                     {
@@ -135,8 +139,8 @@ namespace Hiatme_Tool_Suite_v3
                     var encodedFilterForm = EncodePhpStyleFilterForm(formPairs);
                     var formContent = CreatePhpStyleFilterFormContent(encodedFilterForm);
 
-                    // Referer matches GET nu?date=… used for _csrf (VTripBilling / SPA often requires ?date= on Referer for JSON).
-                    HttpResponseMessage res = await wrloginhandler.PostWellRydeFilterDataAsync(formContent, wrloginhandler.TripsRefererForWellRydeAjax);
+                    // Omit referer → PostWellRydeFilterDataAsync uses TripsRefererForWellRydeAjax (bare /portal/nu per Chrome HAR).
+                    HttpResponseMessage res = await wrloginhandler.PostWellRydeFilterDataAsync(formContent, referer: null);
                     string contentType = null;
                     try
                     {
@@ -250,8 +254,8 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         /// <summary>
-        /// Match PHP <c>http_build_query($postData)</c> for <c>filterdata</c>: spaces as <c>+</c>, same rules as <c>urlencode</c>.
-        /// <see cref="Uri.EscapeDataString"/> uses <c>%20</c> for spaces (RFC 3986) and can change how strict parsers read the body vs the portal/PHP client.
+        /// <c>application/x-www-form-urlencoded</c> for <c>filterdata</c> — <see cref="HttpUtility.UrlEncode"/> uses <c>+</c> for spaces in values,
+        /// matching Chrome &quot;Copy as cURL&quot; bodies (e.g. <c>April+27%2c+2026</c> inside <c>filterList</c>).
         /// </summary>
         private static string EncodePhpStyleFilterForm(IEnumerable<KeyValuePair<string, string>> pairs)
         {

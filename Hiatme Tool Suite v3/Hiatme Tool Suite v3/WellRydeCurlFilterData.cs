@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.Net;
@@ -14,9 +15,9 @@ namespace Hiatme_Tool_Suite_v3
     /// </summary>
     internal static class WellRydeCurlFilterData
     {
-        /// <summary>Match <see cref="WRLoginHandler"/> filterdata XHR — omitting these can yield the HTML shell.</summary>
+        /// <summary>Match Chrome 147 copy-as-curl for portal.app <c>filterdata</c>.</summary>
         const string SecChUaChrome147 =
-            "\"Chromium\";v=\"147\", \"Not A(Brand\";v=\"24\", \"Google Chrome\";v=\"147\"";
+            "\"Google Chrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"";
 
         internal sealed class CurlPostResult
         {
@@ -25,23 +26,67 @@ namespace Hiatme_Tool_Suite_v3
             public string ResponseContentType { get; set; }
         }
 
-        /// <summary>64-bit System32 curl when the app is 32-bit (WOW64); else standard System32 path.</summary>
+        /// <summary>
+        /// Resolve <c>curl.exe</c> for WellRyde POSTs. Order: WOW64 Sysnative, System32, SysWOW64, Git installs, then <c>PATH</c>.
+        /// 32-bit AnyCPU apps often miss System32 curl without Sysnative; Git for Windows is a common fallback.
+        /// </summary>
         public static string TryResolveCurlPath()
         {
             try
             {
-                var win = Environment.GetEnvironmentVariable("SystemRoot") ?? "C:\\Windows";
+                var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 var candidates = new List<string>();
+                var win = Environment.GetEnvironmentVariable("SystemRoot") ?? "C:\\Windows";
                 if (!Environment.Is64BitProcess)
-                {
-                    /* 32-bit EXE: System32 is redirected to SysWOW64 — use Sysnative for real Windows curl. */
                     candidates.Add(Path.Combine(win, "Sysnative", "curl.exe"));
-                }
                 candidates.Add(Path.Combine(win, "System32", "curl.exe"));
+                candidates.Add(Path.Combine(win, "SysWOW64", "curl.exe"));
+
+                var p6432 = Environment.GetEnvironmentVariable("ProgramW6432");
+                if (!string.IsNullOrEmpty(p6432))
+                {
+                    candidates.Add(Path.Combine(p6432, "Git", "mingw64", "bin", "curl.exe"));
+                    candidates.Add(Path.Combine(p6432, "Git", "usr", "bin", "curl.exe"));
+                }
+                var pf86 = Environment.GetEnvironmentVariable("ProgramFiles(x86)");
+                if (!string.IsNullOrEmpty(pf86))
+                {
+                    candidates.Add(Path.Combine(pf86, "Git", "mingw64", "bin", "curl.exe"));
+                    candidates.Add(Path.Combine(pf86, "Git", "usr", "bin", "curl.exe"));
+                }
+
+                foreach (var segment in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var t = segment.Trim().Trim('"');
+                    if (t.Length == 0)
+                        continue;
+                    try
+                    {
+                        candidates.Add(Path.Combine(t, "curl.exe"));
+                    }
+                    catch
+                    {
+                        /* ignore */
+                    }
+                }
+
                 foreach (var p in candidates)
                 {
-                    if (File.Exists(p))
-                        return p;
+                    if (string.IsNullOrEmpty(p))
+                        continue;
+                    string full;
+                    try
+                    {
+                        full = Path.GetFullPath(p);
+                    }
+                    catch
+                    {
+                        continue;
+                    }
+                    if (!seen.Add(full))
+                        continue;
+                    if (File.Exists(full))
+                        return full;
                 }
             }
             catch
@@ -108,7 +153,8 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
-        public static CurlPostResult TryPostFilterData(CookieContainer jar, string postUrl, byte[] body, string contentTypeHeader, string referer, string csrfToken, string userAgent)
+        /// <param name="omitJsessionIdFromCookieFile">When <c>true</c>, export the jar without <c>JSESSIONID</c> lines (use with <c>…/filterdata;jsessionid=…</c> — <see cref="System.Uri"/> often drops matrix params from <c>HttpClient</c> wire URL).</param>
+        public static CurlPostResult TryPostFilterData(CookieContainer jar, string postUrl, byte[] body, string contentTypeHeader, string referer, string csrfToken, string userAgent, bool omitJsessionIdFromCookieFile = false)
         {
             var curl = TryResolveCurlPath();
             if (curl == null || jar == null || body == null || string.IsNullOrEmpty(postUrl))
@@ -120,7 +166,10 @@ namespace Hiatme_Tool_Suite_v3
                 bodyFile = Path.GetTempFileName();
                 bodyOut = Path.GetTempFileName();
                 hdrOut = Path.GetTempFileName();
-                WellRydeCookieHelper.ExportJarToNetscapeCookieFile(jar, cookieFile);
+                ICollection<string> exportExcludes = omitJsessionIdFromCookieFile
+                    ? new ReadOnlyCollection<string>(new[] { "JSESSIONID" })
+                    : null;
+                WellRydeCookieHelper.ExportJarToNetscapeCookieFile(jar, cookieFile, exportExcludes);
                 File.WriteAllBytes(bodyFile, body);
                 var args = new StringBuilder();
                 args.Append("-sS --compressed ");
@@ -130,9 +179,10 @@ namespace Hiatme_Tool_Suite_v3
                 args.Append("-o ").Append(Win32Arg(ToCurlPath(bodyOut))).Append(' ');
                 args.Append("-X POST ");
                 args.Append("-H ").Append(Win32Arg("Content-Type: " + contentTypeHeader)).Append(' ');
-                args.Append("-H ").Append(Win32Arg("Accept: application/json, text/javascript, */*;q=0.01")).Append(' ');
+                args.Append("-H ").Append(Win32Arg("Accept: application/json, text/javascript, */*; q=0.01")).Append(' ');
                 args.Append("-H ").Append(Win32Arg("Accept-Language: en-US,en;q=0.9")).Append(' ');
                 args.Append("-H ").Append(Win32Arg("Origin: " + WellRydeConfig.PortalOrigin)).Append(' ');
+                args.Append("-H ").Append(Win32Arg("Priority: u=1, i")).Append(' ');
                 args.Append("-H ").Append(Win32Arg("Referer: " + referer)).Append(' ');
                 args.Append("-H ").Append(Win32Arg("X-Requested-With: XMLHttpRequest")).Append(' ');
                 args.Append("-H ").Append(Win32Arg("Sec-Fetch-Site: same-origin")).Append(' ');
@@ -141,7 +191,7 @@ namespace Hiatme_Tool_Suite_v3
                 args.Append("-H ").Append(Win32Arg("sec-ch-ua: " + SecChUaChrome147)).Append(' ');
                 args.Append("-H ").Append(Win32Arg("sec-ch-ua-mobile: ?0")).Append(' ');
                 args.Append("-H ").Append(Win32Arg("sec-ch-ua-platform: \"Windows\"")).Append(' ');
-                if (!string.IsNullOrEmpty(csrfToken))
+                if (WellRydeConfig.FilterDataPhpStyleHeaders && !string.IsNullOrEmpty(csrfToken))
                 {
                     args.Append("-H ").Append(Win32Arg("X-CSRF-TOKEN: " + csrfToken)).Append(' ');
                     args.Append("-H ").Append(Win32Arg("X-XSRF-TOKEN: " + csrfToken)).Append(' ');
@@ -236,16 +286,21 @@ namespace Hiatme_Tool_Suite_v3
 
         static bool RunCurl(string curlExe, string arguments)
         {
-            var psi = new ProcessStartInfo(curlExe, arguments)
+            Process p = null;
+            try
             {
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardError = true,
-            };
-            using (var p = Process.Start(psi))
-            {
+                var psi = new ProcessStartInfo(curlExe, arguments)
+                {
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardError = true,
+                };
+                p = Process.Start(psi);
                 if (p == null)
+                {
+                    WellRydeLog.WriteLine("WellRyde: curl Process.Start returned null for " + curlExe);
                     return false;
+                }
                 var err = p.StandardError.ReadToEnd();
                 if (!p.WaitForExit(120000))
                 {
@@ -264,6 +319,22 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     WellRydeLog.WriteLine("WellRyde: curl exit " + p.ExitCode + " stderr=" + (err ?? "").Trim());
                     return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                WellRydeLog.WriteLine("WellRyde: curl failed to start or run: " + ex.Message);
+                return false;
+            }
+            finally
+            {
+                try
+                {
+                    p?.Dispose();
+                }
+                catch
+                {
+                    /* ignore */
                 }
             }
             return true;

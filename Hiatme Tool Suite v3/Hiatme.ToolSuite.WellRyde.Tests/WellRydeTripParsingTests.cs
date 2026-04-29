@@ -103,8 +103,8 @@ namespace Hiatme.ToolSuite.WellRyde.Tests
         [Fact]
         public void TripFilterList_VtTripBilling_MatchesChrome_StringSequence_AndDateValueAsJsonString()
         {
-            var specificDate = new DateTime(2026, 4, 28).ToString("MMMM d, yyyy", CultureInfo.InvariantCulture);
-            var dateSlotInner = JsonConvert.SerializeObject(new { specificDate });
+            var dateSlotInner = WellRydeTripParsing.BuildVtTripBillingDateSlotValueJson(new DateTime(2030, 6, 15));
+            Assert.Equal("{\"specificDate\":\"June 15, 2030\"}", dateSlotInner);
             var vtList = new object[]
             {
                 new { sequence = "1", value = "-1" },
@@ -116,7 +116,16 @@ namespace Hiatme.ToolSuite.WellRyde.Tests
             };
             var json = JsonConvert.SerializeObject(vtList);
             Assert.Contains("\"sequence\":\"2\"", json);
-            Assert.Contains("\"value\":\"{\\\"specificDate\\\":\\\"April 28, 2026\\\"}\"", json);
+            Assert.Contains("\"value\":\"{\\\"specificDate\\\":\\\"June 15, 2030\\\"}\"", json);
+        }
+
+        [Fact]
+        public void BuildVtTripBillingDateSlotValueJson_Today_UsesPeriod0d_ChromeHar()
+        {
+            var inner = WellRydeTripParsing.BuildVtTripBillingDateSlotValueJson(DateTime.Today);
+            Assert.Contains("period", inner);
+            Assert.Contains("0d", inner);
+            Assert.Equal("{\"period\":\"0d\"}", inner);
         }
 
         [Fact]

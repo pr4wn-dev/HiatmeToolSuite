@@ -20,6 +20,27 @@ namespace Hiatme_Tool_Suite_v3
             if (req != null)
             {
                 sb.AppendLine("REQUEST " + req.Method + " " + req.RequestUri);
+                try
+                {
+                    if (req.Properties != null
+                        && req.Properties.TryGetValue(WellRydeFilterDataRequestKeys.WireFilterDataUrl, out var wireObj)
+                        && wireObj != null)
+                    {
+                        var wire = wireObj.ToString();
+                        if (!string.IsNullOrEmpty(wire))
+                        {
+                            var reqUri = req.RequestUri?.ToString() ?? "";
+                            if (!string.Equals(wire, reqUri, StringComparison.Ordinal))
+                                sb.AppendLine("REQUEST caller URL string (differs from RequestUri — Uri may have dropped ;jsessionid=): " + wire);
+                            else
+                                sb.AppendLine("REQUEST caller URL string: " + wire);
+                        }
+                    }
+                }
+                catch
+                {
+                    /* ignore */
+                }
                 foreach (var kv in req.Headers.OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase))
                 {
                     // User-Agent: HttpClient can store multiple parsed tokens; join with space so logs match a single browser string.
@@ -77,6 +98,11 @@ namespace Hiatme_Tool_Suite_v3
             {
                 var chromeCookie = WellRydeCookieHelper.BuildChromeLikeFilterDataCookieHeader(cookieJar);
                 sb.AppendLine("  " + (string.IsNullOrEmpty(chromeCookie) ? "(empty)" : chromeCookie));
+                if (string.IsNullOrEmpty(chromeCookie) || chromeCookie.IndexOf("JSESSIONID=", StringComparison.OrdinalIgnoreCase) < 0)
+                {
+                    sb.AppendLine("DIAGNOSIS: No JSESSIONID on the filterdata Cookie line (Tomcat servlet session). With only Spring SESSION, POST /portal/filterdata often returns the SPA HTML shell instead of JSON.");
+                    sb.AppendLine("  The app should obtain JSESSIONID automatically (native cookie handler + static priming). If this persists across retries, the portal may not be issuing JSESSIONID to programmatic clients — capture a Chrome HAR for vendor support.");
+                }
             }
             catch (Exception ex)
             {
@@ -86,7 +112,7 @@ namespace Hiatme_Tool_Suite_v3
             try
             {
                 var fu = new Uri(WellRydeConfig.FilterDataUrl);
-                sb.AppendLine("  " + (cookieJar?.GetCookieHeader(fu) ?? "(null)"));
+                sb.AppendLine("  " + (cookieJar != null ? WellRydeCookieHelper.GetCookieHeader(cookieJar, fu) : "(null)"));
             }
             catch (Exception ex)
             {

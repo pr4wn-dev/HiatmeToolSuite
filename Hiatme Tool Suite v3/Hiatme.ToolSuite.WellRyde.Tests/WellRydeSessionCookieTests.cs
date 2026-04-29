@@ -1,5 +1,6 @@
 using System;
 using System.Net;
+using System.Text.RegularExpressions;
 using Hiatme_Tool_Suite_v3;
 using Xunit;
 
@@ -71,6 +72,54 @@ namespace Hiatme.ToolSuite.WellRyde.Tests
             WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(jar);
             var line = WellRydeCookieHelper.BuildChromeLikeFilterDataCookieHeader(jar);
             Assert.Contains("JSESSIONID=TOMCATSESSION99", line, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public void CollapseDuplicatePortalCookies_JsessionId_portalAndPortalSlash_YieldsSingleWireName()
+        {
+            var jar = new CookieContainer();
+            const string host = "portal.app.wellryde.com";
+            const string id = "8BDF942DA21818BA731432B3F1703914";
+            jar.Add(new Cookie("JSESSIONID", id, "/portal", host) { Secure = true });
+            jar.Add(new Cookie("JSESSIONID", id, "/portal/", host) { Secure = true });
+            WellRydeCookieHelper.CollapseDuplicatePortalCookies(jar);
+            var probe = new Uri("https://portal.app.wellryde.com/portal/filterdata");
+            var header = jar.GetCookieHeader(probe);
+            var n = Regex.Matches(header, "JSESSIONID=", RegexOptions.IgnoreCase).Count;
+            Assert.Equal(1, n);
+        }
+
+        [Fact]
+        public void TryPromoteJsessionId_AfterDuplicatePaths_DoesNotReintroduceTwoJsessionIds()
+        {
+            var jar = new CookieContainer();
+            const string host = "portal.app.wellryde.com";
+            const string id = "8BDF942DA21818BA731432B3F1703914";
+            jar.Add(new Cookie("SESSION", "x", "/portal/", host) { Secure = true });
+            jar.Add(new Cookie("JSESSIONID", id, "/portal", host) { Secure = true });
+            jar.Add(new Cookie("JSESSIONID", id, "/portal/", host) { Secure = true });
+            WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(jar);
+            var probe = new Uri("https://portal.app.wellryde.com/portal/filterdata");
+            var header = WellRydeCookieHelper.GetCookieHeader(jar, probe);
+            var n = Regex.Matches(header, "JSESSIONID=", RegexOptions.IgnoreCase).Count;
+            Assert.Equal(1, n);
+        }
+
+        [Fact]
+        public void GetCookieHeaderExtension_DedupesTwoJsessionIds_ForTripFilterListUri()
+        {
+            var jar = new CookieContainer();
+            const string host = "portal.app.wellryde.com";
+            const string id = "9AC2C18D1A2B204CB2DEF0E20B3C7664";
+            jar.Add(new Cookie("SESSION", "YWY0ZTM5MmUtMGY4OS00OGFkLWI4NmEtMmQ1YzBjNmY5NWI2", "/portal/", host) { Secure = true });
+            jar.Add(new Cookie("JSESSIONID", id, "/portal", host) { Secure = true });
+            jar.Add(new Cookie("JSESSIONID", id, "/portal/", host) { Secure = true });
+            jar.Add(new Cookie("AWSALB", "lb", "/", host) { Secure = true });
+            jar.Add(new Cookie("AWSALBCORS", "lbc", "/", host) { Secure = true });
+            var tripList = new Uri("https://portal.app.wellryde.com/portal/trip/filterlist?list_name=VTripBilling");
+            var deduped = WellRydeCookieHelper.GetCookieHeader(jar, tripList);
+            Assert.Equal(1, Regex.Matches(deduped, "JSESSIONID=", RegexOptions.IgnoreCase).Count);
+            Assert.Contains("JSESSIONID=" + id, deduped, StringComparison.OrdinalIgnoreCase);
         }
     }
 }

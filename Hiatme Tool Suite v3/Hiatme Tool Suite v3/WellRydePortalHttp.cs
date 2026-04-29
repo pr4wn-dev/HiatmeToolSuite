@@ -1,3 +1,4 @@
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Globalization;
@@ -27,11 +28,27 @@ namespace Hiatme_Tool_Suite_v3
             return new DateTime(year, 1, Math.Max(1, Math.Min(day, 28)));
         }
 
+        /// <summary>
+        /// Inner JSON for VTripBilling <c>filterList</c> sequence 2 (stringified in the form). Chrome HAR uses <c>{"period":"0d"}</c> for the current calendar day in the UI;
+        /// other days use <c>specificDate</c> (English, invariant) so historical batches match the portal filter.
+        /// </summary>
+        public static string BuildVtTripBillingDateSlotValueJson(DateTime tripDate)
+        {
+            if (tripDate.Date == DateTime.Today)
+                return JsonConvert.SerializeObject(new { period = "0d" });
+            return JsonConvert.SerializeObject(new
+            {
+                specificDate = tripDate.Date.ToString("MMMM d, yyyy", CultureInfo.InvariantCulture),
+            });
+        }
+
         public static bool LooksLikeNonJsonPayload(string body)
         {
             if (string.IsNullOrWhiteSpace(body))
                 return true;
             var t = body.TrimStart();
+            if (t.Length > 0 && t[0] == '\uFEFF')
+                t = t.Substring(1).TrimStart();
             if (t.StartsWith("<", StringComparison.Ordinal))
                 return true;
             if (t.StartsWith("<!DOCTYPE", StringComparison.OrdinalIgnoreCase))
