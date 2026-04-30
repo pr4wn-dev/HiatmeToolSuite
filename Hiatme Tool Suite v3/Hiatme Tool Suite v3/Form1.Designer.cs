@@ -174,17 +174,6 @@
             this.aaloadbtn = new MaterialSkin.Controls.MaterialButton();
             this.aadatepicker = new Hiatme_Tool_Suite_v3.RJDatePicker();
             this.tabPage8 = new System.Windows.Forms.TabPage();
-            this.tabPageWellRydeLog = new System.Windows.Forms.TabPage();
-            this.materialCardWellRydeLog = new MaterialSkin.Controls.MaterialCard();
-            this.wellRydeLogTextBox = new System.Windows.Forms.TextBox();
-            this.panelWellRydeLogToolbar = new System.Windows.Forms.Panel();
-            this.wellRydePortalLogAppcfgBtn = new MaterialSkin.Controls.MaterialButton();
-            this.wellRydePortalHttpDumpChk = new MaterialSkin.Controls.MaterialCheckbox();
-            this.wellRydePortalVerboseChk = new MaterialSkin.Controls.MaterialCheckbox();
-            this.wellRydePortalLogLevelCB = new MaterialSkin.Controls.MaterialComboBox();
-            this.wellRydePortalLogDetailLbl = new MaterialSkin.Controls.MaterialLabel();
-            this.wellRydeLogClearBtn = new MaterialSkin.Controls.MaterialButton();
-            this.wellRydeLogCopyBtn = new MaterialSkin.Controls.MaterialButton();
             this.tabPage3 = new System.Windows.Forms.TabPage();
             this.materialCard18 = new MaterialSkin.Controls.MaterialCard();
             this.materialCard7 = new MaterialSkin.Controls.MaterialCard();
@@ -247,9 +236,6 @@
             this.tabPage7.SuspendLayout();
             this.materialCard17.SuspendLayout();
             this.materialCard16.SuspendLayout();
-            this.tabPageWellRydeLog.SuspendLayout();
-            this.materialCardWellRydeLog.SuspendLayout();
-            this.panelWellRydeLogToolbar.SuspendLayout();
             this.tabPage3.SuspendLayout();
             this.materialCard7.SuspendLayout();
             this.ToolStripDropDownMenu.SuspendLayout();
@@ -265,7 +251,6 @@
             this.hiatmeTabControl.Controls.Add(this.tabPage6);
             this.hiatmeTabControl.Controls.Add(this.tabPage7);
             this.hiatmeTabControl.Controls.Add(this.tabPage8);
-            this.hiatmeTabControl.Controls.Add(this.tabPageWellRydeLog);
             this.hiatmeTabControl.Controls.Add(this.tabPage3);
             this.hiatmeTabControl.Depth = 0;
             this.hiatmeTabControl.Dock = System.Windows.Forms.DockStyle.Fill;
@@ -370,9 +355,9 @@
             this.loginCB.MouseState = MaterialSkin.MouseState.OUT;
             this.loginCB.Name = "loginCB";
             this.loginCB.Size = new System.Drawing.Size(286, 49);
-            this.loginCB.StartIndex = 0;
             this.loginCB.TabIndex = 3;
             this.loginCB.SelectedIndexChanged += new System.EventHandler(this.loginCB_SelectedIndexChanged);
+            this.loginCB.StartIndex = 1;
             // 
             // loginCodeTB
             // 
@@ -1190,7 +1175,6 @@
             this.tccb.IntegralHeight = false;
             this.tccb.ItemHeight = 43;
             this.tccb.Items.AddRange(new object[] {
-            "Wellryde",
             "Modivcare"});
             this.tccb.Location = new System.Drawing.Point(21, 56);
             this.tccb.MaxDropDownItems = 4;
@@ -1927,196 +1911,6 @@
             this.tabPage8.Text = "Production";
             this.tabPage8.UseVisualStyleBackColor = true;
             // 
-            // tabPageWellRydeLog
-            // 
-            this.tabPageWellRydeLog.Controls.Add(this.materialCardWellRydeLog);
-            this.tabPageWellRydeLog.ImageKey = "password-lock-svgrepo-com.png";
-            this.tabPageWellRydeLog.Location = new System.Drawing.Point(4, 39);
-            this.tabPageWellRydeLog.Name = "tabPageWellRydeLog";
-            this.tabPageWellRydeLog.Padding = new System.Windows.Forms.Padding(3);
-            this.tabPageWellRydeLog.Size = new System.Drawing.Size(1502, 777);
-            this.tabPageWellRydeLog.TabIndex = 8;
-            this.tabPageWellRydeLog.Text = "WellRyde log";
-            this.tabPageWellRydeLog.UseVisualStyleBackColor = true;
-            // 
-            // materialCardWellRydeLog
-            // 
-            this.materialCardWellRydeLog.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(255)))), ((int)(((byte)(255)))), ((int)(((byte)(255)))));
-            this.materialCardWellRydeLog.Controls.Add(this.panelWellRydeLogToolbar);
-            this.materialCardWellRydeLog.Controls.Add(this.wellRydeLogTextBox);
-            this.materialCardWellRydeLog.Depth = 0;
-            this.materialCardWellRydeLog.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.materialCardWellRydeLog.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(222)))), ((int)(((byte)(0)))), ((int)(((byte)(0)))), ((int)(((byte)(0)))));
-            this.materialCardWellRydeLog.Location = new System.Drawing.Point(3, 3);
-            this.materialCardWellRydeLog.Margin = new System.Windows.Forms.Padding(14);
-            this.materialCardWellRydeLog.MouseState = MaterialSkin.MouseState.HOVER;
-            this.materialCardWellRydeLog.Name = "materialCardWellRydeLog";
-            this.materialCardWellRydeLog.Padding = new System.Windows.Forms.Padding(14);
-            this.materialCardWellRydeLog.Size = new System.Drawing.Size(1496, 771);
-            this.materialCardWellRydeLog.TabIndex = 0;
-            // 
-            // panelWellRydeLogToolbar
-            // 
-            this.panelWellRydeLogToolbar.Controls.Add(this.wellRydePortalLogAppcfgBtn);
-            this.panelWellRydeLogToolbar.Controls.Add(this.wellRydePortalHttpDumpChk);
-            this.panelWellRydeLogToolbar.Controls.Add(this.wellRydePortalVerboseChk);
-            this.panelWellRydeLogToolbar.Controls.Add(this.wellRydePortalLogLevelCB);
-            this.panelWellRydeLogToolbar.Controls.Add(this.wellRydePortalLogDetailLbl);
-            this.panelWellRydeLogToolbar.Controls.Add(this.wellRydeLogClearBtn);
-            this.panelWellRydeLogToolbar.Controls.Add(this.wellRydeLogCopyBtn);
-            this.panelWellRydeLogToolbar.Dock = System.Windows.Forms.DockStyle.Top;
-            this.panelWellRydeLogToolbar.Location = new System.Drawing.Point(14, 14);
-            this.panelWellRydeLogToolbar.Name = "panelWellRydeLogToolbar";
-            this.panelWellRydeLogToolbar.Size = new System.Drawing.Size(1468, 96);
-            this.panelWellRydeLogToolbar.TabIndex = 0;
-            // 
-            // wellRydePortalLogDetailLbl
-            // 
-            this.wellRydePortalLogDetailLbl.AutoSize = true;
-            this.wellRydePortalLogDetailLbl.Depth = 0;
-            this.wellRydePortalLogDetailLbl.Font = new System.Drawing.Font("Roboto", 14F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Pixel);
-            this.wellRydePortalLogDetailLbl.Location = new System.Drawing.Point(0, 62);
-            this.wellRydePortalLogDetailLbl.MouseState = MaterialSkin.MouseState.HOVER;
-            this.wellRydePortalLogDetailLbl.Name = "wellRydePortalLogDetailLbl";
-            this.wellRydePortalLogDetailLbl.Size = new System.Drawing.Size(68, 19);
-            this.wellRydePortalLogDetailLbl.TabIndex = 4;
-            this.wellRydePortalLogDetailLbl.Text = "Log detail";
-            // 
-            // wellRydePortalLogLevelCB
-            // 
-            this.wellRydePortalLogLevelCB.AutoResize = false;
-            this.wellRydePortalLogLevelCB.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(255)))), ((int)(((byte)(255)))), ((int)(((byte)(255)))));
-            this.wellRydePortalLogLevelCB.Depth = 0;
-            this.wellRydePortalLogLevelCB.DrawMode = System.Windows.Forms.DrawMode.OwnerDrawVariable;
-            this.wellRydePortalLogLevelCB.DropDownHeight = 174;
-            this.wellRydePortalLogLevelCB.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
-            this.wellRydePortalLogLevelCB.DropDownWidth = 121;
-            this.wellRydePortalLogLevelCB.Font = new System.Drawing.Font("Microsoft Sans Serif", 14F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Pixel);
-            this.wellRydePortalLogLevelCB.IntegralHeight = false;
-            this.wellRydePortalLogLevelCB.ItemHeight = 43;
-            this.wellRydePortalLogLevelCB.Items.AddRange(new object[] {
-            "Normal",
-            "Quiet",
-            "Verbose",
-            "Diagnostic"});
-            this.wellRydePortalLogLevelCB.Location = new System.Drawing.Point(90, 52);
-            this.wellRydePortalLogLevelCB.MaxDropDownItems = 4;
-            this.wellRydePortalLogLevelCB.MouseState = MaterialSkin.MouseState.OUT;
-            this.wellRydePortalLogLevelCB.Name = "wellRydePortalLogLevelCB";
-            this.wellRydePortalLogLevelCB.Size = new System.Drawing.Size(140, 49);
-            this.wellRydePortalLogLevelCB.StartIndex = 0;
-            this.wellRydePortalLogLevelCB.TabIndex = 5;
-            this.wellRydePortalLogLevelCB.SelectedIndexChanged += new System.EventHandler(this.wellRydePortalLogLevelCB_SelectedIndexChanged);
-            // 
-            // wellRydePortalVerboseChk
-            // 
-            this.wellRydePortalVerboseChk.AutoSize = true;
-            this.wellRydePortalVerboseChk.Depth = 0;
-            this.wellRydePortalVerboseChk.Location = new System.Drawing.Point(248, 56);
-            this.wellRydePortalVerboseChk.Margin = new System.Windows.Forms.Padding(0);
-            this.wellRydePortalVerboseChk.MouseLocation = new System.Drawing.Point(-1, -1);
-            this.wellRydePortalVerboseChk.MouseState = MaterialSkin.MouseState.HOVER;
-            this.wellRydePortalVerboseChk.Name = "wellRydePortalVerboseChk";
-            this.wellRydePortalVerboseChk.ReadOnly = false;
-            this.wellRydePortalVerboseChk.Ripple = true;
-            this.wellRydePortalVerboseChk.Size = new System.Drawing.Size(173, 37);
-            this.wellRydePortalVerboseChk.TabIndex = 6;
-            this.wellRydePortalVerboseChk.Text = "Extra HTTP traces";
-            this.wellRydePortalVerboseChk.UseVisualStyleBackColor = true;
-            this.wellRydePortalVerboseChk.CheckedChanged += new System.EventHandler(this.wellRydePortalVerboseChk_CheckedChanged);
-            // 
-            // wellRydePortalHttpDumpChk
-            // 
-            this.wellRydePortalHttpDumpChk.AutoSize = true;
-            this.wellRydePortalHttpDumpChk.Depth = 0;
-            this.wellRydePortalHttpDumpChk.Location = new System.Drawing.Point(438, 56);
-            this.wellRydePortalHttpDumpChk.Margin = new System.Windows.Forms.Padding(0);
-            this.wellRydePortalHttpDumpChk.MouseLocation = new System.Drawing.Point(-1, -1);
-            this.wellRydePortalHttpDumpChk.MouseState = MaterialSkin.MouseState.HOVER;
-            this.wellRydePortalHttpDumpChk.Name = "wellRydePortalHttpDumpChk";
-            this.wellRydePortalHttpDumpChk.ReadOnly = false;
-            this.wellRydePortalHttpDumpChk.Ripple = true;
-            this.wellRydePortalHttpDumpChk.Size = new System.Drawing.Size(207, 37);
-            this.wellRydePortalHttpDumpChk.TabIndex = 7;
-            this.wellRydePortalHttpDumpChk.Text = "Full filterdata snapshot";
-            this.wellRydePortalHttpDumpChk.UseVisualStyleBackColor = true;
-            this.wellRydePortalHttpDumpChk.CheckedChanged += new System.EventHandler(this.wellRydePortalHttpDumpChk_CheckedChanged);
-            // 
-            // wellRydePortalLogAppcfgBtn
-            // 
-            this.wellRydePortalLogAppcfgBtn.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
-            this.wellRydePortalLogAppcfgBtn.Density = MaterialSkin.Controls.MaterialButton.MaterialButtonDensity.Default;
-            this.wellRydePortalLogAppcfgBtn.Depth = 0;
-            this.wellRydePortalLogAppcfgBtn.HighEmphasis = false;
-            this.wellRydePortalLogAppcfgBtn.Icon = null;
-            this.wellRydePortalLogAppcfgBtn.Location = new System.Drawing.Point(210, 4);
-            this.wellRydePortalLogAppcfgBtn.Margin = new System.Windows.Forms.Padding(4, 6, 4, 6);
-            this.wellRydePortalLogAppcfgBtn.MouseState = MaterialSkin.MouseState.HOVER;
-            this.wellRydePortalLogAppcfgBtn.Name = "wellRydePortalLogAppcfgBtn";
-            this.wellRydePortalLogAppcfgBtn.NoAccentTextColor = System.Drawing.Color.Empty;
-            this.wellRydePortalLogAppcfgBtn.Size = new System.Drawing.Size(140, 36);
-            this.wellRydePortalLogAppcfgBtn.TabIndex = 8;
-            this.wellRydePortalLogAppcfgBtn.Text = "Use App.config";
-            this.wellRydePortalLogAppcfgBtn.Type = MaterialSkin.Controls.MaterialButton.MaterialButtonType.Text;
-            this.wellRydePortalLogAppcfgBtn.UseAccentColor = false;
-            this.wellRydePortalLogAppcfgBtn.UseVisualStyleBackColor = true;
-            this.wellRydePortalLogAppcfgBtn.Click += new System.EventHandler(this.wellRydePortalLogAppcfgBtn_Click);
-            // 
-            // wellRydeLogCopyBtn
-            // 
-            this.wellRydeLogCopyBtn.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
-            this.wellRydeLogCopyBtn.Density = MaterialSkin.Controls.MaterialButton.MaterialButtonDensity.Default;
-            this.wellRydeLogCopyBtn.Depth = 0;
-            this.wellRydeLogCopyBtn.HighEmphasis = true;
-            this.wellRydeLogCopyBtn.Icon = null;
-            this.wellRydeLogCopyBtn.Location = new System.Drawing.Point(0, 4);
-            this.wellRydeLogCopyBtn.Margin = new System.Windows.Forms.Padding(4, 6, 4, 6);
-            this.wellRydeLogCopyBtn.MouseState = MaterialSkin.MouseState.HOVER;
-            this.wellRydeLogCopyBtn.Name = "wellRydeLogCopyBtn";
-            this.wellRydeLogCopyBtn.NoAccentTextColor = System.Drawing.Color.Empty;
-            this.wellRydeLogCopyBtn.Size = new System.Drawing.Size(100, 36);
-            this.wellRydeLogCopyBtn.TabIndex = 0;
-            this.wellRydeLogCopyBtn.Text = "Copy all";
-            this.wellRydeLogCopyBtn.Type = MaterialSkin.Controls.MaterialButton.MaterialButtonType.Contained;
-            this.wellRydeLogCopyBtn.UseAccentColor = false;
-            this.wellRydeLogCopyBtn.UseVisualStyleBackColor = true;
-            this.wellRydeLogCopyBtn.Click += new System.EventHandler(this.wellRydeLogCopyBtn_Click);
-            // 
-            // wellRydeLogClearBtn
-            // 
-            this.wellRydeLogClearBtn.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
-            this.wellRydeLogClearBtn.Density = MaterialSkin.Controls.MaterialButton.MaterialButtonDensity.Default;
-            this.wellRydeLogClearBtn.Depth = 0;
-            this.wellRydeLogClearBtn.HighEmphasis = true;
-            this.wellRydeLogClearBtn.Icon = null;
-            this.wellRydeLogClearBtn.Location = new System.Drawing.Point(108, 4);
-            this.wellRydeLogClearBtn.Margin = new System.Windows.Forms.Padding(4, 6, 4, 6);
-            this.wellRydeLogClearBtn.MouseState = MaterialSkin.MouseState.HOVER;
-            this.wellRydeLogClearBtn.Name = "wellRydeLogClearBtn";
-            this.wellRydeLogClearBtn.NoAccentTextColor = System.Drawing.Color.Empty;
-            this.wellRydeLogClearBtn.Size = new System.Drawing.Size(86, 36);
-            this.wellRydeLogClearBtn.TabIndex = 1;
-            this.wellRydeLogClearBtn.Text = "Clear";
-            this.wellRydeLogClearBtn.Type = MaterialSkin.Controls.MaterialButton.MaterialButtonType.Contained;
-            this.wellRydeLogClearBtn.UseAccentColor = false;
-            this.wellRydeLogClearBtn.UseVisualStyleBackColor = true;
-            this.wellRydeLogClearBtn.Click += new System.EventHandler(this.wellRydeLogClearBtn_Click);
-            // 
-            // wellRydeLogTextBox
-            // 
-            this.wellRydeLogTextBox.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(40)))), ((int)(((byte)(40)))), ((int)(((byte)(40)))));
-            this.wellRydeLogTextBox.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.wellRydeLogTextBox.Font = new System.Drawing.Font("Consolas", 9F);
-            this.wellRydeLogTextBox.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(230)))), ((int)(((byte)(230)))), ((int)(((byte)(230)))));
-            this.wellRydeLogTextBox.Location = new System.Drawing.Point(14, 58);
-            this.wellRydeLogTextBox.Multiline = true;
-            this.wellRydeLogTextBox.Name = "wellRydeLogTextBox";
-            this.wellRydeLogTextBox.ReadOnly = true;
-            this.wellRydeLogTextBox.ScrollBars = System.Windows.Forms.ScrollBars.Both;
-            this.wellRydeLogTextBox.Size = new System.Drawing.Size(1468, 699);
-            this.wellRydeLogTextBox.TabIndex = 1;
-            this.wellRydeLogTextBox.WordWrap = false;
-            // 
             // tabPage3
             // 
             this.tabPage3.Controls.Add(this.materialCard18);
@@ -2467,11 +2261,6 @@
             this.materialCard17.PerformLayout();
             this.materialCard16.ResumeLayout(false);
             this.materialCard16.PerformLayout();
-            this.tabPageWellRydeLog.ResumeLayout(false);
-            this.materialCardWellRydeLog.ResumeLayout(false);
-            this.materialCardWellRydeLog.PerformLayout();
-            this.panelWellRydeLogToolbar.ResumeLayout(false);
-            this.panelWellRydeLogToolbar.PerformLayout();
             this.tabPage3.ResumeLayout(false);
             this.materialCard7.ResumeLayout(false);
             this.materialCard7.PerformLayout();
@@ -2636,17 +2425,6 @@
         private System.Windows.Forms.ColumnHeader columnHeader70;
         private System.Windows.Forms.ColumnHeader columnHeader71;
         private System.Windows.Forms.TabPage tabPage8;
-        private System.Windows.Forms.TabPage tabPageWellRydeLog;
-        private MaterialSkin.Controls.MaterialCard materialCardWellRydeLog;
-        private System.Windows.Forms.Panel panelWellRydeLogToolbar;
-        private MaterialSkin.Controls.MaterialButton wellRydePortalLogAppcfgBtn;
-        private MaterialSkin.Controls.MaterialCheckbox wellRydePortalHttpDumpChk;
-        private MaterialSkin.Controls.MaterialCheckbox wellRydePortalVerboseChk;
-        private MaterialSkin.Controls.MaterialComboBox wellRydePortalLogLevelCB;
-        private MaterialSkin.Controls.MaterialLabel wellRydePortalLogDetailLbl;
-        private MaterialSkin.Controls.MaterialButton wellRydeLogCopyBtn;
-        private MaterialSkin.Controls.MaterialButton wellRydeLogClearBtn;
-        private System.Windows.Forms.TextBox wellRydeLogTextBox;
         private MaterialSkin.Controls.MaterialCard materialCard18;
         private System.Windows.Forms.Label LoadingGifLabel;
         private System.Windows.Forms.Panel panel1;

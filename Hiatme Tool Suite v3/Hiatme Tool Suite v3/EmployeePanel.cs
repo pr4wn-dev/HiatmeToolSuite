@@ -19,12 +19,10 @@ using TextBox = System.Windows.Forms.TextBox;
 
 namespace Hiatme_Tool_Suite_v3
 {
-    public class EmployeeStatManager
+    internal class EmployeeStatManager
     {
         private TabPage tabPage { get; set; }
-        private WRLoginHandler wRLoginHandler { get; set; }
         private MCLoginHandler mCLoginHandler { get; set; }
-        private WRTripDownloader wRTripDownloader { get; set; }
         private MCTripDownloader mCTripDownloader { get; set; }
         private List<WRDownloadedTrip> wRDownloadedTrips { get; set; }
         private List<MCDownloadedTrip> mCDownloadedTrips { get; set; }
@@ -35,12 +33,13 @@ namespace Hiatme_Tool_Suite_v3
         private bool Run { get; set; }
         private MaterialCard employeeStatPanel { get; set; }
         private TableLayoutPanel primaryTable { get; set; }
-        public EmployeeStatManager(TabPage formtabpage, WRLoginHandler wrlh, MCLoginHandler mclh) 
+        private WellRydePortalSession _wellRydePortalSession;
+        private DateTime _tripDate;
+
+        public EmployeeStatManager(TabPage formtabpage, MCLoginHandler mclh)
         {
             tabPage = formtabpage;
-            wRLoginHandler = wrlh;
             mCLoginHandler = mclh;
-            //InitializeEmployeeDler();
         }
 
         public delegate void UpdateLoadingScreenHandler(string text);
@@ -56,17 +55,21 @@ namespace Hiatme_Tool_Suite_v3
             UpdateLoadingScreen(txt);
             await Task.Delay(2000);
         }
-        public async Task InitializeEmployeeDler(Form origform)
+        /// <param name="tripDate">Service date for Modivcare and WellRyde downloads (date component only).</param>
+        public async Task InitializeEmployeeDler(Form origform, WellRydePortalSession wellRydePortalSession = null,
+            DateTime? tripDate = null)
         {
+            _wellRydePortalSession = wellRydePortalSession;
+            _tripDate = tripDate?.Date ?? DateTime.Today;
+
             tabPage.Controls.Clear();
             ShowLoadingScreen();
             await AsyncUpdateLoadingScreen("Checking connections");
-            wRTripDownloader = new WRTripDownloader();
             mCTripDownloader = new MCTripDownloader();
 
             await IntializeConnection();
             await AsyncUpdateLoadingScreen("Downloading trips");
-            await AsyncUpdateLoadingScreen("Serching for drivers");
+            await AsyncUpdateLoadingScreen("Searching for drivers");
             await BuildDriverList();
             await AsyncUpdateLoadingScreen("Building tables");
             GenerateRowsColumnsAndData();
@@ -79,42 +82,112 @@ namespace Hiatme_Tool_Suite_v3
         private async Task IntializeConnection()
         {
             wRDownloadedTrips = new List<WRDownloadedTrip>();
-            wRDownloadedTrips = await wRTripDownloader.DownloadTripRecords(DateTime.Now.ToLongDateString(), DateTime.Now.Day, DateTime.Now.Year, wRLoginHandler);
-
             mCDownloadedTrips = new List<MCDownloadedTrip>();
-            mCDownloadedTrips = await mCTripDownloader.DownloadTripRecords(DateTime.Now, mCLoginHandler);
-        }
-        private async Task BuildDriverList()
-        {
-            List<WRDrivers> WRDrivers = new List<WRDrivers>();
-            WRDrivers = await wRTripDownloader.GetAllDrivers(wRLoginHandler);
+            mCDownloadedTrips = await mCTripDownloader.DownloadTripRecords(_tripDate, mCLoginHandler)
+                ?? new List<MCDownloadedTrip>();
 
+            if (_wellRydePortalSession == null)
+                return;
+
+            try
+            {
+                var fd = await _wellRydePortalSession.PostTripFilterDataAsync(_tripDate,
+                    maxResults: WellRydePortalSession.DefaultTripFilterMaxResult).ConfigureAwait(false);
+                if (fd.IsSuccess)
+                    wRDownloadedTrips = WellRydeFilterDataParser.ParseTrips(fd.JsonBody, out _) ?? new List<WRDownloadedTrip>();
+                else
+                    Console.WriteLine("Employee stats: WellRyde filterdata failed: " + (fd.ErrorMessage ?? ""));
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Employee stats: WellRyde load failed: " + ex.Message);
+            }
+        }
+
+        private static string NormalizeDriverKey(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                return string.Empty;
+            var s = name.Trim();
+            while (s.Contains("  "))
+                s = s.Replace("  ", " ");
+            return s.ToUpperInvariant();
+        }
+
+        private static bool SkipDriverNameForStats(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+                return true;
+            var key = NormalizeDriverKey(raw);
+            return key.Contains("RESERVE") || key == "UNKNOWN" || key == "N/A";
+        }
+
+        private Task BuildDriverList()
+        {
             employeeStats = new List<EmployeeProductionStats>();
+            var displayByKey = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (WRDrivers wRDriver in WRDrivers)
+            void AddDriverName(string raw)
             {
-                wRDriver.BreakName();
-                EmployeeProductionStats stats = new EmployeeProductionStats();
-                stats.FirstName = wRDriver.FirstName;
-                stats.LastName = wRDriver.LastName;
-                stats.FullName = wRDriver.FullName;
-                stats.DriverWRTripList = LoadDriverWRTripsToDriver(wRDriver.text);
-                employeeStats.Add(stats);
+                if (SkipDriverNameForStats(raw))
+                    return;
+                var key = NormalizeDriverKey(raw);
+                if (string.IsNullOrEmpty(key))
+                    return;
+                if (!displayByKey.ContainsKey(key))
+                    displayByKey[key] = raw.Trim();
             }
-        }
-        private List<WRDownloadedTrip> LoadDriverWRTripsToDriver(string uneditedfullname)
-        {
-            List<WRDownloadedTrip> wrdrivertrips = new List<WRDownloadedTrip>();
 
-            foreach(WRDownloadedTrip wrdt in wRDownloadedTrips)
+            foreach (var mct in mCDownloadedTrips ?? Enumerable.Empty<MCDownloadedTrip>())
+                AddDriverName(mct.DriverNameParsed);
+            foreach (var wr in wRDownloadedTrips ?? Enumerable.Empty<WRDownloadedTrip>())
+                AddDriverName(wr.DriverName);
+
+            foreach (var kv in displayByKey.OrderBy(x => x.Value, StringComparer.OrdinalIgnoreCase))
             {
-                if (wrdt.DriverName == uneditedfullname)
+                string key = kv.Key;
+                string display = kv.Value;
+                var wrForDriver = (wRDownloadedTrips ?? new List<WRDownloadedTrip>())
+                    .Where(w => NormalizeDriverKey(w.DriverName) == key)
+                    .ToList();
+
+                employeeStats.Add(new EmployeeProductionStats
                 {
-                    wrdrivertrips.Add(wrdt);
-                    //Console.WriteLine(wrdt.DriverName.ToString());
-                }
+                    FullName = display,
+                    FirstName = SplitFirstName(display),
+                    LastName = SplitLastName(display),
+                    DriverWRTripList = wrForDriver,
+                });
             }
-            return wrdrivertrips;
+
+            return Task.CompletedTask;
+        }
+
+        private static string SplitFirstName(string fullName)
+        {
+            if (string.IsNullOrWhiteSpace(fullName))
+                return string.Empty;
+            int comma = fullName.IndexOf(',');
+            if (comma >= 0)
+            {
+                var after = fullName.Substring(comma + 1).Trim();
+                return after.Length == 0 ? fullName.Trim() : after.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? string.Empty;
+            }
+            var parts = fullName.Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            return parts.Length == 0 ? string.Empty : parts[0];
+        }
+
+        private static string SplitLastName(string fullName)
+        {
+            if (string.IsNullOrWhiteSpace(fullName))
+                return string.Empty;
+            int comma = fullName.IndexOf(',');
+            if (comma >= 0)
+                return fullName.Substring(0, comma).Trim();
+            var parts = fullName.Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length <= 1)
+                return string.Empty;
+            return parts[parts.Length - 1];
         }
 
 

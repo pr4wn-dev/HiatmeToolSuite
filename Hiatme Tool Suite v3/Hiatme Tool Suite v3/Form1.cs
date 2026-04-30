@@ -1,4 +1,3 @@
-using Hiatme_Tools;
 using MaterialSkin;
 using MaterialSkin.Controls;
 using System;
@@ -44,12 +43,14 @@ namespace Hiatme_Tool_Suite_v3
     {
 
         private bool manuallogin = false;
-        private bool _wellRydePortalLogUiLoading;
+        /// <summary>True after WellRyde portal bootstrap (GET main page) succeeds.</summary>
+        private bool _wellRydePanelSessionActive;
+
+        private WellRydePortalSession _wellRydeSession;
 
         readonly MaterialSkinManager materialSkinManager;
         public System.Windows.Forms.Timer billtimer;
 
-        WRLoginHandler wrLoginHandler;
         MCLoginHandler mcLoginHandler;
         HiatmeLoginHandler hiatmeLoginHandler;
 
@@ -60,8 +61,14 @@ namespace Hiatme_Tool_Suite_v3
 
         EmployeeStatManager empStatManager;
         ReportCard reportCard;
+        /// <summary>Must be initialized before <see cref="Form1"/> ctor body uses it (partial-class field order is not guaranteed if declared later in this file).</summary>
+        readonly Analyzer analyzer = new Analyzer();
+
         public Form1()
         {
+            // Login combo may raise SelectedIndexChanged during InitializeComponent; handlers must exist first.
+            InitializeMCLoginHandler();
+            InitializeHiatmeLoginHandler();
             InitializeComponent();;
             CheckForIllegalCrossThreadCalls = false;
             materialSkinManager = MaterialSkinManager.Instance;
@@ -69,10 +76,6 @@ namespace Hiatme_Tool_Suite_v3
             materialSkinManager.AddFormToManage(this);
             materialSkinManager.Theme = MaterialSkinManager.Themes.DARK;
             materialSkinManager.ColorScheme = new ColorScheme(Primary.Grey900, Primary.Grey800, Primary.BlueGrey500, Accent.Lime700, TextShade.WHITE);
-            LoadWRCredentials();
-            InitializeWRLoginHandler();
-            InitializeMCLoginHandler();
-            InitializeHiatmeLoginHandler();
             this.billinglistview.SizeChanged += new EventHandler(ListView_SizeChanged);
             tbuilder = new TemplateBuilder();
             tbuilder.UpdateLoadingScreen += loadinggifhandler_update;
@@ -80,6 +83,7 @@ namespace Hiatme_Tool_Suite_v3
             tbuilder.HideLoadingScreen += loadinggifhandler_hidescreen;
 
             mcTimeCorrectionTool = new MCTimeCorrection(tccb);
+            wrBillingTool = new WRBillingTool();
 
             //Connect_Setup();
             billtimer = new System.Windows.Forms.Timer();
@@ -91,172 +95,21 @@ namespace Hiatme_Tool_Suite_v3
             analyzer.HideLoadingScreen += loadinggifhandler_hidescreen;
 
             portlbl.Text = portlbl.Text + port_no.ToString();
-
-            WellRydeLog.Changed += WellRydeLog_Changed;
-            RefreshWellRydePortalLogUi();
+            // Default login provider is set in the designer before SelectedIndexChanged is wired; sync saved credentials once at show.
+            Shown += Form1_Shown_SyncLoginPanelFromSettings;
         }
 
-        protected override void OnFormClosed(FormClosedEventArgs e)
+        private void Form1_Shown_SyncLoginPanelFromSettings(object sender, EventArgs e)
         {
-            WellRydeLog.Changed -= WellRydeLog_Changed;
-            base.OnFormClosed(e);
+            Shown -= Form1_Shown_SyncLoginPanelFromSettings;
+            loginCB_SelectedIndexChanged(loginCB, EventArgs.Empty);
         }
 
-        private void WellRydeLog_Changed(object sender, EventArgs e)
+        protected override void OnFormClosing(FormClosingEventArgs e)
         {
-            if (IsDisposed || !IsHandleCreated)
-                return;
-            if (InvokeRequired)
-            {
-                BeginInvoke(new Action(SyncWellRydeLogTextBox));
-                return;
-            }
-            SyncWellRydeLogTextBox();
-        }
-
-        private void SyncWellRydeLogTextBox()
-        {
-            try
-            {
-                wellRydeLogTextBox.Text = WellRydeLog.GetText();
-                wellRydeLogTextBox.SelectionStart = wellRydeLogTextBox.Text.Length;
-                wellRydeLogTextBox.ScrollToCaret();
-            }
-            catch (ObjectDisposedException)
-            {
-            }
-            catch (InvalidOperationException)
-            {
-            }
-        }
-
-        private void wellRydeLogCopyBtn_Click(object sender, EventArgs e)
-        {
-            try
-            {
-                var t = WellRydeLog.GetText();
-                if (string.IsNullOrEmpty(t))
-                {
-                    MessageBox.Show("Log is empty.", "WellRyde log", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                    return;
-                }
-                Clipboard.SetText(t);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show("Could not copy: " + ex.Message, "WellRyde log", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            }
-        }
-
-        private void wellRydeLogClearBtn_Click(object sender, EventArgs e)
-        {
-            WellRydeLog.Clear();
-        }
-
-        private static int PortalLogComboIndexForLevel(WellRydeConfig.PortalLogLevel level)
-        {
-            switch (level)
-            {
-                case WellRydeConfig.PortalLogLevel.Quiet:
-                    return 1;
-                case WellRydeConfig.PortalLogLevel.Verbose:
-                    return 2;
-                case WellRydeConfig.PortalLogLevel.Diagnostic:
-                    return 3;
-                default:
-                    return 0;
-            }
-        }
-
-        private static WellRydeConfig.PortalLogLevel PortalLogLevelForComboIndex(int idx)
-        {
-            switch (idx)
-            {
-                case 1:
-                    return WellRydeConfig.PortalLogLevel.Quiet;
-                case 2:
-                    return WellRydeConfig.PortalLogLevel.Verbose;
-                case 3:
-                    return WellRydeConfig.PortalLogLevel.Diagnostic;
-                default:
-                    return WellRydeConfig.PortalLogLevel.Normal;
-            }
-        }
-
-        private static bool ParseStoredBoolFlag(string s)
-        {
-            if (string.IsNullOrWhiteSpace(s))
-                return false;
-            s = s.Trim();
-            return s == "1" || string.Equals(s, "true", StringComparison.OrdinalIgnoreCase);
-        }
-
-        private void RefreshWellRydePortalLogUi()
-        {
-            if (wellRydePortalLogLevelCB == null)
-                return;
-            _wellRydePortalLogUiLoading = true;
-            try
-            {
-                var levelStr = Properties.Settings.Default.wrPortalLogLevel?.Trim();
-                var level = string.IsNullOrEmpty(levelStr)
-                    ? WellRydeConfig.PortalLogLevelFromAppConfigOnly()
-                    : WellRydeConfig.ParsePortalLogLevel(levelStr);
-                var idx = PortalLogComboIndexForLevel(level);
-                if (wellRydePortalLogLevelCB.Items.Count > 0 && idx >= 0 && idx < wellRydePortalLogLevelCB.Items.Count)
-                    wellRydePortalLogLevelCB.SelectedIndex = idx;
-
-                var tracesUi = Properties.Settings.Default.wrDebugPortalTraffic?.Trim();
-                wellRydePortalVerboseChk.Checked = string.IsNullOrEmpty(tracesUi)
-                    ? WellRydeConfig.DebugPortalTrafficAppConfig
-                    : ParseStoredBoolFlag(tracesUi);
-
-                var diagnostic = level >= WellRydeConfig.PortalLogLevel.Diagnostic;
-                wellRydePortalHttpDumpChk.Enabled = !diagnostic;
-                var dumpUi = Properties.Settings.Default.wrPortalHttpDump?.Trim();
-                var dumpEffective = diagnostic
-                    || (string.IsNullOrEmpty(dumpUi) ? WellRydeConfig.PortalHttpDumpAppConfig : ParseStoredBoolFlag(dumpUi));
-                wellRydePortalHttpDumpChk.Checked = dumpEffective;
-            }
-            finally
-            {
-                _wellRydePortalLogUiLoading = false;
-            }
-        }
-
-        private void wellRydePortalLogLevelCB_SelectedIndexChanged(object sender, EventArgs e)
-        {
-            if (_wellRydePortalLogUiLoading || wellRydePortalLogLevelCB.SelectedIndex < 0)
-                return;
-            var level = PortalLogLevelForComboIndex(wellRydePortalLogLevelCB.SelectedIndex);
-            Properties.Settings.Default.wrPortalLogLevel = WellRydeConfig.FormatPortalLogLevel(level);
-            Properties.Settings.Default.Save();
-            RefreshWellRydePortalLogUi();
-        }
-
-        private void wellRydePortalVerboseChk_CheckedChanged(object sender, EventArgs e)
-        {
-            if (_wellRydePortalLogUiLoading)
-                return;
-            Properties.Settings.Default.wrDebugPortalTraffic = wellRydePortalVerboseChk.Checked ? "true" : "false";
-            Properties.Settings.Default.Save();
-        }
-
-        private void wellRydePortalHttpDumpChk_CheckedChanged(object sender, EventArgs e)
-        {
-            if (_wellRydePortalLogUiLoading || !wellRydePortalHttpDumpChk.Enabled)
-                return;
-            Properties.Settings.Default.wrPortalHttpDump = wellRydePortalHttpDumpChk.Checked ? "true" : "false";
-            Properties.Settings.Default.Save();
-        }
-
-        private void wellRydePortalLogAppcfgBtn_Click(object sender, EventArgs e)
-        {
-            Properties.Settings.Default.wrPortalLogLevel = "";
-            Properties.Settings.Default.wrPortalHttpDump = "";
-            Properties.Settings.Default.wrDebugPortalTraffic = "";
-            Properties.Settings.Default.Save();
-            RefreshWellRydePortalLogUi();
+            _wellRydeSession?.Dispose();
+            _wellRydeSession = null;
+            base.OnFormClosing(e);
         }
 
 
@@ -286,6 +139,13 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
+        /// <summary>Login handlers can run during InitializeComponent before <see cref="lightImageList"/> images are loaded from the resx.</summary>
+        private void SetWrPbLightImage(int imageIndex)
+        {
+            if (lightImageList?.Images != null && imageIndex >= 0 && imageIndex < lightImageList.Images.Count)
+                wrPBLight.Image = lightImageList.Images[imageIndex];
+        }
+
         //LOGIN
         private void loginCB_SelectedIndexChanged(object sender, EventArgs e)
         {
@@ -294,21 +154,18 @@ namespace Hiatme_Tool_Suite_v3
             {
                 case "Wellryde":
                     LoadWRCredentials();
-                    if (wrLoginHandler.Connected) { DisableWRLogin(); }
+                    if (_wellRydePanelSessionActive) { DisableWRLogin(); }
                     else { EnableWRLogin(); }
-                    //Console.WriteLine("Wellryde");
                     break;
                 case "Modivcare":
                     LoadMCCredentials();
-                    if (mcLoginHandler.Connected) { DisableMCLogin(); }
+                    if (mcLoginHandler?.Connected == true) { DisableMCLogin(); }
                     else { EnableMCLogin(); }
-                    //Console.WriteLine("Modivcare");
                     break;
                 case "Hiatme":
                     LoadHiatmeCredentials();
-                    if (hiatmeLoginHandler.Connected) { DisableHiatmeLogin(); }
+                    if (hiatmeLoginHandler?.Connected == true) { DisableHiatmeLogin(); }
                     else { EnableHiatmeLogin(); }
-                    //Console.WriteLine("Hiatme");
                     break;
             }
         }
@@ -319,16 +176,37 @@ namespace Hiatme_Tool_Suite_v3
             switch (loginCB.SelectedIndex)
             {
                 case 0:
-                    if (wrLoginHandler.Connected == true)
+                    if (_wellRydePanelSessionActive)
                     {
                         await SetLoadingGifLabel("Wellryde logging out");
-                        await wrLoginHandler.Logout();
+                        _wellRydePanelSessionActive = false;
+                        _wellRydeSession?.Dispose();
+                        _wellRydeSession = null;
+                        EnableWRLogin();
                         hidegiftimer.Start();
                     }
                     else
                     {
-                        await SetLoadingGifLabel("Logging into Wellryde");
-                        await WRLogin();
+                        string companycode = (loginCodeTB.Text ?? "").Trim();
+                        string username = (loginUserTB.Text ?? "").Trim();
+                        string password = loginPassTB.Text ?? "";
+                        if (string.IsNullOrEmpty(companycode) || string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
+                        {
+                            hidegiftimer.Start();
+                            MessageBox.Show("Enter company code, username, and password.");
+                            return;
+                        }
+                        string loginErr = await TryWellRydePortalHttpLoginAsync(companycode, username, password);
+                        if (loginErr != null)
+                        {
+                            hidegiftimer.Start();
+                            MessageBox.Show(loginErr);
+                            return;
+                        }
+                        _wellRydePanelSessionActive = true;
+                        SaveWRCredentials(companycode, username, password);
+                        DisableWRLogin();
+                        hidegiftimer.Start();
                     }
                     break;
                 case 1:
@@ -344,6 +222,9 @@ namespace Hiatme_Tool_Suite_v3
                         await MCLogin();
                     }
                     break;
+                case 2:
+                    hidegiftimer.Start();
+                    break;
             }
             if (manuallogin)
             {
@@ -351,6 +232,183 @@ namespace Hiatme_Tool_Suite_v3
             }
 
         }
+        private void LoadWRCredentials()
+        {
+            if (!string.IsNullOrWhiteSpace(Properties.Settings.Default.wrUserName))
+            {
+                loginCodeTB.Text = Properties.Settings.Default.wrCompanyCode ?? "";
+                loginUserTB.Text = Properties.Settings.Default.wrUserName;
+                loginPassTB.Text = Properties.Settings.Default.wrUserPass ?? "";
+                loginSwitch.Checked = true;
+            }
+            else
+            {
+                loginCodeTB.Text = "";
+                loginUserTB.Text = "";
+                loginPassTB.Text = "";
+                loginSwitch.Checked = false;
+            }
+        }
+
+        private void SaveWRCredentials(string code, string user, string pass)
+        {
+            try
+            {
+                if (loginSwitch.Checked == false)
+                {
+                    Properties.Settings.Default.wrCompanyCode = "";
+                    Properties.Settings.Default.wrUserName = "";
+                    Properties.Settings.Default.wrUserPass = "";
+                    Properties.Settings.Default.Save();
+                }
+                else
+                {
+                    Properties.Settings.Default.wrCompanyCode = code ?? "";
+                    Properties.Settings.Default.wrUserName = user ?? "";
+                    Properties.Settings.Default.wrUserPass = pass ?? "";
+                    Properties.Settings.Default.Save();
+                }
+            }
+            catch
+            {
+                Console.WriteLine("There was a problem saving WellRyde credentials");
+            }
+        }
+
+        private void EnableWRLogin()
+        {
+            SetWrPbLightImage(0);
+            loginCodeTB.Enabled = true;
+            loginUserTB.Enabled = true;
+            loginPassTB.Enabled = true;
+            loginSwitch.Enabled = true;
+            loginBtn.Text = "Login";
+            loginCB.SelectedIndex = 0;
+            loginCB.Focus();
+        }
+
+        private void DisableWRLogin()
+        {
+            SetWrPbLightImage(1);
+            loginCodeTB.Enabled = false;
+            loginUserTB.Enabled = false;
+            loginPassTB.Enabled = false;
+            loginSwitch.Enabled = false;
+            loginBtn.Text = "Logout";
+            loginCB.SelectedIndex = 0;
+        }
+
+        /// <summary>Bootstrap + Spring login + /portal/nu. On failure abandons <see cref="_wellRydeSession"/>.</summary>
+        /// <returns><c>null</c> on success; otherwise an error message for the user.</returns>
+        private async Task<string> TryWellRydePortalHttpLoginAsync(string companycode, string username, string password)
+        {
+            await SetLoadingGifLabel("Checking connections");
+            _wellRydeSession?.Dispose();
+            _wellRydeSession = new WellRydePortalSession();
+            WellRydePortalBootstrapResult wrBoot;
+            try
+            {
+                wrBoot = await _wellRydeSession.BootstrapMainPageAsync();
+            }
+            catch (Exception ex)
+            {
+                _wellRydeSession.Dispose();
+                _wellRydeSession = null;
+                return "WellRyde portal request failed: " + ex.Message;
+            }
+            if (!wrBoot.IsSuccess)
+            {
+                _wellRydeSession.Dispose();
+                _wellRydeSession = null;
+                var prefix = wrBoot.StatusCode.HasValue
+                    ? "HTTP " + (int)wrBoot.StatusCode.Value + " — "
+                    : "";
+                return prefix + (wrBoot.ErrorMessage ?? "Could not load portal.");
+            }
+            await SetLoadingGifLabel("Signing in to Wellryde");
+            WellRydePortalLoginResult wrLogin;
+            try
+            {
+                wrLogin = await _wellRydeSession.LoginSpringSecurityAsync(companycode, username, password);
+            }
+            catch (Exception ex)
+            {
+                _wellRydeSession.Dispose();
+                _wellRydeSession = null;
+                return "WellRyde login failed: " + ex.Message;
+            }
+            if (!wrLogin.IsSuccess)
+            {
+                _wellRydeSession.Dispose();
+                _wellRydeSession = null;
+                return wrLogin.ErrorMessage ?? "WellRyde login was not accepted.";
+            }
+            await SetLoadingGifLabel("Loading Wellryde portal");
+            WellRydePortalNuResult wrNu;
+            try
+            {
+                wrNu = await _wellRydeSession.GetPortalNuAsync();
+            }
+            catch (Exception ex)
+            {
+                _wellRydeSession.Dispose();
+                _wellRydeSession = null;
+                return "WellRyde /portal/nu failed: " + ex.Message;
+            }
+            if (!wrNu.IsSuccess)
+            {
+                _wellRydeSession.Dispose();
+                _wellRydeSession = null;
+                var nuPrefix = wrNu.StatusCode.HasValue
+                    ? "HTTP " + (int)wrNu.StatusCode.Value + " — "
+                    : "";
+                return nuPrefix + (wrNu.ErrorMessage ?? "Could not load /portal/nu.");
+            }
+            return null;
+        }
+
+        /// <summary>For billing: reuse active portal session or run the HTTP login chain using saved or on-screen Wellryde credentials.</summary>
+        private async Task<bool> EnsureWellRydePortalSessionForBillingAsync()
+        {
+            if (_wellRydePanelSessionActive && _wellRydeSession != null)
+            {
+                await SetLoadingGifLabel("Checking connections");
+                await SetLoadingGifLabel("Wellryde already signed in");
+                return true;
+            }
+
+            string companycode;
+            string username;
+            string password;
+            if (loginCB.SelectedIndex == 0)
+            {
+                companycode = (loginCodeTB.Text ?? "").Trim();
+                username = (loginUserTB.Text ?? "").Trim();
+                password = loginPassTB.Text ?? "";
+            }
+            else
+            {
+                companycode = (Properties.Settings.Default.wrCompanyCode ?? "").Trim();
+                username = (Properties.Settings.Default.wrUserName ?? "").Trim();
+                password = Properties.Settings.Default.wrUserPass ?? "";
+            }
+            if (string.IsNullOrEmpty(companycode) || string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
+            {
+                await SetLoadingGifLabel("Checking connections");
+                MessageBox.Show("Wellryde is not signed in. Use the Wellryde tab to sign in, or save credentials with Remember credentials.");
+                return false;
+            }
+
+            string err = await TryWellRydePortalHttpLoginAsync(companycode, username, password);
+            if (err != null)
+            {
+                MessageBox.Show(err);
+                return false;
+            }
+            _wellRydePanelSessionActive = true;
+            return true;
+        }
+
         private void RevealPass_Click(object sender, EventArgs e)
         {
             if (loginPassTB.Password == true)
@@ -367,15 +425,14 @@ namespace Hiatme_Tool_Suite_v3
         public void InitializeHiatmeLoginHandler()
         {
             hiatmeLoginHandler = new HiatmeLoginHandler();
-           // wrLoginHandler.PropertyChanged += UpdateWRConnectionStatus;
         }
         private void LoadHiatmeCredentials()
         {
-            if (Properties.Settings.Default.hiatmeUserName != string.Empty)
+            if (!string.IsNullOrWhiteSpace(Properties.Settings.Default.hiatmeUserName))
             {
                 loginCodeTB.Text = "Not Applicable";
                 loginUserTB.Text = Properties.Settings.Default.hiatmeUserName;
-                loginPassTB.Text = Properties.Settings.Default.hiatmeUserPass;
+                loginPassTB.Text = Properties.Settings.Default.hiatmeUserPass ?? "";
                 loginSwitch.Checked = true;
             }
             else
@@ -388,156 +445,23 @@ namespace Hiatme_Tool_Suite_v3
         }
         private void EnableHiatmeLogin()
         {
-            //loginConnLbl.Text = "Wellryde: Not Connected";
-            wrPBLight.Image = lightImageList.Images[0];
+            SetWrPbLightImage(0);
             loginCodeTB.Enabled = false;
             loginUserTB.Enabled = true;
             loginPassTB.Enabled = true;
             loginSwitch.Enabled = true;
             loginBtn.Text = "Login";
-            //MessageBox.Show("Wellryde logged out.");
+            loginCB.SelectedIndex = 2;
+            loginCB.Focus();
         }
         private void DisableHiatmeLogin()
         {
-            //loginConnLbl.Text = "Wellryde: Connected";
-            wrPBLight.Image = lightImageList.Images[1];
+            SetWrPbLightImage(1);
             loginUserTB.Enabled = false;
             loginPassTB.Enabled = false;
             loginSwitch.Enabled = false;
             loginBtn.Text = "Logout";
-            //MessageBox.Show("Wellryde logged in.");
-        }
-
-        //Wellryde Login Functions, Handlers etc
-        private async Task WRLogin()
-        {
-
-            if (manuallogin)
-            {
-                ShowLoadingGif();
-            }
-            loginCB.SelectedIndex = 0; loginCB.Focus();
-            string companycode = loginCodeTB.Text;
-            string username = loginUserTB.Text;
-            string password = loginPassTB.Text;
-
-           
-            if (companycode == "" || username == "" || password == "")
-            {
-                hidegiftimer.Start();
-                MessageBox.Show("Login information not entered.");
-                return;
-            }
-
-            //InitializeWRLoginHandler(); //load a new instance of login handler
-            //ShowLoadingGif(); //display loading screen
-            await wrLoginHandler.GetCompanyInfo(companycode, username, password); //get company info before login
-            //wrTripTools = new WRTripTools();
-
-            //HideLoadingGif();
-            if (wrLoginHandler.Connected)
-            {
-                //MessageBox.Show("Wellryde connected.");
-                SaveWRCredentials(companycode, username, password);
-            }
-            else
-            {
-                
-            }
-            if (manuallogin)
-            {
-                hidegiftimer.Start();
-            }
-        }
-        public void InitializeWRLoginHandler()
-        {
-            wrLoginHandler = new WRLoginHandler();
-            wrLoginHandler.PropertyChanged += UpdateWRConnectionStatus;
-        }
-        private void SaveWRCredentials(string code, string user, string pass)
-        {
-            string companycode = code;
-            string username = user;
-            string password = pass;
-
-            try
-            {
-                if (loginSwitch.Checked == false)
-                {
-                    Properties.Settings.Default.wrCompanyCode = "";
-                    Properties.Settings.Default.wrUserName = "";
-                    Properties.Settings.Default.wrUserPass = "";
-                    Properties.Settings.Default.Save();
-                }
-                else
-                {
-                    Properties.Settings.Default.wrCompanyCode = companycode;
-                    Properties.Settings.Default.wrUserName = username;
-                    Properties.Settings.Default.wrUserPass = password;
-                    Properties.Settings.Default.Save();
-                }
-            }
-            catch
-            {
-                Console.WriteLine("There was a problem saving credentials");
-            }
-        }
-        private void LoadWRCredentials()
-        {
-            if (Properties.Settings.Default.wrUserName != string.Empty)
-            {
-                loginCodeTB.Text = Properties.Settings.Default.wrCompanyCode;
-                loginUserTB.Text = Properties.Settings.Default.wrUserName;
-                loginPassTB.Text = Properties.Settings.Default.wrUserPass;
-                loginSwitch.Checked = true;
-            }
-            else
-            {
-                loginCodeTB.Text = "";
-                loginUserTB.Text = "";
-                loginPassTB.Text = "";
-                loginSwitch.Checked = false;
-            }
-        }
-        public async void UpdateWRConnectionStatus(object source, EventArgs args)
-        {
-            if (wrLoginHandler.Connected == true)
-            {
-                DisableWRLogin();
-            }
-            else
-            {
-                EnableWRLogin();
-                // Avoid stacking a second WRLogin while one is already running (session/CSRF refresh can flicker Connected).
-                if (!wrLoginHandler.IntentionalLogout && !wrLoginHandler.IsLoginInProgress)
-                {
-                    await SetLoadingGifLabel("Logging into Wellryde");
-                    await WRLogin();
-                }
-            }
-        }
-        private void EnableWRLogin()
-        {
-            //loginConnLbl.Text = "Wellryde: Not Connected";
-            wrPBLight.Image = lightImageList.Images[0];
-            loginCodeTB.Enabled = true;
-            loginUserTB.Enabled = true;
-            loginPassTB.Enabled = true;
-            loginSwitch.Enabled = true;
-            loginBtn.Text = "Login";
-            loginCB.SelectedIndex = 0; loginCB.Focus();
-            //MessageBox.Show("Wellryde logged out.");
-        }
-        private void DisableWRLogin()
-        {
-            //loginConnLbl.Text = "Wellryde: Connected";
-            wrPBLight.Image = lightImageList.Images[1];
-            loginCodeTB.Enabled = false;
-            loginUserTB.Enabled = false;
-            loginPassTB.Enabled = false;
-            loginSwitch.Enabled = false;
-            loginBtn.Text = "Logout";
-            //MessageBox.Show("Wellryde logged in.");
+            loginCB.SelectedIndex = 2;
         }
 
         //Modivcare Login Functions, Handlers etc
@@ -581,11 +505,11 @@ namespace Hiatme_Tool_Suite_v3
         }
         private void LoadMCCredentials()
         {
-            if (Properties.Settings.Default.mcUserName != string.Empty)
+            if (!string.IsNullOrWhiteSpace(Properties.Settings.Default.mcUserName))
             {
                 loginCodeTB.Text = "Not Applicable";
                 loginUserTB.Text = Properties.Settings.Default.mcUserName;
-                loginPassTB.Text = Properties.Settings.Default.mcUserPass;
+                loginPassTB.Text = Properties.Settings.Default.mcUserPass ?? "";
                 loginSwitch.Checked = true;
             }
             else
@@ -624,25 +548,25 @@ namespace Hiatme_Tool_Suite_v3
         private void EnableMCLogin()
         {
             //loginConnLbl.Text = "Wellryde: Not Connected";
-            wrPBLight.Image = lightImageList.Images[0];
+            SetWrPbLightImage(0);
             loginCodeTB.Enabled = false;
             loginUserTB.Enabled = true;
             loginPassTB.Enabled = true;
             loginSwitch.Enabled = true;
             loginBtn.Text = "Login";
-            loginCB.SelectedIndex = 1; loginCB.Focus();
-            //MessageBox.Show("Wellryde logged out.");
+            loginCB.SelectedIndex = 1;
+            loginCB.Focus();
         }
         private void DisableMCLogin()
         {
             //loginConnLbl.Text = "Wellryde: Connected";
-            wrPBLight.Image = lightImageList.Images[1];
+            SetWrPbLightImage(1);
             loginCodeTB.Enabled = false;
             loginUserTB.Enabled = false;
             loginPassTB.Enabled = false;
             loginSwitch.Enabled = false;
             loginBtn.Text = "Logout";
-            //MessageBox.Show("Wellryde logged in.");
+            loginCB.SelectedIndex = 1;
         }
         public async void UpdateMCConnectionStatus(object source, EventArgs args)
         {
@@ -738,6 +662,9 @@ namespace Hiatme_Tool_Suite_v3
             loadinggifhandler_showscreen();
 
             await SetLoadingGifLabel("Checking connections");
+            WellRydePortalSession wrForBatch = null;
+            if (await EnsureWellRydePortalSessionForBillingAsync())
+                wrForBatch = _wellRydeSession;
             await mcTimeCorrectionTool.GetBatchLinks(mcLoginHandler, true);
 
             foreach (MCBatchLink link in mcTimeCorrectionTool.mcBatchRecords.MCBatchLinks)
@@ -746,7 +673,7 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     mcTimeCorrectionTool.mcBatchRecords.ActiveBatchLink = link.BatchLinkToken;
                     batchlink = link;
-                    await mcTimeCorrectionTool.InitializeCorrections(mcLoginHandler, wrLoginHandler, link);
+                    await mcTimeCorrectionTool.InitializeCorrections(mcLoginHandler, link, wrForBatch);
                     await SetLoadingGifLabel("Initializing corrections");
                     await SetLoadingGifLabel("Calculating accuracies");
                     await LoadBtnAsync(batchlink);
@@ -965,40 +892,62 @@ namespace Hiatme_Tool_Suite_v3
         //Wellryde billing
         private async void billloadButton_Click(object sender, EventArgs e)
         {
-            ShowLoadingGif();  
-            wrBillingTool = new WRBillingTool();
+            ShowLoadingGif();
+            try
+            {
+                if (!await EnsureWellRydePortalSessionForBillingAsync())
+                    return;
+                if (_wellRydeSession == null)
+                    return;
+                await SetLoadingGifLabel("Loading trips");
+                WellRydePortalFilterDataResult reloadResult;
+                int portalTotalRecords;
+                try
+                {
+                    (reloadResult, portalTotalRecords) =
+                        await wrBillingTool.ReloadTripsFromPortalAsync(_wellRydeSession, rjDatePicker1.Value);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("WellRyde filterdata: " + ex.Message);
+                    return;
+                }
+                if (!reloadResult.IsSuccess)
+                {
+                    var prefix = reloadResult.StatusCode.HasValue
+                        ? "HTTP " + (int)reloadResult.StatusCode.Value + " — "
+                        : "";
+                    MessageBox.Show(prefix + (reloadResult.ErrorMessage ?? "filterdata failed."));
+                    return;
+                }
 
-            bool billall = false;
-            if (billingallcb.CheckState == CheckState.Checked)
-            {
-                billall = true;
+                BindBillingListViewFromWrTool(0, false, false);
+                var trips = wrBillingTool.WRTripList;
+                if (portalTotalRecords > 0 && trips != null && trips.Count != portalTotalRecords)
+                {
+                    billingstatuslbl.Text = "Status: WellRyde reports " + portalTotalRecords + " trips; " + trips.Count +
+                        " rows parsed for " + rjDatePicker1.Value.ToLongDateString() + ". " +
+                        wrBillingTool.WRCalculations.CalculateBillableTripCount(billingmmcb.CheckState, billingallcb.CheckState) +
+                        " billable, $" + wrBillingTool.WRCalculations.CalculateActualBillTotal(billingmmcb.CheckState, billingallcb.CheckState) + ".";
+                }
             }
-            else
+            finally
             {
-                billall = false;
+                hidegiftimer.Start();
             }
-            await SetLoadingGifLabel("Checking connections");
-            await populateBillingList(0, false, billall);
-            await SetLoadingGifLabel("Downloading trips");
-            await SetLoadingGifLabel("Preparing chart calculations");
-            DrawPriceGroupChart(wrBillingTool.WRCalculations.CalculateBillablePriceGroups());
-            await SetLoadingGifLabel("Finalizing process..");
-            hidegiftimer.Start();
         }
 
-        private List<BillableTrip> billedtrips = new List<BillableTrip>();
-        private async Task populateBillingList(decimal totalbilled, bool billinprogress, bool billexrta)
+        /// <summary>
+        /// Fills <see cref="billinglistview"/> from <see cref="WRBillingTool.WRTripList"/> / <see cref="WRBillingTool.WRCalculations"/>.
+        /// </summary>
+        private void BindBillingListViewFromWrTool(decimal totalbilled, bool billinprogress, bool billexrta)
         {
-           
-            await wrBillingTool.DownloadTrips(rjDatePicker1.Value.ToLongDateString(), rjDatePicker1.Value.Day, rjDatePicker1.Value.Year, wrLoginHandler);
-            Console.WriteLine(rjDatePicker1.Value.ToLongDateString());
+            if (wrBillingTool?.WRTripList == null || wrBillingTool.WRCalculations == null)
+                return;
 
             try
             {
-                Dictionary<WRDownloadedTrip, WRDownloadedTrip> mismatchtrips = new Dictionary<WRDownloadedTrip, WRDownloadedTrip>();
-
-                
-                mismatchtrips = wrBillingTool.FindTripPriceMismatches();
+                Dictionary<WRDownloadedTrip, WRDownloadedTrip> mismatchtrips = wrBillingTool.FindTripPriceMismatches();
                 billinglistview.Items.Clear();
                 foreach (WRDownloadedTrip trip in wrBillingTool.WRTripList)
                 {
@@ -1006,13 +955,9 @@ namespace Hiatme_Tool_Suite_v3
                     foreach (string alert in trip.Alerts)
                     {
                         if (alertseries != "")
-                        {
                             alertseries = alertseries + ", " + alert;
-                        }
                         else
-                        {
                             alertseries = alert;
-                        }
                     }
 
                     ListViewItem item = new ListViewItem();
@@ -1035,24 +980,19 @@ namespace Hiatme_Tool_Suite_v3
                     foreach (KeyValuePair<WRDownloadedTrip, WRDownloadedTrip> mmtrip in mismatchtrips)
                     {
                         if (mmtrip.Key.TripNumber == trip.TripNumber)
-                        {
                             item.BackColor = Color.OrangeRed;
-                        }
                     }
                 }
                 if (wrBillingTool.WRCalculations.CalculateBillableTripCount(billingmmcb.CheckState, billingallcb.CheckState) == 0)
                 {
                     if (!billinprogress)
                     {
-                        
                         billingstatuslbl.Text = "Status: " + wrBillingTool.WRTripList.Count.ToString() + " trips have been loaded for " + rjDatePicker1.Value.ToLongDateString() + ". " + wrBillingTool.WRCalculations.CalculateBillableTripCount(billingmmcb.CheckState, billingallcb.CheckState) + " trips are billable for a total of $" + wrBillingTool.WRCalculations.CalculateActualBillTotal(billingmmcb.CheckState, billingallcb.CheckState) + ".";
-                        //DrawBillableVsLossesChart(0, false, billexrta);
                     }
                     else
                     {
                         billinprogress = false;
                         billingstatuslbl.Text = "Status: " + wrBillingTool.WRTripList.Count.ToString() + " trips have been loaded for " + rjDatePicker1.Value.ToLongDateString() + ". " + wrBillingTool.WRCalculations.CalculateBillableTripCount(billingmmcb.CheckState, billingallcb.CheckState) + " trips are billable for a total of $" + wrBillingTool.WRCalculations.CalculateActualBillTotal(billingmmcb.CheckState, billingallcb.CheckState) + ".";
-                        //DrawBillableVsLossesChart(totalbilled, true, billexrta);
                     }
                 }
                 else
@@ -1060,19 +1000,36 @@ namespace Hiatme_Tool_Suite_v3
                     if (!billinprogress)
                     {
                         billingstatuslbl.Text = "Status: " + wrBillingTool.WRTripList.Count.ToString() + " trips have been loaded for " + rjDatePicker1.Value.ToLongDateString() + ". " + wrBillingTool.WRCalculations.CalculateBillableTripCount(billingmmcb.CheckState, billingallcb.CheckState) + " trips are billable for a total of $" + wrBillingTool.WRCalculations.CalculateActualBillTotal(billingmmcb.CheckState, billingallcb.CheckState) + ". Click 'SUBMIT' to submit.";
-                        //DrawBillableVsLossesChart(0, false, billexrta);
                     }
                     else
                     {
                         billinprogress = false;
                         billingstatuslbl.Text = "Status: Bill has been submitted. Trips may take some time to arrive for corrections.";
-                        //DrawBillableVsLossesChart(totalbilled, true, billexrta);
                     }
                 }
                 billinglistview.Columns[2].Text = "Alerts: " + wrBillingTool.WRCalculations.GetAlertCount().ToString();
             }
-            catch (Exception ex) { }
+            catch (Exception) { }
             wrBillingTool.WRCalculations.CheckIfAllTripsAreBeingBilled(billingmmcb.CheckState, billingallcb.CheckState);
+        }
+
+        private List<BillableTrip> billedtrips = new List<BillableTrip>();
+        private async Task populateBillingList(decimal totalbilled, bool billinprogress, bool billexrta)
+        {
+            if (_wellRydeSession != null)
+            {
+                try
+                {
+                    await wrBillingTool.ReloadTripsFromPortalAsync(_wellRydeSession, rjDatePicker1.Value);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine("Billing list refresh: " + ex.Message);
+                }
+            }
+
+            Console.WriteLine(rjDatePicker1.Value.ToLongDateString());
+            BindBillingListViewFromWrTool(totalbilled, billinprogress, billexrta);
         }
         private async void billsubmitbtn_Click(object sender, EventArgs e)
         {
@@ -1101,20 +1058,32 @@ namespace Hiatme_Tool_Suite_v3
             billtimer.Enabled = true;
             
             await SetLoadingGifLabel("Checking connections");
-            if (!wrLoginHandler.Connected)
-            {
-                loadinggifhandler_hidescreen();
-                MessageBox.Show("WellRyde is not connected. Use the login panel to connect, then submit again.");
-                return;
-            }
             try
             {
-                billedtrips = await wrBillingTool.SendBill(wrLoginHandler, billingmmcb.CheckState, billingallcb.CheckState);
+                if (!await EnsureWellRydePortalSessionForBillingAsync())
+                {
+                    loadinggifhandler_hidescreen();
+                    return;
+                }
+                if (_wellRydeSession == null)
+                {
+                    MessageBox.Show("WellRyde portal session is not available. Sign in on the WellRyde tab and try again.");
+                    loadinggifhandler_hidescreen();
+                    return;
+                }
+                billedtrips = await wrBillingTool.SendBill(_wellRydeSession, billingmmcb.CheckState, billingallcb.CheckState);
                 await SetLoadingGifLabel("Waiting for trips to arrive. 0 / " + billedtrips.Count + " trips billed..");
             }
-            catch (NullReferenceException ex)
+            catch (NullReferenceException)
             {
                 MessageBox.Show("You haven't loaded a list yet.");
+                loadinggifhandler_hidescreen();
+                return;
+            }
+            catch (InvalidOperationException ex)
+            {
+                MessageBox.Show("Billing submit failed: " + ex.Message);
+                loadinggifhandler_hidescreen();
                 return;
             }
 
@@ -1135,12 +1104,19 @@ namespace Hiatme_Tool_Suite_v3
             
         }
 
-        private void SubmitBill() { }
         int billed_trips_counter = 0;
         private async Task CheckForBillCompletion(List<BillableTrip> tripsbilled)
         {
             billed_trips_counter = 0;
-            await wrBillingTool.DownloadTrips(rjDatePicker1.Value.ToLongDateString(), rjDatePicker1.Value.Day, rjDatePicker1.Value.Year, wrLoginHandler);
+            try
+            {
+                if (await EnsureWellRydePortalSessionForBillingAsync() && _wellRydeSession != null)
+                    await wrBillingTool.ReloadTripsFromPortalAsync(_wellRydeSession, rjDatePicker1.Value);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Bill completion refresh: " + ex.Message);
+            }
 
             bool found_trip_not_billed = false;
             int billable_trip_counter = tripsbilled.Count;
@@ -1475,13 +1451,16 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         //Auto Ass
-        Analyzer analyzer = new Analyzer();
         private async void aaloadbtn_Click(object sender, EventArgs e)
         {
             ShowLoadingGif();
             
             await SetLoadingGifLabel("Checking connections");
-            analyzer.IntializeAnalyzer(mcLoginHandler, wrLoginHandler);
+            if (await EnsureWellRydePortalSessionForBillingAsync())
+                analyzer.SetWellRydePortalSession(_wellRydeSession);
+            else
+                analyzer.SetWellRydePortalSession(null);
+            analyzer.IntializeAnalyzer(mcLoginHandler);
             await analyzer.StartAnalysis(aadatepicker.Value.ToLongDateString(), aadatepicker.Value.Day, aadatepicker.Value.Year, aadatepicker.Value);
             await SetLoadingGifLabel("Downloading trips");
             await SetLoadingGifLabel("Starting ANAL-i-ZER");
@@ -1618,7 +1597,8 @@ namespace Hiatme_Tool_Suite_v3
 
 
             aalv.Columns[2].Text = "Alerts: " + analyzer.ReturnAlertCount().ToString();
-            aastatuslbl.Text = "Status: Analysis Completed with " + analyzer.ReturnAlertCount().ToString() + " alerts. Any corrections or changes to your schedule will have to be re-analyzed before assigning, or click 'ASSIGN' with current load.";
+            int assignPreview = analyzer.GetPlannedWellRydeAssignSlotCount();
+            aastatuslbl.Text = "Status: Analysis completed with " + analyzer.ReturnAlertCount().ToString() + " alerts. Assign preview: " + assignPreview.ToString() + " trip(s) matched WellRyde for ASSIGN. Re-analyze after schedule changes.";
             hidegiftimer.Start();
 
 
@@ -1643,7 +1623,11 @@ namespace Hiatme_Tool_Suite_v3
                         MessageBox.Show("You must load a schedule to continue.");
                         return;
                     }
-                    //ShowLoadingGif();
+                    await SetLoadingGifLabel("Checking WellRyde connection");
+                    if (await EnsureWellRydePortalSessionForBillingAsync())
+                        analyzer.SetWellRydePortalSession(_wellRydeSession);
+                    else
+                        analyzer.SetWellRydePortalSession(null);
                     await analyzer.StartTripAssigning(aadatepicker.Value.ToLongDateString(), aadatepicker.Value.Day, aadatepicker.Value.Year, aadatepicker.Value);
                 }
                 else if (dialogResult == DialogResult.No)
@@ -1662,13 +1646,22 @@ namespace Hiatme_Tool_Suite_v3
             }
             await SetLoadingGifLabel("Finalizing process..");
             hidegiftimer.Start();
-            aastatuslbl.Text = "Status: Assignments Completed with " + analyzer.GetAssignedTripCount().ToString() + " trips assigned and " + analyzer.GetReservedTripCount().ToString() + " remaining in reserves.";
+            var baseMsg = "Status: Assign step finished — WellRyde list shows " + analyzer.GetAssignedTripCount().ToString() + " Assigned and " + analyzer.GetReservedTripCount().ToString() + " Reserved.";
+            if (!Analyzer.WellRydePortalAssignAndUnassignCallsServer)
+                aastatuslbl.Text = baseMsg + " Assign/unassign from this button does not change the portal yet; assign in the browser if needed.";
+            else
+                aastatuslbl.Text = baseMsg;
         }
         private async void aareservesbtn_Click(object sender, EventArgs e)
         {
             ShowLoadingGif();
-            analyzer.IntializeAnalyzer(mcLoginHandler,wrLoginHandler);
-            
+            await SetLoadingGifLabel("Checking connections");
+            if (await EnsureWellRydePortalSessionForBillingAsync())
+                analyzer.SetWellRydePortalSession(_wellRydeSession);
+            else
+                analyzer.SetWellRydePortalSession(null);
+            analyzer.IntializeAnalyzer(mcLoginHandler);
+
             await analyzer.PullReserves(aadatepicker.Value.ToLongDateString(), aadatepicker.Value.Day, aadatepicker.Value.Year, aadatepicker.Value);
             hidegiftimer.Start();
         }
@@ -1678,12 +1671,15 @@ namespace Hiatme_Tool_Suite_v3
         private EmployeeStatManager EmployeeTable { get; set; }
         public async void CreateEmployeeStatTable()
         {
-            empStatManager = new EmployeeStatManager(tabPage8, wrLoginHandler, mcLoginHandler);
+            empStatManager = new EmployeeStatManager(tabPage8, mcLoginHandler);
             empStatManager.UpdateLoadingScreen += loadinggifhandler_update;
             empStatManager.ShowLoadingScreen += loadinggifhandler_showscreen;
             empStatManager.HideLoadingScreen += loadinggifhandler_hidescreen;
 
-            await empStatManager.InitializeEmployeeDler(this);
+            WellRydePortalSession wrSession = null;
+            if (await EnsureWellRydePortalSessionForBillingAsync())
+                wrSession = _wellRydeSession;
+            await empStatManager.InitializeEmployeeDler(this, wrSession, null);
         }
 
 

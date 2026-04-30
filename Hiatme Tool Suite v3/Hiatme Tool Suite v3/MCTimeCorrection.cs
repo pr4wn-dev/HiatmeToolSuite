@@ -23,7 +23,6 @@ namespace Hiatme_Tool_Suite_v3
 
         private MCTripDownloader mctripdler;
 
-        private WRTripDownloader wrtdler;
         public HttpContent testformContent { get; private set; }
         public HttpContent dummyformContent { get; private set; }
 
@@ -33,7 +32,6 @@ namespace Hiatme_Tool_Suite_v3
         {
             mcBatchRecords = new MCBatchRecords();
             mctripdler = new MCTripDownloader();
-            wrtdler = new WRTripDownloader();
             MaterialComboBox = new MaterialComboBox();
             MaterialComboBox = cb;
         }
@@ -284,7 +282,10 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-        public async Task InitializeCorrections(MCLoginHandler mcLoginHandler, WRLoginHandler wrLoginHandler, MCBatchLink mylink)
+        /// <summary>Loads batch trips and per-date Modivcare (and optional WellRyde) downloads for correction.</summary>
+        /// <param name="wellRydePortalSession">When non-null, loads that date's trips from the WellRyde portal for WR-aware correction logic.</param>
+        public async Task InitializeCorrections(MCLoginHandler mcLoginHandler, MCBatchLink mylink,
+            WellRydePortalSession wellRydePortalSession = null)
         {
             mcBatchRecords = new MCBatchRecords(); //  <---------NEW
 
@@ -367,17 +368,9 @@ namespace Hiatme_Tool_Suite_v3
                     RevampedCorrectModivcareTimes(mcBatchRecords.MCBatchTrips, addinfo);
                 }
                 */
-                if (MaterialComboBox.SelectedIndex == 1)
-                {
-                    await GetModivcareTripsForBatchDates(mcLoginHandler, GetParsedDate(addinfo), addinfo);
-                    await GetWellrydesBackupTripsForBatchDates(wrLoginHandler, GetParsedDate(addinfo), addinfo);
-                    RevampedCorrectModivcareTimes(mcBatchRecords.MCBatchTrips, addinfo);
-                }
-                else
-                {
-                    await GetWellrydesTripsForBatchDates(wrLoginHandler, GetParsedDate(addinfo), addinfo);
-                    RevampedCorrectModivcareTimes(mcBatchRecords.MCBatchTrips, addinfo);
-                }
+                await GetModivcareTripsForBatchDates(mcLoginHandler, GetParsedDate(addinfo), addinfo);
+                await LoadWellRydeTripsForBatchDateAsync(wellRydePortalSession, GetParsedDate(addinfo), addinfo);
+                RevampedCorrectModivcareTimes(mcBatchRecords.MCBatchTrips, addinfo);
             }
             mcBatchRecords.MCBatchAdditionalInfo = tempbatchdetaillist;
 
@@ -447,84 +440,32 @@ namespace Hiatme_Tool_Suite_v3
                 }
             Console.WriteLine("finished gathering trips!");
         }
-        private async Task GetWellrydesTripsForBatchDates(WRLoginHandler wrrLoginHandler, DateTime mcdate, MCBatchAdditionalInfo additionalInfo)
+        /// <summary>Loads <see cref="MCBatchAdditionalInfo.wrDownloadedTrips"/> from <c>POST /portal/filterdata</c> for the batch date.</summary>
+        private static async Task LoadWellRydeTripsForBatchDateAsync(WellRydePortalSession session, DateTime tripDate,
+            MCBatchAdditionalInfo additionalInfo)
         {
-            MCBatchAdditionalInfo mcbd = additionalInfo;
-            //WRTripDownloader wrtder = new WRTripDownloader();
+            additionalInfo.wrDownloadedTrips = new List<WRDownloadedTrip>();
+            if (session == null)
+                return;
 
-            //List<MCBatchAdditionalInfo> tempbatchdetaillist = new List<MCBatchAdditionalInfo>();
-
-            //download wellryde trips for date and store them in the batch details
-            mcbd.wrDownloadedTrips = new List<WRDownloadedTrip>();
-            mcbd.wrDownloadedTrips = await wrtdler.DownloadTripRecords(mcdate.DayOfWeek + ", " + CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(mcdate.Month) + " " + mcdate.Day + ", " + mcdate.Year, mcdate.Day, mcdate.Year, wrrLoginHandler);
-
-            if (mcbd.wrDownloadedTrips != null)
-                {
-                    Console.WriteLine("gathering trips for batch..");
-                    foreach (WRDownloadedTrip wrrtr in mcbd.wrDownloadedTrips) // error 'Object reference not set to an instance of an object.'
-                    {
-                        //Console.WriteLine(mcdate.DayOfWeek + ", " + CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(mcdate.Month) + " " + mcdate.Day + ", " + mcdate.Year + ": " + wrrtr.ClientName + " " + wrrtr.TripNumber);
-                        foreach (MCBatchTripRecord mcbtr in mcBatchRecords.MCBatchTrips)
-                        {
-                       // Console.WriteLine(mcbtr.Trip + " : " + wrrtr.TripNumber);
-                            if (mcbtr.Trip.Replace(" ", "") == wrrtr.TripNumber.Replace(" ", ""))
-                            {
-                                //Console.WriteLine(mcbtr.Trip + " : " + wrrtr.TripNumber);
-                                mcbtr.ScheduledPUTime = wrrtr.PUTime;
-                                mcbtr.ScheduledDOTime = wrrtr.DOTime;
-                             }
-                        }
-                    }
-
-                    tempbatchdetaillist.Add(mcbd);
-                }
-                else
-                {
-                    Console.WriteLine("durrrr..");
-                }
-            
-           // mcBatchRecords.MCBatchAdditionalInfo = tempbatchdetaillist;
-            //Console.WriteLine("finished gathering trips!");
-        }
-        private async Task GetWellrydesBackupTripsForBatchDates(WRLoginHandler wrrLoginHandler, DateTime mcdate, MCBatchAdditionalInfo additionalInfo)
-        {
-            MCBatchAdditionalInfo mcbd = additionalInfo;
-            //WRTripDownloader wrtder = new WRTripDownloader();
-
-            //List<MCBatchAdditionalInfo> tempbatchdetaillist = new List<MCBatchAdditionalInfo>();
-
-            //download wellryde trips for date and store them in the batch details
-            mcbd.wrDownloadedTrips = new List<WRDownloadedTrip>();
-            mcbd.wrDownloadedTrips = await wrtdler.DownloadTripRecords(mcdate.DayOfWeek + ", " + CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(mcdate.Month) + " " + mcdate.Day + ", " + mcdate.Year, mcdate.Day, mcdate.Year, wrrLoginHandler);
-            /*
-            if (mcbd.wrDownloadedTrips != null)
+            try
             {
-                Console.WriteLine("gathering trips for batch..");
-                foreach (WRDownloadedTrip wrrtr in mcbd.wrDownloadedTrips) // error 'Object reference not set to an instance of an object.'
+                var fd = await session.PostTripFilterDataAsync(tripDate,
+                    maxResults: WellRydePortalSession.DefaultTripFilterMaxResult).ConfigureAwait(false);
+                if (!fd.IsSuccess)
                 {
-                    //Console.WriteLine(mcdate.DayOfWeek + ", " + CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(mcdate.Month) + " " + mcdate.Day + ", " + mcdate.Year + ": " + wrrtr.ClientName + " " + wrrtr.TripNumber);
-                    foreach (MCBatchTripRecord mcbtr in mcBatchRecords.MCBatchTrips)
-                    {
-                        // Console.WriteLine(mcbtr.Trip + " : " + wrrtr.TripNumber);
-                        if (mcbtr.Trip.Replace(" ", "") == wrrtr.TripNumber.Replace(" ", ""))
-                        {
-                            //Console.WriteLine(mcbtr.Trip + " : " + wrrtr.TripNumber);
-                            mcbtr.ScheduledPUTime = wrrtr.PUTime;
-                            mcbtr.ScheduledDOTime = wrrtr.DOTime;
-                        }
-                    }
+                    Console.WriteLine("MCTimeCorrection: WellRyde filterdata failed for " + tripDate.ToString("d", CultureInfo.CurrentCulture) +
+                        ": " + (fd.ErrorMessage ?? "unknown error."));
+                    return;
                 }
 
-                tempbatchdetaillist.Add(mcbd);
-         
+                additionalInfo.wrDownloadedTrips =
+                    WellRydeFilterDataParser.ParseTrips(fd.JsonBody, out _) ?? new List<WRDownloadedTrip>();
             }
-            else
+            catch (Exception ex)
             {
-                Console.WriteLine("durrrr..");
+                Console.WriteLine("MCTimeCorrection: WellRyde load failed: " + ex.Message);
             }
-               */
-            // mcBatchRecords.MCBatchAdditionalInfo = tempbatchdetaillist;
-            //Console.WriteLine("finished gathering trips!");
         }
         private void CorrectModivcareTimes(List<MCBatchTripRecord> batchtrips, MCBatchAdditionalInfo dledtripsaddinfo)
         {

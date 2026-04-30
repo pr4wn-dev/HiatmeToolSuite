@@ -8,7 +8,6 @@ using System.Drawing.Drawing2D;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Net.Http;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Runtime.InteropServices;
@@ -92,44 +91,75 @@ namespace Hiatme_Tool_Suite_v3
         public event HideLoadingScreenHandler HideLoadingScreen;
         private bool pregrade { get; set; }
         private MCLoginHandler modivcareloginHandler { get; set; }
-        private WRLoginHandler wellrydeloginHandler { get; set; }
         public List<WRDrivers> WRDriverList { get; set; }
         private string scheduledate { get; set; }
-        /// <summary>Trip calendar date for the current WellRyde analysis (CSRF refresh on /portal/nu?date=).</summary>
-        private DateTime _wellRydeScheduleDate;
         private List<MCDownloadedTrip> modivcareDownloadedTrips { get; set; }
         public List<MCDriverTab> drivertablist { get; set; }
         public List<MCDownloadedTrip> loggedScheduleTrips { get; set; }
         private List<WRDownloadedTrip> wellrydeDownloadedTrips { get; set; }
-        public void IntializeAnalyzer(MCLoginHandler mCloginHandler, WRLoginHandler wRLoginHandler)
+        /// <summary>Optional portal session for schedule analysis (hidden trips, escorts, assign UUIDs, reserves).</summary>
+        private WellRydePortalSession _wellRydePortalSession;
+
+        /// <summary>
+        /// When false, <see cref="UnassignTripBatch"/> and <see cref="SubmitTripBatch"/> do not POST to WellRyde; the UI only refreshes the trip list.
+        /// </summary>
+        public static bool WellRydePortalAssignAndUnassignCallsServer { get; set; } = true;
+
+        /// <summary>Set before <see cref="StartAnalysis"/> / <see cref="PullReserves"/> / <see cref="StartTripAssigning"/> to load WellRyde trips and drivers; pass null for MC-only.</summary>
+        public void SetWellRydePortalSession(WellRydePortalSession session)
+        {
+            _wellRydePortalSession = session;
+        }
+
+        public void IntializeAnalyzer(MCLoginHandler mCloginHandler)
         {
             modivcareloginHandler = mCloginHandler;
-            wellrydeloginHandler = wRLoginHandler;
         }
+
+        private async Task TryLoadWellRydeTripsAndDriversAsync(DateTime tripDate)
+        {
+            if (_wellRydePortalSession == null)
+                return;
+
+            wellrydeDownloadedTrips = new List<WRDownloadedTrip>();
+            WRDriverList = new List<WRDrivers>();
+
+            try
+            {
+                await AsyncUpdateLoadingScreen("Downloading WellRyde trips");
+                var nu = await _wellRydePortalSession.GetPortalNuAsync();
+                if (!nu.IsSuccess)
+                    return;
+
+                var fd = await _wellRydePortalSession.PostTripFilterDataAsync(tripDate,
+                    maxResults: WellRydePortalSession.DefaultTripFilterMaxResult).ConfigureAwait(false);
+                if (!fd.IsSuccess)
+                    return;
+
+                wellrydeDownloadedTrips = WellRydeFilterDataParser.ParseTrips(fd.JsonBody, out _);
+                WRDriverList = await _wellRydePortalSession.GetAllDriversForTripAssignmentAsync().ConfigureAwait(false)
+                    ?? new List<WRDrivers>();
+            }
+            catch
+            {
+                wellrydeDownloadedTrips = new List<WRDownloadedTrip>();
+                WRDriverList = new List<WRDrivers>();
+            }
+        }
+
         public async Task StartAnalysis(string longdatestr, int dayint, int yearint, DateTime mcdate)
         {
-            _wellRydeScheduleDate = WellRydeTripParsing.ResolveTripDate(longdatestr, dayint, yearint);
+            _ = ScheduleDateHelper.ResolveTripDate(longdatestr, dayint, yearint);
             notecount = 0;
             drivertablist = new List<MCDriverTab>();
-            WRTripDownloader wrtd = new WRTripDownloader();
             wellrydeDownloadedTrips = new List<WRDownloadedTrip>();
-            wellrydeDownloadedTrips = await wrtd.DownloadTripRecords(longdatestr, dayint, yearint, wellrydeloginHandler);
-
-            /*
-            if (wellrydeDownloadedTrips == null)
-            {
-                await wellrydeloginHandler.ResetConnection();
-                drivertablist = new List<MCDriverTab>();
-                wrtd = new WRTripDownloader();
-                wellrydeDownloadedTrips = new List<WRDownloadedTrip>();
-                wellrydeDownloadedTrips = await wrtd.DownloadTripRecords(longdatestr, dayint, yearint, wellrydeloginHandler);
-            }
-            */
-            WRDriverList = await wrtd.GetAllDrivers(wellrydeloginHandler);
+            WRDriverList = new List<WRDrivers>();
 
             MCTripDownloader mctd = new MCTripDownloader();
             modivcareDownloadedTrips = new List<MCDownloadedTrip>();
             modivcareDownloadedTrips = await mctd.DownloadTripRecords(mcdate, modivcareloginHandler);
+
+            await TryLoadWellRydeTripsAndDriversAsync(mcdate);
 
             loggedScheduleTrips = new List<MCDownloadedTrip>();
 
@@ -255,6 +285,15 @@ namespace Hiatme_Tool_Suite_v3
             }
             gradeList.Add(alertMaintenance);
         }
+
+        /// <summary>Matches legacy behavior: WellRyde portal ids were shortened with <see cref="WellRydeFilterDataParser.FormatTripIdForScheduleMatch"/>; Modivcare may use either form.</summary>
+        private static bool WellRydeTripNumberMatchesMc(string wrTripNumber, string mcTripNumber)
+        {
+            string a = WellRydeFilterDataParser.FormatTripIdForScheduleMatch((wrTripNumber ?? "").Replace(" ", ""));
+            string b = WellRydeFilterDataParser.FormatTripIdForScheduleMatch((mcTripNumber ?? "").Replace(" ", ""));
+            return string.Equals(a, b, StringComparison.Ordinal);
+        }
+
         private void FindHiddenTrips()
         {
             if (wellrydeDownloadedTrips.Any() & modivcareDownloadedTrips.Any())
@@ -264,7 +303,7 @@ namespace Hiatme_Tool_Suite_v3
                     bool tripfound = false;
                     foreach (WRDownloadedTrip wrdt in wellrydeDownloadedTrips)
                     {
-                        if (wrdt.TripNumber.Replace(" ", "") == mcdt.TripNumber.Replace(" ", ""))
+                        if (WellRydeTripNumberMatchesMc(wrdt.TripNumber, mcdt.TripNumber))
                         {
                             tripfound = true;
                             break;
@@ -279,25 +318,50 @@ namespace Hiatme_Tool_Suite_v3
         }
         private void FindWrongDatesInSchedule(DateTime modivecaredate)
         {
-            string datestr = ReturnDateFromMCTime(modivecaredate.ToString());
-            if (drivertablist.Any())
+            if (!drivertablist.Any())
+                return;
+            foreach (MCDriverTab dt in drivertablist)
             {
-                foreach (MCDriverTab dt in drivertablist)
+                foreach (MCDownloadedTrip mcst in dt.scheduledTrips)
                 {
-                    foreach (MCDownloadedTrip mcst in dt.scheduledTrips)
+                    try
                     {
-                        try
-                        {
-                            if (mcst.Date != datestr)
-                            {
-                                CheckIfTripIsAlreadyLogged(mcst, "Date");
-                            }
-                        }
-                        catch (ScheduleAnalysisException) { throw; }
-                        catch (Exception ex) { throw new ScheduleAnalysisException("FindWrongDatesInSchedule", dt.driverName, mcst?.TripNumber, ex); }
+                        // Legacy compared raw strings; Excel/CSV dates often differ from picker ToString() (e.g. 04/29 vs 4/29).
+                        if (!ScheduleTripDateMatchesPicker(mcst.Date, modivecaredate))
+                            CheckIfTripIsAlreadyLogged(mcst, "Date");
                     }
+                    catch (ScheduleAnalysisException) { throw; }
+                    catch (Exception ex) { throw new ScheduleAnalysisException("FindWrongDatesInSchedule", dt.driverName, mcst?.TripNumber, ex); }
                 }
             }
+        }
+
+        /// <summary>True if the schedule row date is the same calendar day as the analysis date picker.</summary>
+        private bool ScheduleTripDateMatchesPicker(string mcScheduleDateField, DateTime pickerDateTime)
+        {
+            if (string.IsNullOrWhiteSpace(mcScheduleDateField))
+                return false;
+            string s = mcScheduleDateField.Trim();
+            DateTime parsed;
+            if (DateTime.TryParse(s, CultureInfo.CurrentCulture, DateTimeStyles.None, out parsed))
+                return parsed.Date == pickerDateTime.Date;
+            if (DateTime.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.None, out parsed))
+                return parsed.Date == pickerDateTime.Date;
+            if (double.TryParse(s, NumberStyles.Any, CultureInfo.InvariantCulture, out double oa))
+            {
+                try
+                {
+                    return DateTime.FromOADate(oa).Date == pickerDateTime.Date;
+                }
+                catch
+                {
+                    // ignore
+                }
+            }
+
+            string expectedFromPicker = ReturnDateFromMCTime(pickerDateTime.ToString());
+            return string.Equals(s, expectedFromPicker, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(ReturnDateFromMCTime(s), expectedFromPicker, StringComparison.OrdinalIgnoreCase);
         }
         private void CheckForDuplicateTickets()
         {
@@ -427,7 +491,7 @@ namespace Hiatme_Tool_Suite_v3
                         {
                             foreach (WRDownloadedTrip wrdt in wellrydeDownloadedTrips)
                             {
-                                if (wrdt.TripNumber.Replace(" ", "") == mcst.TripNumber.Replace(" ", ""))
+                                if (WellRydeTripNumberMatchesMc(wrdt.TripNumber, mcst.TripNumber))
                                 {
                                     if (Convert.ToInt16(wrdt.Escorts) > 0)
                                     {
@@ -850,9 +914,13 @@ namespace Hiatme_Tool_Suite_v3
         }
         public async Task StartTripAssigning(string longdatestr, int dayint, int yearint, DateTime mcdate)
         {
-            await AsyncUpdateLoadingScreen("Unassigning trips");
+            await TryLoadWellRydeTripsAndDriversAsync(mcdate);
+            if (!WellRydePortalAssignAndUnassignCallsServer)
+                await AsyncUpdateLoadingScreen("WellRyde: assign/unassign from this app is not connected to the portal yet");
+            else
+                await AsyncUpdateLoadingScreen("Unassigning trips on WellRyde");
             await UnassignTrips();
-            
+
             await AssignTrips(longdatestr, dayint, yearint, mcdate);
         }
         public int GetAssignedTripCount()
@@ -879,6 +947,54 @@ namespace Hiatme_Tool_Suite_v3
             }
             return restripcount;
         }
+
+        /// <summary>
+        /// Same matching rules as <see cref="AssignTrips"/>: assignable MC trips per driver tab with a non-cancelled WellRyde row (trip number match).
+        /// Total UUID slots that would be sent in assign batches (same WR trip may appear more than once if the schedule repeats a trip number).
+        /// </summary>
+        public int GetPlannedWellRydeAssignSlotCount()
+        {
+            if (drivertablist == null || !drivertablist.Any())
+                return 0;
+            if (WRDriverList == null || !WRDriverList.Any() || wellrydeDownloadedTrips == null || !wellrydeDownloadedTrips.Any())
+                return 0;
+
+            int total = 0;
+            foreach (MCDriverTab dt in drivertablist)
+            {
+                foreach (WRDrivers driver in WRDriverList)
+                {
+                    if (dt.driverName != SplitDriverName(driver.text))
+                        continue;
+                    total += BuildTripUuidListForAssignToDriver(dt).Count;
+                }
+            }
+
+            return total;
+        }
+
+        private List<string> BuildTripUuidListForAssignToDriver(MCDriverTab dt)
+        {
+            var driverstrips = new List<string>();
+            if (wellrydeDownloadedTrips == null)
+                return driverstrips;
+            foreach (MCDownloadedTrip mcst in dt.scheduledTrips)
+            {
+                if (!mcst.Assignable)
+                    continue;
+                foreach (WRDownloadedTrip wrdt in wellrydeDownloadedTrips)
+                {
+                    if (WellRydeTripNumberMatchesMc(wrdt.TripNumber, mcst.TripNumber) && wrdt.Status != "Cancelled")
+                    {
+                        driverstrips.Add(wrdt.TripUUID);
+                        break;
+                    }
+                }
+            }
+
+            return driverstrips;
+        }
+
         private async Task UnassignTrips()
         {
             if (drivertablist.Any() & wellrydeDownloadedTrips.Any())
@@ -899,72 +1015,26 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (trips == null || trips.Count == 0)
                 return;
-            if (attempt >= 3)
+            if (!WellRydePortalAssignAndUnassignCallsServer)
             {
-                Console.WriteLine("UnassignTripBatch: validation failed after CSRF retries; skipping finalize.");
+                Console.WriteLine("UnassignTripBatch: skipped (WellRydePortalAssignAndUnassignCallsServer is false).");
+                return;
+            }
+            if (_wellRydePortalSession == null)
+            {
+                Console.WriteLine("UnassignTripBatch: no WellRyde portal session.");
                 return;
             }
 
-            string tripformlist = "";
-            foreach (string trip in trips)
-                tripformlist += trip + ",";
-
-            var formContent = new FormUrlEncodedContent(new[]{
-             new KeyValuePair<string, string>("tripUUIDs", tripformlist),
-             new KeyValuePair<string, string>("_csrf", wellrydeloginHandler._CsrfToken ?? ""),
-             });
-
-            HttpResponseMessage res = await wellrydeloginHandler.Client.PostAsync(WellRydeConfig.TripUnAssignValidationUrl, formContent);
-            var response = await res.Content.ReadAsStringAsync();
-
-            Console.WriteLine(response.Length);
-            bool sessionLost = string.IsNullOrEmpty(response)
-                || WellRydeTripParsing.LooksLikeNonJsonPayload(response)
-                || WellRydeTripParsing.ResponseIndicatesPortalLogin(res);
-
-            if (sessionLost)
-            {
-                Console.WriteLine("UnassignTripBatch: retry validation attempt " + (attempt + 1) + " bodyPrefix=" + (response?.Length > 200 ? response.Substring(0, 200) : response));
-                await wellrydeloginHandler.TryRefreshTripsNuCsrfAsync(_wellRydeScheduleDate);
-                await wellrydeloginHandler.TryRefreshPortalCsrfAsync();
-                await Task.Delay(400);
-                await UnassignTripBatch(trips, attempt + 1);
-                return;
-            }
-
-            await FinalizeUnassignTripBatch(trips);
+            var result = await _wellRydePortalSession.PostUnassignTripsAsync(trips).ConfigureAwait(false);
+            if (!result.IsSuccess)
+                Console.WriteLine("UnassignTripBatch failed: " + result.ErrorMessage +
+                    (string.IsNullOrEmpty(result.ResponseBody) ? "" : " | " + result.ResponseBody));
         }
-        private async Task FinalizeUnassignTripBatch(List<string> tripscopy, int attempt = 0)
+
+        private Task FinalizeUnassignTripBatch(List<string> tripscopy, int attempt = 0)
         {
-            if (tripscopy == null || tripscopy.Count == 0)
-                return;
-            if (attempt >= 3)
-            {
-                Console.WriteLine("FinalizeUnassignTripBatch: gave up after retries.");
-                return;
-            }
-
-            string tripformlist = "";
-            foreach (string trip in tripscopy)
-                tripformlist += trip + ",";
-
-            var formContent = new FormUrlEncodedContent(new[]{
-             new KeyValuePair<string, string>("vizzonIds", tripformlist),
-             new KeyValuePair<string, string>("viewName", "trip"),
-             new KeyValuePair<string, string>("_csrf", wellrydeloginHandler._CsrfToken ?? ""),
-             });
-
-            HttpResponseMessage res = await wellrydeloginHandler.Client.PostAsync(WellRydeConfig.TripUnassignUrl, formContent);
-            var response = await res.Content.ReadAsStringAsync();
-
-            if (!res.IsSuccessStatusCode || WellRydeTripParsing.LooksLikeNonJsonPayload(response))
-            {
-                Console.WriteLine("FinalizeUnassignTripBatch: retry unassign attempt " + (attempt + 1));
-                await wellrydeloginHandler.TryRefreshTripsNuCsrfAsync(_wellRydeScheduleDate);
-                await wellrydeloginHandler.TryRefreshPortalCsrfAsync();
-                await Task.Delay(400);
-                await FinalizeUnassignTripBatch(tripscopy, attempt + 1);
-            }
+            return Task.CompletedTask;
         }
         private async Task AssignTrips(string longdatestring, int dayintnum, int yearintnum, DateTime mcdatedt)
         {
@@ -977,74 +1047,46 @@ namespace Hiatme_Tool_Suite_v3
                         if (dt.driverName == SplitDriverName(driver.text))
                         {
                             Console.WriteLine(driver.text + ":" + driver.value);
-                            List<string> driverstrips = new List<string>();
-
+                            List<string> driverstrips = BuildTripUuidListForAssignToDriver(dt);
                             foreach (MCDownloadedTrip mcst in dt.scheduledTrips)
                             {
                                 if (mcst.Assignable)
-                                {
                                     Console.WriteLine(mcst.TripNumber + " [alerts: " + mcst.GetAlerts() + "]");
-
-                                    foreach (WRDownloadedTrip wrdt in wellrydeDownloadedTrips)
-                                    {
-                                        if (wrdt.TripNumber.Replace(" ", "") == mcst.TripNumber.Replace(" ", ""))
-                                        {
-                                            if (wrdt.Status != "Cancelled")
-                                            {
-                                                driverstrips.Add(wrdt.TripUUID);
-                                                break;
-                                            }
-                                        }
-                                    }
-                                }
                             }
 
-                            await AsyncUpdateLoadingScreen("Assigning " + driverstrips.Count + " trips to " + SplitDriverName(driver.text));
+                            if (WellRydePortalAssignAndUnassignCallsServer)
+                                await AsyncUpdateLoadingScreen("Assigning " + driverstrips.Count + " trips to " + SplitDriverName(driver.text));
+                            else
+                                await AsyncUpdateLoadingScreen("Would assign " + driverstrips.Count + " trips to " + SplitDriverName(driver.text) + " (not sent to WellRyde)");
                             await SubmitTripBatch(driver.value, driverstrips);
                            
                         }
                     }
                 }
 
-                WRTripDownloader wrtd = new WRTripDownloader();
-                wellrydeDownloadedTrips = new List<WRDownloadedTrip>();
-                await AsyncUpdateLoadingScreen("Refreshing records");
-                wellrydeDownloadedTrips = await wrtd.DownloadTripRecords(longdatestring, dayintnum, yearintnum, wellrydeloginHandler);
+                await AsyncUpdateLoadingScreen("Refreshing WellRyde trip list");
+                await TryLoadWellRydeTripsAndDriversAsync(mcdatedt);
             }
         }
         private async Task SubmitTripBatch(string id, List<string> trips, int attempt = 0)
         {
-            Console.WriteLine("About to submit trips for driver id: " + id);
             if (trips == null || trips.Count == 0)
                 return;
-            if (attempt >= 3)
+            if (!WellRydePortalAssignAndUnassignCallsServer)
             {
-                Console.WriteLine("SubmitTripBatch: assignTripDriver failed after retries for driver " + id);
+                Console.WriteLine("SubmitTripBatch: skipped (flag false) for driver id: " + id);
+                return;
+            }
+            if (_wellRydePortalSession == null)
+            {
+                Console.WriteLine("SubmitTripBatch: no WellRyde portal session for driver id: " + id);
                 return;
             }
 
-            string tripformlist = "";
-            foreach (string trip in trips)
-                tripformlist += trip + ",";
-
-            var formContent = new FormUrlEncodedContent(new[]{
-             new KeyValuePair<string, string>("tripUUIDs", tripformlist),
-             new KeyValuePair<string, string>("driverId", id),
-             new KeyValuePair<string, string>("hasAssigned", "0"),
-             new KeyValuePair<string, string>("_csrf", wellrydeloginHandler._CsrfToken ?? ""),
-             });
-
-            HttpResponseMessage res = await wellrydeloginHandler.Client.PostAsync(WellRydeConfig.TripAssignTripDriverUrl, formContent);
-            var response = await res.Content.ReadAsStringAsync();
-
-            if (!res.IsSuccessStatusCode || WellRydeTripParsing.LooksLikeNonJsonPayload(response))
-            {
-                Console.WriteLine("SubmitTripBatch: retry assign attempt " + (attempt + 1) + " status=" + res.StatusCode);
-                await wellrydeloginHandler.TryRefreshTripsNuCsrfAsync(_wellRydeScheduleDate);
-                await wellrydeloginHandler.TryRefreshPortalCsrfAsync();
-                await Task.Delay(400);
-                await SubmitTripBatch(id, trips, attempt + 1);
-            }
+            var result = await _wellRydePortalSession.PostAssignTripsToDriverAsync(id, trips).ConfigureAwait(false);
+            if (!result.IsSuccess)
+                Console.WriteLine("SubmitTripBatch failed for " + id + ": " + result.ErrorMessage +
+                    (string.IsNullOrEmpty(result.ResponseBody) ? "" : " | " + result.ResponseBody));
         }
 
 
@@ -1058,21 +1100,20 @@ namespace Hiatme_Tool_Suite_v3
             await AsyncUpdateLoadingScreen("Checking connections");
             List<MCDownloadedTrip> resservedtrips = new List<MCDownloadedTrip>();
 
-            WRTripDownloader wrtd = new WRTripDownloader();
             wellrydeDownloadedTrips = new List<WRDownloadedTrip>();
-            wellrydeDownloadedTrips = await wrtd.DownloadTripRecords(longdatestr, dayint, yearint, wellrydeloginHandler);
 
             MCTripDownloader mctd = new MCTripDownloader();
             modivcareDownloadedTrips = new List<MCDownloadedTrip>();
             modivcareDownloadedTrips = await mctd.DownloadTripRecords(mcdate, modivcareloginHandler);
             await AsyncUpdateLoadingScreen("Downloading trips");
+            await TryLoadWellRydeTripsAndDriversAsync(mcdate);
             if (wellrydeDownloadedTrips.Any() & modivcareDownloadedTrips.Any())
             {
                 foreach (MCDownloadedTrip mcdt in modivcareDownloadedTrips)
                 {
                     foreach (WRDownloadedTrip wrdt in wellrydeDownloadedTrips)
                     {
-                        if (wrdt.TripNumber.Replace(" ", "") == mcdt.TripNumber.Replace(" ", ""))
+                        if (WellRydeTripNumberMatchesMc(wrdt.TripNumber, mcdt.TripNumber))
                         {
                             if (wrdt.Status == "Reserved")
                             {

@@ -1,12 +1,10 @@
-﻿using Hiatme_Tools;
-using Newtonsoft.Json;
-using System;
+﻿using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Net.Http;
-using System.Text;
+using System.Net;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using Newtonsoft.Json;
 
 namespace Hiatme_Tool_Suite_v3
 {
@@ -14,71 +12,86 @@ namespace Hiatme_Tool_Suite_v3
     {
         public List<WRDownloadedTrip> WRTripList { get; set; }
         public WRCalculations WRCalculations { get; set; }
-        public async Task DownloadTrips(string longdatestr, int dayint, int yearint, WRLoginHandler wrlgnhandler)
+
+        /// <summary>
+        /// Reloads <see cref="WRTripList"/> from <c>POST /portal/filterdata</c> (same path as billing tab Load).
+        /// On failure, existing list and calculations are left unchanged. <paramref name="portalTotalRecords"/> is 0 unless the reload and parse succeed.
+        /// </summary>
+        public async Task<(WellRydePortalFilterDataResult result, int portalTotalRecords)> ReloadTripsFromPortalAsync(
+            WellRydePortalSession portalSession, DateTime tripDate, CancellationToken cancellationToken = default)
         {
-            WRTripDownloader wrtd = new WRTripDownloader();
-            WRTripList = await wrtd.DownloadTripRecords(longdatestr, dayint, yearint, wrlgnhandler)
-                ?? new List<WRDownloadedTrip>();
-            WRCalculations = new WRCalculations(WRTripList);
+            if (portalSession == null)
+                return (WellRydePortalFilterDataResult.Fail(null, "WellRyde portal session is not available."), 0);
+
+            WellRydePortalFilterDataResult fd;
+            try
+            {
+                fd = await portalSession.PostTripFilterDataAsync(tripDate,
+                    maxResults: WellRydePortalSession.DefaultTripFilterMaxResult, cancellationToken: cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                return (WellRydePortalFilterDataResult.Fail(null, ex.Message ?? "filterdata request failed."), 0);
+            }
+
+            if (!fd.IsSuccess)
+                return (fd, 0);
+
+            int portalTotalRecords;
+            try
+            {
+                var trips = WellRydeFilterDataParser.ParseTrips(fd.JsonBody, out portalTotalRecords);
+                WRTripList = trips ?? new List<WRDownloadedTrip>();
+                WRCalculations = new WRCalculations(WRTripList);
+            }
+            catch (Exception ex)
+            {
+                return (WellRydePortalFilterDataResult.Fail(fd.StatusCode,
+                    "Failed to parse trip list: " + (ex.Message ?? "unknown error."), fd.JsonBody), 0);
+            }
+
+            return (WellRydePortalFilterDataResult.Ok(
+                fd.StatusCode.GetValueOrDefault(HttpStatusCode.OK),
+                fd.JsonBody ?? string.Empty), portalTotalRecords);
         }
+
         public Dictionary<WRDownloadedTrip, WRDownloadedTrip> FindTripPriceMismatches()
         {
-            return WRCalculations.GetTripPriceMismatches();
+            return WRCalculations?.GetTripPriceMismatches() ?? new Dictionary<WRDownloadedTrip, WRDownloadedTrip>();
         }
-        public async Task<List<BillableTrip>> SendBill(WRLoginHandler wrLoginHandler, System.Windows.Forms.CheckState sendmismatchtrips, System.Windows.Forms.CheckState sendalltrips)
+
+        /// <summary>
+        /// Builds billable trips from <see cref="WRCalculations.BillableTrips"/> (legacy status rules: e.g. Completed, Dropoff Completed, In Progress, etc.)
+        /// and POSTs them to <c>/portal/trip/saveBillData</c> as JSON in <c>formData</c>.
+        /// </summary>
+        public async Task<List<BillableTrip>> SendBill(WellRydePortalSession portalSession,
+            System.Windows.Forms.CheckState sendmismatchtrips, System.Windows.Forms.CheckState sendalltrips)
         {
-            string jsonString = string.Empty;
+            if (portalSession == null)
+                throw new ArgumentNullException(nameof(portalSession));
 
-            jsonString = JsonConvert.SerializeObject(WRCalculations.BillableTrips(sendmismatchtrips, sendalltrips));
+            if (WRCalculations == null)
+                WRCalculations = new WRCalculations(WRTripList ?? new List<WRDownloadedTrip>());
 
-            if (await SendBillRequest(jsonString, wrLoginHandler) == "SUCCESS")
+            List<BillableTrip> billable = WRCalculations.BillableTrips(sendmismatchtrips, sendalltrips);
+            if (billable.Count == 0)
+                return billable;
+
+            string json = JsonConvert.SerializeObject(billable);
+            WellRydePortalSaveBillResult result = await portalSession.PostSaveBillDataAsync(json).ConfigureAwait(false);
+            if (!result.IsSuccess)
             {
-               // wrstatuslbl.Text = "Status: Batch successfully submitted.";
-               // MessageBox.Show("Batch successfully submitted!");
+                string msg = result.ErrorMessage ?? "saveBillData failed.";
+                if (!string.IsNullOrEmpty(result.ResponseBody) && result.ResponseBody != result.ErrorMessage)
+                    msg = msg + Environment.NewLine + result.ResponseBody;
+                throw new InvalidOperationException(msg);
             }
-            return WRCalculations.BillableTrips(sendmismatchtrips, sendalltrips);
-        }
-        private async Task<string> SendBillRequest(string formData, WRLoginHandler wrloginhandler)
-        {
-            string lastBody = "";
-            for (int attempt = 0; attempt < 3; attempt++)
-            {
-                try
-                {
-                    if (string.IsNullOrEmpty(wrloginhandler._CsrfToken))
-                        await wrloginhandler.TryRefreshPortalCsrfAsync();
 
-                    var formContent = new FormUrlEncodedContent(new[]{
-                    new KeyValuePair<string, string>("formData", formData),
-                    new KeyValuePair<string, string>("saveSubmit", "true"),
-                    new KeyValuePair<string, string>("_csrf", wrloginhandler._CsrfToken ?? ""),
-                    });
-
-                    using (var res = await wrloginhandler.Client.PostAsync(WellRydeConfig.TripSaveBillDataUrl, formContent))
-                    {
-                        lastBody = await res.Content.ReadAsStringAsync();
-                        if (res.IsSuccessStatusCode && WellRydeTripParsing.BillSubmitBodyIndicatesSuccess(lastBody))
-                            return "SUCCESS";
-                        if (res.IsSuccessStatusCode && !WellRydeTripParsing.BillSubmitBodyIndicatesSuccess(lastBody))
-                            Console.WriteLine("saveBillData: unexpected body (not SUCCESS): " + (lastBody?.Length > 200 ? lastBody.Substring(0, 200) : lastBody));
-                        else
-                            Console.WriteLine("saveBillData: " + res.StatusCode);
-                    }
-                    await wrloginhandler.TryRefreshPortalCsrfAsync();
-                    await Task.Delay(400);
-                }
-                catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
-                {
-                    Console.WriteLine("Timed out: " + ex.Message);
-                }
-                catch (TaskCanceledException ex)
-                {
-                    Console.WriteLine("Canceled: " + ex.Message);
-                }
-            }
-            return lastBody ?? "";
+            return billable;
         }
     }
+
     internal class BillableTrip
     {
         public string tripUUID { get; set; }
