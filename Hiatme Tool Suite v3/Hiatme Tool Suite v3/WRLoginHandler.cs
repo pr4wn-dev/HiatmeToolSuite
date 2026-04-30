@@ -35,9 +35,11 @@ namespace Hiatme_Tool_Suite_v3
         public string SESSION { get; set; }
         public bool IntentionalLogout { get; set; }
         private int _loginGate;
-        /// <summary>Last successful <c>GET /portal/nu?date=…</c> URL (with optional hash) — used for servlet primes / timezone POST, not for XHR <c>Referer</c> (Chrome HAR uses bare <c>/portal/nu</c>).</summary>
+        /// <summary>Last successful <c>GET /portal/nu?date=…</c> URL (with optional hash). Used for Tomcat static-probe <c>Referer</c> in <see cref="TryAcquireTomcatJsessionViaNativeHandlerAsync"/> (dated SPA context). Trip <c>filterlist</c> uses bare <see cref="TripsRefererForWellRydeAjax"/> (Chrome Fiddler gold).</summary>
         private string _lastTripsNuRefererWithDate;
-        /// <summary>Tomcat id from <c>;jsessionid=</c> in <c>/portal/nu</c> HTML when <c>Set-Cookie</c> never stores <c>JSESSIONID</c> — used as URL rewrite on <c>POST /portal/filterdata</c>.</summary>
+        /// <summary>After <see cref="TryRefreshTripsNuCsrfAsync"/> succeeds, <see cref="PostWellRydeFilterDataAsync"/> must not repeat static/native Tomcat bootstrap (same refresh already ran it). Cleared when a new refresh starts.</summary>
+        private bool _skipPostFilterdataTomcatBootstrap;
+        /// <summary>Tomcat id scraped from <c>;jsessionid=</c> in portal HTML/redirects when <c>Set-Cookie: JSESSIONID</c> is missing — hydrated into the cookie jar for <c>POST /portal/filterdata</c> only (Chrome never uses a matrix URL on filterdata).</summary>
         private string _jsessionIdUrlRewriteForFilterData;
 
         /// <summary>
@@ -49,7 +51,7 @@ namespace Hiatme_Tool_Suite_v3
         internal static bool FilterDataOmitJsessionFromCookieActive => FilterDataOmitJsessionFromCookie.Value;
 
         /// <summary>
-        /// Chrome portal.app HAR: trip XHRs (<c>filterlist</c>, <c>listFilterDefsJson</c>, <c>filterdata</c>) send <c>Referer: …/portal/nu</c> without <c>?date=</c>.
+        /// Chrome portal.app: bare <c>Referer: …/portal/nu</c> for trip <c>filterlist</c>, <c>listFilterDefsJson</c>, and <c>filterdata</c> XHRs (Fiddler gold).
         /// Optional <see cref="WellRydeConfig.TripsNuRefererHashFragment"/> is appended when set.
         /// </summary>
         public string TripsRefererForWellRydeAjax => BuildTripsSpaXhrReferer();
@@ -93,6 +95,9 @@ namespace Hiatme_Tool_Suite_v3
             {
                 UseCookies = false,
                 AutomaticDecompression = DecompressionMethods.GZip,
+                // Must be false: trip GET …/trip/filterlist can return 302 → /portal/; default true follows and
+                // returns 200 portal HTML so callers wrongly treat filterlist as primed (Fiddler still shows 302).
+                AllowAutoRedirect = false,
             };
             _filterDataClient = new HttpClient(new WellRydePortalCookieInjectingHandler(CookieJar, filterInner), disposeHandler: true);
             _filterDataClient.Timeout = TimeSpan.FromSeconds(60);
@@ -325,7 +330,9 @@ namespace Hiatme_Tool_Suite_v3
                     Connected = false;
                     return false;
                 }
-                _CsrfToken = GrabCSRFToken(response) ?? TryGetCsrfFromCookies();
+                var postLoginMetaCsrf = GrabCSRFToken(response);
+                var csrfMetaFromHtml = !string.IsNullOrEmpty(postLoginMetaCsrf);
+                _CsrfToken = postLoginMetaCsrf ?? TryGetCsrfFromCookies();
                 if (string.IsNullOrEmpty(_CsrfToken))
                 {
                     try
@@ -336,7 +343,10 @@ namespace Hiatme_Tool_Suite_v3
                             shell.EnsureSuccessStatusCode();
                             var shellHtml = await shell.Content.ReadAsStringAsync();
                             WellRydeCookieHelper.TryIngestJSessionIdFromMarkupAndLocation(CookieJar, shellHtml);
-                            _CsrfToken = GrabCSRFToken(shellHtml) ?? TryGetCsrfFromCookies();
+                            var shellMetaCsrf = GrabCSRFToken(shellHtml);
+                            if (!string.IsNullOrEmpty(shellMetaCsrf))
+                                csrfMetaFromHtml = true;
+                            _CsrfToken = shellMetaCsrf ?? TryGetCsrfFromCookies();
                         }
                     }
                     catch
@@ -347,8 +357,9 @@ namespace Hiatme_Tool_Suite_v3
 
                 await EstablishPortalServletSessionAfterLoginAsync();
                 if (WellRydeConfig.ServletCookieAutoHandlerEnabled && !PortalCookieHeaderHasJsessionId())
-                    await TryServletCookiesUsingAutoHandlerDocumentGetsAsync(DateTime.Today).ConfigureAwait(false);
-                PreferPortalXsrfCookieForCsrfToken();
+                    await TryServletCookiesUsingAutoHandlerDocumentGetsAsync(DateTime.Today, chromeDocumentChainAlreadyRan: true).ConfigureAwait(false);
+                if (!csrfMetaFromHtml)
+                    PreferPortalXsrfCookieForCsrfToken();
                 SyncXsrfTokenCookieFromCurrentCsrf();
             }
             catch
@@ -402,19 +413,153 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         /// <summary>PHP-parity first hop: <c>GET /</c> with no Referer so ELB/session cookies match browser cold navigation.</summary>
-        private async Task<HttpResponseMessage> GetPortalOriginDocumentAsync()
+        private Task<HttpResponseMessage> GetPortalOriginDocumentAsync()
         {
-            var req = new HttpRequestMessage(HttpMethod.Get, WellRydeConfig.PortalOrigin + "/");
-            req.Headers.TryAddWithoutValidation("User-Agent", PortalBrowserUserAgent);
-            req.Headers.TryAddWithoutValidation("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
-            req.Headers.TryAddWithoutValidation("Accept-Language", "en-US,en;q=0.9");
-            req.Headers.TryAddWithoutValidation("Cache-Control", "max-age=0");
-            req.Headers.TryAddWithoutValidation("Sec-Fetch-Site", "none");
-            req.Headers.TryAddWithoutValidation("Sec-Fetch-Mode", "navigate");
-            req.Headers.TryAddWithoutValidation("Sec-Fetch-User", "?1");
-            req.Headers.TryAddWithoutValidation("Sec-Fetch-Dest", "document");
-            req.Headers.TryAddWithoutValidation("Upgrade-Insecure-Requests", "1");
-            return await _filterDataClient.SendAsync(req);
+            return SendFilterDataClientNavigateGetWithManualRedirectsAsync(
+                WellRydeConfig.PortalOrigin + "/",
+                referer: null,
+                coldNavigationFirstHop: true);
+        }
+
+        /// <summary>
+        /// Manual redirect chain for portal <c>GET</c> on <see cref="_filterDataClient"/> (inner <c>AllowAutoRedirect=false</c>).
+        /// Merges <c>Set-Cookie</c> each hop so login matches Chrome; trip XHRs stay non-following so HTTP 302 is visible.
+        /// </summary>
+        private async Task<HttpResponseMessage> SendFilterDataClientNavigateGetWithManualRedirectsAsync(
+            string startUrl,
+            string referer,
+            bool coldNavigationFirstHop,
+            int maxRedirects = 16)
+        {
+            var url = NormalizePortalAbsoluteUrlString(startUrl) ?? startUrl;
+            var refererForHop = string.IsNullOrEmpty(referer) ? WellRydeConfig.TripsPageAbsoluteUrl : referer;
+            var seenNavigateKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            seenNavigateKeys.Add(CanonicalPortalNavigateUrlKey(url));
+            for (var hop = 0; hop < maxRedirects; hop++)
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Get, url))
+                {
+                    req.Headers.TryAddWithoutValidation("User-Agent", PortalBrowserUserAgent);
+                    req.Headers.TryAddWithoutValidation("Accept-Language", "en-US,en;q=0.9");
+                    req.Headers.TryAddWithoutValidation("Cache-Control", "max-age=0");
+                    if (coldNavigationFirstHop && hop == 0)
+                    {
+                        req.Headers.TryAddWithoutValidation("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+                        req.Headers.TryAddWithoutValidation("Sec-Fetch-Site", "none");
+                        req.Headers.TryAddWithoutValidation("Sec-Fetch-Mode", "navigate");
+                        req.Headers.TryAddWithoutValidation("Sec-Fetch-User", "?1");
+                        req.Headers.TryAddWithoutValidation("Sec-Fetch-Dest", "document");
+                        req.Headers.TryAddWithoutValidation("Upgrade-Insecure-Requests", "1");
+                    }
+                    else
+                    {
+                        req.Headers.TryAddWithoutValidation("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+                        req.Headers.TryAddWithoutValidation("Referer", refererForHop);
+                        req.Headers.TryAddWithoutValidation("Sec-Fetch-Site", "same-origin");
+                        req.Headers.TryAddWithoutValidation("Sec-Fetch-Mode", "navigate");
+                        req.Headers.TryAddWithoutValidation("Sec-Fetch-User", "?1");
+                        req.Headers.TryAddWithoutValidation("Sec-Fetch-Dest", "document");
+                        req.Headers.TryAddWithoutValidation("Upgrade-Insecure-Requests", "1");
+                    }
+
+                    var resp = await _filterDataClient.SendAsync(req).ConfigureAwait(false);
+                    WellRydeCookieHelper.IngestSetCookieHeaders(resp, CookieJar);
+                    WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
+                    var code = (int)resp.StatusCode;
+                    if (code >= 300 && code < 400 && resp.Headers.Location != null)
+                    {
+                        var loc = ResolveRedirectLocation(resp.RequestMessage.RequestUri, resp.Headers.Location);
+                        refererForHop = url;
+                        if (loc == null)
+                            return resp;
+                        var nextUrl = NormalizePortalAbsoluteUrlString(loc.AbsoluteUri) ?? loc.AbsoluteUri;
+                        var nextKey = CanonicalPortalNavigateUrlKey(nextUrl);
+                        if (!seenNavigateKeys.Add(nextKey))
+                        {
+                            if (WellRydeConfig.PortalLogVerbose)
+                                WellRydeLog.WriteLine("WellRyde: manual navigate — stop redirect cycle (Location revisits) next=" + nextKey);
+                            return resp;
+                        }
+                        try
+                        {
+                            await resp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
+                        }
+                        catch
+                        {
+                            /* ignore */
+                        }
+                        resp.Dispose();
+                        url = nextUrl;
+                        continue;
+                    }
+
+                    return resp;
+                }
+            }
+
+            using (var last = new HttpRequestMessage(HttpMethod.Get, url))
+            {
+                last.Headers.TryAddWithoutValidation("User-Agent", PortalBrowserUserAgent);
+                last.Headers.TryAddWithoutValidation("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+                last.Headers.TryAddWithoutValidation("Accept-Language", "en-US,en;q=0.9");
+                last.Headers.TryAddWithoutValidation("Referer", refererForHop);
+                last.Headers.TryAddWithoutValidation("Sec-Fetch-Site", "same-origin");
+                last.Headers.TryAddWithoutValidation("Sec-Fetch-Mode", "navigate");
+                last.Headers.TryAddWithoutValidation("Sec-Fetch-User", "?1");
+                last.Headers.TryAddWithoutValidation("Sec-Fetch-Dest", "document");
+                last.Headers.TryAddWithoutValidation("Upgrade-Insecure-Requests", "1");
+                var finalResp = await _filterDataClient.SendAsync(last).ConfigureAwait(false);
+                WellRydeCookieHelper.IngestSetCookieHeaders(finalResp, CookieJar);
+                WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
+                return finalResp;
+            }
+        }
+
+        /// <summary>
+        /// After <see cref="SendFilterDataClientNavigateGetWithManualRedirectsAsync"/>, <c>GET /portal/nu?date=</c> may chain to <c>/portal/</c> with HTTP 200 —
+        /// same success code but wrong document (dashboard HTML, wrong <c>_csrf</c>, no NU shell). Chrome keeps the trips SPA URL.
+        /// </summary>
+        private static bool PortalNavigateFinalUriLooksLikeTripsNu(HttpResponseMessage resp)
+        {
+            if (resp?.RequestMessage?.RequestUri == null)
+                return false;
+            var path = resp.RequestMessage.RequestUri.AbsolutePath ?? "";
+            return path.EndsWith("/nu", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Loads <paramref name="nuDatedAbsoluteUrl"/> (trips <c>nu?date=</c>). If redirects end on a non-<c>/portal/nu</c> path with HTTP 200, replays
+        /// <c>GET /portal/</c> → bare <c>/portal/nu</c> → dated nu so <c>Set-Cookie</c> and the final HTML match the billing shell — unless
+        /// <paramref name="chromeDocumentChainAlreadyRan"/> (caller just ran <see cref="NavigateChromeOrderedPortalDocumentChainAsync"/>), in which case only one extra dated GET with bare-<c>nu</c> referer runs.
+        /// </summary>
+        private async Task<HttpResponseMessage> GetPortalHtmlDocumentForTripsNuDatedShellAsync(string nuDatedAbsoluteUrl, bool chromeDocumentChainAlreadyRan = false)
+        {
+            var resp = await GetPortalHtmlDocumentAsync(nuDatedAbsoluteUrl).ConfigureAwait(false);
+            if (!resp.IsSuccessStatusCode || PortalNavigateFinalUriLooksLikeTripsNu(resp))
+                return resp;
+            try
+            {
+                if (WellRydeConfig.PortalLogVerbose)
+                {
+                    var landed = resp.RequestMessage?.RequestUri?.GetLeftPart(UriPartial.Path) ?? "?";
+                    WellRydeLog.WriteLine("WellRyde: GET trips nu?date= landed on " + landed + " after redirects — replaying"
+                        + (chromeDocumentChainAlreadyRan ? " nu?date= only (shell chain already ran)." : " portal/ → nu → nu?date=."));
+                }
+            }
+            catch
+            {
+                /* ignore */
+            }
+            resp.Dispose();
+            if (!chromeDocumentChainAlreadyRan)
+            {
+                using (var r0 = await GetPortalHtmlDocumentAsync(WellRydeConfig.PortalShellUrl, WellRydeConfig.PortalOrigin + "/").ConfigureAwait(false))
+                    WellRydeCookieHelper.IngestSetCookieHeaders(r0, CookieJar);
+                using (var r1 = await GetPortalHtmlDocumentAsync(WellRydeConfig.TripsPageAbsoluteUrl, WellRydeConfig.PortalShellUrl).ConfigureAwait(false))
+                    WellRydeCookieHelper.IngestSetCookieHeaders(r1, CookieJar);
+                WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
+            }
+            return await GetPortalHtmlDocumentAsync(nuDatedAbsoluteUrl, WellRydeConfig.TripsPageAbsoluteUrl).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -426,31 +571,76 @@ namespace Hiatme_Tool_Suite_v3
         /// <param name="referer">
         /// Optional <c>Referer</c> for this GET (e.g. portal root when loading <c>/portal/login</c>). Defaults to trips page.
         /// </param>
-        private async Task<HttpResponseMessage> GetPortalHtmlDocumentAsync(string requestUri, string referer = null)
+        private Task<HttpResponseMessage> GetPortalHtmlDocumentAsync(string requestUri, string referer = null)
         {
-            var req = new HttpRequestMessage(HttpMethod.Get, requestUri);
-            req.Headers.TryAddWithoutValidation("User-Agent", PortalBrowserUserAgent);
-            req.Headers.TryAddWithoutValidation("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
-            req.Headers.TryAddWithoutValidation("Accept-Language", "en-US,en;q=0.9");
-            req.Headers.TryAddWithoutValidation("Cache-Control", "max-age=0");
-            req.Headers.TryAddWithoutValidation("Referer", string.IsNullOrEmpty(referer) ? WellRydeConfig.TripsPageAbsoluteUrl : referer);
-            req.Headers.TryAddWithoutValidation("Sec-Fetch-Site", "same-origin");
-            req.Headers.TryAddWithoutValidation("Sec-Fetch-Mode", "navigate");
-            req.Headers.TryAddWithoutValidation("Sec-Fetch-User", "?1");
-            req.Headers.TryAddWithoutValidation("Sec-Fetch-Dest", "document");
-            req.Headers.TryAddWithoutValidation("Upgrade-Insecure-Requests", "1");
-            return await _filterDataClient.SendAsync(req);
+            return SendFilterDataClientNavigateGetWithManualRedirectsAsync(
+                requestUri,
+                string.IsNullOrEmpty(referer) ? WellRydeConfig.TripsPageAbsoluteUrl : referer,
+                coldNavigationFirstHop: false);
+        }
+
+        /// <summary>
+        /// Chrome document order on the same <see cref="_filterDataClient"/> stack as trip XHRs / <c>filterdata</c> (not <see cref="Client"/> API defaults):
+        /// <c>GET /</c> cold → <c>GET /portal/</c> → <c>GET /portal/nu</c> with matching Referer and <c>Sec-Fetch-*</c>.
+        /// After each response: merge <c>Set-Cookie</c>, promote Tomcat id, scrape <c>jsessionid</c> from HTML when present.
+        /// </summary>
+        private async Task NavigateChromeOrderedPortalDocumentChainAsync()
+        {
+            WellRydeCookieHelper.TryRemoveSyntheticSpringJsessionIdFromJar(CookieJar);
+            var o = WellRydeConfig.PortalOrigin;
+            using (var r0 = await GetPortalOriginDocumentAsync().ConfigureAwait(false))
+            {
+                WellRydeCookieHelper.IngestSetCookieHeaders(r0, CookieJar);
+                WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
+                if (r0.IsSuccessStatusCode)
+                {
+                    var h0 = await r0.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    WellRydeCookieHelper.TryIngestJSessionIdFromMarkupAndLocation(CookieJar, h0);
+                    var rw0 = WellRydeCookieHelper.TryGetFirstJsessionIdFromTextForUrlRewrite(CookieJar, h0);
+                    if (!string.IsNullOrEmpty(rw0))
+                        _jsessionIdUrlRewriteForFilterData = rw0;
+                }
+            }
+            using (var r1 = await GetPortalHtmlDocumentAsync(WellRydeConfig.PortalShellUrl, o + "/").ConfigureAwait(false))
+            {
+                WellRydeCookieHelper.IngestSetCookieHeaders(r1, CookieJar);
+                WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
+                if (r1.IsSuccessStatusCode)
+                {
+                    var h1 = await r1.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    WellRydeCookieHelper.TryIngestJSessionIdFromMarkupAndLocation(CookieJar, h1);
+                    var rw1 = WellRydeCookieHelper.TryGetFirstJsessionIdFromTextForUrlRewrite(CookieJar, h1);
+                    if (!string.IsNullOrEmpty(rw1))
+                        _jsessionIdUrlRewriteForFilterData = rw1;
+                }
+            }
+            using (var r2 = await GetPortalHtmlDocumentAsync(WellRydeConfig.TripsPageAbsoluteUrl, WellRydeConfig.PortalShellUrl).ConfigureAwait(false))
+            {
+                WellRydeCookieHelper.IngestSetCookieHeaders(r2, CookieJar);
+                WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
+                if (r2.IsSuccessStatusCode)
+                {
+                    var h2 = await r2.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    WellRydeCookieHelper.TryIngestJSessionIdFromMarkupAndLocation(CookieJar, h2);
+                    var rw2 = WellRydeCookieHelper.TryGetFirstJsessionIdFromTextForUrlRewrite(CookieJar, h2);
+                    if (!string.IsNullOrEmpty(rw2))
+                        _jsessionIdUrlRewriteForFilterData = rw2;
+                }
+            }
+            WellRydeCookieHelper.CollapseDuplicatePortalCookies(CookieJar);
         }
 
         /// <summary>
         /// Chrome <c>GET /portal/listFilterDefsJson?listDefId=…&amp;customListDefId=&amp;userDefaultFilter=true</c> runs immediately before <c>POST /portal/filterdata</c>.
         /// Primes list/session state so <c>filterdata</c> returns JSON instead of the NU HTML shell.
+        /// <c>Referer</c> bare <c>/portal/nu</c> (Chrome). Do not add CSRF headers on this GET — some Spring stacks reject or 500 when XHR CSRF headers are sent on GET.
+        /// When <c>Skipped</c> is <c>true</c>, list id was unset. Otherwise <c>JsonMedia</c> is <c>true</c> only for HTTP 2xx with a JSON content-type (coherent prime for ELB + servlet).
         /// </summary>
-        private async Task TryPrimeListFilterDefsJsonBeforeFilterDataAsync(string refererForNu, string csrfForAjax)
+        private async Task<(int StatusCode, bool Skipped, bool JsonMedia)> TryPrimeListFilterDefsJsonBeforeFilterDataAsync()
         {
             var listId = WellRydeConfig.TripFilterListDefId ?? "";
             if (string.IsNullOrWhiteSpace(listId) || !listId.StartsWith("SEC-", StringComparison.Ordinal))
-                return;
+                return (-1, true, false);
             var url = WellRydeConfig.BuildListFilterDefsJsonUrl(listId);
             try
             {
@@ -460,14 +650,8 @@ namespace Hiatme_Tool_Suite_v3
                     req.Headers.TryAddWithoutValidation("User-Agent", PortalBrowserUserAgent);
                     req.Headers.TryAddWithoutValidation("Accept-Language", "en-US,en;q=0.9");
                     req.Headers.TryAddWithoutValidation("Accept-Encoding", "gzip, deflate");
-                    req.Headers.TryAddWithoutValidation("Priority", "u=0, i");
-                    req.Headers.TryAddWithoutValidation("Referer", string.IsNullOrEmpty(refererForNu) ? BuildTripsSpaXhrReferer() : refererForNu);
+                    req.Headers.TryAddWithoutValidation("Referer", TripsRefererForWellRydeAjax);
                     req.Headers.TryAddWithoutValidation("X-Requested-With", "XMLHttpRequest");
-                    if (WellRydeConfig.FilterDataPhpStyleHeaders && !string.IsNullOrEmpty(csrfForAjax))
-                    {
-                        req.Headers.TryAddWithoutValidation("X-CSRF-TOKEN", csrfForAjax);
-                        req.Headers.TryAddWithoutValidation("X-XSRF-TOKEN", csrfForAjax);
-                    }
                     req.Headers.TryAddWithoutValidation("Sec-Fetch-Site", "same-origin");
                     req.Headers.TryAddWithoutValidation("Sec-Fetch-Mode", "cors");
                     req.Headers.TryAddWithoutValidation("Sec-Fetch-Dest", "empty");
@@ -478,24 +662,118 @@ namespace Hiatme_Tool_Suite_v3
                     {
                         WellRydeCookieHelper.IngestSetCookieHeaders(resp, CookieJar);
                         WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
-                        if (WellRydeConfig.DebugPortalTraffic)
-                            WellRydeLog.WriteLine("WellRyde: listFilterDefsJson prime HTTP " + (int)resp.StatusCode + " listDefId=" + listId);
+                        var ctPrime = resp.Content.Headers.ContentType?.MediaType ?? "";
+                        var code = (int)resp.StatusCode;
+                        string body = null;
+                        if (code >= 200 && code < 300 && resp.Content != null)
+                        {
+                            try
+                            {
+                                body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                            }
+                            catch
+                            {
+                                /* ignore */
+                            }
+                        }
+
+                        var jsonMedia = code >= 200 && code < 300
+                            && ctPrime.IndexOf("json", StringComparison.OrdinalIgnoreCase) >= 0
+                            && !string.IsNullOrEmpty(body)
+                            && !WellRydeTripParsing.LooksLikeNonJsonPayload(body)
+                            && !WellRydeTripParsing.PortalHtmlBodyLooksLikeEnterpriseInternalErrorPage(body);
+                        if (WellRydeConfig.PortalLogVerbose)
+                            WellRydeLog.WriteLine("WellRyde: listFilterDefsJson prime HTTP " + code + " content-type=" + ctPrime + " listDefId=" + listId);
+                        if (!resp.IsSuccessStatusCode)
+                        {
+                            WellRydeLog.WriteLine("WellRyde: listFilterDefsJson prime failed HTTP " + code + " listDefId=" + listId);
+                        }
+                        else if (WellRydeTripParsing.PortalHtmlBodyLooksLikeEnterpriseInternalErrorPage(body ?? ""))
+                        {
+                            WellRydeLog.WriteLine("WellRyde: listFilterDefsJson HTTP " + code + " but body is vendor internal-error HTML shell (treat as failed prime) listDefId=" + listId);
+                        }
+                        else if (ctPrime.IndexOf("json", StringComparison.OrdinalIgnoreCase) < 0 || !jsonMedia)
+                        {
+                            WellRydeLog.WriteLine("WellRyde: listFilterDefsJson expected JSON but got content-type=" + (string.IsNullOrEmpty(ctPrime) ? "(none)" : ctPrime)
+                                + " len=" + (body?.Length.ToString() ?? "?") + " listDefId=" + listId
+                                + " prefix=" + TrimForWellRydeLog(body ?? "", 180));
+                        }
+                        return (code, false, jsonMedia);
                     }
                 }
             }
             catch (Exception ex)
             {
-                if (WellRydeConfig.DebugPortalTraffic)
-                    WellRydeLog.WriteLine("WellRyde: listFilterDefsJson prime error: " + ex.Message);
+                WellRydeLog.WriteLine("WellRyde: listFilterDefsJson prime error: " + ex.Message);
+                return (0, false, false);
             }
+        }
+
+        /// <summary>
+        /// When <see cref="WellRydeConfig.ChromeShellPrimingEnabled"/>: light document GETs before static <c>JSESSIONID</c> mint / <c>trip/filterlist</c> (<c>currentPage</c>, AVL chain only).
+        /// Omitted: root <c>/nps/timezone</c> (404 + ALB churn), insurance / ToU (vendor often returns <b>HTTP 200</b> HTML “Internal Error” shells), <c>/portal/gpsagent</c> (long-lived / 502).
+        /// Internal-error HTML is never used to scrape <c>JSESSIONID</c> from markup. Non-fatal: failures are ignored.
+        /// </summary>
+        private async Task TryPrimeChromeNuShellBeforeTripFilterListAsync(string datedNuReferer)
+        {
+            if (!WellRydeConfig.ChromeShellPrimingEnabled)
+                return;
+            var refNu = string.IsNullOrEmpty(datedNuReferer) ? WellRydeConfig.TripsPageAbsoluteUrl : datedNuReferer;
+            var steps = new (string Url, string Referer)[]
+            {
+                (WellRydeConfig.PortalCurrentPageNuUrl, refNu),
+                (WellRydeConfig.AvlDoubleSlashEntryUrl, refNu),
+                (WellRydeConfig.AvlInitializeDriverStopsUrl, refNu),
+                (WellRydeConfig.AvlInitiateDefaultUrl, refNu),
+            };
+            try
+            {
+                foreach (var step in steps)
+                {
+                    using (var r = await GetPortalHtmlDocumentAsync(step.Url, step.Referer).ConfigureAwait(false))
+                    {
+                        WellRydeCookieHelper.IngestSetCookieHeaders(r, CookieJar);
+                        string body = null;
+                        try
+                        {
+                            body = await r.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        }
+                        catch
+                        {
+                            /* ignore */
+                        }
+                        if (!string.IsNullOrEmpty(body) && WellRydeTripParsing.PortalHtmlBodyLooksLikeEnterpriseInternalErrorPage(body))
+                        {
+                            if (WellRydeConfig.PortalLogVerbose)
+                                WellRydeLog.WriteLine("WellRyde: Chrome shell priming — skip servlet scrape (HTTP " + (int)r.StatusCode
+                                    + " internal-error HTML shell) url=" + step.Url);
+                        }
+                        else if (!string.IsNullOrEmpty(body))
+                        {
+                            WellRydeCookieHelper.TryIngestJSessionIdFromMarkupAndLocation(CookieJar, body);
+                            var rw = WellRydeCookieHelper.TryGetFirstJsessionIdFromTextForUrlRewrite(CookieJar, body);
+                            if (!string.IsNullOrEmpty(rw))
+                                _jsessionIdUrlRewriteForFilterData = rw;
+                        }
+                        WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                if (WellRydeConfig.PortalLogVerbose)
+                    WellRydeLog.WriteLine("WellRyde: Chrome shell priming (non-fatal): " + ex.Message);
+            }
+            WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
         }
 
         /// <summary>
         /// POST <c>/portal/filterdata</c>.
         /// Chrome XHR sends <c>Sec-Fetch-*</c> on same-origin POST; include them here (filter runs on <see cref="_filterDataClient"/> without API defaults).
-        /// CSRF: form <c>_csrf</c> is always sent. Optional <c>X-CSRF-TOKEN</c> / <c>X-XSRF-TOKEN</c> only when <see cref="WellRydeConfig.FilterDataPhpStyleHeaders"/> (Chrome HAR omits them on <c>filterdata</c>).
-        /// <paramref name="referer"/>: when null, uses <see cref="TripsRefererForWellRydeAjax"/> (bare <c>/portal/nu</c> per Chrome HAR).
+        /// CSRF: form <c>_csrf</c> is always sent. Optional <c>X-CSRF-TOKEN</c> / <c>X-XSRF-TOKEN</c> only when <see cref="WellRydeConfig.FilterDataPhpStyleHeaders"/> — forcing them on every POST has been linked to HTTP 500 on some portal builds (Chrome HAR often omits them on <c>filterdata</c>).
+        /// <paramref name="referer"/>: when null, uses bare <see cref="TripsRefererForWellRydeAjax"/> (Chrome <c>filterdata</c> / Fiddler gold), not <c>nu?date=…</c>.
         /// Uses <see cref="_filterDataClient"/> (<see cref="WellRydePortalCookieInjectingHandler"/> + jar) so <c>Cookie</c> matches Chrome order for <c>filterdata</c> without doubling ALB lines.
+        /// When <c>listFilterDefsJson</c> fails (e.g. HTTP 401) or is non-JSON, ELB may have moved to a new node while <c>JSESSIONID</c> was minted earlier — expire Tomcat cookie, static-probe again, then retry <c>listFilterDefsJson</c> once before <c>filterdata</c>. POST URL is always plain <c>/portal/filterdata</c> (Chrome); scraped Tomcat tokens hydrate the <c>JSESSIONID</c> cookie only.
         /// </summary>
         public async Task<HttpResponseMessage> PostWellRydeFilterDataAsync(HttpContent formContent, string referer = null)
         {
@@ -506,29 +784,43 @@ namespace Hiatme_Tool_Suite_v3
             var refererVal = !string.IsNullOrEmpty(referer)
                 ? referer
                 : TripsRefererForWellRydeAjax;
-            if (!PortalCookieHeaderHasJsessionId())
+            // TryRefreshTripsNuCsrfAsync already ran static probes + TryAcquireTomcatJsessionViaNativeHandlerAsync on success.
+            if (!PortalCookieHeaderHasJsessionId() && !_skipPostFilterdataTomcatBootstrap)
+            {
                 await TryPrimeJsessionIdViaPortalStaticResourceAsync(refererVal).ConfigureAwait(false);
-            if (!PortalCookieHeaderHasJsessionId())
-                await TryAcquireTomcatJsessionViaNativeHandlerAsync(refererVal).ConfigureAwait(false);
+                if (!PortalCookieHeaderHasJsessionId())
+                    await TryAcquireTomcatJsessionViaNativeHandlerAsync(refererVal, skipChromeDocumentTriplet: _skipPostFilterdataTomcatBootstrap).ConfigureAwait(false);
+            }
             WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
-            var postUri = WellRydeConfig.FilterDataUrl;
+            var listPrime = await TryPrimeListFilterDefsJsonBeforeFilterDataAsync().ConfigureAwait(false);
+            // Chrome Fiddler: listFilterDefsJson can return 401 and Set-Cookie a new AWSALB while JSESSIONID came from a prior
+            // static 404 on the old node — filterdata then returns HTML / 500. Re-mint + re-prime list when the first GET failed or was not JSON.
+            // Must not be gated on _skipPostFilterdataTomcatBootstrap (that only skips the initial static/native block above after TryRefresh).
+            if (!listPrime.Skipped
+                && (!listPrime.JsonMedia || listPrime.StatusCode < 200 || listPrime.StatusCode >= 300))
+            {
+                await TryRecoverTomcatStickyAfterElbJsessionMismatchAsync(refererVal).ConfigureAwait(false);
+                await TryPrimeListFilterDefsJsonBeforeFilterDataAsync().ConfigureAwait(false);
+            }
+            // Required order (plan wellryde_fiddler_vs_app): Chrome POST is always …/portal/filterdata — never …/filterdata;jsessionid=…
             if (!PortalCookieHeaderHasJsessionId()
                 && !string.IsNullOrEmpty(_jsessionIdUrlRewriteForFilterData)
                 && !WellRydeCookieHelper.IsJsessionTokenSpringUuidHex(CookieJar, _jsessionIdUrlRewriteForFilterData))
             {
-                postUri = WellRydeCookieHelper.AppendTomcatJsessionUrlRewrite(WellRydeConfig.FilterDataUrl, _jsessionIdUrlRewriteForFilterData);
-                if (WellRydeConfig.DebugPortalTraffic)
-                    WellRydeLog.WriteLine("WellRyde: filterdata POST with URL ;jsessionid= rewrite (no JSESSIONID cookie in jar).");
+                WellRydeCookieHelper.TryAddPortalJSessionIdCookie(CookieJar, _jsessionIdUrlRewriteForFilterData);
+                WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
+                if (WellRydeConfig.PortalLogVerbose)
+                    WellRydeLog.WriteLine("WellRyde: filterdata — set JSESSIONID cookie from scraped rewrite token (wire URL stays plain /portal/filterdata).");
+                _jsessionIdUrlRewriteForFilterData = null;
             }
-            var xsrfFromCookie = TryGetCsrfFromCookies();
-            var csrfForAjax = !string.IsNullOrEmpty(xsrfFromCookie) ? xsrfFromCookie : _CsrfToken;
+            var postUri = WellRydeConfig.FilterDataUrl;
+            // WRTripDownloader form _csrf always uses _CsrfToken — curl + XHR headers must use the same value (cookie can be stale after nu?date= refresh).
+            var csrfForAjax = !string.IsNullOrEmpty(_CsrfToken) ? _CsrfToken : TryGetCsrfFromCookies();
 
             var bodyBytes = await formContent.ReadAsByteArrayAsync().ConfigureAwait(false);
             var contentTypeForBody = formContent.Headers.ContentType != null
                 ? formContent.Headers.ContentType.ToString()
                 : "application/x-www-form-urlencoded; charset=utf-8";
-
-            await TryPrimeListFilterDefsJsonBeforeFilterDataAsync(refererVal, csrfForAjax).ConfigureAwait(false);
 
             var curlExe = WellRydeCurlFilterData.TryResolveCurlPath();
             if (WellRydeConfig.FilterDataUseCurl && !string.IsNullOrEmpty(curlExe))
@@ -548,12 +840,12 @@ namespace Hiatme_Tool_Suite_v3
                         httpCode = 200;
                     if (httpCode == 200)
                     {
-                        if (WellRydeConfig.DebugPortalTraffic)
+                        if (WellRydeConfig.PortalLogVerbose)
                             WellRydeLog.WriteLine("WellRyde: filterdata via curl — JSON " + (curlRes.Body?.Length ?? 0) + " bytes");
                         return BuildSyntheticFilterDataResponseFromCurl(curlRes);
                     }
                 }
-                else if (curlRes != null && WellRydeConfig.DebugPortalTraffic)
+                else if (curlRes != null && WellRydeConfig.PortalLogVerbose)
                 {
                     var prefix = curlRes.Body != null && curlRes.Body.Length > 0
                         ? Encoding.UTF8.GetString(curlRes.Body, 0, Math.Min(120, curlRes.Body.Length))
@@ -566,16 +858,8 @@ namespace Hiatme_Tool_Suite_v3
 
             async Task<HttpResponseMessage> SendFilterDataOnceAsync(string uri, bool omitJsessionIdFromCookie = false)
             {
-                Uri requestUri;
-                if (!string.IsNullOrEmpty(uri) && uri.IndexOf(";jsessionid=", StringComparison.OrdinalIgnoreCase) >= 0)
-                {
-                    // Default Uri parsing can drop Tomcat matrix params so the wire POST hits /portal/filterdata without ;jsessionid=.
-#pragma warning disable CS0618 // Uri(string, bool dontEscape) — required on .NET Framework so ;jsessionid= reaches the server.
-                    requestUri = new Uri(uri, true);
-#pragma warning restore CS0618
-                }
-                else
-                    requestUri = new Uri(uri, UriKind.Absolute);
+                // Chrome / plan: POST URI is plain /portal/filterdata only (no Tomcat ;jsessionid= matrix segment).
+                var requestUri = new Uri(uri ?? WellRydeConfig.FilterDataUrl, UriKind.Absolute);
                 var req = new HttpRequestMessage(HttpMethod.Post, requestUri);
                 try
                 {
@@ -605,7 +889,6 @@ namespace Hiatme_Tool_Suite_v3
                 req.Headers.TryAddWithoutValidation("Accept-Language", "en-US,en;q=0.9");
                 req.Headers.TryAddWithoutValidation("Accept-Encoding", "gzip, deflate");
                 req.Headers.TryAddWithoutValidation("Origin", WellRydeConfig.PortalOrigin);
-                req.Headers.TryAddWithoutValidation("Priority", "u=1, i");
                 req.Headers.TryAddWithoutValidation("Referer", refererVal);
                 req.Headers.TryAddWithoutValidation("X-Requested-With", "XMLHttpRequest");
                 if (WellRydeConfig.FilterDataPhpStyleHeaders && !string.IsNullOrEmpty(csrfForAjax))
@@ -632,33 +915,9 @@ namespace Hiatme_Tool_Suite_v3
                 return r;
             }
 
-            var omitCookieFirst = postUri.IndexOf(";jsessionid=", StringComparison.OrdinalIgnoreCase) >= 0;
-            var resp = await SendFilterDataOnceAsync(postUri, omitCookieFirst).ConfigureAwait(false);
-            if ((int)resp.StatusCode == 500
-                && postUri.IndexOf(";jsessionid=", StringComparison.OrdinalIgnoreCase) >= 0
-                && PortalCookieHeaderHasJsessionId())
-            {
-                var plain = WellRydeConfig.FilterDataUrl;
-                if (!string.Equals(postUri, plain, StringComparison.OrdinalIgnoreCase))
-                {
-                    if (WellRydeConfig.DebugPortalTraffic)
-                        WellRydeLog.WriteLine("WellRyde: filterdata HTTP 500 with ;jsessionid= in URL while JSESSIONID cookie present — retrying once without URL rewrite (duplicate bind confuses Tomcat).");
-                    try
-                    {
-                        await resp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
-                    }
-                    catch
-                    {
-                        /* ignore */
-                    }
-                    resp.Dispose();
-                    resp = await SendFilterDataOnceAsync(plain).ConfigureAwait(false);
-                }
-            }
+            var resp = await SendFilterDataOnceAsync(postUri).ConfigureAwait(false);
 
-            if ((int)resp.StatusCode == 200
-                && postUri.IndexOf(";jsessionid=", StringComparison.OrdinalIgnoreCase) < 0
-                && WellRydeCookieHelper.TryGetPortalJSessionIdCookieValue(CookieJar, out var jsForUrlRewrite))
+            if ((int)resp.StatusCode == 200)
             {
                 var media = resp.Content.Headers.ContentType?.MediaType ?? "";
                 var looksHtmlCt = media.IndexOf("text/html", StringComparison.OrdinalIgnoreCase) >= 0;
@@ -669,19 +928,20 @@ namespace Hiatme_Tool_Suite_v3
                     if (FilterDataBodyLooksLikeNuHtmlShell(bodyBytesFirst))
                     {
                         resp.Dispose();
-                        var retryUri = WellRydeCookieHelper.AppendTomcatJsessionUrlRewrite(WellRydeConfig.FilterDataUrl, jsForUrlRewrite);
-                        WellRydeLog.WriteLine("WellRyde: filterdata NU HTML shell — curl recovery (A: omit JSESSIONID + ;jsessionid= URL, B: full cookie + URL, C: full cookie + plain URL).");
-                        if (WellRydeConfig.DebugPortalTraffic)
-                            WellRydeLog.WriteLine("WellRyde: filterdata shell retry URI suffix=" + (retryUri.Length > 48 ? retryUri.Substring(retryUri.Length - 48) : retryUri));
-                        // HttpClient + System.Uri canonicalize away ;jsessionid= on the wire — use curl for this POST so the Tomcat path survives (same as PHP).
+                        var plainRetry = WellRydeConfig.FilterDataUrl;
+                        if (WellRydeConfig.PortalLogVerbose)
+                            WellRydeLog.WriteLine("WellRyde: filterdata NU HTML shell — curl recovery on plain POST /portal/filterdata (omit JSESSIONID vs full cookie).");
+                        else if (!WellRydeConfig.PortalLogQuiet)
+                            WellRydeLog.WriteLine("WellRyde: filterdata NU HTML shell — attempting curl recovery (set WellRydePortalLogLevel=Verbose for A/B detail).");
                         var curlPathShell = WellRydeCurlFilterData.TryResolveCurlPath();
                         if (string.IsNullOrEmpty(curlPathShell))
                         {
-                            WellRydeLog.WriteLine("WellRyde: filterdata shell retry — curl.exe not found (checked Sysnative/System32/SysWOW64, Git, PATH). Install Windows 10+ curl or Git for Windows; HttpClient cannot send ;jsessionid= in the path.");
+                            WellRydeLog.WriteLine("WellRyde: filterdata shell retry — curl.exe not found (checked Sysnative/System32/SysWOW64, Git, PATH). Install Windows 10+ curl or Git for Windows.");
                         }
                         else
                         {
-                            WellRydeLog.WriteLine("WellRyde: filterdata shell retry — curl " + curlPathShell);
+                            if (WellRydeConfig.PortalLogVerbose)
+                                WellRydeLog.WriteLine("WellRyde: filterdata shell retry — curl " + curlPathShell);
                             WellRydeCurlFilterData.CurlPostResult tryShellCurl(bool omitJsessionFromCookieFile, string postUrl, string attemptTag)
                             {
                                 var r = WellRydeCurlFilterData.TryPostFilterData(
@@ -698,44 +958,30 @@ namespace Hiatme_Tool_Suite_v3
                                     WellRydeLog.WriteLine("WellRyde: filterdata recovered after NU HTML shell — curl " + attemptTag + " (" + (r.Body?.Length ?? 0) + " bytes JSON).");
                                     return r;
                                 }
-                                if (r == null)
-                                    WellRydeLog.WriteLine("WellRyde: filterdata shell curl " + attemptTag + " — failed (see WellRyde: curl … lines above).");
-                                else
+                                if (WellRydeConfig.PortalLogVerbose)
                                 {
-                                    var ct = r.ResponseContentType ?? "";
-                                    var prefix = r.Body != null && r.Body.Length > 0
-                                        ? Encoding.UTF8.GetString(r.Body, 0, Math.Min(120, r.Body.Length)).Replace('\r', ' ').Replace('\n', ' ')
-                                        : "";
-                                    WellRydeLog.WriteLine("WellRyde: filterdata shell curl " + attemptTag + " — HTTP " + r.StatusCode + ", content-type=" + ct + ", len=" + (r.Body?.Length ?? 0) + ", prefix=" + prefix);
+                                    if (r == null)
+                                        WellRydeLog.WriteLine("WellRyde: filterdata shell curl " + attemptTag + " — failed (see WellRyde: curl … lines above).");
+                                    else
+                                    {
+                                        var ct = r.ResponseContentType ?? "";
+                                        var prefix = r.Body != null && r.Body.Length > 0
+                                            ? Encoding.UTF8.GetString(r.Body, 0, Math.Min(120, r.Body.Length)).Replace('\r', ' ').Replace('\n', ' ')
+                                            : "";
+                                        WellRydeLog.WriteLine("WellRyde: filterdata shell curl " + attemptTag + " — HTTP " + r.StatusCode + ", content-type=" + ct + ", len=" + (r.Body?.Length ?? 0) + ", prefix=" + prefix);
+                                    }
                                 }
+                                else if (r == null)
+                                    WellRydeLog.WriteLine("WellRyde: filterdata shell curl " + attemptTag + " — failed.");
                                 return null;
                             }
-                            var curlOk = tryShellCurl(true, retryUri, "A (omit JSESSIONID + ;jsessionid=)")
-                                ?? tryShellCurl(false, retryUri, "B (full cookie + ;jsessionid=)")
-                                ?? tryShellCurl(false, WellRydeConfig.FilterDataUrl, "C (full cookie + plain /portal/filterdata)");
+                            var curlOk = tryShellCurl(true, plainRetry, "A (omit JSESSIONID cookie, plain URL)")
+                                ?? tryShellCurl(false, plainRetry, "B (full cookie, plain URL)");
                             if (curlOk != null)
                                 return BuildSyntheticFilterDataResponseFromCurl(curlOk);
                             WellRydeLog.WriteLine("WellRyde: filterdata shell retry — all curl attempts non-JSON; falling back to HttpClient.");
                         }
-                        resp = await SendFilterDataOnceAsync(retryUri, omitJsessionIdFromCookie: true).ConfigureAwait(false);
-                        if ((int)resp.StatusCode == 500
-                            && retryUri.IndexOf(";jsessionid=", StringComparison.OrdinalIgnoreCase) >= 0
-                            && PortalCookieHeaderHasJsessionId())
-                        {
-                            var plain = WellRydeConfig.FilterDataUrl;
-                            if (WellRydeConfig.DebugPortalTraffic)
-                                WellRydeLog.WriteLine("WellRyde: filterdata HTTP 500 after URL-only jsessionid retry — retrying once on plain URL.");
-                            try
-                            {
-                                await resp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
-                            }
-                            catch
-                            {
-                                /* ignore */
-                            }
-                            resp.Dispose();
-                            resp = await SendFilterDataOnceAsync(plain).ConfigureAwait(false);
-                        }
+                        resp = await SendFilterDataOnceAsync(plainRetry, omitJsessionIdFromCookie: true).ConfigureAwait(false);
                     }
                     else
                     {
@@ -755,7 +1001,7 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (data == null || data.Length < 15000)
                 return false;
-            // UTF-8 BOM (EF BB BF) → U+FEFF; without stripping, LooksLikeNonJsonPayload misses "<?xml" and we skip the ;jsessionid= retry.
+            // UTF-8 BOM (EF BB BF) → U+FEFF; without stripping, LooksLikeNonJsonPayload misses "<?xml" and we skip the plain-URL shell retry.
             var n = Math.Min(2048, data.Length);
             var prefix = Encoding.UTF8.GetString(data, 0, n).TrimStart('\uFEFF', '\u200B').TrimStart();
             if (!WellRydeTripParsing.LooksLikeNonJsonPayload(prefix))
@@ -779,7 +1025,7 @@ namespace Hiatme_Tool_Suite_v3
             return msg;
         }
 
-        /// <summary>When <c>POST /portal/filterdata</c> returns the SPA HTML shell, scrape Tomcat <c>jsessionid</c> and URL-rewrite token for an immediate retry.</summary>
+        /// <summary>When <c>POST /portal/filterdata</c> returns the SPA HTML shell, scrape Tomcat id for cookie hydration (next POST stays plain <c>/portal/filterdata</c>).</summary>
         public void TryIngestJsessionFromFilterDataHtmlShell(string html)
         {
             if (string.IsNullOrEmpty(html))
@@ -798,23 +1044,11 @@ namespace Hiatme_Tool_Suite_v3
         {
             try
             {
-                WellRydeCookieHelper.TryRemoveSyntheticSpringJsessionIdFromJar(CookieJar);
-                if (WellRydeConfig.ServletCookieAutoHandlerEnabled)
-                    await TryServletCookiesUsingAutoHandlerDocumentGetsAsync(tripDate).ConfigureAwait(false);
-                // Bare /portal/nu navigation (Chrome often has this in history before ?date=); Tomcat may Set-Cookie JSESSIONID here only.
-                using (var bareNu = await GetPortalHtmlDocumentAsync(WellRydeConfig.TripsPageAbsoluteUrl, WellRydeConfig.PortalShellUrl))
-                {
-                    WellRydeCookieHelper.IngestSetCookieHeaders(bareNu, CookieJar);
-                    if (bareNu.IsSuccessStatusCode)
-                    {
-                        var bareHtml = await bareNu.Content.ReadAsStringAsync();
-                        WellRydeCookieHelper.TryIngestJSessionIdFromMarkupAndLocation(CookieJar, bareHtml);
-                        var rwBare = WellRydeCookieHelper.TryGetFirstJsessionIdFromTextForUrlRewrite(CookieJar, bareHtml);
-                        if (!string.IsNullOrEmpty(rwBare))
-                            _jsessionIdUrlRewriteForFilterData = rwBare;
-                    }
-                    WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
-                }
+                _skipPostFilterdataTomcatBootstrap = false;
+                // Same stack and visit order as Chrome before nu?date=: cold / → /portal/ → bare /portal/nu (then dated GET below).
+                await NavigateChromeOrderedPortalDocumentChainAsync().ConfigureAwait(false);
+                if (WellRydeConfig.ServletCookieAutoHandlerEnabled && !PortalCookieHeaderHasJsessionId())
+                    await TryServletCookiesUsingAutoHandlerDocumentGetsAsync(tripDate, chromeDocumentChainAlreadyRan: true).ConfigureAwait(false);
 
                 var q = tripDate.ToString("yyyy-MM-dd");
                 var url = WellRydeConfig.TripsPageAbsoluteUrl + "?date=" + Uri.EscapeDataString(q);
@@ -825,10 +1059,10 @@ namespace Hiatme_Tool_Suite_v3
                         hashFrag = "#" + hashFrag.TrimStart('/');
                     url += hashFrag;
                 }
-                using (var resp = await GetPortalHtmlDocumentAsync(url))
+                using (var resp = await GetPortalHtmlDocumentForTripsNuDatedShellAsync(url, chromeDocumentChainAlreadyRan: true))
                 {
                     WellRydeCookieHelper.IngestSetCookieHeaders(resp, CookieJar);
-                    if (WellRydeConfig.DebugPortalTraffic)
+                    if (WellRydeConfig.PortalLogVerbose)
                     {
                         if (resp.Headers.TryGetValues("Set-Cookie", out var setCookies))
                             WellRydeLog.WriteLine("WellRyde: GET nu?date= Set-Cookie: " + string.Join(" || ", setCookies));
@@ -840,13 +1074,19 @@ namespace Hiatme_Tool_Suite_v3
                         WellRydeLog.WriteLine("WellRyde: GET trips page ?date= HTTP " + (int)resp.StatusCode + " — session or URL failed.");
                         return false;
                     }
+                    if (!PortalNavigateFinalUriLooksLikeTripsNu(resp))
+                    {
+                        WellRydeLog.WriteLine("WellRyde: GET trips nu?date= still not on /portal/nu after shell replay (final " + (resp.RequestMessage?.RequestUri?.GetLeftPart(UriPartial.Path) ?? "?") + ") — session expired or blocked; log in again.");
+                        return false;
+                    }
                     var html = await resp.Content.ReadAsStringAsync();
                     WellRydeCookieHelper.TryIngestJSessionIdFromMarkupAndLocation(CookieJar, html);
                     var rwDated = WellRydeCookieHelper.TryGetFirstJsessionIdFromTextForUrlRewrite(CookieJar, html);
                     if (!string.IsNullOrEmpty(rwDated))
                         _jsessionIdUrlRewriteForFilterData = rwDated;
                     WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
-                    var token = GrabCSRFToken(html) ?? TryGetCsrfFromCookies();
+                    var metaCsrf = GrabCSRFToken(html);
+                    var token = metaCsrf ?? TryGetCsrfFromCookies();
                     if (string.IsNullOrEmpty(token))
                     {
                         var hint = html != null && html.IndexOf("login", StringComparison.OrdinalIgnoreCase) >= 0
@@ -856,7 +1096,7 @@ namespace Hiatme_Tool_Suite_v3
                         return false;
                     }
                     _CsrfToken = token;
-                    PreferPortalXsrfCookieForCsrfToken();
+                    PreferPortalXsrfCookieUnlessFreshHtmlMeta(metaCsrf);
                     SyncXsrfTokenCookieFromCurrentCsrf();
                     UpdateHandlerHeaders();
                     _lastTripsNuRefererWithDate = url;
@@ -865,12 +1105,26 @@ namespace Hiatme_Tool_Suite_v3
                     await PostAuthenticatedNpsTimezoneServletPrimeAsync(url).ConfigureAwait(false);
                     WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
                     WellRydeCookieHelper.CollapseDuplicatePortalCookies(CookieJar);
-                    await TryResolveVtTripBillingListDefIfNeededAsync();
+                    // Optional Chrome-ish document GETs before static JSESSIONID mint so Tomcat id is tied to the ALB node after redirect churn (when priming is enabled).
+                    await TryPrimeChromeNuShellBeforeTripFilterListAsync(url).ConfigureAwait(false);
+                    WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
+                    // Chrome loads nu?date= shell assets (CSS/JS/.map) before trip XHRs; Tomcat often mints JSESSIONID there — do not hit filterlist without it.
                     if (!PortalCookieHeaderHasJsessionId())
-                        await TryPrimeTripFilterListServletSessionAsync(url);
+                    {
+                        var runCurl = WellRydeConfig.FilterDataUseCurl && !string.IsNullOrEmpty(WellRydeCurlFilterData.TryResolveCurlPath());
+                        await TryPrimeJsessionStaticRelativePathsAsync(url, JsessionStaticProbePaths, runCurlFallback: runCurl).ConfigureAwait(false);
+                        WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
+                    }
+                    await TryResolveVtTripBillingListDefIfNeededAsync();
+                    // Explicit SEC-S_* already hit filterlist inside TryResolve — avoid doubling the same XHRs.
+                    var listDef = WellRydeConfig.TripFilterListDefId ?? "";
+                    var skipDuplicateFilterlistPrime = WellRydeConfig.HasExplicitTripListDefId
+                        && listDef.StartsWith("SEC-S_", StringComparison.Ordinal);
+                    if (!PortalCookieHeaderHasJsessionId() && !skipDuplicateFilterlistPrime)
+                        await TryPrimeTripFilterListServletSessionAsync();
                     WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
                     if (!PortalCookieHeaderHasJsessionId())
-                        await TryPrimeTripFilterListAsDocumentNavigateAsync(url);
+                        await TryPrimeTripFilterListAsDocumentNavigateAsync();
                     WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
                     if (!PortalCookieHeaderHasJsessionId())
                         await EnsurePortalServletSessionFromShellDocumentGetAsync(url);
@@ -878,17 +1132,16 @@ namespace Hiatme_Tool_Suite_v3
                     if (!PortalCookieHeaderHasJsessionId())
                         await TryCaptureServletCookiesViaManualRedirectChainAsync(WellRydeConfig.TripsPageAbsoluteUrl, url);
                     WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
-                    if (!PortalCookieHeaderHasJsessionId())
-                        await TryPrimeJsessionIdViaPortalStaticResourceAsync(url);
-                    WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
+                    // Static probes also run at end of TryAcquireTomcatJsessionViaNativeHandlerAsync — skip duplicate GETs here.
                     if (WellRydeConfig.FilterDataUseCurl && !string.IsNullOrEmpty(WellRydeCurlFilterData.TryResolveCurlPath()) && !PortalCookieHeaderHasJsessionId())
                     {
                         WellRydeCurlFilterData.TrySessionPrimingGet(CookieJar, url, url, PortalBrowserUserAgent);
                         WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
                     }
                     if (!PortalCookieHeaderHasJsessionId())
-                        await TryAcquireTomcatJsessionViaNativeHandlerAsync(url).ConfigureAwait(false);
+                        await TryAcquireTomcatJsessionViaNativeHandlerAsync(url, skipChromeDocumentTriplet: true).ConfigureAwait(false);
                     WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
+                    _skipPostFilterdataTomcatBootstrap = true;
                     return true;
                 }
             }
@@ -900,9 +1153,87 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         /// <summary>
+        /// Used when <c>filterdata</c> already had a portal session but returned HTML / errors — runs the same Chrome document chain as <see cref="TryRefreshTripsNuCsrfAsync"/> (cold <c>/</c> → <c>/portal/</c> → bare <c>nu</c>), then <c>nu?date=</c>, CSRF, timezone, and static <c>JSESSIONID</c> probes only (no <see cref="TryAcquireTomcatJsessionViaNativeHandlerAsync"/>).
+        /// </summary>
+        public async Task<bool> TryLightRefreshTripsNuAfterFilterDataFailureAsync(DateTime tripDate)
+        {
+            try
+            {
+                _skipPostFilterdataTomcatBootstrap = false;
+                await NavigateChromeOrderedPortalDocumentChainAsync().ConfigureAwait(false);
+                var q = tripDate.ToString("yyyy-MM-dd");
+                var url = WellRydeConfig.TripsPageAbsoluteUrl + "?date=" + Uri.EscapeDataString(q);
+                var hashFrag = WellRydeConfig.TripsNuRefererHashFragment;
+                if (!string.IsNullOrEmpty(hashFrag))
+                {
+                    if (!hashFrag.StartsWith("#", StringComparison.Ordinal))
+                        hashFrag = "#" + hashFrag.TrimStart('/');
+                    url += hashFrag;
+                }
+                using (var resp = await GetPortalHtmlDocumentForTripsNuDatedShellAsync(url, chromeDocumentChainAlreadyRan: true))
+                {
+                    WellRydeCookieHelper.IngestSetCookieHeaders(resp, CookieJar);
+                    if (!resp.IsSuccessStatusCode)
+                    {
+                        WellRydeLog.WriteLine("WellRyde: light session refresh — GET nu?date= HTTP " + (int)resp.StatusCode);
+                        return false;
+                    }
+                    if (!PortalNavigateFinalUriLooksLikeTripsNu(resp))
+                    {
+                        WellRydeLog.WriteLine("WellRyde: light session refresh — final URL is not /portal/nu after replay (got " + (resp.RequestMessage?.RequestUri?.GetLeftPart(UriPartial.Path) ?? "?") + ").");
+                        return false;
+                    }
+                    var html = await resp.Content.ReadAsStringAsync();
+                    WellRydeCookieHelper.TryIngestJSessionIdFromMarkupAndLocation(CookieJar, html);
+                    var rwDated = WellRydeCookieHelper.TryGetFirstJsessionIdFromTextForUrlRewrite(CookieJar, html);
+                    if (!string.IsNullOrEmpty(rwDated))
+                        _jsessionIdUrlRewriteForFilterData = rwDated;
+                    WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
+                    var metaCsrfLight = GrabCSRFToken(html);
+                    var token = metaCsrfLight ?? TryGetCsrfFromCookies();
+                    if (string.IsNullOrEmpty(token))
+                    {
+                        WellRydeLog.WriteLine("WellRyde: light session refresh — no _csrf from nu?date page.");
+                        return false;
+                    }
+                    _CsrfToken = token;
+                    PreferPortalXsrfCookieUnlessFreshHtmlMeta(metaCsrfLight);
+                    SyncXsrfTokenCookieFromCurrentCsrf();
+                    UpdateHandlerHeaders();
+                    _lastTripsNuRefererWithDate = url;
+                    await PostAuthenticatedNpsTimezoneServletPrimeAsync(url).ConfigureAwait(false);
+                    WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
+                    WellRydeCookieHelper.CollapseDuplicatePortalCookies(CookieJar);
+                    await TryPrimeChromeNuShellBeforeTripFilterListAsync(url).ConfigureAwait(false);
+                    WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
+                    if (!PortalCookieHeaderHasJsessionId())
+                    {
+                        var runCurl = WellRydeConfig.FilterDataUseCurl && !string.IsNullOrEmpty(WellRydeCurlFilterData.TryResolveCurlPath());
+                        await TryPrimeJsessionStaticRelativePathsAsync(url, JsessionStaticProbePaths, runCurlFallback: runCurl).ConfigureAwait(false);
+                        WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
+                    }
+                    await TryResolveVtTripBillingListDefIfNeededAsync();
+                    if (!PortalCookieHeaderHasJsessionId())
+                    {
+                        var runCurl2 = WellRydeConfig.FilterDataUseCurl && !string.IsNullOrEmpty(WellRydeCurlFilterData.TryResolveCurlPath());
+                        await TryPrimeJsessionStaticRelativePathsAsync(url, JsessionStaticProbePathsStickyResync, runCurlFallback: runCurl2).ConfigureAwait(false);
+                    }
+                    WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
+                    _skipPostFilterdataTomcatBootstrap = true;
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                WellRydeLog.WriteLine("WellRyde: TryLightRefreshTripsNuAfterFilterDataFailureAsync error: " + ex.Message);
+            }
+            return false;
+        }
+
+        /// <summary>
         /// Shared <see cref="CookieJar"/> with <c>HttpClientHandler.UseCookies=true</c> so redirect <c>Set-Cookie</c> (Tomcat <c>JSESSIONID</c>) merges like PHP libcurl — complements manual <see cref="WellRydeCookieHelper.IngestSetCookieHeaders"/>.
         /// </summary>
-        private async Task TryServletCookiesUsingAutoHandlerDocumentGetsAsync(DateTime tripDate)
+        private async Task TryServletCookiesUsingAutoHandlerDocumentGetsAsync(DateTime tripDate, bool chromeDocumentChainAlreadyRan = false)
         {
             if (PortalCookieHeaderHasJsessionId())
                 return;
@@ -913,46 +1244,30 @@ namespace Hiatme_Tool_Suite_v3
                     CookieContainer = CookieJar,
                     UseCookies = true,
                     AutomaticDecompression = DecompressionMethods.GZip,
+                    AllowAutoRedirect = false,
                 })
                 using (var http = new HttpClient(handler, disposeHandler: true))
                 {
                     http.Timeout = Client.Timeout;
                     async Task RunGet(string url, string referer, string secFetchSite)
                     {
-                        using (var req = new HttpRequestMessage(HttpMethod.Get, url))
-                        {
-                            req.Headers.TryAddWithoutValidation("User-Agent", PortalBrowserUserAgent);
-                            req.Headers.TryAddWithoutValidation("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
-                            req.Headers.TryAddWithoutValidation("Accept-Language", "en-US,en;q=0.9");
-                            if (!string.IsNullOrEmpty(referer))
-                                req.Headers.TryAddWithoutValidation("Referer", referer);
-                            req.Headers.TryAddWithoutValidation("Sec-Fetch-Site", secFetchSite);
-                            req.Headers.TryAddWithoutValidation("Sec-Fetch-Mode", "navigate");
-                            req.Headers.TryAddWithoutValidation("Sec-Fetch-Dest", "document");
-                            req.Headers.TryAddWithoutValidation("Upgrade-Insecure-Requests", "1");
-                            using (var resp = await http.SendAsync(req).ConfigureAwait(false))
-                            {
-                                WellRydeCookieHelper.IngestSetCookieHeaders(resp, CookieJar);
-                                WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
-                                if (resp.IsSuccessStatusCode)
-                                {
-                                    var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
-                                    WellRydeCookieHelper.TryIngestJSessionIdFromMarkupAndLocation(CookieJar, body);
-                                }
-                            }
-                        }
+                        var cold = string.IsNullOrEmpty(referer) && string.Equals(secFetchSite, "none", StringComparison.OrdinalIgnoreCase);
+                        await HttpClientPortalDocumentGetWithManualRedirectsAsync(http, url, referer, secFetchSite, cold).ConfigureAwait(false);
                     }
 
                     var o = WellRydeConfig.PortalOrigin;
-                    await RunGet(o + "/", null, "none").ConfigureAwait(false);
-                    if (PortalCookieHeaderHasJsessionId())
-                        return;
-                    await RunGet(WellRydeConfig.PortalShellUrl, o + "/", "same-origin").ConfigureAwait(false);
-                    if (PortalCookieHeaderHasJsessionId())
-                        return;
-                    await RunGet(WellRydeConfig.TripsPageAbsoluteUrl, WellRydeConfig.PortalShellUrl, "same-origin").ConfigureAwait(false);
-                    if (PortalCookieHeaderHasJsessionId())
-                        return;
+                    if (!chromeDocumentChainAlreadyRan)
+                    {
+                        await RunGet(o + "/", null, "none").ConfigureAwait(false);
+                        if (PortalCookieHeaderHasJsessionId())
+                            return;
+                        await RunGet(WellRydeConfig.PortalShellUrl, o + "/", "same-origin").ConfigureAwait(false);
+                        if (PortalCookieHeaderHasJsessionId())
+                            return;
+                        await RunGet(WellRydeConfig.TripsPageAbsoluteUrl, WellRydeConfig.PortalShellUrl, "same-origin").ConfigureAwait(false);
+                        if (PortalCookieHeaderHasJsessionId())
+                            return;
+                    }
                     var q = tripDate.ToString("yyyy-MM-dd");
                     await RunGet(WellRydeConfig.TripsPageAbsoluteUrl + "?date=" + Uri.EscapeDataString(q),
                         WellRydeConfig.TripsPageAbsoluteUrl, "same-origin").ConfigureAwait(false);
@@ -960,7 +1275,7 @@ namespace Hiatme_Tool_Suite_v3
             }
             catch (Exception ex)
             {
-                if (WellRydeConfig.DebugPortalTraffic)
+                if (WellRydeConfig.PortalLogVerbose)
                     WellRydeLog.WriteLine("WellRyde: servlet auto-handler GET chain error: " + ex.Message);
             }
         }
@@ -972,35 +1287,18 @@ namespace Hiatme_Tool_Suite_v3
         {
             try
             {
-                PreferPortalXsrfCookieForCsrfToken();
+                // Do not call PreferPortalXsrfCookie here — login flow may have set _CsrfToken from HTML; stale XSRF-TOKEN cookie must not overwrite it before nps/timezone.
                 SyncXsrfTokenCookieFromCurrentCsrf();
+                await NavigateChromeOrderedPortalDocumentChainAsync().ConfigureAwait(false);
                 if (!PortalCookieHeaderHasJsessionId())
                     await PostAuthenticatedNpsTimezoneServletPrimeAsync(WellRydeConfig.TripsPageAbsoluteUrl).ConfigureAwait(false);
                 WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
-                using (var r1 = await GetPortalHtmlDocumentAsync(WellRydeConfig.PortalShellUrl, WellRydeConfig.PortalOrigin + "/"))
-                {
-                    WellRydeCookieHelper.IngestSetCookieHeaders(r1, CookieJar);
-                    if (r1.IsSuccessStatusCode)
-                    {
-                        var h1 = await r1.Content.ReadAsStringAsync();
-                        WellRydeCookieHelper.TryIngestJSessionIdFromMarkupAndLocation(CookieJar, h1);
-                    }
-                }
-                using (var r2 = await GetPortalHtmlDocumentAsync(WellRydeConfig.TripsPageAbsoluteUrl, WellRydeConfig.PortalShellUrl))
-                {
-                    WellRydeCookieHelper.IngestSetCookieHeaders(r2, CookieJar);
-                    if (r2.IsSuccessStatusCode)
-                    {
-                        var h2 = await r2.Content.ReadAsStringAsync();
-                        WellRydeCookieHelper.TryIngestJSessionIdFromMarkupAndLocation(CookieJar, h2);
-                    }
-                }
                 // Some stacks only attach Set-Cookie: JSESSIONID on an intermediate 302; default AllowAutoRedirect can drop it from our manual ingest.
                 await TryCaptureServletCookiesViaManualRedirectChainAsync(WellRydeConfig.TripsPageAbsoluteUrl, WellRydeConfig.PortalShellUrl);
                 if (!PortalCookieHeaderHasJsessionId())
                     await TryPrimeJsessionIdViaPortalStaticResourceAsync(WellRydeConfig.TripsPageAbsoluteUrl);
                 if (!PortalCookieHeaderHasJsessionId())
-                    await TryAcquireTomcatJsessionViaNativeHandlerAsync(WellRydeConfig.TripsPageAbsoluteUrl).ConfigureAwait(false);
+                    await TryAcquireTomcatJsessionViaNativeHandlerAsync(WellRydeConfig.TripsPageAbsoluteUrl, skipChromeDocumentTriplet: true).ConfigureAwait(false);
                 WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
             }
             catch
@@ -1014,6 +1312,8 @@ namespace Hiatme_Tool_Suite_v3
         /// </summary>
         private async Task TryCaptureServletCookiesViaManualRedirectChainAsync(string startUrl, string referer)
         {
+            if (PortalCookieHeaderHasJsessionId())
+                return;
             try
             {
                 var chainInner = new HttpClientHandler
@@ -1027,8 +1327,16 @@ namespace Hiatme_Tool_Suite_v3
                     chainClient.Timeout = Client.Timeout;
                     var url = startUrl;
                     var chainReferer = string.IsNullOrEmpty(referer) ? WellRydeConfig.PortalOrigin + "/" : referer;
+                    var seenChainKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     for (var hop = 0; hop < 12; hop++)
                     {
+                        var hopKey = CanonicalPortalNavigateUrlKey(url);
+                        if (!seenChainKeys.Add(hopKey))
+                        {
+                            if (WellRydeConfig.PortalLogVerbose)
+                                WellRydeLog.WriteLine("WellRyde: servlet redirect chain — stop cycle key=" + hopKey);
+                            break;
+                        }
                         using (var req = new HttpRequestMessage(HttpMethod.Get, url))
                         {
                             req.Headers.TryAddWithoutValidation("User-Agent", PortalBrowserUserAgent);
@@ -1054,8 +1362,16 @@ namespace Hiatme_Tool_Suite_v3
                                     var loc = ResolveRedirectLocation(resp.RequestMessage.RequestUri, resp.Headers.Location);
                                     if (loc == null)
                                         break;
+                                    var nextUrl = loc.ToString();
+                                    var nextKey = CanonicalPortalNavigateUrlKey(nextUrl);
+                                    if (seenChainKeys.Contains(nextKey))
+                                    {
+                                        if (WellRydeConfig.PortalLogVerbose)
+                                            WellRydeLog.WriteLine("WellRyde: servlet redirect chain — stop (Location repeats) next=" + nextKey);
+                                        break;
+                                    }
                                     chainReferer = url;
-                                    url = loc.ToString();
+                                    url = nextUrl;
                                     continue;
                                 }
                                 break;
@@ -1073,8 +1389,9 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>
         /// Runs navigate/XHR/static GETs with <see cref="HttpClientHandler.UseCookies"/> on the shared <see cref="CookieJar"/> so the runtime merges
         /// <c>Set-Cookie: JSESSIONID</c> like Chrome (some stacks never surface that cookie to manual <see cref="WellRydeCookieHelper.IngestSetCookieHeaders"/> paths).
+        /// When <paramref name="skipChromeDocumentTriplet"/> is <c>true</c>, skips <c>GET /</c>, <c>/portal/</c>, and bare <c>/portal/nu</c> (caller already ran <see cref="NavigateChromeOrderedPortalDocumentChainAsync"/>).
         /// </summary>
-        private async Task TryAcquireTomcatJsessionViaNativeHandlerAsync(string datedOrBareNuReferer)
+        private async Task TryAcquireTomcatJsessionViaNativeHandlerAsync(string datedOrBareNuReferer, bool skipChromeDocumentTriplet = false)
         {
             if (PortalCookieHeaderHasJsessionId())
                 return;
@@ -1085,6 +1402,7 @@ namespace Hiatme_Tool_Suite_v3
                     CookieContainer = CookieJar,
                     UseCookies = true,
                     AutomaticDecompression = DecompressionMethods.GZip,
+                    AllowAutoRedirect = false,
                 })
                 using (var http = new HttpClient(handler, disposeHandler: true))
                 {
@@ -1092,45 +1410,20 @@ namespace Hiatme_Tool_Suite_v3
 
                     async Task NavigateGet(string requestUrl, string referer, string secFetchSite)
                     {
-                        using (var req = new HttpRequestMessage(HttpMethod.Get, requestUrl))
-                        {
-                            req.Headers.TryAddWithoutValidation("User-Agent", PortalBrowserUserAgent);
-                            req.Headers.TryAddWithoutValidation("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
-                            req.Headers.TryAddWithoutValidation("Accept-Language", "en-US,en;q=0.9");
-                            if (!string.IsNullOrEmpty(referer))
-                                req.Headers.TryAddWithoutValidation("Referer", referer);
-                            req.Headers.TryAddWithoutValidation("Sec-Fetch-Site", secFetchSite);
-                            req.Headers.TryAddWithoutValidation("Sec-Fetch-Mode", "navigate");
-                            req.Headers.TryAddWithoutValidation("Sec-Fetch-Dest", "document");
-                            req.Headers.TryAddWithoutValidation("Upgrade-Insecure-Requests", "1");
-                            using (var resp = await http.SendAsync(req).ConfigureAwait(false))
-                                await resp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
-                        }
-                    }
-
-                    async Task NoCorsGet(string requestUrl, string referer, string accept, string dest)
-                    {
-                        using (var req = new HttpRequestMessage(HttpMethod.Get, requestUrl))
-                        {
-                            req.Headers.TryAddWithoutValidation("User-Agent", PortalBrowserUserAgent);
-                            req.Headers.TryAddWithoutValidation("Accept", accept);
-                            req.Headers.TryAddWithoutValidation("Accept-Language", "en-US,en;q=0.9");
-                            req.Headers.TryAddWithoutValidation("Referer", referer);
-                            req.Headers.TryAddWithoutValidation("Sec-Fetch-Site", "same-origin");
-                            req.Headers.TryAddWithoutValidation("Sec-Fetch-Mode", "no-cors");
-                            req.Headers.TryAddWithoutValidation("Sec-Fetch-Dest", dest);
-                            using (var resp = await http.SendAsync(req).ConfigureAwait(false))
-                                await resp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
-                        }
+                        var cold = string.IsNullOrEmpty(referer) && string.Equals(secFetchSite, "none", StringComparison.OrdinalIgnoreCase);
+                        await HttpClientPortalDocumentGetWithManualRedirectsAsync(http, requestUrl, referer, secFetchSite, cold).ConfigureAwait(false);
                     }
 
                     var o = WellRydeConfig.PortalOrigin;
-                    await NavigateGet(o + "/", null, "none").ConfigureAwait(false);
-                    if (PortalCookieHeaderHasJsessionId()) return;
-                    await NavigateGet(WellRydeConfig.PortalShellUrl, o + "/", "same-origin").ConfigureAwait(false);
-                    if (PortalCookieHeaderHasJsessionId()) return;
-                    await NavigateGet(WellRydeConfig.TripsPageAbsoluteUrl, WellRydeConfig.PortalShellUrl, "same-origin").ConfigureAwait(false);
-                    if (PortalCookieHeaderHasJsessionId()) return;
+                    if (!skipChromeDocumentTriplet)
+                    {
+                        await NavigateGet(o + "/", null, "none").ConfigureAwait(false);
+                        if (PortalCookieHeaderHasJsessionId()) return;
+                        await NavigateGet(WellRydeConfig.PortalShellUrl, o + "/", "same-origin").ConfigureAwait(false);
+                        if (PortalCookieHeaderHasJsessionId()) return;
+                        await NavigateGet(WellRydeConfig.TripsPageAbsoluteUrl, WellRydeConfig.PortalShellUrl, "same-origin").ConfigureAwait(false);
+                        if (PortalCookieHeaderHasJsessionId()) return;
+                    }
                     if (!string.IsNullOrEmpty(datedOrBareNuReferer)
                         && datedOrBareNuReferer.IndexOf("date=", StringComparison.OrdinalIgnoreCase) >= 0)
                     {
@@ -1196,8 +1489,10 @@ namespace Hiatme_Tool_Suite_v3
                         if (PortalCookieHeaderHasJsessionId()) return;
                         try
                         {
-                            var isCss = path.EndsWith(".css", StringComparison.OrdinalIgnoreCase);
-                            await NoCorsGet(o + path, xhrReferer, isCss ? "text/css,*/*;q=0.1" : "*/*", isCss ? "style" : "script").ConfigureAwait(false);
+                            var isSourceMap = path.EndsWith(".map", StringComparison.OrdinalIgnoreCase);
+                            var isCss = !isSourceMap && path.EndsWith(".css", StringComparison.OrdinalIgnoreCase);
+                            var dest = isCss ? "style" : (isSourceMap ? "empty" : "script");
+                            await HttpClientNoCorsGetWithManualRedirectsAsync(http, o + path, xhrReferer, isCss ? "text/css,*/*;q=0.1" : "*/*", dest).ConfigureAwait(false);
                         }
                         catch
                         {
@@ -1206,24 +1501,35 @@ namespace Hiatme_Tool_Suite_v3
                     }
                 }
                 WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
-                if (WellRydeConfig.DebugPortalTraffic && PortalCookieHeaderHasJsessionId())
+                if (WellRydeConfig.PortalLogVerbose && PortalCookieHeaderHasJsessionId())
                     WellRydeLog.WriteLine("WellRyde: native cookie-handler chain stored JSESSIONID for filterdata.");
             }
             catch (Exception ex)
             {
-                if (WellRydeConfig.DebugPortalTraffic)
+                if (WellRydeConfig.PortalLogVerbose)
                     WellRydeLog.WriteLine("WellRyde: TryAcquireTomcatJsessionViaNativeHandlerAsync: " + ex.Message);
             }
         }
 
-        /// <summary>Static URLs seen on the SPA HTML shell; Tomcat may <c>Set-Cookie: JSESSIONID</c> on one of these while <c>GET /portal/nu</c> does not.</summary>
+        /// <summary>Chrome post-<c>/portal/nu</c> waterfall (Fiddler): CSS map right after bootstrap bundle, then shell CSS/JS, then source maps after their scripts, then legacy font.</summary>
         private static readonly string[] JsessionStaticProbePaths =
         {
+            "/portal/resources/bootstrap_3.3.6/css/bootstrap.min.css.map",
             "/portal/resources/styles/commonStyle.css",
             "/portal/resources/bootstrap_3.3.6/css/bootstrap.min.css",
             "/portal/resources/bootstrap_3.3.6/js/bootstrap.min.js",
             "/portal/resources/inspinia/js/jquery/jquery-2.1.1.min.js",
-            "/portal/resources/scripts/jquery/jquery-3.6.0.min.js",
+            "/portal/resources/bootstrap_3.2/js/bootstrap-tagsinput.min.js.map",
+            "/portal/resources/scripts/mdm/avl/SlidingMarker.min.js.map",
+            "/portal/resources/styles/fonts/fontawesome-webfont.eot?v=4.7.0",
+        };
+
+        /// <summary>Short sequence after ELB rotation: one early <c>.css.map</c> + shell CSS + font (avoids re-walking the full list).</summary>
+        private static readonly string[] JsessionStaticProbePathsStickyResync =
+        {
+            "/portal/resources/bootstrap_3.3.6/css/bootstrap.min.css.map",
+            "/portal/resources/styles/commonStyle.css",
+            "/portal/resources/styles/fonts/fontawesome-webfont.eot?v=4.7.0",
         };
 
         /// <summary>
@@ -1235,45 +1541,9 @@ namespace Hiatme_Tool_Suite_v3
             if (PortalCookieHeaderHasJsessionId())
                 return;
             var refererVal = string.IsNullOrEmpty(referer) ? WellRydeConfig.TripsPageAbsoluteUrl : referer;
-            var o = WellRydeConfig.PortalOrigin;
             try
             {
-                foreach (var path in JsessionStaticProbePaths)
-                {
-                    if (PortalCookieHeaderHasJsessionId())
-                        return;
-                    try
-                    {
-                        var isCss = path.EndsWith(".css", StringComparison.OrdinalIgnoreCase);
-                        await TryOneStaticJsessionProbeAsync(refererVal, o + path,
-                            isCss ? "text/css,*/*;q=0.1" : "*/*",
-                            isCss ? "style" : "script").ConfigureAwait(false);
-                    }
-                    catch
-                    {
-                        /* try next */
-                    }
-                }
-
-                if (PortalCookieHeaderHasJsessionId())
-                    return;
-                var curl = WellRydeCurlFilterData.TryResolveCurlPath();
-                if (string.IsNullOrEmpty(curl))
-                    return;
-                foreach (var path in JsessionStaticProbePaths)
-                {
-                    if (PortalCookieHeaderHasJsessionId())
-                        return;
-                    try
-                    {
-                        WellRydeCurlFilterData.TrySessionPrimingGet(CookieJar, o + path, refererVal, PortalBrowserUserAgent);
-                        WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
-                    }
-                    catch
-                    {
-                        /* next */
-                    }
-                }
+                await TryPrimeJsessionStaticRelativePathsAsync(refererVal, JsessionStaticProbePaths, runCurlFallback: true).ConfigureAwait(false);
             }
             catch
             {
@@ -1281,7 +1551,58 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
-        private async Task TryOneStaticJsessionProbeAsync(string refererVal, string url, string accept, string secFetchDest)
+        /// <summary>GET each relative path in order until <c>JSESSIONID</c> appears in the jar (same order as Chrome shell).</summary>
+        private async Task TryPrimeJsessionStaticRelativePathsAsync(string refererVal, string[] relativePaths, bool runCurlFallback)
+        {
+            if (relativePaths == null || relativePaths.Length == 0)
+                return;
+            var o = WellRydeConfig.PortalOrigin;
+            foreach (var path in relativePaths)
+            {
+                if (PortalCookieHeaderHasJsessionId())
+                    return;
+                try
+                {
+                    var isSourceMap = path.EndsWith(".map", StringComparison.OrdinalIgnoreCase);
+                    var isCss = !isSourceMap && path.EndsWith(".css", StringComparison.OrdinalIgnoreCase);
+                    var isFont = path.IndexOf(".eot", StringComparison.OrdinalIgnoreCase) >= 0;
+                    if (isCss)
+                        await TryOneStaticJsessionProbeAsync(refererVal, o + path, "text/css,*/*;q=0.1", "style").ConfigureAwait(false);
+                    else if (isFont)
+                        await TryOneStaticJsessionProbeAsync(refererVal, o + path, "*/*", "font", "cors", true).ConfigureAwait(false);
+                    else if (isSourceMap)
+                        await TryOneStaticJsessionProbeAsync(refererVal, o + path, "*/*", "empty").ConfigureAwait(false);
+                    else
+                        await TryOneStaticJsessionProbeAsync(refererVal, o + path, "*/*", "script").ConfigureAwait(false);
+                }
+                catch
+                {
+                    /* try next */
+                }
+            }
+
+            if (!runCurlFallback || PortalCookieHeaderHasJsessionId())
+                return;
+            var curl = WellRydeCurlFilterData.TryResolveCurlPath();
+            if (string.IsNullOrEmpty(curl))
+                return;
+            foreach (var path in relativePaths)
+            {
+                if (PortalCookieHeaderHasJsessionId())
+                    return;
+                try
+                {
+                    WellRydeCurlFilterData.TrySessionPrimingGet(CookieJar, o + path, refererVal, PortalBrowserUserAgent);
+                    WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
+                }
+                catch
+                {
+                    /* next */
+                }
+            }
+        }
+
+        private async Task TryOneStaticJsessionProbeAsync(string refererVal, string url, string accept, string secFetchDest, string secFetchMode = "no-cors", bool sendOrigin = false)
         {
             using (var req = new HttpRequestMessage(HttpMethod.Get, url))
             {
@@ -1290,8 +1611,10 @@ namespace Hiatme_Tool_Suite_v3
                 req.Headers.TryAddWithoutValidation("Accept-Language", "en-US,en;q=0.9");
                 req.Headers.TryAddWithoutValidation("Referer", refererVal);
                 req.Headers.TryAddWithoutValidation("Sec-Fetch-Site", "same-origin");
-                req.Headers.TryAddWithoutValidation("Sec-Fetch-Mode", "no-cors");
+                req.Headers.TryAddWithoutValidation("Sec-Fetch-Mode", secFetchMode);
                 req.Headers.TryAddWithoutValidation("Sec-Fetch-Dest", secFetchDest);
+                if (sendOrigin)
+                    req.Headers.TryAddWithoutValidation("Origin", WellRydeConfig.PortalOrigin);
                 using (var resp = await _filterDataClient.SendAsync(req).ConfigureAwait(false))
                 {
                     WellRydeCookieHelper.IngestSetCookieHeaders(resp, CookieJar);
@@ -1339,9 +1662,30 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         /// <summary>
-        /// Chrome trip XHR for <c>/portal/trip/filterlist</c>: bare <c>/portal/nu</c> referer, <c>X-Requested-With: XMLHttpRequest</c>, and <c>X-CSRF-TOKEN</c> / <c>X-XSRF-TOKEN</c> when a token is known (required for JSON — without them the servlet returns the Dojo HTML shell).
-        /// <paramref name="useAlternateJsonAccept"/>: when <c>false</c>, <c>Accept: application/json, text/plain, */*</c> (Chrome HAR); when <c>true</c>, Dojo-style <c>application/json, text/javascript, */*; q=0.01</c> for a second attempt only.
-        /// Trip <c>filterlist</c> uses <see cref="_filterDataClient"/> so <c>Cookie</c> is built by <see cref="WellRydePortalCookieInjectingHandler"/> (deduped <c>JSESSIONID</c>).
+        /// <c>JSESSIONID</c> from a prior response (e.g. static 404) may belong to a different ALB node than <c>trip/filterlist</c> / <c>listFilterDefsJson</c> — server returns <c>302 → /portal/</c> or HTTP 401. Expire Tomcat cookie and re-mint using the dated <c>nu?date=</c> referer when set (static probes + native servlet chain).
+        /// </summary>
+        /// <param name="filterDataRefererFallback">When <see cref="_lastTripsNuRefererWithDate"/> is empty, used for static-probe <c>Referer</c> (typically bare <c>nu</c> from <c>filterdata</c>).</param>
+        private async Task TryRecoverTomcatStickyAfterElbJsessionMismatchAsync(string filterDataRefererFallback = null)
+        {
+            WellRydeCookieHelper.TryExpirePortalTomcatJsessionCookies(CookieJar);
+            WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
+            var refUrl = !string.IsNullOrEmpty(_lastTripsNuRefererWithDate)
+                ? _lastTripsNuRefererWithDate
+                : (!string.IsNullOrEmpty(filterDataRefererFallback)
+                    ? filterDataRefererFallback
+                    : WellRydeConfig.TripsPageAbsoluteUrl);
+            await TryPrimeJsessionStaticRelativePathsAsync(refUrl, JsessionStaticProbePathsStickyResync, runCurlFallback: true).ConfigureAwait(false);
+            if (!PortalCookieHeaderHasJsessionId())
+                await TryPrimeJsessionStaticRelativePathsAsync(refUrl, JsessionStaticProbePaths, runCurlFallback: true).ConfigureAwait(false);
+            if (!PortalCookieHeaderHasJsessionId())
+                await TryAcquireTomcatJsessionViaNativeHandlerAsync(refUrl).ConfigureAwait(false);
+            WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
+        }
+
+        /// <summary>
+        /// Chrome <c>GET /portal//trip/filterlist</c> (portal.app 2026 gold): bare <c>Referer: …/portal/nu</c> via <see cref="TripsRefererForWellRydeAjax"/> (not <c>nu?date=…</c> — dated referer correlated with <c>302 → /portal/</c> in app Fiddler). <b>No</b> <c>X-Requested-With</c>, <b>no</b> CSRF duplicate headers, <b>no</b> <c>Priority</c>.
+        /// <paramref name="useAlternateJsonAccept"/>: when <c>false</c>, <c>Accept: application/json, text/plain, */*</c>; when <c>true</c>, Dojo-style <c>application/json, text/javascript, */*; q=0.01</c> for a second attempt only.
+        /// Trip <c>filterlist</c> uses <see cref="_filterDataClient"/>; <see cref="WellRydePortalCookieInjectingHandler"/> sends <see cref="WellRydeCookieHelper.BuildTripFilterListCookieHeaderChrome"/> (SESSION; JSESSIONID; ALB — no <c>XSRF-TOKEN</c> on this GET).
         /// </summary>
         private void ApplyWellRydeTripFilterlistXHRHeaders(HttpRequestMessage req, bool useAlternateJsonAccept)
         {
@@ -1350,23 +1694,26 @@ namespace Hiatme_Tool_Suite_v3
                 : "application/json, text/plain, */*");
             req.Headers.TryAddWithoutValidation("User-Agent", PortalBrowserUserAgent);
             req.Headers.TryAddWithoutValidation("Accept-Language", "en-US,en;q=0.9");
-            req.Headers.TryAddWithoutValidation("Priority", "u=1, i");
-            var referer = TripsRefererForWellRydeAjax;
-            req.Headers.TryAddWithoutValidation("Referer", referer);
-            req.Headers.TryAddWithoutValidation("X-Requested-With", "XMLHttpRequest");
-            var xsrfFromCookie = TryGetCsrfFromCookies();
-            var csrfForAjax = !string.IsNullOrEmpty(xsrfFromCookie) ? xsrfFromCookie : _CsrfToken;
-            if (!string.IsNullOrEmpty(csrfForAjax))
-            {
-                req.Headers.TryAddWithoutValidation("X-CSRF-TOKEN", csrfForAjax);
-                req.Headers.TryAddWithoutValidation("X-XSRF-TOKEN", csrfForAjax);
-            }
+            req.Headers.TryAddWithoutValidation("Referer", TripsRefererForWellRydeAjax);
             req.Headers.TryAddWithoutValidation("Sec-Fetch-Site", "same-origin");
             req.Headers.TryAddWithoutValidation("Sec-Fetch-Mode", "cors");
             req.Headers.TryAddWithoutValidation("Sec-Fetch-Dest", "empty");
             req.Headers.TryAddWithoutValidation("sec-ch-ua", PortalFilterDataSecChUa);
             req.Headers.TryAddWithoutValidation("sec-ch-ua-mobile", "?0");
             req.Headers.TryAddWithoutValidation("sec-ch-ua-platform", "\"Windows\"");
+        }
+
+        /// <summary>Alternate <c>Accept</c> on trip <c>filterlist</c> can help Dojo/JSON quirks — not redirects or auth failures.</summary>
+        private static bool FilterListAlternateAcceptMightHelp(HttpResponseMessage resp)
+        {
+            if (resp == null)
+                return false;
+            var c = (int)resp.StatusCode;
+            if (c >= 300 && c < 400)
+                return false;
+            if (c == 401 || c == 403 || c == 404)
+                return false;
+            return true;
         }
 
         /// <summary>
@@ -1395,6 +1742,9 @@ namespace Hiatme_Tool_Suite_v3
 
             try
             {
+                // Fiddler: static 404 can Set-Cookie JSESSIONID on node A while trip/filterlist hits node B → 302 Location /portal/ — re-mint Tomcat once then retry all filterlist URLs.
+                var allowFilterlistStickyRestart = true;
+            filterlistUrlsRestart:
                 foreach (var url in WellRydeConfig.EnumerateTripFilterListRequestUrls())
                 {
                     for (var attempt = 0; attempt < 2; attempt++)
@@ -1411,13 +1761,29 @@ namespace Hiatme_Tool_Suite_v3
                             WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
                             var body = await resp.Content.ReadAsStringAsync();
                             var ct = resp.Content.Headers.ContentType?.ToString() ?? "";
+                            var httpCode = (int)resp.StatusCode;
+                            // Some stacks return HTTP 200 with an empty body for VTripBilling filterlist XHR — still counts as servlet prime (session bound).
+                            if (resp.StatusCode == HttpStatusCode.OK && string.IsNullOrEmpty(body) && isVtSecS)
+                            {
+                                if (WellRydeConfig.PortalLogVerbose)
+                                    WellRydeLog.WriteLine("WellRyde: trip filterlist HTTP 200 empty body — treating as servlet prime OK (SEC-S). url=" + url);
+                                return;
+                            }
                             if (resp.StatusCode != HttpStatusCode.OK || string.IsNullOrEmpty(body))
                             {
-                                WellRydeLog.WriteLine("WellRyde: trip filterlist HTTP " + (int)resp.StatusCode + " content-type=" + ct + " len=" + (body?.Length ?? 0)
+                                var redirect = httpCode >= 300 && httpCode < 400;
+                                if (redirect && allowFilterlistStickyRestart)
+                                {
+                                    allowFilterlistStickyRestart = false;
+                                    WellRydeLog.WriteLine("WellRyde: trip filterlist HTTP " + httpCode + " redirect (likely ALB vs JSESSIONID mismatch) — sticky recovery, then retry filterlist URLs. url=" + url);
+                                    await TryRecoverTomcatStickyAfterElbJsessionMismatchAsync(TripsRefererForWellRydeAjax).ConfigureAwait(false);
+                                    goto filterlistUrlsRestart;
+                                }
+                                WellRydeLog.WriteLine("WellRyde: trip filterlist HTTP " + httpCode + " content-type=" + ct + " len=" + (body?.Length ?? 0)
                                     + " setJsession=" + SetCookieHeadersMentionJsessionId(resp) + " url=" + url
                                     + " prefix=" + TrimForWellRydeLog(body, 200)
-                                    + (attempt == 0 ? " — retrying with alternate Accept." : " — next URL or give up."));
-                                if (attempt == 0)
+                                    + (attempt == 0 && FilterListAlternateAcceptMightHelp(resp) ? " — retrying with alternate Accept." : " — next URL or give up."));
+                                if (attempt == 0 && FilterListAlternateAcceptMightHelp(resp))
                                     continue;
                                 break;
                             }
@@ -1425,10 +1791,18 @@ namespace Hiatme_Tool_Suite_v3
                             var htmlShell = body.TrimStart().StartsWith("<", StringComparison.Ordinal);
                             if (htmlShell)
                             {
+                                // Chrome HAR: GET trip filterlist often returns Dojo/XML HTML, not JSON — still primes servlet session before listFilterDefsJson/filterdata.
+                                // When listDefId is already SEC-S_* (VTripBilling), we do not need JSON from this endpoint.
+                                if (isVtSecS)
+                                {
+                                    if (WellRydeConfig.PortalLogVerbose)
+                                        WellRydeLog.WriteLine("WellRyde: trip filterlist HTTP 200 HTML servlet prime OK (SEC-S list). len=" + body.Length + " url=" + url);
+                                    return;
+                                }
                                 if (attempt == 0)
                                 {
-                                    if (WellRydeConfig.DebugPortalTraffic)
-                                        WellRydeLog.WriteLine("WellRyde: trip filterlist HTTP 200 HTML (Dojo shell, len=" + body.Length + ") url=" + url + " — retry SPA headers.");
+                                    if (WellRydeConfig.PortalLogVerbose)
+                                        WellRydeLog.WriteLine("WellRyde: trip filterlist HTTP 200 HTML (Dojo shell, len=" + body.Length + ") url=" + url + " — retry alternate Accept.");
                                     continue;
                                 }
 
@@ -1445,11 +1819,11 @@ namespace Hiatme_Tool_Suite_v3
                                     WellRydeConfig.ResolvedTripListDefId = id;
                                     WellRydeLog.WriteLine("WellRyde: resolved trip listDefId from filterlist API: " + id);
                                 }
-                                else if (WellRydeConfig.DebugPortalTraffic)
+                                else if (WellRydeConfig.PortalLogVerbose)
                                     WellRydeLog.WriteLine("WellRyde: filterlist JSON parse found no SEC-* listDefId (prefix " +
                                                           (body.Length > 160 ? body.Substring(0, 160) + "…" : body) + ")");
                             }
-                            else if (isVtSecS && WellRydeConfig.DebugPortalTraffic)
+                            else if (isVtSecS && WellRydeConfig.PortalLogVerbose)
                                 WellRydeLog.WriteLine("WellRyde: trip filterlist XHR prime OK (explicit SEC-S listDefId — servlet session for filterdata). HTTP " + (int)resp.StatusCode + " len=" + body.Length + " url=" + url);
                             return;
                         }
@@ -1458,7 +1832,7 @@ namespace Hiatme_Tool_Suite_v3
             }
             catch (Exception ex)
             {
-                if (WellRydeConfig.DebugPortalTraffic)
+                if (WellRydeConfig.PortalLogVerbose)
                     WellRydeLog.WriteLine("WellRyde: filterlist resolve error: " + ex.Message);
             }
         }
@@ -1467,29 +1841,33 @@ namespace Hiatme_Tool_Suite_v3
         /// GET <c>/portal/trip/filterlist</c> when <c>JSESSIONID</c> is still missing after <c>nu</c> (often <c>Set-Cookie</c> on this XHR only).
         /// For <c>SEC-S_*</c> lists, <see cref="TryResolveVtTripBillingListDefIfNeededAsync"/> also runs this XHR even when the cookie is already present.
         /// </summary>
-        /// <param name="tripsPageReferer">Unused; referer comes from <see cref="TripsRefererForWellRydeAjax"/> for SPA parity.</param>
-        private async Task TryPrimeTripFilterListServletSessionAsync(string tripsPageReferer)
+        private async Task TryPrimeTripFilterListServletSessionAsync()
         {
             try
             {
+                var allowFilterlistStickyRestart = true;
+            servletPrimeFilterlistRestart:
                 foreach (var url in WellRydeConfig.EnumerateTripFilterListRequestUrls())
                 {
-                    for (var attempt = 0; attempt < 2; attempt++)
-                    {
-                        var req = new HttpRequestMessage(HttpMethod.Get, url);
-                        ApplyWellRydeTripFilterlistXHRHeaders(req, useAlternateJsonAccept: attempt != 0);
+                    var req = new HttpRequestMessage(HttpMethod.Get, url);
+                    ApplyWellRydeTripFilterlistXHRHeaders(req, useAlternateJsonAccept: false);
 
-                        WellRydeCookieHelper.CollapseDuplicatePortalCookies(CookieJar);
-                        using (var resp = await _filterDataClient.SendAsync(req).ConfigureAwait(false))
+                    WellRydeCookieHelper.CollapseDuplicatePortalCookies(CookieJar);
+                    using (var resp = await _filterDataClient.SendAsync(req).ConfigureAwait(false))
+                    {
+                        WellRydeCookieHelper.IngestSetCookieHeaders(resp, CookieJar);
+                        WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
+                        var code = (int)resp.StatusCode;
+                        if (code >= 300 && code < 400 && allowFilterlistStickyRestart)
                         {
-                            WellRydeCookieHelper.IngestSetCookieHeaders(resp, CookieJar);
-                            WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
-                            if (WellRydeConfig.DebugPortalTraffic)
-                                WellRydeLog.WriteLine("WellRyde: trip filterlist XHR prime HTTP " + (int)resp.StatusCode + " list=" + WellRydeConfig.TripFilterListName
-                                    + " url=" + url + " altAccept=" + (attempt != 0) + " setJsession=" + SetCookieHeadersMentionJsessionId(resp));
+                            allowFilterlistStickyRestart = false;
+                            WellRydeLog.WriteLine("WellRyde: trip filterlist servlet prime HTTP " + code + " redirect — sticky recovery then retry. url=" + url);
+                            await TryRecoverTomcatStickyAfterElbJsessionMismatchAsync(TripsRefererForWellRydeAjax).ConfigureAwait(false);
+                            goto servletPrimeFilterlistRestart;
                         }
-                        if (PortalCookieHeaderHasJsessionId())
-                            break;
+                        if (WellRydeConfig.PortalLogVerbose)
+                            WellRydeLog.WriteLine("WellRyde: trip filterlist XHR prime HTTP " + code + " list=" + WellRydeConfig.TripFilterListName
+                                + " url=" + url + " setJsession=" + SetCookieHeadersMentionJsessionId(resp));
                     }
                     if (PortalCookieHeaderHasJsessionId())
                         break;
@@ -1497,48 +1875,53 @@ namespace Hiatme_Tool_Suite_v3
             }
             catch (Exception ex)
             {
-                if (WellRydeConfig.DebugPortalTraffic)
+                if (WellRydeConfig.PortalLogVerbose)
                     WellRydeLog.WriteLine("WellRyde: filterlist servlet prime error: " + ex.Message);
             }
         }
 
         /// <summary>Fallback: full navigation-style GET (some stacks only <c>Set-Cookie: JSESSIONID</c> on <c>Sec-Fetch-Mode: navigate</c>).</summary>
-        private async Task TryPrimeTripFilterListAsDocumentNavigateAsync(string tripsPageReferer)
+        private async Task TryPrimeTripFilterListAsDocumentNavigateAsync()
         {
             try
             {
-                foreach (var url in WellRydeConfig.EnumerateTripFilterListRequestUrls())
+                string docUrl = null;
+                foreach (var u in WellRydeConfig.EnumerateTripFilterListRequestUrls())
                 {
-                    var req = new HttpRequestMessage(HttpMethod.Get, url);
-                    req.Headers.TryAddWithoutValidation("User-Agent", PortalBrowserUserAgent);
-                    req.Headers.TryAddWithoutValidation("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,application/json;q=0.8,*/*;q=0.7");
-                    req.Headers.TryAddWithoutValidation("Accept-Language", "en-US,en;q=0.9");
-                    req.Headers.TryAddWithoutValidation("Referer", string.IsNullOrEmpty(tripsPageReferer) ? TripsRefererForWellRydeAjax : tripsPageReferer);
-                    req.Headers.TryAddWithoutValidation("Sec-Fetch-Site", "same-origin");
-                    req.Headers.TryAddWithoutValidation("Sec-Fetch-Mode", "navigate");
-                    req.Headers.TryAddWithoutValidation("Sec-Fetch-Dest", "document");
-                    WellRydeCookieHelper.CollapseDuplicatePortalCookies(CookieJar);
-                    using (var resp = await _filterDataClient.SendAsync(req).ConfigureAwait(false))
+                    docUrl = u;
+                    break;
+                }
+                if (string.IsNullOrEmpty(docUrl))
+                    return;
+                var req = new HttpRequestMessage(HttpMethod.Get, docUrl);
+                req.Headers.TryAddWithoutValidation("User-Agent", PortalBrowserUserAgent);
+                req.Headers.TryAddWithoutValidation("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,application/json;q=0.8,*/*;q=0.7");
+                req.Headers.TryAddWithoutValidation("Accept-Language", "en-US,en;q=0.9");
+                req.Headers.TryAddWithoutValidation("Referer", TripsRefererForWellRydeAjax);
+                req.Headers.TryAddWithoutValidation("Sec-Fetch-Site", "same-origin");
+                req.Headers.TryAddWithoutValidation("Sec-Fetch-Mode", "navigate");
+                req.Headers.TryAddWithoutValidation("Sec-Fetch-Dest", "document");
+                WellRydeCookieHelper.CollapseDuplicatePortalCookies(CookieJar);
+                using (var resp = await _filterDataClient.SendAsync(req).ConfigureAwait(false))
+                {
+                    WellRydeCookieHelper.IngestSetCookieHeaders(resp, CookieJar);
+                    if (resp.IsSuccessStatusCode)
                     {
-                        WellRydeCookieHelper.IngestSetCookieHeaders(resp, CookieJar);
-                        if (resp.IsSuccessStatusCode)
-                        {
-                            var body = await resp.Content.ReadAsStringAsync();
-                            WellRydeCookieHelper.TryIngestJSessionIdFromMarkupAndLocation(CookieJar, body);
-                            var rw = WellRydeCookieHelper.TryGetFirstJsessionIdFromTextForUrlRewrite(CookieJar, body);
-                            if (!string.IsNullOrEmpty(rw))
-                                _jsessionIdUrlRewriteForFilterData = rw;
-                        }
-                        WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
-                        if (WellRydeConfig.DebugPortalTraffic)
-                            WellRydeLog.WriteLine("WellRyde: trip filterlist document prime HTTP " + (int)resp.StatusCode + " url=" + url
-                                + " setJsession=" + SetCookieHeadersMentionJsessionId(resp));
+                        var body = await resp.Content.ReadAsStringAsync();
+                        WellRydeCookieHelper.TryIngestJSessionIdFromMarkupAndLocation(CookieJar, body);
+                        var rw = WellRydeCookieHelper.TryGetFirstJsessionIdFromTextForUrlRewrite(CookieJar, body);
+                        if (!string.IsNullOrEmpty(rw))
+                            _jsessionIdUrlRewriteForFilterData = rw;
                     }
+                    WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
+                    if (WellRydeConfig.PortalLogVerbose)
+                        WellRydeLog.WriteLine("WellRyde: trip filterlist document prime HTTP " + (int)resp.StatusCode + " url=" + docUrl
+                            + " setJsession=" + SetCookieHeadersMentionJsessionId(resp));
                 }
             }
             catch (Exception ex)
             {
-                if (WellRydeConfig.DebugPortalTraffic)
+                if (WellRydeConfig.PortalLogVerbose)
                     WellRydeLog.WriteLine("WellRyde: filterlist document prime error: " + ex.Message);
             }
         }
@@ -1631,11 +2014,12 @@ namespace Hiatme_Tool_Suite_v3
                         if (!resp.IsSuccessStatusCode)
                             continue;
                         var html = await resp.Content.ReadAsStringAsync();
-                        var token = GrabCSRFToken(html) ?? TryGetCsrfFromCookies();
+                        var metaCsrfRefresh = GrabCSRFToken(html);
+                        var token = metaCsrfRefresh ?? TryGetCsrfFromCookies();
                         if (!string.IsNullOrEmpty(token))
                         {
                             _CsrfToken = token;
-                            PreferPortalXsrfCookieForCsrfToken();
+                            PreferPortalXsrfCookieUnlessFreshHtmlMeta(metaCsrfRefresh);
                             SyncXsrfTokenCookieFromCurrentCsrf();
                             UpdateHandlerHeaders();
                             return true;
@@ -1740,7 +2124,7 @@ namespace Hiatme_Tool_Suite_v3
                     {
                         WellRydeCookieHelper.IngestSetCookieHeaders(resp, CookieJar);
                         WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
-                        if (WellRydeConfig.DebugPortalTraffic && resp.Headers.TryGetValues("Set-Cookie", out var sc))
+                            if (WellRydeConfig.PortalLogVerbose && resp.Headers.TryGetValues("Set-Cookie", out var sc))
                             WellRydeLog.WriteLine("WellRyde: POST nps/timezone (authenticated) Set-Cookie: " + string.Join(" || ", sc));
                         await resp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
                     }
@@ -1762,10 +2146,237 @@ namespace Hiatme_Tool_Suite_v3
             return string.Format(CultureInfo.InvariantCulture, "GMT{0}{1:D2}:{2:D2}", sign, h, m);
         }
 
+        /// <summary>
+        /// Forces <see cref="WellRydeConfig.PortalOrigin"/> host URLs to <c>https</c> with default port so we never issue <c>http://…:443/…</c>
+        /// (server <c>Location</c> quirks + automatic redirect otherwise duplicate hops in Fiddler and churn ELB stickiness).
+        /// </summary>
+        private static string NormalizePortalAbsoluteUrlString(string url)
+        {
+            if (string.IsNullOrEmpty(url))
+                return url;
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var u))
+                return url;
+            try
+            {
+                var origin = new Uri(WellRydeConfig.PortalOrigin);
+                if (!string.Equals(u.Host, origin.Host, StringComparison.OrdinalIgnoreCase))
+                    return url;
+                var ub = new UriBuilder(u)
+                {
+                    Scheme = Uri.UriSchemeHttps,
+                    Port = -1,
+                };
+                return ub.Uri.AbsoluteUri;
+            }
+            catch
+            {
+                return url;
+            }
+        }
+
         private static Uri ResolveRedirectLocation(Uri requestUri, Uri location)
         {
             if (location == null || requestUri == null) return null;
-            return location.IsAbsoluteUri ? location : new Uri(requestUri, location);
+            var resolved = location.IsAbsoluteUri ? location : new Uri(requestUri, location);
+            try
+            {
+                var origin = new Uri(WellRydeConfig.PortalOrigin);
+                if (!string.Equals(resolved.Host, origin.Host, StringComparison.OrdinalIgnoreCase))
+                    return resolved;
+                var ub = new UriBuilder(resolved)
+                {
+                    Scheme = Uri.UriSchemeHttps,
+                    Port = -1,
+                };
+                return ub.Uri;
+            }
+            catch
+            {
+                return resolved;
+            }
+        }
+
+        /// <summary>Stable key for redirect-loop detection (HTTPS, default port, path + query).</summary>
+        private static string CanonicalPortalNavigateUrlKey(string url)
+        {
+            if (string.IsNullOrEmpty(url))
+                return "";
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var u))
+                return url.Trim();
+            try
+            {
+                var origin = new Uri(WellRydeConfig.PortalOrigin);
+                var ub = new UriBuilder(u)
+                {
+                    Scheme = Uri.UriSchemeHttps,
+                    Port = -1,
+                };
+                if (!string.Equals(ub.Host, origin.Host, StringComparison.OrdinalIgnoreCase))
+                    return ub.Uri.AbsoluteUri;
+                return ub.Uri.GetLeftPart(UriPartial.Path) + ub.Uri.Query;
+            }
+            catch
+            {
+                return u.AbsoluteUri;
+            }
+        }
+
+        /// <summary>
+        /// <see cref="HttpClientHandler"/> defaults to <c>AllowAutoRedirect=true</c>, which follows <c>http://…:443</c> from <c>Location</c> and multiplies
+        /// <c>/portal/</c> ↔ <c>nu</c> hops in Fiddler. Use with <c>AllowAutoRedirect=false</c> + shared <see cref="CookieJar"/>.
+        /// </summary>
+        private async Task HttpClientPortalDocumentGetWithManualRedirectsAsync(
+            HttpClient http,
+            string startUrl,
+            string referer,
+            string secFetchSite,
+            bool coldDocumentFirstHop,
+            int maxRedirects = 16)
+        {
+            var url = NormalizePortalAbsoluteUrlString(startUrl) ?? startUrl;
+            var refererForHop = string.IsNullOrEmpty(referer) ? WellRydeConfig.TripsPageAbsoluteUrl : referer;
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            seen.Add(CanonicalPortalNavigateUrlKey(url));
+            for (var hop = 0; hop < maxRedirects; hop++)
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Get, url))
+                {
+                    req.Headers.TryAddWithoutValidation("User-Agent", PortalBrowserUserAgent);
+                    req.Headers.TryAddWithoutValidation("Accept-Language", "en-US,en;q=0.9");
+                    if (coldDocumentFirstHop && hop == 0)
+                    {
+                        req.Headers.TryAddWithoutValidation("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+                        req.Headers.TryAddWithoutValidation("Sec-Fetch-Site", "none");
+                        req.Headers.TryAddWithoutValidation("Sec-Fetch-Mode", "navigate");
+                        req.Headers.TryAddWithoutValidation("Sec-Fetch-User", "?1");
+                        req.Headers.TryAddWithoutValidation("Sec-Fetch-Dest", "document");
+                        req.Headers.TryAddWithoutValidation("Upgrade-Insecure-Requests", "1");
+                    }
+                    else
+                    {
+                        req.Headers.TryAddWithoutValidation("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+                        if (!string.IsNullOrEmpty(refererForHop))
+                            req.Headers.TryAddWithoutValidation("Referer", refererForHop);
+                        req.Headers.TryAddWithoutValidation("Sec-Fetch-Site", secFetchSite);
+                        req.Headers.TryAddWithoutValidation("Sec-Fetch-Mode", "navigate");
+                        req.Headers.TryAddWithoutValidation("Sec-Fetch-User", "?1");
+                        req.Headers.TryAddWithoutValidation("Sec-Fetch-Dest", "document");
+                        req.Headers.TryAddWithoutValidation("Upgrade-Insecure-Requests", "1");
+                    }
+                    using (var resp = await http.SendAsync(req).ConfigureAwait(false))
+                    {
+                        WellRydeCookieHelper.IngestSetCookieHeaders(resp, CookieJar);
+                        WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
+                        var code = (int)resp.StatusCode;
+                        if (code >= 300 && code < 400 && resp.Headers.Location != null)
+                        {
+                            var loc = ResolveRedirectLocation(resp.RequestMessage.RequestUri, resp.Headers.Location);
+                            if (loc == null)
+                            {
+                                await resp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
+                                return;
+                            }
+                            var nextUrl = NormalizePortalAbsoluteUrlString(loc.AbsoluteUri) ?? loc.AbsoluteUri;
+                            var nextKey = CanonicalPortalNavigateUrlKey(nextUrl);
+                            if (!seen.Add(nextKey))
+                            {
+                                await resp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
+                                return;
+                            }
+                            refererForHop = url;
+                            try
+                            {
+                                await resp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
+                            }
+                            catch
+                            {
+                                /* ignore */
+                            }
+                            resp.Dispose();
+                            url = nextUrl;
+                            continue;
+                        }
+                        if (resp.IsSuccessStatusCode)
+                        {
+                            try
+                            {
+                                var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                                WellRydeCookieHelper.TryIngestJSessionIdFromMarkupAndLocation(CookieJar, body);
+                            }
+                            catch
+                            {
+                                await resp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
+                            }
+                        }
+                        else
+                            await resp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
+                        return;
+                    }
+                }
+            }
+        }
+
+        private async Task HttpClientNoCorsGetWithManualRedirectsAsync(
+            HttpClient http,
+            string startUrl,
+            string referer,
+            string accept,
+            string dest,
+            int maxRedirects = 10)
+        {
+            var url = NormalizePortalAbsoluteUrlString(startUrl) ?? startUrl;
+            var refererForHop = string.IsNullOrEmpty(referer) ? WellRydeConfig.TripsPageAbsoluteUrl : referer;
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            seen.Add(CanonicalPortalNavigateUrlKey(url));
+            for (var hop = 0; hop < maxRedirects; hop++)
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Get, url))
+                {
+                    req.Headers.TryAddWithoutValidation("User-Agent", PortalBrowserUserAgent);
+                    req.Headers.TryAddWithoutValidation("Accept", accept);
+                    req.Headers.TryAddWithoutValidation("Accept-Language", "en-US,en;q=0.9");
+                    req.Headers.TryAddWithoutValidation("Referer", refererForHop);
+                    req.Headers.TryAddWithoutValidation("Sec-Fetch-Site", "same-origin");
+                    req.Headers.TryAddWithoutValidation("Sec-Fetch-Mode", "no-cors");
+                    req.Headers.TryAddWithoutValidation("Sec-Fetch-Dest", dest);
+                    using (var resp = await http.SendAsync(req).ConfigureAwait(false))
+                    {
+                        WellRydeCookieHelper.IngestSetCookieHeaders(resp, CookieJar);
+                        WellRydeCookieHelper.TryPromoteJsessionIdToPortalPathForFilterData(CookieJar);
+                        var code = (int)resp.StatusCode;
+                        if (code >= 300 && code < 400 && resp.Headers.Location != null)
+                        {
+                            var loc = ResolveRedirectLocation(resp.RequestMessage.RequestUri, resp.Headers.Location);
+                            if (loc == null)
+                            {
+                                await resp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
+                                return;
+                            }
+                            var nextUrl = NormalizePortalAbsoluteUrlString(loc.AbsoluteUri) ?? loc.AbsoluteUri;
+                            var nextKey = CanonicalPortalNavigateUrlKey(nextUrl);
+                            if (!seen.Add(nextKey))
+                            {
+                                await resp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
+                                return;
+                            }
+                            refererForHop = url;
+                            try
+                            {
+                                await resp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
+                            }
+                            catch
+                            {
+                                /* ignore */
+                            }
+                            resp.Dispose();
+                            url = nextUrl;
+                            continue;
+                        }
+                        await resp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
+                        return;
+                    }
+                }
+            }
         }
 
         private static bool RedirectIndicatesLoginFailure(string urlOrHtml)
@@ -1876,12 +2487,23 @@ namespace Hiatme_Tool_Suite_v3
             return null;
         }
 
-        /// <summary>When the portal sets <c>XSRF-TOKEN</c> for <c>/portal</c>, prefer it over HTML meta for <c>_csrf</c> (form + AJAX headers).</summary>
+        /// <summary>
+        /// When the portal sets <c>XSRF-TOKEN</c> for <c>/portal</c>, prefer it over HTML meta for <c>_csrf</c> — only when we did <b>not</b> already read a token from page HTML.
+        /// Preferring a stale cookie over a fresh <c>meta name="_csrf"</c> from <c>/portal/nu?date=</c> desyncs <c>POST filterdata</c> form <c>_csrf</c> from the Spring session (HTTP 401 / 500 / internal-error HTML shells).
+        /// </summary>
         private void PreferPortalXsrfCookieForCsrfToken()
         {
             var fromCookie = TryGetCsrfFromCookies();
             if (!string.IsNullOrEmpty(fromCookie))
                 _CsrfToken = fromCookie;
+        }
+
+        /// <summary>Calls <see cref="PreferPortalXsrfCookieForCsrfToken"/> only when <paramref name="csrfFromPageHtml"/> is empty (token came from cookie fallback only).</summary>
+        private void PreferPortalXsrfCookieUnlessFreshHtmlMeta(string csrfFromPageHtml)
+        {
+            if (!string.IsNullOrEmpty(csrfFromPageHtml))
+                return;
+            PreferPortalXsrfCookieForCsrfToken();
         }
 
         /// <summary>
@@ -1896,9 +2518,9 @@ namespace Hiatme_Tool_Suite_v3
             try
             {
                 var host = new Uri(WellRydeConfig.FilterDataUrl).Host;
-                var cookieVal = Uri.EscapeDataString(_CsrfToken);
+                // Match browser Set-Cookie: raw token value (not URL-encoded) so Spring CookieCsrfTokenRepository matches form _csrf / header when used.
                 // Match SESSION cookie path (/portal/) so CookieContainer applies XSRF to the same URLs as the session.
-                CookieJar.Add(new Cookie("XSRF-TOKEN", cookieVal, "/portal/", host)
+                CookieJar.Add(new Cookie("XSRF-TOKEN", _CsrfToken, "/portal/", host)
                 {
                     Secure = string.Equals(new Uri(WellRydeConfig.FilterDataUrl).Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase),
                 });

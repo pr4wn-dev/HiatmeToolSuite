@@ -47,6 +47,18 @@ namespace Hiatme.ToolSuite.WellRyde.Tests
         }
 
         [Fact]
+        public void PortalHtmlBodyLooksLikeEnterpriseInternalErrorPage_Detects200HtmlShell()
+        {
+            Assert.True(WellRydeTripParsing.PortalHtmlBodyLooksLikeEnterpriseInternalErrorPage(
+                "<html><body>Sorry, we encountered an internal error.</body></html>"));
+            Assert.True(WellRydeTripParsing.PortalHtmlBodyLooksLikeEnterpriseInternalErrorPage(
+                "<h2>Internal Error</h2><p>broken</p>"));
+            Assert.False(WellRydeTripParsing.PortalHtmlBodyLooksLikeEnterpriseInternalErrorPage(""));
+            Assert.False(WellRydeTripParsing.PortalHtmlBodyLooksLikeEnterpriseInternalErrorPage(
+                "{\"listDefId\":\"SEC-S_x\"}"));
+        }
+
+        [Fact]
         public void LooksLikeNonJsonPayload_DetectsHtmlAndEmpty()
         {
             Assert.True(WellRydeTripParsing.LooksLikeNonJsonPayload(""));

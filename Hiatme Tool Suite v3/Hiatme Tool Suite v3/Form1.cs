@@ -44,6 +44,8 @@ namespace Hiatme_Tool_Suite_v3
     {
 
         private bool manuallogin = false;
+        private bool _wellRydePortalLogUiLoading;
+
         readonly MaterialSkinManager materialSkinManager;
         public System.Windows.Forms.Timer billtimer;
 
@@ -91,6 +93,7 @@ namespace Hiatme_Tool_Suite_v3
             portlbl.Text = portlbl.Text + port_no.ToString();
 
             WellRydeLog.Changed += WellRydeLog_Changed;
+            RefreshWellRydePortalLogUi();
         }
 
         protected override void OnFormClosed(FormClosedEventArgs e)
@@ -148,6 +151,112 @@ namespace Hiatme_Tool_Suite_v3
         private void wellRydeLogClearBtn_Click(object sender, EventArgs e)
         {
             WellRydeLog.Clear();
+        }
+
+        private static int PortalLogComboIndexForLevel(WellRydeConfig.PortalLogLevel level)
+        {
+            switch (level)
+            {
+                case WellRydeConfig.PortalLogLevel.Quiet:
+                    return 1;
+                case WellRydeConfig.PortalLogLevel.Verbose:
+                    return 2;
+                case WellRydeConfig.PortalLogLevel.Diagnostic:
+                    return 3;
+                default:
+                    return 0;
+            }
+        }
+
+        private static WellRydeConfig.PortalLogLevel PortalLogLevelForComboIndex(int idx)
+        {
+            switch (idx)
+            {
+                case 1:
+                    return WellRydeConfig.PortalLogLevel.Quiet;
+                case 2:
+                    return WellRydeConfig.PortalLogLevel.Verbose;
+                case 3:
+                    return WellRydeConfig.PortalLogLevel.Diagnostic;
+                default:
+                    return WellRydeConfig.PortalLogLevel.Normal;
+            }
+        }
+
+        private static bool ParseStoredBoolFlag(string s)
+        {
+            if (string.IsNullOrWhiteSpace(s))
+                return false;
+            s = s.Trim();
+            return s == "1" || string.Equals(s, "true", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void RefreshWellRydePortalLogUi()
+        {
+            if (wellRydePortalLogLevelCB == null)
+                return;
+            _wellRydePortalLogUiLoading = true;
+            try
+            {
+                var levelStr = Properties.Settings.Default.wrPortalLogLevel?.Trim();
+                var level = string.IsNullOrEmpty(levelStr)
+                    ? WellRydeConfig.PortalLogLevelFromAppConfigOnly()
+                    : WellRydeConfig.ParsePortalLogLevel(levelStr);
+                var idx = PortalLogComboIndexForLevel(level);
+                if (wellRydePortalLogLevelCB.Items.Count > 0 && idx >= 0 && idx < wellRydePortalLogLevelCB.Items.Count)
+                    wellRydePortalLogLevelCB.SelectedIndex = idx;
+
+                var tracesUi = Properties.Settings.Default.wrDebugPortalTraffic?.Trim();
+                wellRydePortalVerboseChk.Checked = string.IsNullOrEmpty(tracesUi)
+                    ? WellRydeConfig.DebugPortalTrafficAppConfig
+                    : ParseStoredBoolFlag(tracesUi);
+
+                var diagnostic = level >= WellRydeConfig.PortalLogLevel.Diagnostic;
+                wellRydePortalHttpDumpChk.Enabled = !diagnostic;
+                var dumpUi = Properties.Settings.Default.wrPortalHttpDump?.Trim();
+                var dumpEffective = diagnostic
+                    || (string.IsNullOrEmpty(dumpUi) ? WellRydeConfig.PortalHttpDumpAppConfig : ParseStoredBoolFlag(dumpUi));
+                wellRydePortalHttpDumpChk.Checked = dumpEffective;
+            }
+            finally
+            {
+                _wellRydePortalLogUiLoading = false;
+            }
+        }
+
+        private void wellRydePortalLogLevelCB_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            if (_wellRydePortalLogUiLoading || wellRydePortalLogLevelCB.SelectedIndex < 0)
+                return;
+            var level = PortalLogLevelForComboIndex(wellRydePortalLogLevelCB.SelectedIndex);
+            Properties.Settings.Default.wrPortalLogLevel = WellRydeConfig.FormatPortalLogLevel(level);
+            Properties.Settings.Default.Save();
+            RefreshWellRydePortalLogUi();
+        }
+
+        private void wellRydePortalVerboseChk_CheckedChanged(object sender, EventArgs e)
+        {
+            if (_wellRydePortalLogUiLoading)
+                return;
+            Properties.Settings.Default.wrDebugPortalTraffic = wellRydePortalVerboseChk.Checked ? "true" : "false";
+            Properties.Settings.Default.Save();
+        }
+
+        private void wellRydePortalHttpDumpChk_CheckedChanged(object sender, EventArgs e)
+        {
+            if (_wellRydePortalLogUiLoading || !wellRydePortalHttpDumpChk.Enabled)
+                return;
+            Properties.Settings.Default.wrPortalHttpDump = wellRydePortalHttpDumpChk.Checked ? "true" : "false";
+            Properties.Settings.Default.Save();
+        }
+
+        private void wellRydePortalLogAppcfgBtn_Click(object sender, EventArgs e)
+        {
+            Properties.Settings.Default.wrPortalLogLevel = "";
+            Properties.Settings.Default.wrPortalHttpDump = "";
+            Properties.Settings.Default.wrDebugPortalTraffic = "";
+            Properties.Settings.Default.Save();
+            RefreshWellRydePortalLogUi();
         }
 
 

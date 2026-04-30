@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Configuration;
 using System.Globalization;
+using Hiatme_Tool_Suite_v3.Properties;
 
 namespace Hiatme_Tool_Suite_v3
 {
@@ -185,6 +186,66 @@ namespace Hiatme_Tool_Suite_v3
 
         public static string NpsTimezoneUrl => PortalOrigin + "/portal/nps/timezone";
 
+        /// <summary>
+        /// Root <c>GET /nps/timezone</c> (no <c>/portal</c>) — often <c>404</c> on portal.app; not used in automatic shell priming (see <see cref="ChromeShellPrimingEnabled"/>).
+        /// </summary>
+        public static string RootNpsTimezoneGetUrl => PortalOrigin + "/nps/timezone";
+
+        /// <summary>
+        /// Optional document GETs before <c>trip/filterlist</c> (Chrome-ish). Default <b>off</b> — several vendor URLs return <b>HTTP 200</b> HTML “Internal Error” shells
+        /// and churn <c>AWSALB</c> without helping trips; set <c>WellRydeChromeShellPriming=true</c> only when diagnosing stickiness.
+        /// </summary>
+        public static bool ChromeShellPrimingEnabled
+        {
+            get
+            {
+                var v = ReadAppSetting("WellRydeChromeShellPriming", "");
+                if (string.IsNullOrWhiteSpace(v))
+                    return false;
+                return string.Equals(v, "true", StringComparison.OrdinalIgnoreCase) || v == "1";
+            }
+        }
+
+        /// <summary>Chrome <c>GET</c> before AVL/trip widgets on NU shell.</summary>
+        public static string PortalCurrentPageNuUrl => PortalOrigin + "/portal/currentPage?pageLabel=nu%23";
+
+        public static string InsuranceExpiryNotificationUrl => PortalOrigin + "/portal//insurance/insuranceExpiryNotification";
+
+        public static string TermsOfUseUnacceptedUrl => PortalOrigin + "/portal//termsofuse/getunacceptedtoudetails";
+
+        public static string AvlDoubleSlashEntryUrl => PortalOrigin + "/portal//avl";
+
+        public static string AvlInitializeDriverStopsUrl => PortalOrigin + "/portal/avl/initializeDriverStops";
+
+        /// <summary>
+        /// Live GPS proxy endpoint (long-lived; not replayed during shell priming — synchronous <c>GET</c> can hang ~60s and return HTTP 502).
+        /// </summary>
+        public static string GpsAgentUrl => PortalOrigin + "/portal/gpsagent";
+
+        /// <summary>
+        /// Chrome <c>GET /portal/avl/avlinitiate?…</c> with map bounds. Override full URL or query with <c>WellRydeAvlInitiateQuery</c> (query string after <c>?</c>, or absolute URL).
+        /// </summary>
+        public static string AvlInitiateDefaultUrl
+        {
+            get
+            {
+                var custom = ReadAppSetting("WellRydeAvlInitiateQuery", "").Trim();
+                if (!string.IsNullOrEmpty(custom))
+                {
+                    if (custom.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+                        || custom.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                        return custom;
+                    return PortalOrigin + "/portal/avl/avlinitiate?" + custom.TrimStart('?');
+                }
+
+                // Default bounds from Chrome HAR (Maine-ish viewport); empty avlQueryDate matches vendor capture.
+                const string criteria =
+                    "%7B%22avlMapSearch%22%3A%7B%22centerLatLng%22%3A%7B%22lat%22%3A%2244.141530%22%2C%22lng%22%3A%22-70.050160%22%7D%2C%22northEastBoundsLatLng%22%3A%7B%22lat%22%3A%2244.503571%22%2C%22lng%22%3A%22-68.964573%22%7D%2C%22southWestBoundsLatLng%22%3A%7B%22lat%22%3A%2243.777255%22%2C%22lng%22%3A%22-71.135747%22%7D%7D%7D";
+                return PortalOrigin + "/portal/avl/avlinitiate?avlFilterCriteria=" + criteria
+                       + "&avlQueryDate=&quickSearchJsonArr=%5B%5D&riderSearchJSON=";
+            }
+        }
+
         public static string TripSaveBillDataUrl => PortalOrigin + "/portal/trip/saveBillData";
 
         public static string TripGetAllDriversForTripAssignmentUrl => PortalOrigin + "/portal/trip/getAllDriversForTripAssignment?bpartnerId=0";
@@ -195,13 +256,112 @@ namespace Hiatme_Tool_Suite_v3
 
         public static string TripAssignTripDriverUrl => PortalOrigin + "/portal/trip/assignTripDriver";
 
-        /// <summary>If true, logs extra portal HTTP detail (currently used alongside HTML/not-JSON traffic dumps).</summary>
+        /// <summary>
+        /// Portal / trips log verbosity from <c>WellRydePortalLogLevel</c> or <c>WellRydePortalLogVerbosity</c> (same meaning).
+        /// <c>Quiet</c> (0) — outcomes and errors; <c>Normal</c> (1, default) — short summaries; <c>Verbose</c> (2) — curl per-attempt, longer prefixes;
+        /// <c>Diagnostic</c> (3) — Verbose plus full request/cookie snapshot on <c>filterdata</c> failure (or set <c>WellRydePortalHttpDump=true</c>).
+        /// UI: main app <c>WellRyde log</c> tab. Empty stored values fall back to <c>App.config</c> (<c>WellRydePortalLogLevel</c>, <c>WellRydeDebugPortalTraffic</c>, <c>WellRydePortalHttpDump</c>).
+        /// </summary>
+        internal enum PortalLogLevel
+        {
+            Quiet = 0,
+            Normal = 1,
+            Verbose = 2,
+            Diagnostic = 3,
+        }
+
+        /// <summary>Parses <c>WellRydePortalLogLevel</c> / UI text (Quiet, Normal, Verbose, Diagnostic, 0–3).</summary>
+        internal static PortalLogLevel ParsePortalLogLevel(string v)
+        {
+            if (string.IsNullOrWhiteSpace(v))
+                return PortalLogLevel.Normal;
+            v = v.Trim();
+            if (string.Equals(v, "quiet", StringComparison.OrdinalIgnoreCase) || v == "0")
+                return PortalLogLevel.Quiet;
+            if (string.Equals(v, "normal", StringComparison.OrdinalIgnoreCase) || v == "1")
+                return PortalLogLevel.Normal;
+            if (string.Equals(v, "verbose", StringComparison.OrdinalIgnoreCase) || v == "2")
+                return PortalLogLevel.Verbose;
+            if (string.Equals(v, "diagnostic", StringComparison.OrdinalIgnoreCase) || string.Equals(v, "full", StringComparison.OrdinalIgnoreCase) || v == "3")
+                return PortalLogLevel.Diagnostic;
+            return PortalLogLevel.Normal;
+        }
+
+        internal static string FormatPortalLogLevel(PortalLogLevel level) => level.ToString();
+
+        /// <summary>App.config only (empty UI override).</summary>
+        internal static PortalLogLevel PortalLogLevelFromAppConfigOnly() =>
+            ParsePortalLogLevel(ReadAppSetting("WellRydePortalLogLevel", ReadAppSetting("WellRydePortalLogVerbosity", "")));
+
+        private static bool ParseAppSettingsFlag(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return false;
+            return string.Equals(value, "true", StringComparison.OrdinalIgnoreCase) || value.Trim() == "1";
+        }
+
+        private static bool ReadAppSettingsFlag(string key) => ParseAppSettingsFlag(ReadAppSetting(key, ""));
+
+        /// <summary>App.config <c>WellRydeDebugPortalTraffic</c> only (no saved UI override).</summary>
+        public static bool DebugPortalTrafficAppConfig => ReadAppSettingsFlag("WellRydeDebugPortalTraffic");
+
+        /// <summary>App.config <c>WellRydePortalHttpDump</c> only (no saved UI override).</summary>
+        public static bool PortalHttpDumpAppConfig => ReadAppSettingsFlag("WellRydePortalHttpDump");
+
+        /// <summary>Resolved portal log level: non-empty user <c>wrPortalLogLevel</c> in application settings, else <c>App.config</c>.</summary>
+        public static PortalLogLevel PortalLogLevelResolved
+        {
+            get
+            {
+                var ui = Settings.Default.wrPortalLogLevel?.Trim();
+                if (!string.IsNullOrEmpty(ui))
+                    return ParsePortalLogLevel(ui);
+                return PortalLogLevelFromAppConfigOnly();
+            }
+        }
+
+        /// <summary>Minimal portal noise — outcomes and errors only.</summary>
+        public static bool PortalLogQuiet => PortalLogLevelResolved == PortalLogLevel.Quiet;
+
+        /// <summary>Per-attempt curl lines, longer body prefixes, and other developer traces.</summary>
+        public static bool PortalLogVerbose =>
+            DebugPortalTraffic || PortalLogLevelResolved >= PortalLogLevel.Verbose;
+
+        /// <summary>Full HTTP / cookie snapshot on <c>filterdata</c> mismatch (large; for comparing with browser/Fiddler).</summary>
+        public static bool PortalLogHttpSnapshotDump
+        {
+            get
+            {
+                var level = PortalLogLevelResolved;
+                if (level >= PortalLogLevel.Diagnostic)
+                    return true;
+                var ui = Settings.Default.wrPortalHttpDump?.Trim();
+                if (!string.IsNullOrEmpty(ui))
+                    return string.Equals(ui, "true", StringComparison.OrdinalIgnoreCase) || ui == "1";
+                return ReadAppSettingsFlag("WellRydePortalHttpDump");
+            }
+        }
+
+        /// <summary>Max chars of response body prefix in one-line errors. <see cref="PortalLogQuiet"/> yields 0 (callers omit prefix).</summary>
+        public static int PortalLogBodyPrefixMax
+        {
+            get
+            {
+                if (PortalLogQuiet)
+                    return 0;
+                return PortalLogVerbose ? 350 : 120;
+            }
+        }
+
+        /// <summary>If true, logs extra portal HTTP detail (same as raising level to <see cref="PortalLogLevel.Verbose"/> for trace gates).</summary>
         public static bool DebugPortalTraffic
         {
             get
             {
-                var v = ReadAppSetting("WellRydeDebugPortalTraffic", "");
-                return string.Equals(v, "true", StringComparison.OrdinalIgnoreCase) || v == "1";
+                var ui = Settings.Default.wrDebugPortalTraffic?.Trim();
+                if (!string.IsNullOrEmpty(ui))
+                    return string.Equals(ui, "true", StringComparison.OrdinalIgnoreCase) || ui == "1";
+                return ReadAppSettingsFlag("WellRydeDebugPortalTraffic");
             }
         }
 
@@ -212,8 +372,7 @@ namespace Hiatme_Tool_Suite_v3
         public static string ManualJsessionId => ReadAppSetting("WellRydeManualJsessionId", "").Trim();
 
         /// <summary>
-        /// Include <c>XSRF-TOKEN</c> on the <c>filterdata</c> <c>Cookie</c> line (Spring double-submit). Default on; some HARs omit it.
-        /// Set <c>WellRydeFilterDataCookieIncludeXsrf=false</c> to match a minimal Chrome cookie line.
+        /// Include <c>XSRF-TOKEN</c> on the <c>filterdata</c> <c>Cookie</c> line. Default <c>false</c> (Chrome HAR); set <c>WellRydeFilterDataCookieIncludeXsrf=true</c> if your tenant requires the cookie on the wire.
         /// </summary>
         public static bool FilterDataCookieIncludeXsrfToken
         {
@@ -221,13 +380,13 @@ namespace Hiatme_Tool_Suite_v3
             {
                 var v = ReadAppSetting("WellRydeFilterDataCookieIncludeXsrf", "");
                 if (string.IsNullOrWhiteSpace(v))
-                    return true;
-                return !string.Equals(v, "false", StringComparison.OrdinalIgnoreCase) && v != "0";
+                    return false;
+                return string.Equals(v, "true", StringComparison.OrdinalIgnoreCase) || v == "1";
             }
         }
 
         /// <summary>
-        /// When true, add <c>X-CSRF-TOKEN</c> / <c>X-XSRF-TOKEN</c> on <c>filterdata</c> and <c>listFilterDefsJson</c> prime (PHP scraper style). Chrome HAR omits these on those endpoints — default <c>false</c>. Trip <c>filterlist</c> always sends XHR + CSRF headers when a token is known, independent of this flag.
+        /// When true, add <c>X-CSRF-TOKEN</c> / <c>X-XSRF-TOKEN</c> on <c>POST filterdata</c> and curl filterdata (PHP scraper style). Default <c>false</c> (Chrome HAR omits them on <c>filterdata</c>).
         /// </summary>
         public static bool FilterDataPhpStyleHeaders
         {

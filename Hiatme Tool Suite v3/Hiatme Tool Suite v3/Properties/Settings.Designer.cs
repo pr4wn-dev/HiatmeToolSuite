@@ -106,5 +106,41 @@ namespace Hiatme_Tool_Suite_v3.Properties {
                 this["hiatmeUserPass"] = value;
             }
         }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("")]
+        public string wrPortalLogLevel {
+            get {
+                return ((string)(this["wrPortalLogLevel"]));
+            }
+            set {
+                this["wrPortalLogLevel"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("")]
+        public string wrPortalHttpDump {
+            get {
+                return ((string)(this["wrPortalHttpDump"]));
+            }
+            set {
+                this["wrPortalHttpDump"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("")]
+        public string wrDebugPortalTraffic {
+            get {
+                return ((string)(this["wrDebugPortalTraffic"]));
+            }
+            set {
+                this["wrDebugPortalTraffic"] = value;
+            }
+        }
     }
 }

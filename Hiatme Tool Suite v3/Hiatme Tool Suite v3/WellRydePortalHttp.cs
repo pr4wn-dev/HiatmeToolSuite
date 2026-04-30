@@ -56,6 +56,23 @@ namespace Hiatme_Tool_Suite_v3
             return false;
         }
 
+        /// <summary>
+        /// Modivcare / WellRyde “Enterprise Mobile Platform” often returns <b>HTTP 200</b> <c>text/html</c> whose body is a generic failure shell
+        /// (“Sorry, we encountered an internal error”) instead of a non-2xx status — callers must not treat that as a successful navigation or JSON API.
+        /// </summary>
+        public static bool PortalHtmlBodyLooksLikeEnterpriseInternalErrorPage(string html)
+        {
+            if (string.IsNullOrEmpty(html))
+                return false;
+            if (html.IndexOf("Sorry, we encountered an internal error", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+            if (html.IndexOf("internal error</h2>", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+            if (html.IndexOf(">Internal Error</", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+            return false;
+        }
+
         public static int ParseWellRydeTotalRecords(JToken tr)
         {
             if (tr == null || tr.Type == JTokenType.Null)

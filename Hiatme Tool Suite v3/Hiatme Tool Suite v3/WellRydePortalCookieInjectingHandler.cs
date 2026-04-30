@@ -79,18 +79,18 @@ namespace Hiatme_Tool_Suite_v3
                 else if (isListFilterDefsJsonGet)
                 {
                     WellRydeCookieHelper.CollapseDuplicatePortalCookies(_jar);
-                    line = WellRydeCookieHelper.BuildChromeLikeFilterDataCookieHeader(_jar, includeJsessionIdInHeader: true);
+                    // Match Chrome Fiddler gold: SESSION; JSESSIONID; ALB only — no XSRF-TOKEN on this GET.
+                    line = WellRydeCookieHelper.BuildChromeLikeFilterDataCookieHeader(_jar, includeJsessionIdInHeader: true, forceIncludeXsrfFromJar: false);
                 }
                 else if (isTripFilterListGet)
                 {
-                    // Prefer path-scoped jar line. Must use WellRydeCookieHelper.GetCookieHeader — _jar.GetCookieHeader binds
-                    // CookieContainer's built-in method (duplicate Path=/portal + /portal/ → two JSESSIONID= on wire → HTTP 401).
+                    // Chrome omits XSRF-TOKEN on this GET; GetCookieHeader would include it and may contribute to HTTP 401.
                     if (request.Headers.TryGetValues(TripFilterlistBareChromeCookie, out _))
                         request.Headers.Remove(TripFilterlistBareChromeCookie);
                     WellRydeCookieHelper.CollapseDuplicatePortalCookies(_jar);
-                    line = WellRydeCookieHelper.GetCookieHeader(_jar, uri);
+                    line = WellRydeCookieHelper.BuildTripFilterListCookieHeaderChrome(_jar);
                     if (string.IsNullOrEmpty(line))
-                        line = WellRydeCookieHelper.BuildTripFilterListCookieHeaderChrome(_jar);
+                        line = WellRydeCookieHelper.GetCookieHeader(_jar, uri);
                 }
                 // Never substitute GetCookieHeader for filterdata: it re-adds JSESSIONID and breaks URL-only Tomcat retries.
                 if (string.IsNullOrEmpty(line) && !isFilterDataPost)

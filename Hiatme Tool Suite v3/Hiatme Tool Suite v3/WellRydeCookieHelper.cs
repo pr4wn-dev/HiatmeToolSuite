@@ -471,8 +471,42 @@ namespace Hiatme_Tool_Suite_v3
             {
                 /* ignore */
             }
-            if (WellRydeConfig.DebugPortalTraffic)
+            if (WellRydeConfig.PortalLogVerbose)
                 WellRydeLog.WriteLine("WellRyde: removed synthetic JSESSIONID (SESSION UUID hex — not Tomcat); filterdata needs a real Set-Cookie JSESSIONID or WellRydeManualJsessionId.");
+        }
+
+        /// <summary>
+        /// Expires Tomcat <c>JSESSIONID</c> copies on portal paths so the next static probe mints a servlet session on the <b>current</b> ELB target.
+        /// A GET such as <c>listFilterDefsJson</c> may return new <c>AWSALB</c> cookies; the prior <c>JSESSIONID</c> can belong to another instance → HTTP 500 on <c>filterdata</c>.
+        /// </summary>
+        public static void TryExpirePortalTomcatJsessionCookies(CookieContainer jar)
+        {
+            if (jar == null)
+                return;
+            string host;
+            try
+            {
+                host = new Uri(WellRydeConfig.PortalOrigin).Host;
+            }
+            catch
+            {
+                return;
+            }
+            foreach (var path in new[] { "/portal/", "/portal" })
+            {
+                try
+                {
+                    jar.Add(new Cookie("JSESSIONID", "", path, host)
+                    {
+                        Expires = DateTime.UtcNow.AddDays(-1),
+                        Secure = true,
+                    });
+                }
+                catch
+                {
+                    /* ignore */
+                }
+            }
         }
 
         /// <summary>Scan redirect URLs and HTML for Tomcat <c>jsessionid</c> (URL rewriting) when <c>Set-Cookie: JSESSIONID</c> never reaches the client.</summary>
@@ -501,7 +535,7 @@ namespace Hiatme_Tool_Suite_v3
             return null;
         }
 
-        /// <summary>Tomcat path rewriting: <c>/portal/filterdata;jsessionid=value</c> (semicolon must stay unescaped for some stacks).</summary>
+        /// <summary>Tomcat matrix URL helper (e.g. legacy PHP). Hiatme <c>PostWellRydeFilterDataAsync</c> posts plain <c>/portal/filterdata</c> and uses <see cref="TryAddPortalJSessionIdCookie"/> instead.</summary>
         public static string AppendTomcatJsessionUrlRewrite(string filterDataAbsoluteUrl, string jsessionId)
         {
             if (string.IsNullOrEmpty(filterDataAbsoluteUrl) || string.IsNullOrEmpty(jsessionId))
@@ -516,7 +550,7 @@ namespace Hiatme_Tool_Suite_v3
             return u.GetLeftPart(UriPartial.Authority) + path + ";jsessionid=" + id;
         }
 
-        /// <summary>Non–synthetic <c>JSESSIONID</c> from the jar for <c>https://host/portal/filterdata</c> — used for <c>;jsessionid=</c> URL rewrite.</summary>
+        /// <summary>Non–synthetic <c>JSESSIONID</c> from the jar for <c>https://host/portal/filterdata</c> (Cookie header / diagnostics).</summary>
         public static bool TryGetPortalJSessionIdCookieValue(CookieContainer jar, out string value)
         {
             value = null;
@@ -804,18 +838,18 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         /// <summary>
-        /// <c>Cookie</c> header for <c>POST /portal/filterdata</c> (Chrome order): <c>AWSALB</c>; <c>AWSALBCORS</c>; <c>JSESSIONID</c> (if real); <c>SESSION</c>; <c>XSRF-TOKEN</c> (if enabled).
+        /// <c>Cookie</c> header for <c>POST /portal/filterdata</c> — Chrome copy-as-curl order: <c>SESSION</c>; <c>JSESSIONID</c> (if real); <c>AWSALB</c>; <c>AWSALBCORS</c>; <c>XSRF-TOKEN</c> (if <see cref="WellRydeConfig.FilterDataCookieIncludeXsrfToken"/>).
         /// </summary>
         public static string BuildChromeLikeFilterDataCookieHeader(CookieContainer jar)
         {
-            return BuildChromeLikeFilterDataCookieHeader(jar, includeJsessionIdInHeader: true);
+            return BuildChromeLikeFilterDataCookieHeader(jar, includeJsessionIdInHeader: true, forceIncludeXsrfFromJar: false);
         }
 
         /// <summary>
-        /// When the POST URL uses Tomcat rewrite (<c>…/filterdata;jsessionid=…</c>), sending the same id in <c>Cookie: JSESSIONID=…</c>
-        /// can bind twice and yield HTTP 500 or HTML shells — set <paramref name="includeJsessionIdInHeader"/> to <c>false</c>.
+        /// Some curl/HTML-shell retries omit <c>JSESSIONID</c> from the wire <c>Cookie</c> to avoid duplicate servlet binding — set <paramref name="includeJsessionIdInHeader"/> to <c>false</c>.
         /// </summary>
-        public static string BuildChromeLikeFilterDataCookieHeader(CookieContainer jar, bool includeJsessionIdInHeader)
+        /// <param name="forceIncludeXsrfFromJar">When <c>true</c>, append <c>XSRF-TOKEN</c> if present in the jar regardless of <see cref="WellRydeConfig.FilterDataCookieIncludeXsrfToken"/> (legacy; Chrome omits XSRF on <c>listFilterDefsJson</c>).</param>
+        public static string BuildChromeLikeFilterDataCookieHeader(CookieContainer jar, bool includeJsessionIdInHeader, bool forceIncludeXsrfFromJar = false)
         {
             if (jar == null)
                 return string.Empty;
@@ -849,8 +883,7 @@ namespace Hiatme_Tool_Suite_v3
                 if (!string.IsNullOrEmpty(v))
                     parts.Add(name + "=" + v);
             }
-            append("AWSALB");
-            append("AWSALBCORS");
+            append("SESSION");
             if (includeJsessionIdInHeader)
             {
                 var jSessionWire = valueFor("JSESSIONID");
@@ -859,8 +892,9 @@ namespace Hiatme_Tool_Suite_v3
                         || !string.Equals(jSessionWire, synHex, StringComparison.OrdinalIgnoreCase)))
                     parts.Add("JSESSIONID=" + jSessionWire);
             }
-            append("SESSION");
-            if (WellRydeConfig.FilterDataCookieIncludeXsrfToken)
+            append("AWSALB");
+            append("AWSALBCORS");
+            if (WellRydeConfig.FilterDataCookieIncludeXsrfToken || forceIncludeXsrfFromJar)
                 append("XSRF-TOKEN");
             return string.Join("; ", parts);
         }
