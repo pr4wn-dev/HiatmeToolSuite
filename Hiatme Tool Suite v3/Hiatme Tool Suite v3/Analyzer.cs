@@ -169,7 +169,7 @@ namespace Hiatme_Tool_Suite_v3
         private async Task AsyncUpdateLoadingScreen(string txt)
         {
             UpdateLoadingScreen(txt);
-            await Task.Delay(2000);
+            await Task.Yield();
         }
         public void AnalyzeTrips(DateTime mcdate)
         {

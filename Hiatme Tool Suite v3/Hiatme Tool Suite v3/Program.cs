@@ -1,12 +1,91 @@
 ﻿using System;
+using System.Diagnostics;
+using System.IO;
 using System.Reflection;
 using System.Text;
+using System.Threading;
 using System.Windows.Forms;
+using NAudio.CoreAudioApi;
+using NAudio.Wave;
 
 namespace Hiatme_Tool_Suite_v3
 {
     internal static class Program
     {
+        // File-time window: exactly 0:01 through 0:07 (six seconds of audio).
+        private const double MyPreciousStartSeconds = 1.0;
+        private const double MyPreciousEndSeconds = 7.0;
+        private static readonly TimeSpan MyPreciousStart = TimeSpan.FromSeconds(MyPreciousStartSeconds);
+        private static readonly TimeSpan MyPreciousEnd = TimeSpan.FromSeconds(MyPreciousEndSeconds);
+        private static readonly TimeSpan MyPreciousSlice = TimeSpan.FromSeconds(MyPreciousEndSeconds - MyPreciousStartSeconds);
+
+        /// <summary>Plays <c>Resources\my-precious.mp3</c> from 0:01 to 0:07 once (NAudio + Media Foundation).</summary>
+        internal static void TryPlayStartupMyPreciousOnce()
+        {
+            try
+            {
+                string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+                if (string.IsNullOrEmpty(baseDir))
+                    return;
+
+                string path = Path.Combine(baseDir, "Resources", "my-precious.mp3");
+                if (!File.Exists(path))
+                    path = Path.Combine(baseDir, "my-precious.mp3");
+                if (!File.Exists(path))
+                    return;
+
+                string fullPath = Path.GetFullPath(path);
+                var playThread = new Thread(() => PlayMyPreciousClipNaudio(fullPath))
+                {
+                    IsBackground = true,
+                    Name = "StartupMyPreciousAudio"
+                };
+                playThread.SetApartmentState(ApartmentState.STA);
+                playThread.Start();
+            }
+            catch
+            {
+                /* optional audio */
+            }
+        }
+
+        private static void PlayMyPreciousClipNaudio(string path)
+        {
+            try
+            {
+                using (var reader = new MediaFoundationReader(path))
+                using (var output = new WasapiOut(AudioClientShareMode.Shared, 150))
+                {
+                    output.Init(reader);
+                    reader.CurrentTime = MyPreciousStart;
+                    output.Play();
+                    var sw = Stopwatch.StartNew();
+                    // Stop when decoder position reaches 7s (correct for 0:01–0:07). Stopwatch is only a guard against a stuck clock.
+                    var safetyCap = MyPreciousSlice + TimeSpan.FromMilliseconds(600);
+                    while (output.PlaybackState == PlaybackState.Playing)
+                    {
+                        if (reader.CurrentTime >= MyPreciousEnd)
+                        {
+                            output.Stop();
+                            break;
+                        }
+
+                        if (sw.Elapsed >= safetyCap)
+                        {
+                            output.Stop();
+                            break;
+                        }
+
+                        Thread.Sleep(15);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("Startup sound: " + ex);
+            }
+        }
+
         /// <summary>The main entry point for the application.</summary>
         [STAThread]
         private static void Main()

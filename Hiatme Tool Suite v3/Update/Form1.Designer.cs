@@ -29,12 +29,37 @@
         private void InitializeComponent()
         {
             this.components = new System.ComponentModel.Container();
+            this._startupHintLabel = new System.Windows.Forms.Label();
+            this.SuspendLayout();
+            // 
+            // _startupHintLabel
+            // 
+            this._startupHintLabel.Dock = System.Windows.Forms.DockStyle.Fill;
+            this._startupHintLabel.Font = new System.Drawing.Font("Segoe UI", 11F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this._startupHintLabel.ForeColor = System.Drawing.Color.Gainsboro;
+            this._startupHintLabel.Location = new System.Drawing.Point(0, 0);
+            this._startupHintLabel.Name = "_startupHintLabel";
+            this._startupHintLabel.Padding = new System.Windows.Forms.Padding(28);
+            this._startupHintLabel.Size = new System.Drawing.Size(800, 450);
+            this._startupHintLabel.TabIndex = 0;
+            this._startupHintLabel.Text = "You are running the small \"Update\" program (Update.exe).\r\n\r\nThe full tool suite " +
+    "is the other project: Hiatme Tool Suite v3.\r\n\r\nIn Solution Explorer, right-click " +
+    "the project \"Hiatme Tool Suite v3\" → Set as Startup Project, then press F5.";
+            this._startupHintLabel.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
+            // 
+            // Form1
+            // 
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(800, 450);
-            this.Text = "Form1";
+            this.Controls.Add(this._startupHintLabel);
+            this.Name = "Form1";
+            this.Text = "Hiatme — Updater (not the main app)";
+            this.ResumeLayout(false);
         }
 
         #endregion
+
+        private System.Windows.Forms.Label _startupHintLabel;
     }
 }
 

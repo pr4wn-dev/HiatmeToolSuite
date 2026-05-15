@@ -313,14 +313,15 @@
             this.materialCard3.MouseState = MaterialSkin.MouseState.HOVER;
             this.materialCard3.Name = "materialCard3";
             this.materialCard3.Padding = new System.Windows.Forms.Padding(14);
-            this.materialCard3.Size = new System.Drawing.Size(302, 313);
+            this.materialCard3.Size = new System.Drawing.Size(302, 342);
             this.materialCard3.TabIndex = 5;
             // 
             // loginSwitch
             // 
             this.loginSwitch.AutoSize = true;
             this.loginSwitch.Depth = 0;
-            this.loginSwitch.Location = new System.Drawing.Point(13, 260);
+            this.loginSwitch.Font = new System.Drawing.Font("Roboto", 14F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Pixel);
+            this.loginSwitch.Location = new System.Drawing.Point(13, 292);
             this.loginSwitch.Margin = new System.Windows.Forms.Padding(0);
             this.loginSwitch.MouseLocation = new System.Drawing.Point(-1, -1);
             this.loginSwitch.MouseState = MaterialSkin.MouseState.HOVER;
@@ -338,14 +339,14 @@
             this.loginCB.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(255)))), ((int)(((byte)(255)))), ((int)(((byte)(255)))));
             this.loginCB.Depth = 0;
             this.loginCB.DrawMode = System.Windows.Forms.DrawMode.OwnerDrawVariable;
-            this.loginCB.DropDownHeight = 174;
+            this.loginCB.DropDownHeight = 220;
             this.loginCB.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
             this.loginCB.DropDownWidth = 121;
-            this.loginCB.Font = new System.Drawing.Font("Microsoft Sans Serif", 14F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Pixel);
+            this.loginCB.Font = new System.Drawing.Font("Microsoft Sans Serif", 20F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Pixel);
             this.loginCB.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(222)))), ((int)(((byte)(0)))), ((int)(((byte)(0)))), ((int)(((byte)(0)))));
             this.loginCB.FormattingEnabled = true;
             this.loginCB.IntegralHeight = false;
-            this.loginCB.ItemHeight = 43;
+            this.loginCB.ItemHeight = 54;
             this.loginCB.Items.AddRange(new object[] {
             "Wellryde",
             "Modivcare",
@@ -354,7 +355,7 @@
             this.loginCB.MaxDropDownItems = 4;
             this.loginCB.MouseState = MaterialSkin.MouseState.OUT;
             this.loginCB.Name = "loginCB";
-            this.loginCB.Size = new System.Drawing.Size(286, 49);
+            this.loginCB.Size = new System.Drawing.Size(286, 58);
             this.loginCB.TabIndex = 3;
             this.loginCB.SelectedIndexChanged += new System.EventHandler(this.loginCB_SelectedIndexChanged);
             this.loginCB.StartIndex = 1;
@@ -364,15 +365,15 @@
             this.loginCodeTB.AnimateReadOnly = false;
             this.loginCodeTB.BorderStyle = System.Windows.Forms.BorderStyle.None;
             this.loginCodeTB.Depth = 0;
-            this.loginCodeTB.Font = new System.Drawing.Font("Roboto", 16F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Pixel);
+            this.loginCodeTB.Font = new System.Drawing.Font("Roboto", 24F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Pixel);
             this.loginCodeTB.Hint = "Company Code";
             this.loginCodeTB.LeadingIcon = ((System.Drawing.Image)(resources.GetObject("loginCodeTB.LeadingIcon")));
-            this.loginCodeTB.Location = new System.Drawing.Point(8, 71);
+            this.loginCodeTB.Location = new System.Drawing.Point(8, 76);
             this.loginCodeTB.MaxLength = 50;
             this.loginCodeTB.MouseState = MaterialSkin.MouseState.OUT;
             this.loginCodeTB.Multiline = false;
             this.loginCodeTB.Name = "loginCodeTB";
-            this.loginCodeTB.Size = new System.Drawing.Size(286, 50);
+            this.loginCodeTB.Size = new System.Drawing.Size(286, 58);
             this.loginCodeTB.TabIndex = 0;
             this.loginCodeTB.Text = "";
             this.loginCodeTB.TrailingIcon = null;
@@ -382,16 +383,16 @@
             this.loginPassTB.AnimateReadOnly = false;
             this.loginPassTB.BorderStyle = System.Windows.Forms.BorderStyle.None;
             this.loginPassTB.Depth = 0;
-            this.loginPassTB.Font = new System.Drawing.Font("Roboto", 16F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Pixel);
+            this.loginPassTB.Font = new System.Drawing.Font("Roboto", 24F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Pixel);
             this.loginPassTB.Hint = "Password";
             this.loginPassTB.LeadingIcon = ((System.Drawing.Image)(resources.GetObject("loginPassTB.LeadingIcon")));
-            this.loginPassTB.Location = new System.Drawing.Point(9, 197);
+            this.loginPassTB.Location = new System.Drawing.Point(9, 210);
             this.loginPassTB.MaxLength = 50;
             this.loginPassTB.MouseState = MaterialSkin.MouseState.OUT;
             this.loginPassTB.Multiline = false;
             this.loginPassTB.Name = "loginPassTB";
             this.loginPassTB.Password = true;
-            this.loginPassTB.Size = new System.Drawing.Size(285, 50);
+            this.loginPassTB.Size = new System.Drawing.Size(285, 58);
             this.loginPassTB.TabIndex = 2;
             this.loginPassTB.Text = "";
             this.loginPassTB.TrailingIcon = ((System.Drawing.Image)(resources.GetObject("loginPassTB.TrailingIcon")));
@@ -2187,7 +2188,7 @@
             // hidegiftimer
             // 
             this.hidegiftimer.Enabled = true;
-            this.hidegiftimer.Interval = 3000;
+            this.hidegiftimer.Interval = 900;
             this.hidegiftimer.Tick += new System.EventHandler(this.hidegiftimer_Tick);
             // 
             // timekiller

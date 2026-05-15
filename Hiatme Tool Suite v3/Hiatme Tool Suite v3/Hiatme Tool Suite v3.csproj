@@ -67,6 +67,18 @@
     <Reference Include="MaterialSkin, Version=2.3.1.0, Culture=neutral, processorArchitecture=MSIL">
       <HintPath>..\packages\MaterialSkin.2.2.3.1\lib\net48\MaterialSkin.dll</HintPath>
     </Reference>
+    <Reference Include="NAudio.Core, Version=2.2.1.0, Culture=neutral, PublicKeyToken=e279aa5131008a41, processorArchitecture=MSIL">
+      <HintPath>..\packages\naudio.core.2.2.1\lib\netstandard2.0\NAudio.Core.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="NAudio.Wasapi, Version=2.2.1.0, Culture=neutral, PublicKeyToken=e279aa5131008a41, processorArchitecture=MSIL">
+      <HintPath>..\packages\naudio.wasapi.2.2.1\lib\netstandard2.0\NAudio.Wasapi.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="NAudio.WinMM, Version=2.2.1.0, Culture=neutral, PublicKeyToken=e279aa5131008a41, processorArchitecture=MSIL">
+      <HintPath>..\packages\naudio.winmm.2.2.1\lib\netstandard2.0\NAudio.WinMM.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
     <Reference Include="Microsoft.Office.Interop.Excel, Version=15.0.0.0, Culture=neutral, PublicKeyToken=71e9bce111e9429c, processorArchitecture=MSIL">
       <HintPath>..\packages\Microsoft.Office.Interop.Excel.15.0.4795.1001\lib\net20\Microsoft.Office.Interop.Excel.dll</HintPath>
       <EmbedInteropTypes>True</EmbedInteropTypes>
@@ -174,6 +186,7 @@
       <SubType>Component</SubType>
     </Compile>
     <Compile Include="TemplateBuilder.cs" />
+    <Compile Include="TripTemplateCsvValidator.cs" />
     <Compile Include="Victim.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
@@ -263,6 +276,9 @@
   <ItemGroup>
     <Content Include="Doll-icon_35209.ico" />
     <None Include="Resources\065391_drumrollwav-88344.mp3" />
+    <Content Include="Resources\my-precious.mp3">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <None Include="Resources\MUSCPerc_Drum roll 3 m %28ID 2407%29_BSB.wav" />
     <None Include="Resources\fail.jpg" />
     <None Include="Resources\epic_fail.png" />
@@ -288,6 +304,17 @@
       <ProductName>.NET Framework 3.5 SP1</ProductName>
       <Install>false</Install>
     </BootstrapperPackage>
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="Fonts\PUT_FONT_HERE.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+  <!-- Font is NOT embedded in the EXE: embedding changes the binary fingerprint and can trigger Smart App Control / reputation blocks on unsigned builds. It is copied next to the EXE instead (Form1 loads from Fonts\). -->
+  <ItemGroup Condition="Exists('Fonts\YouMurdererBB.otf')">
+    <Content Include="Fonts\YouMurdererBB.otf">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">

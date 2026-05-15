@@ -3,6 +3,9 @@ using MaterialSkin.Controls;
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
+using System.Drawing.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -15,6 +18,7 @@ using System.Text;
 using System.Web.UI.WebControls;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement;
 using System.IO;
+using System.Reflection;
 using SV;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement.ToolBar;
 using System.Linq;
@@ -60,9 +64,25 @@ namespace Hiatme_Tool_Suite_v3
         FullScheduleBuilder fsbuilder;
 
         EmployeeStatManager empStatManager;
+        /// <summary>Cancels an in-flight Production tab load when the user switches away or opens the tab again.</summary>
+        CancellationTokenSource _employeeStatsLoadCts;
+        /// <summary>Set when the main form is closing so timers, sockets, and async retries stop cleanly.</summary>
+        private volatile bool _applicationExitRequested;
+        private readonly object _infoAlSocketsLock = new object();
+        private readonly HashSet<Socket> _infoAlActiveSockets = new HashSet<Socket>();
         ReportCard reportCard;
         /// <summary>Must be initialized before <see cref="Form1"/> ctor body uses it (partial-class field order is not guaranteed if declared later in this file).</summary>
         readonly Analyzer analyzer = new Analyzer();
+
+        private readonly object _revampFontLock = new object();
+        private PrivateFontCollection _revampFontCollection;
+        private Font _revampFontLargeR;
+        private Font _revampFontRest;
+        private bool _revampFontLoadAttempted;
+        /// <summary>Unmanaged copy of embedded font bytes; must stay allocated until <see cref="_revampFontCollection"/> is disposed (GDI+ requirement).</summary>
+        private IntPtr _revampEmbeddedFontAlloc;
+
+        private static int _startupMyPreciousPlayedFlag;
 
         public Form1()
         {
@@ -97,19 +117,225 @@ namespace Hiatme_Tool_Suite_v3
             portlbl.Text = portlbl.Text + port_no.ToString();
             // Default login provider is set in the designer before SelectedIndexChanged is wired; sync saved credentials once at show.
             Shown += Form1_Shown_SyncLoginPanelFromSettings;
+            Load += Form1_OnLoad_DeferRevampPaintHook;
+        }
+
+        /// <summary>Never load fonts or take locks inside <see cref="PictureBox.Paint"/> — that can break first-frame layout for MaterialSkin.</summary>
+        private void Form1_OnLoad_DeferRevampPaintHook(object sender, EventArgs e)
+        {
+            Load -= Form1_OnLoad_DeferRevampPaintHook;
+            try
+            {
+                EnsureRevampLoginFontsLoaded();
+                if (pictureBox1 != null)
+                {
+                    pictureBox1.Paint += PictureBox1_PaintRevampTitle;
+                    pictureBox1.SizeChanged += PictureBox1_SizeChanged_RevampInvalidate;
+                    pictureBox1.Invalidate();
+                }
+            }
+            catch
+            {
+                // Revamp title is optional; the rest of the app must still run.
+            }
         }
 
         private void Form1_Shown_SyncLoginPanelFromSettings(object sender, EventArgs e)
         {
             Shown -= Form1_Shown_SyncLoginPanelFromSettings;
+            if (Interlocked.CompareExchange(ref _startupMyPreciousPlayedFlag, 1, 0) == 0)
+                Program.TryPlayStartupMyPreciousOnce();
             loginCB_SelectedIndexChanged(loginCB, EventArgs.Empty);
+            try
+            {
+                pictureBox1?.Invalidate();
+            }
+            catch
+            {
+                // ignore
+            }
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
-            _wellRydeSession?.Dispose();
-            _wellRydeSession = null;
+            _applicationExitRequested = true;
+
+            _employeeStatsLoadCts?.Cancel();
+            _employeeStatsLoadCts?.Dispose();
+            _employeeStatsLoadCts = null;
+
+            StopRecurringUiTimers();
+            StopClientListPollingTimer();
+            ShutdownListenerAndTrackedSockets();
+            CloseOtherOpenForms();
+
+            try
+            {
+                if (pictureBox1 != null)
+                {
+                    pictureBox1.Paint -= PictureBox1_PaintRevampTitle;
+                    pictureBox1.SizeChanged -= PictureBox1_SizeChanged_RevampInvalidate;
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+
+            DisposeRevampLoginFonts();
+
+            try
+            {
+                materialSkinManager?.RemoveFormToManage(this);
+            }
+            catch
+            {
+                // MaterialSkin API may differ by version.
+            }
+
+            InvalidateWellRydePortalSession();
+
+            try
+            {
+                mcLoginHandler?.Client?.Dispose();
+            }
+            catch
+            {
+                // ignore
+            }
+
+            // HttpClient.Dispose can block the UI thread for a long time if a request is stalled.
+            var http = ServerHttpClient;
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                try
+                {
+                    http?.Dispose();
+                }
+                catch
+                {
+                    // ignore
+                }
+            });
+
             base.OnFormClosing(e);
+        }
+
+        protected override void OnFormClosed(FormClosedEventArgs e)
+        {
+            base.OnFormClosed(e);
+            // Ensure the OS process ends even if something (native handles, COM, HttpClient pools)
+            // keeps the CLR alive briefly — otherwise Visual Studio stays attached until you Stop Debugging.
+            Environment.Exit(0);
+        }
+
+        private void StopRecurringUiTimers()
+        {
+            try
+            {
+                billtimer?.Stop();
+                if (billtimer != null)
+                    billtimer.Tick -= billtimer_Tick;
+                billtimer?.Dispose();
+                timer1?.Stop();
+                hidegiftimer?.Stop();
+                timekiller?.Stop();
+                clientcounttimer?.Stop();
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+
+        private void StopClientListPollingTimer()
+        {
+            try
+            {
+                _clientListTimer?.Stop();
+                _clientListTimer?.Dispose();
+            }
+            catch
+            {
+                // ignore
+            }
+            _clientListTimer = null;
+        }
+
+        private void ShutdownListenerAndTrackedSockets()
+        {
+            Socket[] copy;
+            lock (_infoAlSocketsLock)
+            {
+                copy = _infoAlActiveSockets.ToArray();
+                _infoAlActiveSockets.Clear();
+            }
+            foreach (Socket s in copy)
+                TryShutdownSocket(s);
+
+            foreach (Victim v in victim_list.ToList())
+                TryShutdownSocket(v?.soket);
+
+            victim_list.Clear();
+
+            TryShutdownSocket(oursocket);
+            oursocket = null;
+        }
+
+        private static void TryShutdownSocket(Socket s)
+        {
+            if (s == null)
+                return;
+            try
+            {
+                if (s.Connected)
+                    s.Shutdown(SocketShutdown.Both);
+            }
+            catch
+            {
+                // ignore
+            }
+            try
+            {
+                s.Close();
+            }
+            catch
+            {
+                // ignore
+            }
+            try
+            {
+                s.Dispose();
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+
+        private void CloseOtherOpenForms()
+        {
+            try
+            {
+                foreach (Form f in Application.OpenForms.Cast<Form>().ToList())
+                {
+                    if (!ReferenceEquals(f, this))
+                    {
+                        try
+                        {
+                            f.Close();
+                        }
+                        catch
+                        {
+                            // ignore
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // ignore
+            }
         }
 
 
@@ -138,6 +364,389 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
+
+        private void PictureBox1_SizeChanged_RevampInvalidate(object sender, EventArgs e)
+        {
+            try
+            {
+                (sender as PictureBox)?.Invalidate();
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+
+        private void PictureBox1_PaintRevampTitle(object sender, PaintEventArgs e)
+        {
+            try
+            {
+                if (_revampFontLargeR == null || _revampFontRest == null)
+                    return;
+
+                var g = e.Graphics;
+                var hintRestore = g.TextRenderingHint;
+
+                const string r = "R";
+                const string rest = "evamp";
+                using (var format = (StringFormat)StringFormat.GenericTypographic.Clone())
+                {
+                    format.Alignment = StringAlignment.Near;
+                    format.LineAlignment = StringAlignment.Near;
+
+                    var szR = g.MeasureString(r, _revampFontLargeR, int.MaxValue, format);
+                    var szRest = g.MeasureString(rest, _revampFontRest, int.MaxValue, format);
+                    const float gapBetweenLetters = 6f;
+                    const float padRight = 48f;
+                    const float outlineHaloRight = 3f;
+                    const float insetBottom = 0f;
+                    const float minRescueInset = 8f;
+                    float totalW = szR.Width + gapBetweenLetters + szRest.Width;
+                    var pb = (PictureBox)sender;
+                    float restYOffset = (szR.Height - szRest.Height) * 0.35f;
+                    const float evampExtraDown = 20f;
+                    float blockHeight = Math.Max(szR.Height, restYOffset + szRest.Height);
+                    float rightEdge = pb.ClientSize.Width - padRight - outlineHaloRight;
+                    float bottomEdge = pb.ClientSize.Height - insetBottom;
+                    float x = rightEdge - totalW;
+                    float y = bottomEdge - blockHeight;
+                    if (x < minRescueInset)
+                        x = minRescueInset;
+                    if (y < minRescueInset)
+                        y = minRescueInset;
+                    float restY = y + restYOffset + evampExtraDown;
+                    float relRestY = restY - y;
+                    float blockH = Math.Max(szR.Height, relRestY + szRest.Height);
+
+                    const float layerPad = 6f;
+                    int bw = Math.Max(1, (int)Math.Ceiling(totalW + layerPad * 2f));
+                    int bh = Math.Max(1, (int)Math.Ceiling(blockH + layerPad * 2f));
+
+                    void DrawMirroredROn(Graphics gb, float rx, float ry, Brush brush)
+                    {
+                        var st = gb.Save();
+                        try
+                        {
+                            gb.TranslateTransform(rx + szR.Width, ry);
+                            gb.ScaleTransform(-1f, 1f);
+                            gb.DrawString(r, _revampFontLargeR, brush, 0f, 0f, format);
+                        }
+                        finally
+                        {
+                            gb.Restore(st);
+                        }
+                    }
+
+                    // 32bpp layer: per-pixel alpha blends over the image; crisp hint on layer only.
+                    using (var layer = new Bitmap(bw, bh, PixelFormat.Format32bppArgb))
+                    {
+                        using (var gb = Graphics.FromImage(layer))
+                        {
+                            gb.Clear(Color.Transparent);
+                            gb.CompositingMode = CompositingMode.SourceOver;
+                            gb.CompositingQuality = CompositingQuality.HighQuality;
+                            gb.SmoothingMode = SmoothingMode.AntiAlias;
+                            gb.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                            gb.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
+
+                            float lx = layerPad;
+                            float ly = layerPad;
+                            float lRestY = layerPad + relRestY;
+                            float lRestX = layerPad + szR.Width + gapBetweenLetters;
+
+                            using (var outline = new SolidBrush(Color.FromArgb(252, 0, 0, 0)))
+                            using (var fill = new SolidBrush(Color.FromArgb(232, 168, 12, 24)))
+                            {
+                                for (int dy = -2; dy <= 2; dy++)
+                                {
+                                    for (int dx = -2; dx <= 2; dx++)
+                                    {
+                                        if (dx == 0 && dy == 0)
+                                            continue;
+                                        DrawMirroredROn(gb, lx + dx, ly + dy, outline);
+                                        gb.DrawString(rest, _revampFontRest, outline, lRestX + dx, lRestY + dy, format);
+                                    }
+                                }
+
+                                DrawMirroredROn(gb, lx, ly, fill);
+                                gb.DrawString(rest, _revampFontRest, fill, lRestX, lRestY, format);
+                            }
+                        }
+
+                        float destX = x - layerPad;
+                        float destY = y - layerPad;
+                        var imgState = g.Save();
+                        try
+                        {
+                            g.InterpolationMode = InterpolationMode.NearestNeighbor;
+                            g.PixelOffsetMode = PixelOffsetMode.Half;
+                            g.CompositingMode = CompositingMode.SourceOver;
+                            g.CompositingQuality = CompositingQuality.HighQuality;
+                            g.DrawImage(layer, destX, destY);
+                        }
+                        finally
+                        {
+                            g.Restore(imgState);
+                        }
+                    }
+
+                    g.TextRenderingHint = hintRestore;
+                }
+            }
+            catch
+            {
+                // ignore paint failures
+            }
+        }
+
+        private void EnsureRevampLoginFontsLoaded()
+        {
+            lock (_revampFontLock)
+            {
+                if (_revampFontLoadAttempted)
+                    return;
+                _revampFontLoadAttempted = true;
+
+                PrivateFontCollection trialCollection = null;
+                IntPtr embeddedMem = IntPtr.Zero;
+                try
+                {
+                    // Prefer font file beside the EXE (not embedded): keeps the main assembly smaller and avoids PE changes that correlate with Smart App Control blocks.
+                    string baseDir = AppDomain.CurrentDomain.BaseDirectory ?? "";
+                    string exeDir = Path.GetDirectoryName(Application.ExecutablePath) ?? baseDir;
+                    string found = FindRevampDisplayFontFile(baseDir)
+                        ?? FindRevampDisplayFontFile(exeDir);
+
+                    if (found != null)
+                    {
+                        trialCollection = new PrivateFontCollection();
+                        trialCollection.AddFontFile(found);
+                        if (trialCollection.Families.Length == 0)
+                        {
+                            trialCollection.Dispose();
+                            trialCollection = null;
+                        }
+                    }
+
+                    if (trialCollection != null)
+                    {
+                        if (TryCreateRevampFontsFromPrivateCollection(trialCollection, ref embeddedMem))
+                            return;
+                    }
+
+                    trialCollection?.Dispose();
+                    trialCollection = null;
+
+                    if (TryGetEmbeddedRevampFontCollection(out trialCollection, out embeddedMem))
+                    {
+                        if (TryCreateRevampFontsFromPrivateCollection(trialCollection, ref embeddedMem))
+                            return;
+                    }
+
+                    trialCollection?.Dispose();
+                    trialCollection = null;
+                    if (embeddedMem != IntPtr.Zero)
+                    {
+                        Marshal.FreeCoTaskMem(embeddedMem);
+                        embeddedMem = IntPtr.Zero;
+                    }
+                }
+                catch
+                {
+                    trialCollection?.Dispose();
+                    if (embeddedMem != IntPtr.Zero)
+                    {
+                        Marshal.FreeCoTaskMem(embeddedMem);
+                        embeddedMem = IntPtr.Zero;
+                    }
+                }
+
+                _revampFontLargeR = new Font("Impact", 262f, FontStyle.Bold, GraphicsUnit.Pixel);
+                _revampFontRest = new Font("Impact", 118f, FontStyle.Bold, GraphicsUnit.Pixel);
+            }
+        }
+
+        /// <summary>Loads YouMurderer from an embedded resource (see project Fonts\YouMurdererBB.otf). Caller frees <paramref name="allocatedFontMemory"/> on failure before taking ownership of the collection.</summary>
+        private static bool TryGetEmbeddedRevampFontCollection(out PrivateFontCollection pfc, out IntPtr allocatedFontMemory)
+        {
+            pfc = null;
+            allocatedFontMemory = IntPtr.Zero;
+            var asm = typeof(Form1).Assembly;
+            Stream stream = asm.GetManifestResourceStream("Hiatme_Tool_Suite_v3.Fonts.YouMurdererBB.otf");
+            if (stream == null)
+            {
+                foreach (var rn in asm.GetManifestResourceNames())
+                {
+                    if (!rn.EndsWith(".otf", StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    if (rn.IndexOf("murderer", StringComparison.OrdinalIgnoreCase) < 0
+                        && rn.IndexOf("YouMurderer", StringComparison.OrdinalIgnoreCase) < 0)
+                        continue;
+                    stream = asm.GetManifestResourceStream(rn);
+                    if (stream != null)
+                        break;
+                }
+            }
+
+            if (stream == null)
+                return false;
+
+            byte[] buf;
+            using (var ms = new MemoryStream())
+            using (stream)
+            {
+                stream.CopyTo(ms);
+                buf = ms.ToArray();
+            }
+
+            if (buf.Length == 0)
+                return false;
+
+            IntPtr ptr = Marshal.AllocCoTaskMem(buf.Length);
+            try
+            {
+                Marshal.Copy(buf, 0, ptr, buf.Length);
+                var col = new PrivateFontCollection();
+                col.AddMemoryFont(ptr, buf.Length);
+                if (col.Families.Length == 0)
+                {
+                    col.Dispose();
+                    Marshal.FreeCoTaskMem(ptr);
+                    return false;
+                }
+
+                allocatedFontMemory = ptr;
+                pfc = col;
+                return true;
+            }
+            catch
+            {
+                Marshal.FreeCoTaskMem(ptr);
+                pfc = null;
+                allocatedFontMemory = IntPtr.Zero;
+                return false;
+            }
+        }
+
+        /// <summary>Transfers <paramref name="trialCollection"/> into fields; on success takes ownership of <paramref name="embeddedFontMemory"/> (must not free caller).</summary>
+        private bool TryCreateRevampFontsFromPrivateCollection(PrivateFontCollection trialCollection, ref IntPtr embeddedFontMemory)
+        {
+            Font large = null;
+            Font small = null;
+            try
+            {
+                var registeredName = trialCollection.Families[0].Name;
+                var fam = new FontFamily(registeredName, trialCollection);
+                large = new Font(fam, 320f, FontStyle.Regular, GraphicsUnit.Pixel);
+                small = new Font(fam, 140f, FontStyle.Regular, GraphicsUnit.Pixel);
+                _revampFontCollection = trialCollection;
+                _revampFontLargeR = large;
+                _revampFontRest = small;
+                large = null;
+                small = null;
+                if (embeddedFontMemory != IntPtr.Zero)
+                {
+                    _revampEmbeddedFontAlloc = embeddedFontMemory;
+                    embeddedFontMemory = IntPtr.Zero;
+                }
+
+                return true;
+            }
+            catch
+            {
+                large?.Dispose();
+                small?.Dispose();
+                return false;
+            }
+        }
+
+        /// <summary>Locate YouMurderer (or any dropped) display font next to the EXE — FontSpace downloads often use other file names.</summary>
+        private static string FindRevampDisplayFontFile(string root)
+        {
+            if (string.IsNullOrEmpty(root))
+                return null;
+
+            string[] fixedNames =
+            {
+                Path.Combine(root, "Fonts", "YouMurdererBB.otf"),
+                Path.Combine(root, "Fonts", "youmurdererbb.otf"),
+                Path.Combine(root, "Fonts", "YouMurderer BB.otf"),
+                Path.Combine(root, "YouMurdererBB.otf"),
+                Path.Combine(root, "youmurdererbb_bb_otf15980.otf"),
+            };
+
+            foreach (var p in fixedNames)
+            {
+                if (File.Exists(p))
+                    return p;
+            }
+
+            try
+            {
+                string fontsDir = Path.Combine(root, "Fonts");
+                if (!Directory.Exists(fontsDir))
+                    return null;
+
+                foreach (var ext in new[] { "*.otf", "*.ttf" })
+                {
+                    foreach (var path in Directory.GetFiles(fontsDir, ext, SearchOption.TopDirectoryOnly))
+                    {
+                        var n = Path.GetFileName(path) ?? "";
+                        if (n.IndexOf("murderer", StringComparison.OrdinalIgnoreCase) >= 0
+                            || n.IndexOf("youmurderer", StringComparison.OrdinalIgnoreCase) >= 0)
+                            return path;
+                    }
+                }
+
+                foreach (var ext in new[] { "*.otf", "*.ttf" })
+                {
+                    var any = Directory.GetFiles(fontsDir, ext, SearchOption.TopDirectoryOnly);
+                    if (any.Length == 1)
+                        return any[0];
+                }
+            }
+            catch
+            {
+                // ignore IO errors
+            }
+
+            return null;
+        }
+
+        private void DisposeRevampLoginFonts()
+        {
+            lock (_revampFontLock)
+            {
+                try
+                {
+                    _revampFontLargeR?.Dispose();
+                    _revampFontRest?.Dispose();
+                    _revampFontCollection?.Dispose();
+                }
+                catch
+                {
+                    // ignore
+                }
+
+                _revampFontLargeR = null;
+                _revampFontRest = null;
+                _revampFontCollection = null;
+
+                if (_revampEmbeddedFontAlloc != IntPtr.Zero)
+                {
+                    try
+                    {
+                        Marshal.FreeCoTaskMem(_revampEmbeddedFontAlloc);
+                    }
+                    catch
+                    {
+                        // ignore
+                    }
+
+                    _revampEmbeddedFontAlloc = IntPtr.Zero;
+                }
+            }
+        }
 
         /// <summary>Login handlers can run during InitializeComponent before <see cref="lightImageList"/> images are loaded from the resx.</summary>
         private void SetWrPbLightImage(int imageIndex)
@@ -178,10 +787,8 @@ namespace Hiatme_Tool_Suite_v3
                 case 0:
                     if (_wellRydePanelSessionActive)
                     {
-                        await SetLoadingGifLabel("Wellryde logging out");
-                        _wellRydePanelSessionActive = false;
-                        _wellRydeSession?.Dispose();
-                        _wellRydeSession = null;
+                        await SetLoadingGifLabel("WellRyde: signing out…");
+                        InvalidateWellRydePortalSession();
                         EnableWRLogin();
                         hidegiftimer.Start();
                     }
@@ -212,7 +819,7 @@ namespace Hiatme_Tool_Suite_v3
                 case 1:
                     if (mcLoginHandler.Connected == true)
                     {
-                        await SetLoadingGifLabel("Modivcare logging out");
+                        await SetLoadingGifLabel("Modivcare: signing out…");
                         await mcLoginHandler.Logout();
                         hidegiftimer.Start();
                     }
@@ -325,7 +932,7 @@ namespace Hiatme_Tool_Suite_v3
                     : "";
                 return prefix + (wrBoot.ErrorMessage ?? "Could not load portal.");
             }
-            await SetLoadingGifLabel("Signing in to Wellryde");
+            await SetLoadingGifLabel("Signing in to WellRyde");
             WellRydePortalLoginResult wrLogin;
             try
             {
@@ -343,7 +950,7 @@ namespace Hiatme_Tool_Suite_v3
                 _wellRydeSession = null;
                 return wrLogin.ErrorMessage ?? "WellRyde login was not accepted.";
             }
-            await SetLoadingGifLabel("Loading Wellryde portal");
+            await SetLoadingGifLabel("Loading WellRyde portal…");
             WellRydePortalNuResult wrNu;
             try
             {
@@ -367,14 +974,62 @@ namespace Hiatme_Tool_Suite_v3
             return null;
         }
 
-        /// <summary>For billing: reuse active portal session or run the HTTP login chain using saved or on-screen Wellryde credentials.</summary>
+        private void InvalidateWellRydePortalSession()
+        {
+            _wellRydePanelSessionActive = false;
+            _wellRydeSession?.Dispose();
+            _wellRydeSession = null;
+        }
+
+        private static bool WellRydeFilterDataLooksLikeAuthOrSessionFailure(WellRydePortalFilterDataResult r)
+        {
+            if (r == null || r.IsSuccess)
+                return false;
+            if (r.StatusCode == HttpStatusCode.Unauthorized || r.StatusCode == HttpStatusCode.Forbidden)
+                return true;
+            var msg = (r.ErrorMessage ?? "").ToLowerInvariant();
+            return msg.Contains("csrf") || msg.Contains("login") || msg.Contains("session") || msg.Contains("sign in");
+        }
+
+        /// <summary>Ensures portal session, loads trips, and on auth-like filterdata failure invalidates once and retries so the caller still completes the same action.</summary>
+        private async Task<(WellRydePortalFilterDataResult reloadResult, int portalTotalRecords)> ReloadBillingTripsFromPortalWithAuthRetryAsync()
+        {
+            if (!await EnsureWellRydePortalSessionForBillingAsync() || _wellRydeSession == null)
+                return (WellRydePortalFilterDataResult.Fail(null, "WellRyde portal session is not available."), 0);
+
+            var first = await wrBillingTool.ReloadTripsFromPortalAsync(_wellRydeSession, rjDatePicker1.Value);
+            if (first.result.IsSuccess || !WellRydeFilterDataLooksLikeAuthOrSessionFailure(first.result))
+                return first;
+
+            InvalidateWellRydePortalSession();
+            if (!await EnsureWellRydePortalSessionForBillingAsync() || _wellRydeSession == null)
+                return (WellRydePortalFilterDataResult.Fail(null, "Could not re-authenticate to WellRyde."), 0);
+
+            return await wrBillingTool.ReloadTripsFromPortalAsync(_wellRydeSession, rjDatePicker1.Value);
+        }
+
+        /// <summary>For billing and tools: probe an existing session with /portal/nu; if stale, re-login then return. Uses saved or on-screen WellRyde credentials.</summary>
         private async Task<bool> EnsureWellRydePortalSessionForBillingAsync()
         {
             if (_wellRydePanelSessionActive && _wellRydeSession != null)
             {
                 await SetLoadingGifLabel("Checking connections");
-                await SetLoadingGifLabel("Wellryde already signed in");
-                return true;
+                bool nuOk = false;
+                try
+                {
+                    var nu = await _wellRydeSession.GetPortalNuAsync();
+                    nuOk = nu.IsSuccess;
+                }
+                catch
+                {
+                    nuOk = false;
+                }
+                if (nuOk)
+                {
+                    await SetLoadingGifLabel("WellRyde: already signed in");
+                    return true;
+                }
+                InvalidateWellRydePortalSession();
             }
 
             string companycode;
@@ -477,10 +1132,8 @@ namespace Hiatme_Tool_Suite_v3
                 ShowLoadingGif();
             }
             loginCB.SelectedIndex = 1; loginCB.Focus();
-            string username = loginUserTB.Text;
-            string password = loginPassTB.Text;
-            //LoadingGifLabel.Text = "Checking Modivcare login status..";
-            //LoadingGifLabel.Text = "Logging into Modivcare";
+            string username = loginUserTB.Text ?? "";
+            string password = loginPassTB.Text ?? "";
             if (username == "" || password == "")
             {
                 hidegiftimer.Start();
@@ -488,20 +1141,65 @@ namespace Hiatme_Tool_Suite_v3
                 return;
             }
 
-            await mcLoginHandler.Login(username, password);
+            await PerformModivcareLoginWithCredentialsAsync(username, password, saveOnSuccess: true);
 
-            if (mcLoginHandler.Connected)
-            {
-                SaveMCCredentials(username, password);
-            }
-            else
-            {
-
-            }
             if (manuallogin)
             {
                 hidegiftimer.Start();
             }
+        }
+
+        /// <summary>POST Modivcare login; optional save when Remember credentials applies.</summary>
+        private async Task PerformModivcareLoginWithCredentialsAsync(string username, string password, bool saveOnSuccess)
+        {
+            await mcLoginHandler.Login(username, password);
+            if (mcLoginHandler.Connected && saveOnSuccess)
+                SaveMCCredentials(username, password);
+        }
+
+        /// <summary>If not connected, signs in using Modivcare tab fields or saved settings, then returns whether Modivcare is ready. Caller continues the same action after this returns true.</summary>
+        private async Task<bool> EnsureModivcareSessionAsync()
+        {
+            if (mcLoginHandler != null && mcLoginHandler.Connected)
+                return true;
+
+            string username;
+            string password;
+            if (loginCB.SelectedIndex == 1)
+            {
+                username = (loginUserTB.Text ?? "").Trim();
+                password = loginPassTB.Text ?? "";
+            }
+            else
+            {
+                username = (Properties.Settings.Default.mcUserName ?? "").Trim();
+                password = Properties.Settings.Default.mcUserPass ?? "";
+            }
+            if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
+            {
+                MessageBox.Show("Modivcare is not signed in. Use the Modivcare tab to sign in, or save credentials with Remember credentials.");
+                return false;
+            }
+
+            await SetLoadingGifLabel("Signing in to Modivcare");
+            mcLoginHandler.PropertyChanged -= UpdateMCConnectionStatus;
+            try
+            {
+                await PerformModivcareLoginWithCredentialsAsync(username, password, saveOnSuccess: true);
+            }
+            finally
+            {
+                mcLoginHandler.PropertyChanged += UpdateMCConnectionStatus;
+            }
+
+            if (!mcLoginHandler.Connected)
+            {
+                MessageBox.Show("Modivcare login was not accepted.");
+                EnableMCLogin();
+                return false;
+            }
+            DisableMCLogin();
+            return true;
         }
         private void LoadMCCredentials()
         {
@@ -613,6 +1311,11 @@ namespace Hiatme_Tool_Suite_v3
         {
             loadinggifhandler_showscreen();
             await SetLoadingGifLabel("Checking connections");
+            if (!await EnsureModivcareSessionAsync())
+            {
+                loadinggifhandler_hidescreen();
+                return;
+            }
             tcbatchelinkslv.Items.Clear();
             await mcTimeCorrectionTool.GetBatchLinks(mcLoginHandler, true);
             await SetLoadingGifLabel("Searching for batches");
@@ -662,6 +1365,11 @@ namespace Hiatme_Tool_Suite_v3
             loadinggifhandler_showscreen();
 
             await SetLoadingGifLabel("Checking connections");
+            if (!await EnsureModivcareSessionAsync())
+            {
+                loadinggifhandler_hidescreen();
+                return;
+            }
             WellRydePortalSession wrForBatch = null;
             if (await EnsureWellRydePortalSessionForBillingAsync())
                 wrForBatch = _wellRydeSession;
@@ -702,6 +1410,15 @@ namespace Hiatme_Tool_Suite_v3
             tcexebtn.Enabled = false;
             loadinggifhandler_showscreen();
             await SetLoadingGifLabel("Checking connections");
+            if (!await EnsureModivcareSessionAsync())
+            {
+                timer1.Enabled = false;
+                tcfindbatchesbtn.Enabled = true;
+                tcloadbtn.Enabled = true;
+                tcexebtn.Enabled = true;
+                loadinggifhandler_hidescreen();
+                return;
+            }
             await mcTimeCorrectionTool.GetBatchLinks(mcLoginHandler, false);
             await LoadBtnAsync(batchlink);
             await SetLoadingGifLabel("Preparing to correct trips");
@@ -807,6 +1524,8 @@ namespace Hiatme_Tool_Suite_v3
         int tensecs = 0;
         private void timer1_Tick(object sender, EventArgs e)
         {
+            if (_applicationExitRequested || IsDisposed)
+                return;
             tensecs ++;
             ts = ts - new TimeSpan(0,0,1);
 
@@ -895,17 +1614,12 @@ namespace Hiatme_Tool_Suite_v3
             ShowLoadingGif();
             try
             {
-                if (!await EnsureWellRydePortalSessionForBillingAsync())
-                    return;
-                if (_wellRydeSession == null)
-                    return;
                 await SetLoadingGifLabel("Loading trips");
                 WellRydePortalFilterDataResult reloadResult;
                 int portalTotalRecords;
                 try
                 {
-                    (reloadResult, portalTotalRecords) =
-                        await wrBillingTool.ReloadTripsFromPortalAsync(_wellRydeSession, rjDatePicker1.Value);
+                    (reloadResult, portalTotalRecords) = await ReloadBillingTripsFromPortalWithAuthRetryAsync();
                 }
                 catch (Exception ex)
                 {
@@ -1016,16 +1730,15 @@ namespace Hiatme_Tool_Suite_v3
         private List<BillableTrip> billedtrips = new List<BillableTrip>();
         private async Task populateBillingList(decimal totalbilled, bool billinprogress, bool billexrta)
         {
-            if (_wellRydeSession != null)
+            try
             {
-                try
-                {
-                    await wrBillingTool.ReloadTripsFromPortalAsync(_wellRydeSession, rjDatePicker1.Value);
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine("Billing list refresh: " + ex.Message);
-                }
+                var (reloadResult, _) = await ReloadBillingTripsFromPortalWithAuthRetryAsync();
+                if (!reloadResult.IsSuccess)
+                    Console.WriteLine("Billing list refresh: " + (reloadResult.ErrorMessage ?? "filterdata failed."));
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Billing list refresh: " + ex.Message);
             }
 
             Console.WriteLine(rjDatePicker1.Value.ToLongDateString());
@@ -1110,8 +1823,9 @@ namespace Hiatme_Tool_Suite_v3
             billed_trips_counter = 0;
             try
             {
-                if (await EnsureWellRydePortalSessionForBillingAsync() && _wellRydeSession != null)
-                    await wrBillingTool.ReloadTripsFromPortalAsync(_wellRydeSession, rjDatePicker1.Value);
+                var (reloadResult, _) = await ReloadBillingTripsFromPortalWithAuthRetryAsync();
+                if (!reloadResult.IsSuccess)
+                    Console.WriteLine("Bill completion refresh: " + (reloadResult.ErrorMessage ?? "filterdata failed."));
             }
             catch (Exception ex)
             {
@@ -1165,10 +1879,14 @@ namespace Hiatme_Tool_Suite_v3
 
         private void timekiller_Tick(object sender, EventArgs e)
         {
+            if (_applicationExitRequested || IsDisposed)
+                return;
             timekiller.Stop();
         }
         private void hidegiftimer_Tick(object sender, EventArgs e)
         {
+            if (_applicationExitRequested || IsDisposed)
+                return;
             LoadingGifSkipBtn.Visible = false;
             HideLoadingGif();
             hidegiftimer.Stop();
@@ -1176,6 +1894,8 @@ namespace Hiatme_Tool_Suite_v3
         }
         private async void billtimer_Tick(object sender, EventArgs e)
         {
+            if (_applicationExitRequested || IsDisposed)
+                return;
             if (billedtrips.Count == 0)
             {
                 loadinggifhandler_hidescreen();
@@ -1189,30 +1909,15 @@ namespace Hiatme_Tool_Suite_v3
         }
         private async Task SetLoadingGifLabel(string txt)
         {
-            if (!this.GifWorker.IsBusy)
-            {
-                GifWorker.RunWorkerAsync(txt);
-            }
-            else
-            {
-                while (this.GifWorker.IsBusy)
-                {
-                    Application.DoEvents();
-                }
-                GifWorker.RunWorkerAsync(txt);
-            }
-            await Task.Delay(2000);
+            if (_applicationExitRequested)
+                return;
+            ApplyLoadingGifLabel(txt);
+            await Task.Yield();
         }
+
         private void GifWorker_DoWork(object sender, System.ComponentModel.DoWorkEventArgs e)
         {
-            if (this.LoadingGifLabel.InvokeRequired)
-            {
-                this.LoadingGifLabel.BeginInvoke((MethodInvoker)delegate () { this.LoadingGifLabel.Text = (string)e.Argument; ; });
-            }
-            else
-            {
-                this.LoadingGifLabel.Text = (string)e.Argument; ;
-            }
+            ApplyLoadingGifLabel(e.Argument as string);
         }
 
 
@@ -1328,12 +2033,26 @@ namespace Hiatme_Tool_Suite_v3
         private async void addtemplatebtn_Click(object sender, EventArgs e)
         {
             loadinggifhandler_showscreen();
-            await SetLoadingGifLabel("Starting templete builder");
-            await SetLoadingGifLabel("Select a schedule for template");
+            await SetLoadingGifLabel("Starting template builder…");
+
+            if (string.IsNullOrWhiteSpace(tbcb.Text))
+            {
+                MessageBox.Show(
+                    this,
+                    "Choose the weekday (Monday through Sunday) in the list at the top of this tab before adding a template.\n\n" +
+                    "That tells the app which folder to save the driver CSV files into (for example, the Monday folder).",
+                    "Templates",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+                loadinggifhandler_hidescreen();
+                return;
+            }
+
+            await SetLoadingGifLabel("Select a schedule file for templates");
             OpenFileDialog openFileDialog1 = new OpenFileDialog
             {
                 InitialDirectory = System.Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
-                Title = "Choose a schedule to use as templates for the day of the week",
+                Title = "Choose a schedule workbook to turn into templates",
 
                 CheckFileExists = true,
                 CheckPathExists = true,
@@ -1346,19 +2065,59 @@ namespace Hiatme_Tool_Suite_v3
 
             if (openFileDialog1.ShowDialog() == DialogResult.OK)
             {
+                tbuilder.TargetWeekdayName = tbcb.Text.Trim();
                 tbuilder.TemplateNameOfFileToLoad = openFileDialog1.FileName;
-                await SetLoadingGifLabel("Scanning schedule for inconsistancies");
+                await SetLoadingGifLabel("Exporting tabs to CSV and validating layout…");
                 tbuilder.StartTemplateBuilder();
 
                 if (tbuilder.BadScheduleScan)
                 {
-                    await SetLoadingGifLabel("Bad schedule detected!");
+                    await SetLoadingGifLabel("Validation failed");
                     loadinggifhandler_hidescreen();
-                    tbstatuslbl.Text = "Status: There is a problem with your schedule layout.";
-                    MessageBox.Show("The schedule you're trying to make into templates is not setup correctly.");
+                    tbstatuslbl.Text = "Status: Fix the issues in the message, then try Add Template again.";
+                    MessageBox.Show(this, tbuilder.FormatBadScheduleUserMessage(), "Template validation", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    tbuilder.ClearTemplateWorkingFolder();
                     return;
                 }
-                tbuilder.ReplaceTemplatesChoiceDialog();
+
+                if (string.IsNullOrWhiteSpace(tbuilder.TemplateNameOfDay))
+                {
+                    await SetLoadingGifLabel("Could not determine save folder");
+                    loadinggifhandler_hidescreen();
+                    tbstatuslbl.Text = "Status: Pick a weekday on this tab, then try again.";
+                    MessageBox.Show(
+                        this,
+                        "The app could not confirm which weekday folder to use.\n\n" +
+                        "Make sure a day (Monday–Sunday) is selected above, then run Add Template again.",
+                        "Templates",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+                    tbuilder.ClearTemplateWorkingFolder();
+                    return;
+                }
+
+                var replaced = await tbuilder.TryRunReplaceTemplatesDialogAsync(this);
+                if (!replaced)
+                {
+                    loadinggifhandler_hidescreen();
+                    tbstatuslbl.Text = "Status: Template replace was cancelled; working files were cleared.";
+                    return;
+                }
+
+                if (tbuilder.ScheduleWeekdayMismatchWarning && !string.IsNullOrEmpty(tbuilder.InferredWeekdayFromSchedule))
+                {
+                    MessageBox.Show(
+                        this,
+                        "Trip dates in this workbook repeat like a " + tbuilder.InferredWeekdayFromSchedule +
+                        " schedule, but you had selected " + tbuilder.TargetWeekdayName +
+                        " on the Templates tab.\n\n" +
+                        "Files were saved under the folder for " + tbuilder.TargetWeekdayName +
+                        ".\n\nIf that is wrong, select the correct weekday and run Add Template again with the same file.",
+                        "Weekday check",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information);
+                }
+
                 for (int i = 0; i < tbcb.Items.Count; i++)
                 {
                     string value = tbcb.GetItemText(tbcb.Items[i]);
@@ -1376,24 +2135,22 @@ namespace Hiatme_Tool_Suite_v3
                             {
                                 tbcb.SelectedIndex = i - 1;
                             }
-                            
+
                             tbcb.SelectedIndex = i;
                             tbcb.Text = value;
                         }
                     }
-                    catch (Exception ex)
+                    catch (Exception)
                     {
-
                     }
                 }
-                //await SetLoadingGifLabel("Templates successfully loaded");
-                //tbstatuslbl.Text = "Status: Templates successfully loaded.";
-                //await SetLoadingGifLabel("Finalizing");
+
+                tbstatuslbl.Text = "Status: Templates saved for " + tbuilder.TemplateNameOfDay + ".";
                 loadinggifhandler_hidescreen();
             }
             else
             {
-                await SetLoadingGifLabel("Cancelling process..");
+                await SetLoadingGifLabel("Cancelled");
                 loadinggifhandler_hidescreen();
             }
         }
@@ -1412,6 +2169,15 @@ namespace Hiatme_Tool_Suite_v3
 
             try
             {
+                await SetLoadingGifLabel("Checking connections");
+                if (!await EnsureModivcareSessionAsync())
+                {
+                    loadinggifhandler_hidescreen();
+                    fsbtn.Enabled = true;
+                    fsbdatepicker.Enabled = true;
+                    sbstatuslbl.Text = "Status: Modivcare sign-in required.";
+                    return;
+                }
                 fsbuilder = new FullScheduleBuilder(dayname, day, nameofmonth, month, year);
                 fsbuilder.UpdateLoadingScreen += loadinggifhandler_update;
                 fsbuilder.ShowLoadingScreen += loadinggifhandler_showscreen;
@@ -1424,8 +2190,9 @@ namespace Hiatme_Tool_Suite_v3
                 fsbtn.Enabled = true;
                 fsbdatepicker.Enabled = true;
                 MessageBox.Show(
-                    "Schedule build failed. Fix the issue and try again.\n\n" + ex.Message,
-                    "Schedule Builder Error",
+                    this,
+                    "Schedule build stopped before the workbook was finished.\n\n" + ex.Message,
+                    "Schedule Builder",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Warning);
                 sbstatuslbl.Text = "Status: Schedule build failed. See message for details.";
@@ -1460,10 +2227,15 @@ namespace Hiatme_Tool_Suite_v3
                 analyzer.SetWellRydePortalSession(_wellRydeSession);
             else
                 analyzer.SetWellRydePortalSession(null);
+            if (!await EnsureModivcareSessionAsync())
+            {
+                hidegiftimer.Start();
+                return;
+            }
             analyzer.IntializeAnalyzer(mcLoginHandler);
             await analyzer.StartAnalysis(aadatepicker.Value.ToLongDateString(), aadatepicker.Value.Day, aadatepicker.Value.Year, aadatepicker.Value);
             await SetLoadingGifLabel("Downloading trips");
-            await SetLoadingGifLabel("Starting ANAL-i-ZER");
+            await SetLoadingGifLabel("Starting analyzer…");
             await SetLoadingGifLabel("Load your schedule for selected date (" + aadatepicker.Value.ToLongDateString() + ")");
             aastatuslbl.Text = "Status: Please choose a schedule to analyze.";
 
@@ -1515,7 +2287,7 @@ namespace Hiatme_Tool_Suite_v3
                     return;
                 }
 
-                await SetLoadingGifLabel("ANAL-i-ZING");
+                await SetLoadingGifLabel("Analyzing schedule…");
                 await Task.Delay(2000);
 
                 try
@@ -1591,7 +2363,7 @@ namespace Hiatme_Tool_Suite_v3
             reportCard.StartReport(analyzer.gradeList);
 
 
-            await SetLoadingGifLabel("Anal complete. Loading Report Card..");
+            await SetLoadingGifLabel("Analysis complete. Loading report card…");
 
             
 
@@ -1660,6 +2432,11 @@ namespace Hiatme_Tool_Suite_v3
                 analyzer.SetWellRydePortalSession(_wellRydeSession);
             else
                 analyzer.SetWellRydePortalSession(null);
+            if (!await EnsureModivcareSessionAsync())
+            {
+                hidegiftimer.Start();
+                return;
+            }
             analyzer.IntializeAnalyzer(mcLoginHandler);
 
             await analyzer.PullReserves(aadatepicker.Value.ToLongDateString(), aadatepicker.Value.Day, aadatepicker.Value.Year, aadatepicker.Value);
@@ -1671,15 +2448,29 @@ namespace Hiatme_Tool_Suite_v3
         private EmployeeStatManager EmployeeTable { get; set; }
         public async void CreateEmployeeStatTable()
         {
-            empStatManager = new EmployeeStatManager(tabPage8, mcLoginHandler);
-            empStatManager.UpdateLoadingScreen += loadinggifhandler_update;
-            empStatManager.ShowLoadingScreen += loadinggifhandler_showscreen;
-            empStatManager.HideLoadingScreen += loadinggifhandler_hidescreen;
+            _employeeStatsLoadCts?.Cancel();
+            _employeeStatsLoadCts?.Dispose();
+            _employeeStatsLoadCts = new CancellationTokenSource();
+            var loadToken = _employeeStatsLoadCts.Token;
+            try
+            {
+                empStatManager = new EmployeeStatManager(tabPage8, mcLoginHandler);
+                empStatManager.UpdateLoadingScreen += loadinggifhandler_update;
+                empStatManager.ShowLoadingScreen += loadinggifhandler_showscreen;
+                empStatManager.HideLoadingScreen += loadinggifhandler_hidescreen;
 
-            WellRydePortalSession wrSession = null;
-            if (await EnsureWellRydePortalSessionForBillingAsync())
-                wrSession = _wellRydeSession;
-            await empStatManager.InitializeEmployeeDler(this, wrSession, null);
+                WellRydePortalSession wrSession = null;
+                if (await EnsureWellRydePortalSessionForBillingAsync())
+                    wrSession = _wellRydeSession;
+                if (!await EnsureModivcareSessionAsync())
+                    return;
+                await empStatManager.InitializeEmployeeDler(this, wrSession, null, loadToken);
+            }
+            catch (OperationCanceledException)
+            {
+                // Newer tab visit or form close cancelled this load.
+                hidegiftimer.Start();
+            }
         }
 
 
@@ -1687,10 +2478,9 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-        private async void loadinggifhandler_update(string text)
+        private void loadinggifhandler_update(string text)
         {
-            await SetLoadingGifLabel(text);
-            await Task.Delay(2000);
+            ApplyLoadingGifLabel(text);
         }
         private void loadinggifhandler_showscreen()
         {
@@ -1700,9 +2490,9 @@ namespace Hiatme_Tool_Suite_v3
         {
             hidegiftimer.Start();
         }
-        private async void LoadingGifSkipBtn_Click(object sender, EventArgs e)
+        private void LoadingGifSkipBtn_Click(object sender, EventArgs e)
         {
-            await SetLoadingGifLabel("Skipping");
+            ApplyLoadingGifLabel("Skipping…");
             billtimer.Stop();
             loadinggifhandler_hidescreen();
             //LoadingGifSkipBtn.Visible = false;
@@ -1724,22 +2514,57 @@ namespace Hiatme_Tool_Suite_v3
 
         public void ShowLoadingGif()
         {
-            LoadingGifCard.Parent = hiatmeTabControl.TabPages[hiatmeTabControl.SelectedIndex];
+            if (hiatmeTabControl == null || hiatmeTabControl.TabCount == 0 || IsDisposed)
+                return;
+            int idx = hiatmeTabControl.SelectedIndex;
+            if (idx < 0)
+                idx = 0;
+            if (idx >= hiatmeTabControl.TabCount)
+                idx = hiatmeTabControl.TabCount - 1;
+            LoadingGifCard.Parent = hiatmeTabControl.TabPages[idx];
             LoadingGifCard.BringToFront();
-
             LoadingGifCard.Dock = DockStyle.Fill;
             LoadingGifCard.BackColor = Color.Black;
-            LoadingGifCard.Location = new Point((this.Width / 2) - (pictureBox1.Width / 2), (this.Height / 2) - (pictureBox1.Height / 2));
             LoadingGifCard.Visible = true;
         }
+
         public void HideLoadingGif()
         {
-            //System.Threading.Thread.Sleep(2000);
+            if (IsDisposed)
+                return;
+            try
+            {
+                LoadingGifCard.Visible = false;
+            }
+            catch (ObjectDisposedException)
+            {
+                // ignore
+            }
+        }
 
-            LoadingGifCard.Dock = DockStyle.Fill;
-            LoadingGifCard.BackColor = Color.Black;
-            LoadingGifCard.Location = new Point((this.Width / 2) - (pictureBox1.Width / 2), (this.Height / 2) - (pictureBox1.Height / 2));
-            LoadingGifCard.Visible = false;
+        /// <summary>Updates the loading overlay caption from any thread; avoids BackgroundWorker and multi-second artificial delays.</summary>
+        private void ApplyLoadingGifLabel(string txt)
+        {
+            if (_applicationExitRequested || IsDisposed)
+                return;
+            try
+            {
+                var text = txt ?? string.Empty;
+                if (LoadingGifLabel == null)
+                    return;
+                if (LoadingGifLabel.InvokeRequired)
+                    LoadingGifLabel.BeginInvoke((MethodInvoker)(() =>
+                    {
+                        if (!IsDisposed && LoadingGifLabel != null && !LoadingGifLabel.IsDisposed)
+                            LoadingGifLabel.Text = text;
+                    }));
+                else if (!LoadingGifLabel.IsDisposed)
+                    LoadingGifLabel.Text = text;
+            }
+            catch (ObjectDisposedException)
+            {
+                // ignore
+            }
         }
 
         //charts
@@ -2000,6 +2825,16 @@ namespace Hiatme_Tool_Suite_v3
         }
         private async void hiatmeTabControl_SelectedIndexChanged(object sender, EventArgs e)
         {
+            try
+            {
+                if (hiatmeTabControl.SelectedTab == tabPage1)
+                    pictureBox1?.Invalidate();
+            }
+            catch
+            {
+                // ignore
+            }
+
             if (hiatmeTabControl.SelectedTab == hiatmeTabControl.TabPages["tabPage8"])
             {
 
@@ -2212,10 +3047,14 @@ namespace Hiatme_Tool_Suite_v3
 
         public async void Connect_Setup()
         {
+            if (_applicationExitRequested)
+                return;
             await Task.Run(async () =>
             {
                 try
                 {
+                    if (_applicationExitRequested)
+                        return;
                     if (_clientListTimer != null)
                     {
                         _clientListTimer.Stop();
@@ -2223,6 +3062,8 @@ namespace Hiatme_Tool_Suite_v3
                         _clientListTimer = null;
                     }
                     await FetchClientsListOnce();
+                    if (_applicationExitRequested)
+                        return;
                     _clientListTimer = new System.Windows.Forms.Timer();
                     _clientListTimer.Interval = 4000;
                     _clientListTimer.Tick += async (s, e) => await FetchClientsListOnce();
@@ -2231,14 +3072,19 @@ namespace Hiatme_Tool_Suite_v3
                 catch (Exception ex)
                 {
                     Console.WriteLine(ex);
+                    if (_applicationExitRequested)
+                        return;
                     await Task.Delay(2000);
-                    Connect_Setup();
+                    if (!_applicationExitRequested)
+                        Connect_Setup();
                 }
             });
         }
 
         private async Task FetchClientsListOnce()
         {
+            if (_applicationExitRequested)
+                return;
             try
             {
                 var baseUrl = (MainValues.ServerApiBase ?? "http://localhost:3000").TrimEnd('/');
@@ -2248,6 +3094,8 @@ namespace Hiatme_Tool_Suite_v3
                 var jo = JObject.Parse(json);
                 var clientsArray = jo["clients"]?.ToString() ?? "[]";
                 var arrstr = new[] { "RECCLIENTLIST", clientsArray };
+                if (_applicationExitRequested || !IsHandleCreated || IsDisposed)
+                    return;
                 Invoke((MethodInvoker)delegate { ModifyClientListCheck(arrstr); });
             }
             catch (Exception ex)
@@ -2258,6 +3106,8 @@ namespace Hiatme_Tool_Suite_v3
 
         public async void infoAl(Socket sckInf)
         {
+            lock (_infoAlSocketsLock)
+                _infoAlActiveSockets.Add(sckInf);
             try
             {
                 NetworkStream networkStream = new NetworkStream(sckInf);
@@ -2265,9 +3115,11 @@ namespace Hiatme_Tool_Suite_v3
                 int thisRead = 0;
                 int blockSize = 2048;
                 byte[] dataByte = new byte[blockSize];
-                while (true)
+                while (!_applicationExitRequested)
                 {
                     thisRead = await networkStream.ReadAsync(dataByte, 0, blockSize);
+                    if (thisRead == 0)
+                        break;
                     sb.Append(System.Text.Encoding.UTF8.GetString(dataByte, 0, thisRead));
                     sb = sb.Replace("[0x09]KNT[VERI][0x09]<EOF>", "");
                     while (sb.ToString().Trim().Contains("<EOF>"))
@@ -2282,6 +3134,11 @@ namespace Hiatme_Tool_Suite_v3
             {
                 //Prev.global_cam.StopCamera(); key_gonder = false; micStop();
                 //stopProjection(); Baglanti_Kur();
+            }
+            finally
+            {
+                lock (_infoAlSocketsLock)
+                    _infoAlActiveSockets.Remove(sckInf);
             }
         }
         public async void sendToSocket(string tag, string mesaj)
@@ -2323,10 +3180,14 @@ namespace Hiatme_Tool_Suite_v3
         }
         private async void RequestClientsList()
         {
+            if (_applicationExitRequested)
+                return;
             await Task.Run(async () =>
             {
                 try
                 {
+                    if (_applicationExitRequested)
+                        return;
                     if (oursocket != null)
                     {
                         sendToSocket("REQCLIENTLIST", "[VERI][0x09]");
@@ -2335,7 +3196,8 @@ namespace Hiatme_Tool_Suite_v3
                 }
                 catch (Exception ex)
                 {
-                    await Task.Delay(2000);
+                    if (!_applicationExitRequested)
+                        await Task.Delay(2000);
                 }
             });
         }
@@ -2521,6 +3383,8 @@ namespace Hiatme_Tool_Suite_v3
         }
         private void clientcounttimer_Tick(object sender, EventArgs e)
         {
+            if (_applicationExitRequested || IsDisposed)
+                return;
             RequestClientsList();
         }
 
@@ -2584,8 +3448,14 @@ namespace Hiatme_Tool_Suite_v3
             try
             {
                 Socket sock = oursocket.EndAccept(ar);
+                if (_applicationExitRequested)
+                {
+                    TryShutdownSocket(sock);
+                    return;
+                }
                 infoAl(sock);
-                oursocket.BeginAccept(new AsyncCallback(Client_Accept), null);
+                if (!_applicationExitRequested && oursocket != null)
+                    oursocket.BeginAccept(new AsyncCallback(Client_Accept), null);
             }
             catch (Exception) { }
         }
@@ -2921,11 +3791,7 @@ namespace Hiatme_Tool_Suite_v3
             if (listenswitch.Checked)
                 Connect_Setup();
             else
-            {
-                _clientListTimer?.Stop();
-                _clientListTimer?.Dispose();
-                _clientListTimer = null;
-            }
+                StopClientListPollingTimer();
         }
 
 

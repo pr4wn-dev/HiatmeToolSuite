@@ -25,6 +25,8 @@ namespace Hiatme_Tool_Suite_v3
         public ProgressBar WorkloadProgressBar { get; set; }
         public List<WRDownloadedTrip> DriverWRTripList { get; set; }
 
+        private static bool IsControlAlive(Control c) => c != null && !c.IsDisposed;
+
         public void GenerateEmployeeStats(List<WRDownloadedTrip> wrtriplist, List<MCDownloadedTrip> mctriplist, int numofemployees)
         {
             GenerateProfitStat();
@@ -41,21 +43,29 @@ namespace Hiatme_Tool_Suite_v3
             {
                 return;
             }
+            if (!IsControlAlive(ProfitLabel) || !IsControlAlive(ProfitProgressBar))
+                return;
 
             decimal profit = 0;
             foreach (WRDownloadedTrip trip in DriverWRTripList)
             {
+                if (trip == null)
+                    continue;
                 if (trip.Status == "Completed" || trip.Status == "Billed")
                 {
                     profit += Convert.ToDecimal(trip.Price);
                 }
             }
             decimal finalprofit = profit - Overhead;
+            if (!IsControlAlive(ProfitLabel) || !IsControlAlive(ProfitProgressBar))
+                return;
             ProfitLabel.Text = "$" + Math.Truncate(finalprofit).ToString();
             GenerateProfitBarValue((int)Math.Truncate(finalprofit));
         }
         private void GenerateProfitBarValue(int profitnumber)
         {
+            if (!IsControlAlive(ProfitProgressBar))
+                return;
             if (profitnumber <= 0)
             {
                 ProfitProgressBar.Value = (400 - Math.Abs(profitnumber)) / 8;
@@ -264,6 +274,8 @@ namespace Hiatme_Tool_Suite_v3
             {
                 return;
             }
+            if (!IsControlAlive(AccuracyLabel) || !IsControlAlive(AccuracyProgressBar))
+                return;
 
             int tripcounter = 0;
             int accuraciescounter = 0;
@@ -291,12 +303,16 @@ namespace Hiatme_Tool_Suite_v3
                 return;
 
             double result = Math.Round((double)accuraciescounter / tripcounter * 100);
+            if (!IsControlAlive(AccuracyLabel) || !IsControlAlive(AccuracyProgressBar))
+                return;
             AccuracyLabel.Text = result.ToString() + "%";
             GenerateAccuracyBarValue((int)result);
         }
 
         private void GenerateAccuracyBarValue(int accuracy)
         {
+            if (!IsControlAlive(AccuracyProgressBar))
+                return;
             int minacceptableaccuracy = 70;
             if (accuracy < minacceptableaccuracy)
             {
@@ -341,6 +357,8 @@ namespace Hiatme_Tool_Suite_v3
             {
                 return;
             }
+            if (!IsControlAlive(WorkloadLabel) || !IsControlAlive(WorkloadProgressBar))
+                return;
 
             double grouptotalrevenue = 0;
             foreach (WRDownloadedTrip trip in wrdtlist)
@@ -362,13 +380,19 @@ namespace Hiatme_Tool_Suite_v3
 
             if (grouptotalrevenue <= 0 || numofworkers <= 0)
             {
-                WorkloadLabel.Text = "0%";
-                WorkloadProgressBar.Value = 0;
-                WorkloadProgressBar.SetState(1);
+                if (IsControlAlive(WorkloadLabel) && IsControlAlive(WorkloadProgressBar))
+                {
+                    WorkloadLabel.Text = "0%";
+                    WorkloadProgressBar.Value = 0;
+                    WorkloadProgressBar.SetState(1);
+                }
                 return;
             }
 
             double result = ((double)profit / grouptotalrevenue) * 100;
+
+            if (!IsControlAlive(WorkloadLabel) || !IsControlAlive(WorkloadProgressBar))
+                return;
 
             double fairsharepercent = 100 / (double)numofworkers;
             WorkloadProgressBar.Maximum = (int)Math.Round(fairsharepercent);
@@ -385,6 +409,8 @@ namespace Hiatme_Tool_Suite_v3
         }
         private void GenerateWorkloadBarValue(int workload, int numofemployees)
         {
+            if (!IsControlAlive(WorkloadProgressBar))
+                return;
             WorkloadProgressBar.Value = workload;
 
             int minacceptableworkload = 100 / numofemployees;

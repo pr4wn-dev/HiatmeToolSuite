@@ -1,0 +1,8 @@
+1. Copy your downloaded YouMurderer .otf into THIS folder.
+2. Rename the file to exactly:  YouMurdererBB.otf
+3. Rebuild (Ctrl+Shift+B). The font is copied into bin\...\Fonts\ next to the EXE (not baked into the EXE). You do NOT install the font in Windows.
+
+This folder lives next to your project file:
+  Hiatme Tool Suite v3\Hiatme Tool Suite v3\Fonts\
+
+In Visual Studio: show the project node "Hiatme Tool Suite v3" — you should see a "Fonts" folder with this file.

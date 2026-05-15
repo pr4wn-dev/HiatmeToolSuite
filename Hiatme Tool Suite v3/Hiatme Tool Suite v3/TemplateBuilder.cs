@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -23,367 +25,581 @@ namespace Hiatme_Tool_Suite_v3
         public string TemplateNameOfDay { get; set; }
         public bool BadScheduleScan { get; set; }
         public string TemplateNameOfFileToLoad { get; set; }
+
+        /// <summary>Weekday folder name from the Templates tab (Monday…Sunday). Used as the authoritative save target.</summary>
+        public string TargetWeekdayName { get; set; }
+
+        /// <summary>Day of week inferred from repeated trip dates in the export (when enough samples exist).</summary>
+        public string InferredWeekdayFromSchedule { get; private set; }
+
+        /// <summary>True when inferred weekday from dates disagrees with <see cref="TargetWeekdayName"/>.</summary>
+        public bool ScheduleWeekdayMismatchWarning { get; private set; }
+
         private string TemplateDateField { get; set; }
+        private readonly List<string> _badScheduleDiagnostics = new List<string>();
+        private const int MaxBadScheduleDiagnostics = 30;
+
+        private static string AppBaseDir()
+        {
+            var b = AppContext.BaseDirectory ?? "";
+            return b.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
+
+        internal static string GetTemplateTempDirectory() => Path.Combine(AppBaseDir(), "Template Temps");
+
+        internal static string GetDayTemplateDirectory(string dayName)
+        {
+            if (string.IsNullOrWhiteSpace(dayName))
+                return null;
+            return Path.Combine(AppBaseDir(), dayName.Trim());
+        }
+
         private async Task AsyncUpdateLoadingScreen(string txt)
         {
-            UpdateLoadingScreen(txt);
-            await Task.Delay(2000);
+            UpdateLoadingScreen?.Invoke(txt);
+            await Task.Yield();
         }
+
         public void StartTemplateBuilder()
         {
-            //check base dir for temp folder to add csv files to
             BadScheduleScan = false;
+            ScheduleWeekdayMismatchWarning = false;
+            InferredWeekdayFromSchedule = null;
+            _badScheduleDiagnostics.Clear();
             CreateTempTemplateFiles();
+        }
+
+        /// <summary>Deletes all files in <see cref="GetTemplateTempDirectory"/> (working folder only, not weekday folders).</summary>
+        public void ClearTemplateWorkingFolder()
+        {
+            try
+            {
+                var dir = GetTemplateTempDirectory();
+                if (!Directory.Exists(dir))
+                    return;
+                foreach (var f in Directory.EnumerateFiles(dir))
+                {
+                    try
+                    {
+                        File.Delete(f);
+                    }
+                    catch
+                    {
+                        /* ignore single-file failures */
+                    }
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+
+        public string FormatBadScheduleUserMessage()
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("The schedule could not be used as templates.");
+            sb.AppendLine();
+            sb.AppendLine("Problems found (tab name = Excel sheet name = exported .csv file):");
+            sb.AppendLine();
+            if (_badScheduleDiagnostics.Count == 0)
+            {
+                sb.AppendLine("(No row details were recorded — see trip date column 12 / \"L\" in each driver tab.)");
+            }
+            else
+            {
+                foreach (var line in _badScheduleDiagnostics)
+                    sb.AppendLine("• " + line);
+                if (_badScheduleDiagnostics.Count >= MaxBadScheduleDiagnostics)
+                    sb.AppendLine("• … (additional rows omitted)");
+            }
+            sb.AppendLine();
+            sb.AppendLine("How to fix:");
+            sb.AppendLine("• Each driver tab should look like the normal Modivcare schedule export.");
+            sb.AppendLine("• Trip date must be in column 12 and look like a date with slashes (e.g. 5/13/2026).");
+            sb.AppendLine("• Remove stray text or numbers in that column that are not dates.");
+            sb.AppendLine("• Tab names must be valid Windows file names (no \\ / : * ? \" < > |).");
+            sb.AppendLine();
+            sb.AppendLine("Fix the workbook, save it, then click Add Template again.");
+            return sb.ToString();
         }
 
         private void CreateTempTemplateFiles()
         {
-            if (Directory.Exists(AppContext.BaseDirectory + "\\Template Temps\\"))
+            var tempDir = GetTemplateTempDirectory();
+            if (Directory.Exists(tempDir))
             {
-                string[] filePaths = Directory.GetFiles(AppContext.BaseDirectory + "\\Template Temps\\");
-                foreach (string filePath in filePaths)
-                    File.Delete(filePath);
+                foreach (var filePath in Directory.GetFiles(tempDir))
+                {
+                    try
+                    {
+                        File.Delete(filePath);
+                    }
+                    catch
+                    {
+                        /* continue */
+                    }
+                }
 
-                //template temp folder found
-                //MessageBox.Show("Temp folder found");
-                SplitFile(AppContext.BaseDirectory + "Template Temps\\", TemplateNameOfFileToLoad);
+                SplitFile(tempDir + Path.DirectorySeparatorChar, TemplateNameOfFileToLoad);
             }
             else
             {
-                Directory.CreateDirectory(AppContext.BaseDirectory + "\\Template Temps");
-                SplitFile(AppContext.BaseDirectory + "Template Temps\\", TemplateNameOfFileToLoad);
+                Directory.CreateDirectory(tempDir);
+                SplitFile(tempDir + Path.DirectorySeparatorChar, TemplateNameOfFileToLoad);
             }
         }
 
         private void SplitFile(string targetPath, string sourceFile)
         {
-            //Console.WriteLine(sourceFile);
-            Microsoft.Office.Interop.Excel.XlFileFormat fileFormat = Microsoft.Office.Interop.Excel.XlFileFormat.xlOpenXMLWorkbook;
-
-            string exportFormat = "";
-            //if (cboExcel.Checked) //set the output format
-            //exportFormat = "XLSX";
-            //else if (cboCsv.Checked)
-            exportFormat = "CSV";
-
-            Microsoft.Office.Interop.Excel.Application xlApp = new Microsoft.Office.Interop.Excel.Application(); //object for controlling Excel
-            Microsoft.Office.Interop.Excel.Workbook xlFile = xlApp.Workbooks.Open(sourceFile); //open the source file
-
-            xlApp.DisplayAlerts = false; //override Excel save dialog message
-            int TabCount = xlFile.Worksheets.Count; //total count of the tabs in the file
-
-            int sheetCount = 0; //this will be used to output the number of exported sheets
-            for (int i = 1; i <= TabCount; i++) //for each sheet in the workbook...
+            if (string.IsNullOrWhiteSpace(sourceFile) || !File.Exists(sourceFile))
             {
-                string sheetName = xlFile.Sheets[i].Name;
-                string newFilename = System.IO.Path.Combine(targetPath, sheetName); //set the filename with full path, but no extension
-
-                //toolStripStatus.Text = "Exporting: " + sheetName; //update the status bar
-                Microsoft.Office.Interop.Excel.Worksheet tempSheet = xlApp.Worksheets[i]; //Current tab will be saved to this in a new workbook
-                tempSheet.Copy();
-                Microsoft.Office.Interop.Excel.Workbook tempBook = xlApp.ActiveWorkbook;
-
-                try
-                {
-                    switch (exportFormat) //if the file does NOT exist OR if does and the the user wants to overwrite it, do the export and increase the sheetCount by 1
-                    {
-                        case "CSV":
-                            newFilename += ".csv";
-                            fileFormat = Microsoft.Office.Interop.Excel.XlFileFormat.xlCSV;
-                            break;
-                        case "XLSX":
-                            newFilename += ".xlsx";
-                            fileFormat = Microsoft.Office.Interop.Excel.XlFileFormat.xlOpenXMLWorkbook;
-                            break;
-                    }
-
-
-                    tempBook.SaveAs(newFilename, fileFormat);
-                    tempBook.Close(false);
-                    sheetCount++;
-
-
-                }
-                catch (Exception ex)
-                {
-                    //toolStripStatus.Text = "Error!";
-                    string errorMessage = "Error Exporting " + sheetName + System.Environment.NewLine + "Original Message: " + ex.Message;
-                    MessageBox.Show(errorMessage, "Error Exporting", MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
-                    //toolStripStatus.Text = "Ready";
-                }
+                MessageBox.Show(
+                    "The selected file could not be found or the path is empty.\n\nPick the schedule file again.",
+                    "Template builder",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+                return;
             }
 
-            xlFile.Close(false);
-            GC.Collect();
-            GC.WaitForFullGCComplete();
-            GC.Collect();
-            GC.WaitForFullGCComplete();
+            Microsoft.Office.Interop.Excel.Application xlApp = null;
+            Microsoft.Office.Interop.Excel.Workbook xlFile = null;
+            var exportErrors = new List<string>();
+
+            try
+            {
+                var fileFormat = Microsoft.Office.Interop.Excel.XlFileFormat.xlCSV;
+                const string exportFormat = "CSV";
+
+                xlApp = new Microsoft.Office.Interop.Excel.Application();
+                xlApp.DisplayAlerts = false;
+                xlFile = xlApp.Workbooks.Open(sourceFile);
+                int tabCount = xlFile.Worksheets.Count;
+
+                for (int i = 1; i <= tabCount; i++)
+                {
+                    string sheetName = xlFile.Sheets[i].Name;
+                    if (ContainsInvalidFileNameChar(sheetName))
+                    {
+                        exportErrors.Add(
+                            $"Tab \"{sheetName}\": rename the sheet — it contains characters that cannot be used in a file name ( \\ / : * ? \" < > | ).");
+                        continue;
+                    }
+
+                    string newFilename = Path.Combine(targetPath, sheetName);
+                    Microsoft.Office.Interop.Excel.Worksheet tempSheet = null;
+                    Microsoft.Office.Interop.Excel.Workbook tempBook = null;
+                    try
+                    {
+                        tempSheet = xlApp.Worksheets[i];
+                        tempSheet.Copy();
+                        tempBook = xlApp.ActiveWorkbook;
+
+                        if (exportFormat == "CSV")
+                        {
+                            newFilename += ".csv";
+                            fileFormat = Microsoft.Office.Interop.Excel.XlFileFormat.xlCSV;
+                        }
+
+                        tempBook.SaveAs(newFilename, fileFormat);
+                    }
+                    catch (Exception ex)
+                    {
+                        exportErrors.Add($"Tab \"{sheetName}\": could not export CSV — {ex.Message}");
+                    }
+                    finally
+                    {
+                        if (tempBook != null)
+                        {
+                            try
+                            {
+                                tempBook.Close(false);
+                            }
+                            catch
+                            {
+                                /* ignore */
+                            }
+
+                            Marshal.ReleaseComObject(tempBook);
+                        }
+
+                        if (tempSheet != null)
+                            Marshal.ReleaseComObject(tempSheet);
+                    }
+                }
+
+                if (exportErrors.Count > 0)
+                {
+                    var eb = new StringBuilder();
+                    eb.AppendLine("One or more tabs could not be exported to CSV:");
+                    eb.AppendLine();
+                    foreach (var err in exportErrors.Take(12))
+                        eb.AppendLine("• " + err);
+                    if (exportErrors.Count > 12)
+                        eb.AppendLine("• … (" + (exportErrors.Count - 12) + " more)");
+                    eb.AppendLine();
+                    eb.AppendLine("Fix tab names or close anything locking those files, then try Add Template again.");
+                    MessageBox.Show(eb.ToString(), "Excel export", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    "Excel could not process this workbook.\n\n" + ex.Message +
+                    "\n\nMake sure Microsoft Excel is installed and the file is not open in another program, then try again.",
+                    "Template builder",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
+            finally
+            {
+                if (xlFile != null)
+                {
+                    try
+                    {
+                        xlFile.Close(false);
+                    }
+                    catch
+                    {
+                        /* ignore */
+                    }
+
+                    try
+                    {
+                        Marshal.ReleaseComObject(xlFile);
+                    }
+                    catch
+                    {
+                        /* ignore */
+                    }
+
+                    xlFile = null;
+                }
+
+                if (xlApp != null)
+                {
+                    try
+                    {
+                        xlApp.Quit();
+                    }
+                    catch
+                    {
+                        /* ignore */
+                    }
+
+                    try
+                    {
+                        Marshal.ReleaseComObject(xlApp);
+                    }
+                    catch
+                    {
+                        /* ignore */
+                    }
+
+                    xlApp = null;
+                }
+
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+            }
 
             CheckTemplateFilesLines();
-            //MessageBox.Show("Well done!");
+        }
+
+        private static bool ContainsInvalidFileNameChar(string name)
+        {
+            if (string.IsNullOrEmpty(name))
+                return true;
+            return name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0;
         }
 
         private void CheckTemplateFilesLines()
         {
             datecounter = 0;
-            var filePaths = Directory.GetFiles(AppContext.BaseDirectory + "\\Template Temps", "*.csv");
+            InferredWeekdayFromSchedule = null;
+            ScheduleWeekdayMismatchWarning = false;
+
+            var tempDir = GetTemplateTempDirectory();
+            if (!Directory.Exists(tempDir))
+                return;
+
+            var filePaths = Directory.GetFiles(tempDir, "*.csv");
+            if (filePaths.Length == 0)
+            {
+                RecordBadSchedule(
+                    "No driver CSV files were created in the working folder. " +
+                    "Usually this means every Excel tab failed to export (bad tab names, invalid characters in the sheet name, or Excel could not save). " +
+                    "Fix the issues in the export message (if any), then try Add Template again.");
+                TemplateNameOfDay = null;
+                return;
+            }
+
             foreach (string s in filePaths)
+                GetTripListFromCSVFile(s, false, recordLayoutDiagnostics: true);
+
+            if (datecounter > 30 && !string.IsNullOrWhiteSpace(TemplateDateField) && TemplateDateField.Contains("/"))
             {
-                GetTripListFromCSVFile(s, false);
-            }
-            //check for dates and get the day name of template to replace.
-            if (datecounter > 30)
-            {
-                Console.WriteLine("Matching dates found " + datecounter.ToString() + ". Enough to proceed. (> 30");
-                //get dayname from template date so we can save templates for that day of the week
-                string[] datesections = TemplateDateField.Split('/');
-                DateTime dateValue = new DateTime(Int32.Parse(datesections[2]), Int32.Parse(datesections[0]), Int32.Parse(datesections[1]));
-                //Console.WriteLine(dateValue.DayOfWeek);
-                TemplateNameOfDay = dateValue.DayOfWeek.ToString();
-                //ReplaceTemplatesChoiceDialog(dateValue.DayOfWeek.ToString());
+                try
+                {
+                    string[] datesections = TemplateDateField.Split('/');
+                    if (datesections.Length >= 3)
+                    {
+                        var dateValue = new DateTime(
+                            int.Parse(datesections[2], CultureInfo.InvariantCulture),
+                            int.Parse(datesections[0], CultureInfo.InvariantCulture),
+                            int.Parse(datesections[1], CultureInfo.InvariantCulture));
+                        InferredWeekdayFromSchedule = dateValue.DayOfWeek.ToString();
+                    }
+                }
+                catch
+                {
+                    InferredWeekdayFromSchedule = null;
+                }
             }
 
+            if (!string.IsNullOrWhiteSpace(TargetWeekdayName))
+            {
+                TemplateNameOfDay = TargetWeekdayName.Trim();
+                if (!string.IsNullOrEmpty(InferredWeekdayFromSchedule) &&
+                    !string.Equals(InferredWeekdayFromSchedule, TemplateNameOfDay, StringComparison.OrdinalIgnoreCase))
+                    ScheduleWeekdayMismatchWarning = true;
+            }
+            else if (datecounter > 30 && !string.IsNullOrEmpty(InferredWeekdayFromSchedule))
+            {
+                TemplateNameOfDay = InferredWeekdayFromSchedule;
+            }
+            else
+            {
+                TemplateNameOfDay = null;
+            }
         }
-        private IDictionary<string, string[]> GetTripListFromCSVFile(string filePath, bool checkdates)
-        {
-            IDictionary<string, string[]> keyValuePairs = new Dictionary<string, string[]>();
 
-            //reading all the lines(rows) from the file.
-            string[] rows = File.ReadAllLines(filePath);
+        private void RecordBadSchedule(string detail)
+        {
+            BadScheduleScan = true;
+            if (_badScheduleDiagnostics.Count < MaxBadScheduleDiagnostics)
+                _badScheduleDiagnostics.Add(detail);
+        }
+
+        private IDictionary<string, string[]> GetTripListFromCSVFile(string filePath, bool checkdates, bool recordLayoutDiagnostics = false)
+        {
+            var keyValuePairs = new Dictionary<string, string[]>();
+            string tabLabel = Path.GetFileNameWithoutExtension(filePath) ?? filePath;
+
+            string[] rows;
+            try
+            {
+                rows = File.ReadAllLines(filePath);
+            }
+            catch (Exception ex)
+            {
+                if (recordLayoutDiagnostics)
+                    RecordBadSchedule($"File \"{tabLabel}\": could not read CSV — {ex.Message}");
+                return keyValuePairs;
+            }
 
             int rowcounter = 0;
-            //Creating row for each line.
+            var csvParser = new Regex(",(?=(?:[^\"]*\"[^\"]*\")*(?![^\"]*\"))");
+
             for (int row = 0; row < rows.Length; row++)
             {
+                string[] rowValues = csvParser.Split(rows[row]);
 
-                Regex CSVParser = new Regex(",(?=(?:[^\"]*\"[^\"]*\")*(?![^\"]*\"))");
-
-                string[] rowValues = CSVParser.Split(rows[row]);
-
-
-
-                if (rowValues[0] == string.Empty)
-                {
-                    //blank line. move to next
+                if (rowValues.Length == 0 || string.IsNullOrEmpty(rowValues[0]))
                     continue;
-                }
 
-                for (int i = 0; i < rowValues.Length; i++)
+                if (recordLayoutDiagnostics && row > 0 && rowValues.Length < 14)
                 {
-                    if (i < 13)
+                    RecordBadSchedule(
+                        $"Tab \"{tabLabel}\", spreadsheet row {row + 1}: only {rowValues.Length} column(s) were read (need 14). " +
+                        "Check for a missing comma, an extra line break inside quotes, or a blank row in the middle of the block.");
+                }
+
+                for (int i = 0; i < rowValues.Length && i < 14; i++)
+                    rowValues[i] = rowValues[i].Replace("\"", string.Empty);
+
+                if (recordLayoutDiagnostics && rowValues.Length >= 14)
+                {
+                    string[] rowForValidate = rowValues.Length == 14 ? rowValues : rowValues.Take(14).ToArray();
+                    if (!TripTemplateCsvValidator.IsLikelyHeaderRow(rowForValidate))
                     {
-                        rowValues[i] = rowValues[i].Replace("\"", string.Empty);
-                        //Console.WriteLine(rowValues[i]);
-                    }
-                    if (i == 11)
-                    {
-                        if (BadScheduleScanner(rowValues[i]))
-                        {
-                            BadScheduleScan = true;
-                        }
+                        foreach (var issue in TripTemplateCsvValidator.ValidateTripRow(rowForValidate))
+                            RecordBadSchedule(issue.FormatForUser(tabLabel, row + 1));
                     }
                 }
 
-                for (int i = 0; i < 3; i++)
+                for (int i = 0; i < 3 && i < rowValues.Length; i++)
                 {
                     if (checkdates)
                     {
-
                     }
+
                     try
                     {
                         if (CheckForTripDate(rowValues[i]))
                         {
-
                         }
                     }
                     catch
                     {
                         continue;
                     }
-
                 }
 
-                keyValuePairs.Add("row" + rowcounter.ToString(), rowValues);
+                keyValuePairs.Add("row" + rowcounter, rowValues);
                 rowcounter++;
             }
+
             return keyValuePairs;
         }
-        private bool BadScheduleScanner(string date)
-        {
-            //Console.WriteLine(date);
-            if (!date.Contains("/") && !date.Equals("") && !date.Equals(","))
-            {
-                return true;
-            }
-            return false;
-        }
-        public async void ReplaceTemplatesChoiceDialog()
-        {
-            DialogResult dialogResult = MessageBox.Show("You are about to replace the templates for " + TemplateNameOfDay, "Are you sure?", MessageBoxButtons.YesNo);
-            if (dialogResult == DialogResult.Yes)
-            {
-                //check if directory exists for day and move files from temp to day folder
-                await AsyncUpdateLoadingScreen("Finalizing process..");
-                MoveTemplateFilesToDayFolder(TemplateNameOfDay);
-                
-            }
-            else if (dialogResult == DialogResult.No)
-            {
-                //do nothing
-                await AsyncUpdateLoadingScreen("Cancelling process..");
-            }
-        }
-        private void MoveTemplateFilesToDayFolder(string nameoffolder)
-        {
-            //check if temp dir exists
-            if (Directory.Exists(AppContext.BaseDirectory + "\\Template Temps\\"))
-            {
-                //check if day folder exists
-                if (Directory.Exists(AppContext.BaseDirectory + "\\" + nameoffolder + "\\"))
-                {
-                    //both directories exist. delete files in template day and move files over.
-                    string[] filePaths = Directory.GetFiles(AppContext.BaseDirectory + "\\" + nameoffolder);
-                    foreach (string filePath in filePaths)
-                    File.Delete(filePath);
-                    try
-                    {
-                        foreach (var file in Directory.EnumerateFiles(AppContext.BaseDirectory + "\\Template Temps\\"))
-                        {
 
-                            if (CheckForBadTemplateNames(file))
-                            {
-
-;
-                            }
-                            else
-                            {
-                                string destFile = Path.Combine(AppContext.BaseDirectory + "\\" + nameoffolder, Path.GetFileName(file));
-                                if (File.Exists(destFile))
-                                {
-                                    File.Delete(destFile);
-                                    File.Move(file, destFile);
-                                }
-                                else
-                                {
-                                    File.Move(file, destFile);
-                                }
-                            }
-
-
-                        }
-                    }
-                    catch (Exception e)
-                    {
-                        MessageBox.Show(e.ToString());
-                    }
-                }
-                else
-                {
-                    //if it doesnt exist create it then move files
-                    Directory.CreateDirectory(AppContext.BaseDirectory + "\\" + nameoffolder);
-                    try
-                    {
-                        foreach (var file in Directory.EnumerateFiles(AppContext.BaseDirectory + "\\Template Temps\\"))
-                        {
-                            string destFile = Path.Combine(AppContext.BaseDirectory + "\\" + nameoffolder, Path.GetFileName(file));
-                            //if (!File.Exists(destFile))
-                            File.Move(file, destFile);
-
-                        }
-                    }
-                    catch (Exception e)
-                    {
-                        MessageBox.Show(e.ToString());
-                    }
-                }
-
-
-
-
-                    //string[] filePaths = Directory.GetFiles(AppContext.BaseDirectory + "\\Template Temps\\");
-                    //foreach (string filePath in filePaths)
-                    //File.Delete(filePath);
-
-                    //template temp folder found
-                    //MessageBox.Show("Temp folder found");
-
-                }
-
-        }
-        private bool CheckForBadTemplateNames(string name)
-        {
-            if (Path.GetFileName(name).Contains("Reserves"))
-            {
-                return true;
-            }
-            if (Path.GetFileName(name).Contains("Schedule"))
-            {
-                return true;
-            }
-            if (Path.GetFileName(name).Contains("LGTC"))
-            {
-                return true;
-            }
-            return false;
-        }
         int datecounter;
+
         private bool CheckForTripDate(string date)
         {
-            if (date.Contains("/"))
+            if (date != null && date.Contains("/"))
             {
-                //Console.WriteLine("Trip date possibly found: " + date);
                 if (TemplateDateField == date)
-                {
                     datecounter++;
-                }
                 TemplateDateField = date;
                 return true;
             }
+
             return false;
         }
 
-
-        public void GetAvailibleTemplatesForDay(string dayname)
+        /// <summary>Shows replace confirmation, moves files into the weekday folder, then clears the temp folder.</summary>
+        public async Task<bool> TryRunReplaceTemplatesDialogAsync(IWin32Window owner)
         {
-                driverTripList = new Dictionary<string, IDictionary<string, string[]>>();
-                if (Directory.Exists(AppContext.BaseDirectory + "\\" + dayname + "\\"))
-                {
-                    //return a list of driver template names
-                    var filePaths = Directory.GetFiles(AppContext.BaseDirectory + "\\" + dayname, "*.csv");
-                    foreach (string filesname in filePaths)
-                    {
-                        AddTemplatesToList(filesname, dayname);
-                        //Console.WriteLine(filesname);
-                    }
-                }
-   
-                //Console.WriteLine(driverTripList.Count.ToString());
-            
-                
-            
+            if (string.IsNullOrWhiteSpace(TemplateNameOfDay))
+            {
+                MessageBox.Show(
+                    owner,
+                    "Could not determine which weekday folder to use.\n\n" +
+                    "Pick Monday–Sunday in the day list on the Templates tab, then run Add Template again.\n" +
+                    "If the day is already selected, the schedule may not contain enough repeating trip dates to double-check the weekday.",
+                    "Templates",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+                ClearTemplateWorkingFolder();
+                return false;
+            }
 
+            string dayDir = GetDayTemplateDirectory(TemplateNameOfDay);
+            string msg =
+                "Replace all saved template CSVs for " + TemplateNameOfDay + "?\n\n" +
+                "This will permanently delete every file in:\n" + dayDir + "\n\n" +
+                "…and replace them with the driver CSV files from Template Temps (one file per Excel tab).\n\n" +
+                "Other weekdays (Tuesday, Wednesday, …) are not changed.\n\n" +
+                "Continue?";
+
+            var dialogResult = MessageBox.Show(owner, msg, "Confirm template replace", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2);
+            if (dialogResult != DialogResult.Yes)
+            {
+                await AsyncUpdateLoadingScreen("Cancelling…");
+                ClearTemplateWorkingFolder();
+                return false;
+            }
+
+            await AsyncUpdateLoadingScreen("Saving templates…");
+            try
+            {
+                MoveTemplateFilesToDayFolder(TemplateNameOfDay);
+            }
+            catch (Exception ex)
+            {
+                ClearTemplateWorkingFolder();
+                MessageBox.Show(
+                    owner,
+                    "Could not finish moving template files.\n\n" + ex.Message +
+                    "\n\nClose Excel or any program that might have one of these CSV files open, then try again.",
+                    "Templates",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+                return false;
+            }
+
+            ClearTemplateWorkingFolderIncludingSkipped();
+            return true;
         }
-        private void AddTemplatesToList(string filename, string nameofday)
-        {
-            //IDictionary<string, string[]> drivertriprows = new Dictionary<string, string[]>();
-            //string path = AppContext.BaseDirectory + "\\" + nameofday + "\\" + filename;
-            if (!filename.Contains("Schedule") && !filename.Contains("Reserves") && !filename.Contains("LGTC"))
-            {
 
-            if (File.Exists(filename))
+        private void MoveTemplateFilesToDayFolder(string nameoffolder)
+        {
+            var tempDir = GetTemplateTempDirectory();
+            if (!Directory.Exists(tempDir))
+                throw new IOException("Working folder is missing: " + tempDir);
+
+            string dayDir = GetDayTemplateDirectory(nameoffolder);
+            if (string.IsNullOrEmpty(dayDir))
+                throw new InvalidOperationException("Invalid folder name.");
+
+            if (Directory.Exists(dayDir))
             {
-                //Console.WriteLine("File found for: " + drivername);
-                string actualfilename = Path.GetFileNameWithoutExtension(filename);
-                driverTripList.Add(actualfilename, GetTripListFromCSVFile(filename, false));
-                //Console.WriteLine("Template added: " + actualfilename);
+                foreach (var filePath in Directory.GetFiles(dayDir))
+                    File.Delete(filePath);
             }
             else
             {
-                //Console.WriteLine("No file found for: " + drivername);
+                Directory.CreateDirectory(dayDir);
             }
 
+            foreach (var file in Directory.EnumerateFiles(tempDir))
+            {
+                if (CheckForBadTemplateNames(file))
+                    continue;
+
+                string destFile = Path.Combine(dayDir, Path.GetFileName(file));
+                if (File.Exists(destFile))
+                    File.Delete(destFile);
+                File.Move(file, destFile);
             }
+        }
+
+        /// <summary>Removes leftover files in temp (e.g. skipped tab exports) after a successful move.</summary>
+        private void ClearTemplateWorkingFolderIncludingSkipped()
+        {
+            ClearTemplateWorkingFolder();
+        }
+
+        private bool CheckForBadTemplateNames(string name)
+        {
+            string fn = Path.GetFileName(name) ?? "";
+            if (fn.IndexOf("Reserves", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+            if (fn.IndexOf("Schedule", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+            if (fn.IndexOf("LGTC", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+            return false;
+        }
+
+        public void GetAvailibleTemplatesForDay(string dayname)
+        {
+            driverTripList = new Dictionary<string, IDictionary<string, string[]>>();
+            string dayDir = GetDayTemplateDirectory(dayname);
+            if (dayDir != null && Directory.Exists(dayDir))
+            {
+                var filePaths = Directory.GetFiles(dayDir, "*.csv");
+                foreach (string filesname in filePaths)
+                    AddTemplatesToList(filesname, dayname);
+            }
+        }
+
+        private void AddTemplatesToList(string filename, string nameofday)
+        {
+            if (filename.IndexOf("Schedule", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                filename.IndexOf("Reserves", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                filename.IndexOf("LGTC", StringComparison.OrdinalIgnoreCase) >= 0)
+                return;
+
+            if (!File.Exists(filename))
+                return;
+
+            string actualfilename = Path.GetFileNameWithoutExtension(filename);
+            if (driverTripList.ContainsKey(actualfilename))
+                return;
+
+            driverTripList.Add(actualfilename, GetTripListFromCSVFile(filename, false, recordLayoutDiagnostics: false));
         }
     }
 }

@@ -7,6 +7,7 @@ using System.Drawing;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Web.UI.WebControls;
 using System.Windows.Forms;
@@ -50,34 +51,49 @@ namespace Hiatme_Tool_Suite_v3
         public event ShowLoadingScreenHandler ShowLoadingScreen;
         public event HideLoadingScreenHandler HideLoadingScreen;
 
-        private async Task AsyncUpdateLoadingScreen(string txt)
+        private async Task AsyncUpdateLoadingScreen(string txt, CancellationToken cancellationToken = default)
         {
             UpdateLoadingScreen(txt);
-            await Task.Delay(2000);
+            cancellationToken.ThrowIfCancellationRequested();
+            await Task.Yield();
         }
         /// <param name="tripDate">Service date for Modivcare and WellRyde downloads (date component only).</param>
         public async Task InitializeEmployeeDler(Form origform, WellRydePortalSession wellRydePortalSession = null,
-            DateTime? tripDate = null)
+            DateTime? tripDate = null, CancellationToken cancellationToken = default)
         {
-            _wellRydePortalSession = wellRydePortalSession;
-            _tripDate = tripDate?.Date ?? DateTime.Today;
+            bool showedLoadingScreen = false;
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                _wellRydePortalSession = wellRydePortalSession;
+                _tripDate = tripDate?.Date ?? DateTime.Today;
 
-            tabPage.Controls.Clear();
-            ShowLoadingScreen();
-            await AsyncUpdateLoadingScreen("Checking connections");
-            mCTripDownloader = new MCTripDownloader();
+                tabPage.Controls.Clear();
+                cancellationToken.ThrowIfCancellationRequested();
+                ShowLoadingScreen();
+                showedLoadingScreen = true;
+                await AsyncUpdateLoadingScreen("Checking connections", cancellationToken);
+                mCTripDownloader = new MCTripDownloader();
 
-            await IntializeConnection();
-            await AsyncUpdateLoadingScreen("Downloading trips");
-            await AsyncUpdateLoadingScreen("Searching for drivers");
-            await BuildDriverList();
-            await AsyncUpdateLoadingScreen("Building tables");
-            GenerateRowsColumnsAndData();
-            BuildMainTables();
-            await AsyncUpdateLoadingScreen("Loading driver stats");
-            GenerateEmployeesStats();
-            await AsyncUpdateLoadingScreen("Finalizing process..");
-            HideLoadingScreen();
+                await AsyncUpdateLoadingScreen("Downloading trips…", cancellationToken);
+                await IntializeConnection();
+                cancellationToken.ThrowIfCancellationRequested();
+                await AsyncUpdateLoadingScreen("Building driver list…", cancellationToken);
+                await BuildDriverList();
+                cancellationToken.ThrowIfCancellationRequested();
+                await AsyncUpdateLoadingScreen("Building tables…", cancellationToken);
+                GenerateRowsColumnsAndData();
+                BuildMainTables();
+                cancellationToken.ThrowIfCancellationRequested();
+                await AsyncUpdateLoadingScreen("Loading driver stats…", cancellationToken);
+                GenerateEmployeesStats();
+                await AsyncUpdateLoadingScreen("Finalizing…", cancellationToken);
+            }
+            finally
+            {
+                if (showedLoadingScreen)
+                    HideLoadingScreen();
+            }
         }
         private async Task IntializeConnection()
         {
@@ -211,7 +227,7 @@ namespace Hiatme_Tool_Suite_v3
             Columns = maxhorizontalpanels;
             Rows = rows;
         }
-        private async void BuildMainTables()
+        private void BuildMainTables()
         {
             //tabPage.Controls.Clear();
             //ShowLoadingScreen();
