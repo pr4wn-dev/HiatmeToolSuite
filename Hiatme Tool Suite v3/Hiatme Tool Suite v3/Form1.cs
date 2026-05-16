@@ -79,6 +79,8 @@ namespace Hiatme_Tool_Suite_v3
         private Font _revampFontLargeR;
         private Font _revampFontRest;
         private bool _revampFontLoadAttempted;
+        private Font _loginWatermarkTopFont;
+        private Font _loginWatermarkBottomFont;
         /// <summary>Unmanaged copy of embedded font bytes; must stay allocated until <see cref="_revampFontCollection"/> is disposed (GDI+ requirement).</summary>
         private IntPtr _revampEmbeddedFontAlloc;
 
@@ -154,7 +156,146 @@ namespace Hiatme_Tool_Suite_v3
             {
                 // ignore
             }
+
+            // Title-bar version + visible auto-check on launch (user explicitly didn't want this silent).
+            // Errors here must never block the rest of Form1_Shown.
+            try { InstallUpdateStatusUi(); } catch { }
+            try { _ = RunStartupUpdateCheckAsync(); } catch { }
         }
+
+        // ---------- Updates ----------
+
+        private System.Windows.Forms.LinkLabel _updateStatusLink;
+        private bool _updateInProgress;
+
+        /// <summary>
+        /// Sets the title bar to include the current version and adds a clickable bottom-right "Check for updates"
+        /// link. Done in code (not the designer) so the existing layout isn't disturbed.
+        /// </summary>
+        private void InstallUpdateStatusUi()
+        {
+            try
+            {
+                Text = "Hiatme Tool Suite Blackout — " + UpdateClient.CurrentVersionDisplay;
+            }
+            catch { }
+
+            try
+            {
+                _updateStatusLink = new System.Windows.Forms.LinkLabel
+                {
+                    AutoSize = true,
+                    BackColor = System.Drawing.Color.Transparent,
+                    LinkColor = System.Drawing.Color.FromArgb(180, 220, 255),
+                    ActiveLinkColor = System.Drawing.Color.FromArgb(255, 255, 255),
+                    VisitedLinkColor = System.Drawing.Color.FromArgb(180, 220, 255),
+                    Font = new System.Drawing.Font("Segoe UI", 8.25f),
+                    Text = "Check for updates · " + UpdateClient.CurrentVersionDisplay,
+                    Cursor = System.Windows.Forms.Cursors.Hand,
+                };
+                _updateStatusLink.LinkClicked += async (s, e2) =>
+                {
+                    if (_updateInProgress) return;
+                    await RunManualUpdateCheckAsync();
+                };
+                Controls.Add(_updateStatusLink);
+                _updateStatusLink.BringToFront();
+                PositionUpdateStatusLink();
+                Resize += (_, __) => PositionUpdateStatusLink();
+            }
+            catch { }
+        }
+
+        private void PositionUpdateStatusLink()
+        {
+            if (_updateStatusLink == null || _updateStatusLink.IsDisposed) return;
+            int margin = 8;
+            int x = ClientSize.Width - _updateStatusLink.PreferredSize.Width - margin;
+            int y = ClientSize.Height - _updateStatusLink.PreferredSize.Height - margin;
+            _updateStatusLink.Location = new System.Drawing.Point(Math.Max(margin, x), Math.Max(margin, y));
+        }
+
+        private void SetUpdateLinkText(string text)
+        {
+            if (_updateStatusLink == null || _updateStatusLink.IsDisposed) return;
+            _updateStatusLink.Text = text;
+            PositionUpdateStatusLink();
+        }
+
+        /// <summary>Non-blocking auto-check on launch. Visible (not silent) status feedback in the bottom-right link.</summary>
+        private async Task RunStartupUpdateCheckAsync()
+        {
+            // Tiny delay so the form is fully painted before we touch the link / pop a dialog.
+            await Task.Delay(750);
+            await RunUpdateCheckCoreAsync(promptOnNoUpdate: false);
+        }
+
+        /// <summary>User clicked "Check for updates" — always show a confirmation MessageBox, even when up-to-date.</summary>
+        private async Task RunManualUpdateCheckAsync()
+        {
+            await RunUpdateCheckCoreAsync(promptOnNoUpdate: true);
+        }
+
+        private async Task RunUpdateCheckCoreAsync(bool promptOnNoUpdate)
+        {
+            if (_updateInProgress) return;
+            _updateInProgress = true;
+            try
+            {
+                SetUpdateLinkText("Checking for updates… · " + UpdateClient.CurrentVersionDisplay);
+                UpdateManifest manifest;
+                try
+                {
+                    manifest = await UpdateClient.FetchManifestAsync();
+                }
+                catch (Exception ex)
+                {
+                    SetUpdateLinkText("Update check failed · " + UpdateClient.CurrentVersionDisplay);
+                    if (promptOnNoUpdate)
+                        MessageBox.Show(this,
+                            "Could not reach the update server.\n\n" + ex.Message,
+                            "Check for updates", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                if (!UpdateClient.IsUpdateAvailable(manifest))
+                {
+                    SetUpdateLinkText("Up to date · " + UpdateClient.CurrentVersionDisplay);
+                    if (promptOnNoUpdate)
+                        MessageBox.Show(this,
+                            "You're already running the latest version (" + UpdateClient.CurrentVersionDisplay + ").",
+                            "Check for updates", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+
+                SetUpdateLinkText("Update available v" + manifest.Version + " · " + UpdateClient.CurrentVersionDisplay);
+
+                using (var dlg = new UpdatePrompt(manifest))
+                {
+                    var res = dlg.ShowDialog(this);
+                    if (res != DialogResult.OK || string.IsNullOrEmpty(dlg.DownloadedZipPath))
+                        return;
+
+                    if (!UpdateClient.LaunchUpdaterAndExit(dlg.DownloadedZipPath))
+                    {
+                        MessageBox.Show(this,
+                            "Could not start the updater (Update.exe missing from the install folder).\n" +
+                            "The downloaded file is here:\n" + dlg.DownloadedZipPath,
+                            "Update", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return;
+                    }
+
+                    // Updater is running; close the main app cleanly so it can replace files.
+                    Application.Exit();
+                }
+            }
+            finally
+            {
+                _updateInProgress = false;
+            }
+        }
+
+        // ---------- /Updates ----------
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
@@ -176,6 +317,7 @@ namespace Hiatme_Tool_Suite_v3
                     pictureBox1.Paint -= PictureBox1_PaintRevampTitle;
                     pictureBox1.SizeChanged -= PictureBox1_SizeChanged_RevampInvalidate;
                 }
+
             }
             catch
             {
@@ -183,6 +325,18 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             DisposeRevampLoginFonts();
+
+            try
+            {
+                _loginWatermarkTopFont?.Dispose();
+                _loginWatermarkTopFont = null;
+                _loginWatermarkBottomFont?.Dispose();
+                _loginWatermarkBottomFont = null;
+            }
+            catch
+            {
+                // ignore
+            }
 
             try
             {
@@ -377,32 +531,43 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
-        private void PictureBox1_PaintRevampTitle(object sender, PaintEventArgs e)
+        /// <summary>Same geometry as <see cref="PictureBox1_PaintRevampTitle"/>.</summary>
+        private static bool TryGetLoginRevampBitmapClientRectStatic(
+            PictureBox pb,
+            Font revampLargeR,
+            Font revampRest,
+            Graphics measureGraphics,
+            out float destX,
+            out float destY,
+            out int bw,
+            out int bh,
+            out float revampInkBottomY)
         {
+            destX = destY = 0f;
+            bw = bh = 0;
+            revampInkBottomY = 0f;
+            if (pb == null || revampLargeR == null || revampRest == null || measureGraphics == null)
+                return false;
+
+            const string rLetter = "R";
+            const string restLetters = "evamp";
+
             try
             {
-                if (_revampFontLargeR == null || _revampFontRest == null)
-                    return;
-
-                var g = e.Graphics;
-                var hintRestore = g.TextRenderingHint;
-
-                const string r = "R";
-                const string rest = "evamp";
                 using (var format = (StringFormat)StringFormat.GenericTypographic.Clone())
                 {
                     format.Alignment = StringAlignment.Near;
                     format.LineAlignment = StringAlignment.Near;
 
-                    var szR = g.MeasureString(r, _revampFontLargeR, int.MaxValue, format);
-                    var szRest = g.MeasureString(rest, _revampFontRest, int.MaxValue, format);
+                    var g = measureGraphics;
+                    var szR = g.MeasureString(rLetter, revampLargeR, int.MaxValue, format);
+                    var szRest = g.MeasureString(restLetters, revampRest, int.MaxValue, format);
                     const float gapBetweenLetters = 6f;
                     const float padRight = 48f;
                     const float outlineHaloRight = 3f;
                     const float insetBottom = 0f;
                     const float minRescueInset = 8f;
                     float totalW = szR.Width + gapBetweenLetters + szRest.Width;
-                    var pb = (PictureBox)sender;
                     float restYOffset = (szR.Height - szRest.Height) * 0.35f;
                     const float evampExtraDown = 20f;
                     float blockHeight = Math.Max(szR.Height, restYOffset + szRest.Height);
@@ -419,83 +584,339 @@ namespace Hiatme_Tool_Suite_v3
                     float blockH = Math.Max(szR.Height, relRestY + szRest.Height);
 
                     const float layerPad = 6f;
-                    int bw = Math.Max(1, (int)Math.Ceiling(totalW + layerPad * 2f));
-                    int bh = Math.Max(1, (int)Math.Ceiling(blockH + layerPad * 2f));
-
-                    void DrawMirroredROn(Graphics gb, float rx, float ry, Brush brush)
-                    {
-                        var st = gb.Save();
-                        try
-                        {
-                            gb.TranslateTransform(rx + szR.Width, ry);
-                            gb.ScaleTransform(-1f, 1f);
-                            gb.DrawString(r, _revampFontLargeR, brush, 0f, 0f, format);
-                        }
-                        finally
-                        {
-                            gb.Restore(st);
-                        }
-                    }
-
-                    // 32bpp layer: per-pixel alpha blends over the image; crisp hint on layer only.
-                    using (var layer = new Bitmap(bw, bh, PixelFormat.Format32bppArgb))
-                    {
-                        using (var gb = Graphics.FromImage(layer))
-                        {
-                            gb.Clear(Color.Transparent);
-                            gb.CompositingMode = CompositingMode.SourceOver;
-                            gb.CompositingQuality = CompositingQuality.HighQuality;
-                            gb.SmoothingMode = SmoothingMode.AntiAlias;
-                            gb.PixelOffsetMode = PixelOffsetMode.HighQuality;
-                            gb.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
-
-                            float lx = layerPad;
-                            float ly = layerPad;
-                            float lRestY = layerPad + relRestY;
-                            float lRestX = layerPad + szR.Width + gapBetweenLetters;
-
-                            using (var outline = new SolidBrush(Color.FromArgb(252, 0, 0, 0)))
-                            using (var fill = new SolidBrush(Color.FromArgb(232, 168, 12, 24)))
-                            {
-                                for (int dy = -2; dy <= 2; dy++)
-                                {
-                                    for (int dx = -2; dx <= 2; dx++)
-                                    {
-                                        if (dx == 0 && dy == 0)
-                                            continue;
-                                        DrawMirroredROn(gb, lx + dx, ly + dy, outline);
-                                        gb.DrawString(rest, _revampFontRest, outline, lRestX + dx, lRestY + dy, format);
-                                    }
-                                }
-
-                                DrawMirroredROn(gb, lx, ly, fill);
-                                gb.DrawString(rest, _revampFontRest, fill, lRestX, lRestY, format);
-                            }
-                        }
-
-                        float destX = x - layerPad;
-                        float destY = y - layerPad;
-                        var imgState = g.Save();
-                        try
-                        {
-                            g.InterpolationMode = InterpolationMode.NearestNeighbor;
-                            g.PixelOffsetMode = PixelOffsetMode.Half;
-                            g.CompositingMode = CompositingMode.SourceOver;
-                            g.CompositingQuality = CompositingQuality.HighQuality;
-                            g.DrawImage(layer, destX, destY);
-                        }
-                        finally
-                        {
-                            g.Restore(imgState);
-                        }
-                    }
-
-                    g.TextRenderingHint = hintRestore;
+                    bw = Math.Max(1, (int)Math.Ceiling(totalW + layerPad * 2f));
+                    bh = Math.Max(1, (int)Math.Ceiling(blockH + layerPad * 2f));
+                    destX = x - layerPad;
+                    destY = y - layerPad;
+                    // Watermark vertical anchor: client Y grows downward. Do NOT use destY+bh — the bitmap is taller than the red ink
+                    // (transparent padding below glyphs). blockH also includes evampExtraDown layout slack; trim so inkBottom sits near real paint.
+                    revampInkBottomY = destY + layerPad + blockH - evampExtraDown * 0.55f;
+                    return true;
                 }
             }
             catch
             {
-                // ignore paint failures
+                return false;
+            }
+        }
+
+        private const float LoginWatermarkShellTopPt = 21f;
+        private const float LoginWatermarkShellBottomPt = 13f;
+
+        private void EnsureWindowsStyleLoginWatermarkFonts()
+        {
+            if (_loginWatermarkTopFont != null && Math.Abs(_loginWatermarkTopFont.SizeInPoints - LoginWatermarkShellTopPt) > 0.05f)
+            {
+                _loginWatermarkTopFont.Dispose();
+                _loginWatermarkTopFont = null;
+            }
+
+            if (_loginWatermarkBottomFont != null && Math.Abs(_loginWatermarkBottomFont.SizeInPoints - LoginWatermarkShellBottomPt) > 0.05f)
+            {
+                _loginWatermarkBottomFont.Dispose();
+                _loginWatermarkBottomFont = null;
+            }
+
+            if (_loginWatermarkTopFont != null)
+                return;
+
+            _loginWatermarkTopFont = TryCreateWatermarkFont(new[] { "Segoe UI Semilight", "Segoe UI" }, LoginWatermarkShellTopPt);
+            _loginWatermarkBottomFont = TryCreateWatermarkFont(new[] { "Segoe UI Light", "Segoe UI" }, LoginWatermarkShellBottomPt);
+        }
+
+        private static Font TryCreateWatermarkFont(string[] familyNamesInOrder, float sizeInPoints)
+        {
+            foreach (string name in familyNamesInOrder)
+            {
+                try
+                {
+                    return new Font(name, sizeInPoints, FontStyle.Regular, GraphicsUnit.Point);
+                }
+                catch (ArgumentException)
+                {
+                    // family not installed
+                }
+            }
+
+            return new Font(SystemFonts.DefaultFont.FontFamily, sizeInPoints, FontStyle.Regular, GraphicsUnit.Point);
+        }
+
+        /// <summary>Shell-style text: soft light fill + subtle shadow (no “label” backplate).</summary>
+        private static void DrawWindowsShellStyleWatermarkLine(
+            Graphics g,
+            string text,
+            Font font,
+            float x,
+            float y,
+            StringFormat format)
+        {
+            if (string.IsNullOrEmpty(text) || font == null)
+                return;
+
+            const int wmFillAlpha = 128; // ~50% opacity (0–255)
+            const int wmShadowAlpha = 44;
+
+            using (var shadow = new SolidBrush(Color.FromArgb(wmShadowAlpha, 0, 0, 0)))
+            {
+                const float d = 1f;
+                g.DrawString(text, font, shadow, x - d, y, format);
+                g.DrawString(text, font, shadow, x + d, y, format);
+                g.DrawString(text, font, shadow, x, y - d, format);
+                g.DrawString(text, font, shadow, x, y + d, format);
+            }
+
+            using (var fill = new SolidBrush(Color.FromArgb(wmFillAlpha, 236, 236, 236)))
+                g.DrawString(text, font, fill, x, y, format);
+        }
+
+        /// <summary>Drawn in <see cref="PictureBox1_PaintRevampTitle"/> so it is not covered by the PictureBox image or MaterialSkin quirks.</summary>
+        private void DrawLoginWatermarkOnPictureBox(Graphics g, PictureBox pb)
+        {
+            if (g == null || pb == null)
+                return;
+
+            EnsureWindowsStyleLoginWatermarkFonts();
+            Font fontTop = _loginWatermarkTopFont;
+            Font fontBottom = _loginWatermarkBottomFont;
+            if (fontTop == null || fontBottom == null)
+                return;
+
+            try
+            {
+                g.ResetClip();
+            }
+            catch
+            {
+                // ignore
+            }
+
+            const string line1 = "AI Rework";
+            const string line2 = "Hiatme Tool Suite v3 Blackout";
+
+            float destX = 0f, destY = 0f;
+            int bw = 0, bh = 0;
+            float revampInkBottomY = 0f;
+            bool haveRevamp = _revampFontLargeR != null
+                && _revampFontRest != null
+                && TryGetLoginRevampBitmapClientRectStatic(pb, _revampFontLargeR, _revampFontRest, g, out destX, out destY, out bw, out bh, out revampInkBottomY);
+
+            const float padX = 2f;
+            const float lineGapF = 1f;
+            const int marginBottom = 6;
+            const int marginTopMin = 4;
+            const int marginSide = 8;
+            // gapFromRevamp: added to yTop; positive values move the watermark DOWN. Usually 0.
+            const int gapFromRevamp = 0;
+            // Tuning: subtract from revampInkBottomY then Floor — smaller yTop = higher on screen. Ceil() pushed the block down by mistake once.
+            // If the gap under REVAMP is wrong, adjust revampInkBottomY (TryGetLoginRevampBitmapClientRectStatic) and/or this pull constant.
+            const float watermarkPullUpFromInkBottomPx = 96f;
+
+            SizeF sz1;
+            SizeF sz2;
+            using (var scratch = new Bitmap(1, 1))
+            using (var gMeas = Graphics.FromImage(scratch))
+            using (var format = (StringFormat)StringFormat.GenericTypographic.Clone())
+            {
+                format.Alignment = StringAlignment.Near;
+                format.LineAlignment = StringAlignment.Near;
+                gMeas.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
+                sz1 = gMeas.MeasureString(line1, fontTop, int.MaxValue, format);
+                sz2 = gMeas.MeasureString(line2, fontBottom, int.MaxValue, format);
+            }
+
+            float textBlockW = Math.Max(sz1.Width, sz2.Width) + padX * 2f;
+            textBlockW = Math.Max(textBlockW, 8f);
+            float h1 = sz1.Height;
+            float h2 = sz2.Height;
+            float blockH = h1 + lineGapF + h2;
+
+            int bottomLimit = pb.ClientSize.Height - marginBottom;
+
+            float rightX;
+            if (haveRevamp)
+            {
+                rightX = (float)Math.Round(destX + bw);
+                rightX = Math.Min(pb.ClientSize.Width - marginSide, rightX);
+            }
+            else
+            {
+                rightX = pb.ClientSize.Width - marginSide;
+            }
+
+            float xCol = rightX - textBlockW;
+            if (xCol < marginSide)
+                xCol = marginSide;
+
+            float yTop;
+            if (haveRevamp)
+            {
+                // Smaller Y = closer to top of control = closer to REVAMP. Use Floor so we don't ceil upward.
+                float anchor = revampInkBottomY - watermarkPullUpFromInkBottomPx + gapFromRevamp;
+                yTop = Math.Max(marginTopMin, (float)Math.Floor(anchor));
+                if (yTop >= pb.ClientSize.Height)
+                    yTop = Math.Max(marginTopMin, bottomLimit - blockH);
+            }
+            else
+            {
+                float maxY = bottomLimit - blockH;
+                yTop = Math.Max(marginTopMin, Math.Min(pb.ClientSize.Height - marginBottom - blockH, maxY));
+            }
+
+            float xText = xCol + padX;
+            float y1 = yTop;
+            float y2 = yTop + h1 + lineGapF;
+
+            var state = g.Save();
+            try
+            {
+                g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+
+                using (var format = (StringFormat)StringFormat.GenericTypographic.Clone())
+                {
+                    format.Alignment = StringAlignment.Near;
+                    format.LineAlignment = StringAlignment.Near;
+                    DrawWindowsShellStyleWatermarkLine(g, line1, fontTop, xText, y1, format);
+                    DrawWindowsShellStyleWatermarkLine(g, line2, fontBottom, xText, y2, format);
+                }
+            }
+            finally
+            {
+                g.Restore(state);
+            }
+        }
+
+        private void PictureBox1_PaintRevampTitle(object sender, PaintEventArgs e)
+        {
+            var pb = sender as PictureBox;
+            if (pb == null)
+                return;
+
+            try
+            {
+                if (_revampFontLargeR != null && _revampFontRest != null)
+                {
+                    var g = e.Graphics;
+                    var hintRestore = g.TextRenderingHint;
+
+                    const string r = "R";
+                    const string rest = "evamp";
+                    using (var format = (StringFormat)StringFormat.GenericTypographic.Clone())
+                    {
+                        format.Alignment = StringAlignment.Near;
+                        format.LineAlignment = StringAlignment.Near;
+
+                        var szR = g.MeasureString(r, _revampFontLargeR, int.MaxValue, format);
+                        var szRest = g.MeasureString(rest, _revampFontRest, int.MaxValue, format);
+                        const float gapBetweenLetters = 6f;
+                        const float padRight = 48f;
+                        const float outlineHaloRight = 3f;
+                        const float insetBottom = 0f;
+                        const float minRescueInset = 8f;
+                        float totalW = szR.Width + gapBetweenLetters + szRest.Width;
+                        float restYOffset = (szR.Height - szRest.Height) * 0.35f;
+                        const float evampExtraDown = 20f;
+                        float blockHeight = Math.Max(szR.Height, restYOffset + szRest.Height);
+                        float rightEdge = pb.ClientSize.Width - padRight - outlineHaloRight;
+                        float bottomEdge = pb.ClientSize.Height - insetBottom;
+                        float x = rightEdge - totalW;
+                        float y = bottomEdge - blockHeight;
+                        if (x < minRescueInset)
+                            x = minRescueInset;
+                        if (y < minRescueInset)
+                            y = minRescueInset;
+                        float restY = y + restYOffset + evampExtraDown;
+                        float relRestY = restY - y;
+                        float blockH = Math.Max(szR.Height, relRestY + szRest.Height);
+
+                        const float layerPad = 6f;
+                        int bw = Math.Max(1, (int)Math.Ceiling(totalW + layerPad * 2f));
+                        int bh = Math.Max(1, (int)Math.Ceiling(blockH + layerPad * 2f));
+
+                        void DrawMirroredROn(Graphics gb, float rx, float ry, Brush brush)
+                        {
+                            var st = gb.Save();
+                            try
+                            {
+                                gb.TranslateTransform(rx + szR.Width, ry);
+                                gb.ScaleTransform(-1f, 1f);
+                                gb.DrawString(r, _revampFontLargeR, brush, 0f, 0f, format);
+                            }
+                            finally
+                            {
+                                gb.Restore(st);
+                            }
+                        }
+
+                        using (var layer = new Bitmap(bw, bh, PixelFormat.Format32bppArgb))
+                        {
+                            using (var gb = Graphics.FromImage(layer))
+                            {
+                                gb.Clear(Color.Transparent);
+                                gb.CompositingMode = CompositingMode.SourceOver;
+                                gb.CompositingQuality = CompositingQuality.HighQuality;
+                                gb.SmoothingMode = SmoothingMode.AntiAlias;
+                                gb.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                                gb.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
+
+                                float lx = layerPad;
+                                float ly = layerPad;
+                                float lRestY = layerPad + relRestY;
+                                float lRestX = layerPad + szR.Width + gapBetweenLetters;
+
+                                using (var outline = new SolidBrush(Color.FromArgb(252, 0, 0, 0)))
+                                using (var fill = new SolidBrush(Color.FromArgb(232, 168, 12, 24)))
+                                {
+                                    for (int dy = -2; dy <= 2; dy++)
+                                    {
+                                        for (int dx = -2; dx <= 2; dx++)
+                                        {
+                                            if (dx == 0 && dy == 0)
+                                                continue;
+                                            DrawMirroredROn(gb, lx + dx, ly + dy, outline);
+                                            gb.DrawString(rest, _revampFontRest, outline, lRestX + dx, lRestY + dy, format);
+                                        }
+                                    }
+
+                                    DrawMirroredROn(gb, lx, ly, fill);
+                                    gb.DrawString(rest, _revampFontRest, fill, lRestX, lRestY, format);
+                                }
+                            }
+
+                            float destX = x - layerPad;
+                            float destY = y - layerPad;
+                            var imgState = g.Save();
+                            try
+                            {
+                                g.InterpolationMode = InterpolationMode.NearestNeighbor;
+                                g.PixelOffsetMode = PixelOffsetMode.Half;
+                                g.CompositingMode = CompositingMode.SourceOver;
+                                g.CompositingQuality = CompositingQuality.HighQuality;
+                                g.DrawImage(layer, destX, destY);
+                            }
+                            finally
+                            {
+                                g.Restore(imgState);
+                            }
+                        }
+
+                        g.TextRenderingHint = hintRestore;
+                    }
+                }
+            }
+            catch
+            {
+                // ignore revamp paint failures
+            }
+
+            try
+            {
+                DrawLoginWatermarkOnPictureBox(e.Graphics, pb);
+            }
+            catch
+            {
+                // ignore watermark paint failures
             }
         }
 
@@ -1124,6 +1545,19 @@ namespace Hiatme_Tool_Suite_v3
         {
             mcLoginHandler = new MCLoginHandler();
             mcLoginHandler.PropertyChanged += UpdateMCConnectionStatus;
+            // Seed cached creds from settings so EnsureModivcareSessionAsync/ReconnectAsync can self-heal even
+            // on a cold start where the user hasn't manually signed in yet this session.
+            try
+            {
+                var savedUser = Properties.Settings.Default.mcUserName ?? "";
+                var savedPass = Properties.Settings.Default.mcUserPass ?? "";
+                if (!string.IsNullOrWhiteSpace(savedUser) && !string.IsNullOrEmpty(savedPass))
+                    mcLoginHandler.PrimeCachedCredentials(savedUser.Trim(), savedPass);
+            }
+            catch
+            {
+                // Settings may be unavailable in odd hosting scenarios; swallow — the manual login path still works.
+            }
         }
         private async Task MCLogin()
         {
@@ -1157,11 +1591,71 @@ namespace Hiatme_Tool_Suite_v3
                 SaveMCCredentials(username, password);
         }
 
-        /// <summary>If not connected, signs in using Modivcare tab fields or saved settings, then returns whether Modivcare is ready. Caller continues the same action after this returns true.</summary>
+        /// <summary>
+        /// Called by MC entry points when an inner method threw <see cref="ModivcareSessionExpiredException"/>
+        /// mid-operation. Forces a synchronous reconnect via cached creds so the user's retry click is instant,
+        /// and surfaces a friendly message. Safe to call from any handler — never throws.
+        /// </summary>
+        private async Task HandleModivcareSessionExpiredAsync()
+        {
+            try { await mcLoginHandler.ResetConnection(); }
+            catch { /* the probe in EnsureModivcareSessionAsync will retry on the next click */ }
+            try { loadinggifhandler_hidescreen(); } catch { }
+            MessageBox.Show(
+                "Your Modivcare session expired during this operation.\n\n" +
+                "We've reconnected for you — please try again.",
+                "Modivcare session expired",
+                MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        /// <summary>
+        /// If not connected, signs in using Modivcare tab fields or saved settings, then returns whether Modivcare is ready.
+        /// When already <see cref="MCLoginHandler.Connected"/>, also probes the server cookie so a 1–2 hour idle that
+        /// silently expired the session is caught here rather than failing the user's first click. Caller continues
+        /// the same action after this returns true.
+        /// </summary>
         private async Task<bool> EnsureModivcareSessionAsync()
         {
             if (mcLoginHandler != null && mcLoginHandler.Connected)
-                return true;
+            {
+                await SetLoadingGifLabel("Checking connections");
+                bool alive;
+                try
+                {
+                    alive = await mcLoginHandler.ProbeSessionAsync();
+                }
+                catch
+                {
+                    alive = false;
+                }
+                if (alive)
+                    return true;
+
+                // Server-side session is dead. Suppress the PropertyChanged auto-relogin while we re-auth in-band
+                // so it doesn't double-fire MCLogin() (which would run on screen creds and may MessageBox).
+                mcLoginHandler.PropertyChanged -= UpdateMCConnectionStatus;
+                bool reconnected = false;
+                try
+                {
+                    await SetLoadingGifLabel("Reconnecting to Modivcare");
+                    reconnected = await mcLoginHandler.ReconnectAsync();
+                }
+                catch
+                {
+                    reconnected = false;
+                }
+                finally
+                {
+                    mcLoginHandler.PropertyChanged += UpdateMCConnectionStatus;
+                }
+
+                if (reconnected && mcLoginHandler.Connected)
+                {
+                    DisableMCLogin();
+                    return true;
+                }
+                // Fall through to credential-based login below (handles first-run / no cached creds).
+            }
 
             string username;
             string password;
@@ -1236,6 +1730,9 @@ namespace Hiatme_Tool_Suite_v3
                     Properties.Settings.Default.mcUserName = username;
                     Properties.Settings.Default.mcUserPass = password;
                     Properties.Settings.Default.Save();
+                    // Keep the in-memory reconnect cache aligned with what we just persisted so a later
+                    // password rotation here also fixes auto-reconnect, even before the user restarts.
+                    mcLoginHandler?.PrimeCachedCredentials(username, password);
                 }
             }
             catch
@@ -1317,7 +1814,15 @@ namespace Hiatme_Tool_Suite_v3
                 return;
             }
             tcbatchelinkslv.Items.Clear();
-            await mcTimeCorrectionTool.GetBatchLinks(mcLoginHandler, true);
+            try
+            {
+                await mcTimeCorrectionTool.GetBatchLinks(mcLoginHandler, true);
+            }
+            catch (ModivcareSessionExpiredException)
+            {
+                await HandleModivcareSessionExpiredAsync();
+                return;
+            }
             await SetLoadingGifLabel("Searching for batches");
             try
             {
@@ -1373,20 +1878,28 @@ namespace Hiatme_Tool_Suite_v3
             WellRydePortalSession wrForBatch = null;
             if (await EnsureWellRydePortalSessionForBillingAsync())
                 wrForBatch = _wellRydeSession;
-            await mcTimeCorrectionTool.GetBatchLinks(mcLoginHandler, true);
-
-            foreach (MCBatchLink link in mcTimeCorrectionTool.mcBatchRecords.MCBatchLinks)
+            try
             {
-                if (link.BatchID == tcbatchelinkslv.SelectedItems[0].Text)
+                await mcTimeCorrectionTool.GetBatchLinks(mcLoginHandler, true);
+
+                foreach (MCBatchLink link in mcTimeCorrectionTool.mcBatchRecords.MCBatchLinks)
                 {
-                    mcTimeCorrectionTool.mcBatchRecords.ActiveBatchLink = link.BatchLinkToken;
-                    batchlink = link;
-                    await mcTimeCorrectionTool.InitializeCorrections(mcLoginHandler, link, wrForBatch);
-                    await SetLoadingGifLabel("Initializing corrections");
-                    await SetLoadingGifLabel("Calculating accuracies");
-                    await LoadBtnAsync(batchlink);
-                    await SetLoadingGifLabel("Finalizing process..");
+                    if (link.BatchID == tcbatchelinkslv.SelectedItems[0].Text)
+                    {
+                        mcTimeCorrectionTool.mcBatchRecords.ActiveBatchLink = link.BatchLinkToken;
+                        batchlink = link;
+                        await mcTimeCorrectionTool.InitializeCorrections(mcLoginHandler, link, wrForBatch);
+                        await SetLoadingGifLabel("Initializing corrections");
+                        await SetLoadingGifLabel("Calculating accuracies");
+                        await LoadBtnAsync(batchlink);
+                        await SetLoadingGifLabel("Finalizing process..");
+                    }
                 }
+            }
+            catch (ModivcareSessionExpiredException)
+            {
+                await HandleModivcareSessionExpiredAsync();
+                return;
             }
             loadinggifhandler_hidescreen();
         }
@@ -1419,8 +1932,20 @@ namespace Hiatme_Tool_Suite_v3
                 loadinggifhandler_hidescreen();
                 return;
             }
-            await mcTimeCorrectionTool.GetBatchLinks(mcLoginHandler, false);
-            await LoadBtnAsync(batchlink);
+            try
+            {
+                await mcTimeCorrectionTool.GetBatchLinks(mcLoginHandler, false);
+                await LoadBtnAsync(batchlink);
+            }
+            catch (ModivcareSessionExpiredException)
+            {
+                timer1.Enabled = false;
+                tcfindbatchesbtn.Enabled = true;
+                tcloadbtn.Enabled = true;
+                tcexebtn.Enabled = true;
+                await HandleModivcareSessionExpiredAsync();
+                return;
+            }
             await SetLoadingGifLabel("Preparing to correct trips");
             int fixabletripscounter = 0;
             int currenttripcounter = 0;
@@ -1431,7 +1956,19 @@ namespace Hiatme_Tool_Suite_v3
                     fixabletripscounter += 1;
                 }
             }
-            await mcTimeCorrectionTool.GetBatchPage(mcLoginHandler, batchlink.BatchLinkToken, false);
+            try
+            {
+                await mcTimeCorrectionTool.GetBatchPage(mcLoginHandler, batchlink.BatchLinkToken, false);
+            }
+            catch (ModivcareSessionExpiredException)
+            {
+                timer1.Enabled = false;
+                tcfindbatchesbtn.Enabled = true;
+                tcloadbtn.Enabled = true;
+                tcexebtn.Enabled = true;
+                await HandleModivcareSessionExpiredAsync();
+                return;
+            }
 
             loadinggifhandler_hidescreen();
 
@@ -1439,6 +1976,9 @@ namespace Hiatme_Tool_Suite_v3
 
             StartTimer();
 
+            // If a trip-loop iteration loses the session, we break out and surface ONE friendly message instead
+            // of marking every subsequent trip Failed on a dead cookie.
+            bool sessionLostMidLoop = false;
             foreach (MCBatchTripRecord mctrprcd in mcTimeCorrectionTool.mcBatchRecords.MCBatchTrips)
             {
                 int numofalerts = 0;
@@ -1492,17 +2032,26 @@ namespace Hiatme_Tool_Suite_v3
                             }
                         }
                     }
+                    catch (ModivcareSessionExpiredException)
+                    {
+                        mctrprcd.Status = "Failed";
+                        sessionLostMidLoop = true;
+                    }
                     catch 
                     {
                         mctrprcd.Status = "Failed";
                     }
                 }
+                if (sessionLostMidLoop)
+                    break;
             }
             timer1.Stop();
             tcfindbatchesbtn.Enabled = true;
             tcloadbtn.Enabled = true;
             tcexebtn.Enabled = true;
             tcorrectstatuslbl.Text = "Status: Corrections have finished " + currenttripcounter + " of " + fixabletripscounter + " trips.";
+            if (sessionLostMidLoop)
+                await HandleModivcareSessionExpiredAsync();
         }
         TimeSpan ts = new TimeSpan();
         private void StartTimer()
@@ -2535,6 +3084,8 @@ namespace Hiatme_Tool_Suite_v3
             try
             {
                 LoadingGifCard.Visible = false;
+                if (hiatmeTabControl?.SelectedTab == tabPage1)
+                    pictureBox1?.Invalidate();
             }
             catch (ObjectDisposedException)
             {

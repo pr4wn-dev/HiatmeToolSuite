@@ -10,6 +10,11 @@
 [Rr]elease/
 [Bb]in/
 [Oo]bj/
+
+# Release tooling lives under "release/" — explicitly whitelist it back in.
+# The big .zip payloads still stay out (they belong in the website repo, not here).
+!Hiatme Tool Suite v3/release/
+Hiatme Tool Suite v3/release/*.zip
 x64/
 x86/
 [Aa][Rr][Mm]/

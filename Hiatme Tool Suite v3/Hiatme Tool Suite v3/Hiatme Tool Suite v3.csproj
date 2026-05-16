@@ -178,6 +178,13 @@
     <Compile Include="MCTripDownloader.cs" />
     <Compile Include="MCDriversAndVehicles.cs" />
     <Compile Include="MCLoginHandler.cs" />
+    <Compile Include="UpdateClient.cs" />
+    <Compile Include="UpdatePrompt.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="UpdatePrompt.Designer.cs">
+      <DependentUpon>UpdatePrompt.cs</DependentUpon>
+    </Compile>
     <Compile Include="MCTimeCorrection.cs" />
     <Compile Include="MCDownloadedTrip.cs" />
     <Compile Include="MCBatchTripRecord.cs" />
@@ -276,7 +283,7 @@
   <ItemGroup>
     <Content Include="Doll-icon_35209.ico" />
     <None Include="Resources\065391_drumrollwav-88344.mp3" />
-    <Content Include="Resources\my-precious.mp3">
+    <Content Include="Resources\must-have-precious.mp3">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <None Include="Resources\MUSCPerc_Drum roll 3 m %28ID 2407%29_BSB.wav" />

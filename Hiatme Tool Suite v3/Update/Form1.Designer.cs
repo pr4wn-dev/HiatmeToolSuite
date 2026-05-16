@@ -42,9 +42,10 @@
             this._startupHintLabel.Padding = new System.Windows.Forms.Padding(28);
             this._startupHintLabel.Size = new System.Drawing.Size(800, 450);
             this._startupHintLabel.TabIndex = 0;
-            this._startupHintLabel.Text = "You are running the small \"Update\" program (Update.exe).\r\n\r\nThe full tool suite " +
-    "is the other project: Hiatme Tool Suite v3.\r\n\r\nIn Solution Explorer, right-click " +
-    "the project \"Hiatme Tool Suite v3\" → Set as Startup Project, then press F5.";
+            this._startupHintLabel.Text = "Hiatme Tool Suite — Updater (Update.exe)\r\n\r\n" +
+    "This program is normally launched automatically by the main app when a new version is downloaded.\r\n\r\n" +
+    "If you ran it by hand, open \"Hiatme Tool Suite v3\" and use the\r\n" +
+    "\"Check for updates\" link in the bottom-right of the main window instead.";
             this._startupHintLabel.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
             // 
             // Form1
