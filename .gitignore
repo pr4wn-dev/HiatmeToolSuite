@@ -15,6 +15,9 @@
 # The big .zip payloads still stay out (they belong in the website repo, not here).
 !Hiatme Tool Suite v3/release/
 Hiatme Tool Suite v3/release/*.zip
+
+# Snapshot folders used to test the updater pipeline end-to-end.
+__test_run_*/
 x64/
 x86/
 [Aa][Rr][Mm]/
