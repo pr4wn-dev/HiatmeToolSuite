@@ -12,14 +12,9 @@ namespace Hiatme_Tool_Suite_v3
 {
     internal static class Program
     {
-        // File-time window: exactly 0:01 through 0:07 (six seconds of audio).
-        private const double MyPreciousStartSeconds = 1.0;
-        private const double MyPreciousEndSeconds = 7.0;
-        private static readonly TimeSpan MyPreciousStart = TimeSpan.FromSeconds(MyPreciousStartSeconds);
-        private static readonly TimeSpan MyPreciousEnd = TimeSpan.FromSeconds(MyPreciousEndSeconds);
-        private static readonly TimeSpan MyPreciousSlice = TimeSpan.FromSeconds(MyPreciousEndSeconds - MyPreciousStartSeconds);
+        private const string StartupAudioFileName = "must-have-precious.mp3";
 
-        /// <summary>Plays <c>Resources\my-precious.mp3</c> from 0:01 to 0:07 once (NAudio + Media Foundation).</summary>
+        /// <summary>Plays <c>Resources\must-have-precious.mp3</c> in full once (NAudio + Media Foundation).</summary>
         internal static void TryPlayStartupMyPreciousOnce()
         {
             try
@@ -28,14 +23,14 @@ namespace Hiatme_Tool_Suite_v3
                 if (string.IsNullOrEmpty(baseDir))
                     return;
 
-                string path = Path.Combine(baseDir, "Resources", "my-precious.mp3");
+                string path = Path.Combine(baseDir, "Resources", StartupAudioFileName);
                 if (!File.Exists(path))
-                    path = Path.Combine(baseDir, "my-precious.mp3");
+                    path = Path.Combine(baseDir, StartupAudioFileName);
                 if (!File.Exists(path))
                     return;
 
                 string fullPath = Path.GetFullPath(path);
-                var playThread = new Thread(() => PlayMyPreciousClipNaudio(fullPath))
+                var playThread = new Thread(() => PlayStartupMp3FullNaudio(fullPath))
                 {
                     IsBackground = true,
                     Name = "StartupMyPreciousAudio"
@@ -49,7 +44,7 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
-        private static void PlayMyPreciousClipNaudio(string path)
+        private static void PlayStartupMp3FullNaudio(string path)
         {
             try
             {
@@ -57,27 +52,9 @@ namespace Hiatme_Tool_Suite_v3
                 using (var output = new WasapiOut(AudioClientShareMode.Shared, 150))
                 {
                     output.Init(reader);
-                    reader.CurrentTime = MyPreciousStart;
                     output.Play();
-                    var sw = Stopwatch.StartNew();
-                    // Stop when decoder position reaches 7s (correct for 0:01–0:07). Stopwatch is only a guard against a stuck clock.
-                    var safetyCap = MyPreciousSlice + TimeSpan.FromMilliseconds(600);
                     while (output.PlaybackState == PlaybackState.Playing)
-                    {
-                        if (reader.CurrentTime >= MyPreciousEnd)
-                        {
-                            output.Stop();
-                            break;
-                        }
-
-                        if (sw.Elapsed >= safetyCap)
-                        {
-                            output.Stop();
-                            break;
-                        }
-
-                        Thread.Sleep(15);
-                    }
+                        Thread.Sleep(25);
                 }
             }
             catch (Exception ex)
