@@ -22,6 +22,8 @@ namespace Hiatme_Tool_Suite_v3
 
         int calsearchfails = 0;
         bool previousdayschecked = false;
+        // Set to true by inner methods if a deeper retry has already happened in this call chain so we don't loop forever.
+        bool _downloadTripRetryUsed = false;
         public async Task <List<MCDownloadedTrip>> DownloadTripRecords(DateTime dtstring, MCLoginHandler mcloginhandle)
         {
             MCTripList = new List<MCDownloadedTrip>();
@@ -42,13 +44,24 @@ namespace Hiatme_Tool_Suite_v3
             {
                 mcloginhandler.GrabViewStateGeneratorToken(response);
                 mcloginhandler.GrabViewStateToken(response);
-                string responseUri = res.RequestMessage.RequestUri.ToString();
-                if (responseUri.Contains("Login.aspx"))
+                if (MCLoginHandler.IsAuthRedirect(res))
                 {
+                    if (_downloadTripRetryUsed)
+                        return MCTripList; // already retried once; give up gracefully so caller can show a normal "no trips" state.
+                    _downloadTripRetryUsed = true;
                     await mcloginhandler.ResetConnection();
-                    await DownloadTripRecords(dtstring, mcloginhandle);
+                    return await DownloadTripRecords(dtstring, mcloginhandle);
                 }
-                    await CheckIfDateIsInCurrentPage(response);
+                await CheckIfDateIsInCurrentPage(response);
+            }
+            catch (ModivcareSessionExpiredException)
+            {
+                // Session died somewhere deeper in the flow. Reconnect and restart the whole op from scratch (once).
+                if (_downloadTripRetryUsed)
+                    return MCTripList;
+                _downloadTripRetryUsed = true;
+                await mcloginhandler.ResetConnection();
+                return await DownloadTripRecords(dtstring, mcloginhandle);
             }
             catch
             {
@@ -56,7 +69,7 @@ namespace Hiatme_Tool_Suite_v3
                 //mcloginhandler.Connected = false;
                 //return null;
             }
-                return MCTripList;
+            return MCTripList;
         }
         public async Task CheckIfDateIsInCurrentPage(string webpagedata)
         {
@@ -141,20 +154,8 @@ namespace Hiatme_Tool_Suite_v3
             HttpResponseMessage res = await mcloginhandler.Client.PostAsync("https://transportationco.logisticare.com/TripDownload.aspx", formContent);
             var response = await res.Content.ReadAsStringAsync();
 
-            try
-            {
-                string responseUri = res.RequestMessage.RequestUri.ToString();
-                //Console.WriteLine("Location: " + responseUri);
-                if (responseUri.Contains("login.aspx"))
-                {
-                    mcloginhandler.Connected = false;
-                }
-            }
-            catch
-            {
-                //Console.WriteLine("There was a problem retrieving location.");
-                mcloginhandler.Connected = false;
-            }
+            if (MCLoginHandler.IsAuthRedirect(res))
+                throw new ModivcareSessionExpiredException(); // top-level DownloadTripRecords will reconnect + retry the whole op.
 
             await CheckIfDateIsInCurrentPage(response);
         }
@@ -178,20 +179,8 @@ namespace Hiatme_Tool_Suite_v3
             HttpResponseMessage res = await mcloginhandler.Client.PostAsync("https://transportationco.logisticare.com/TripDownload.aspx", formContent);
             var response = await res.Content.ReadAsStringAsync();
 
-            try
-            {
-                string responseUri = res.RequestMessage.RequestUri.ToString();
-                //Console.WriteLine("Location: " + responseUri);
-                if (responseUri.Contains("login.aspx"))
-                {
-                    mcloginhandler.Connected = false;
-                }
-            }
-            catch
-            {
-                //Console.WriteLine("There was a problem retrieving location.");
-                mcloginhandler.Connected = false;
-            }
+            if (MCLoginHandler.IsAuthRedirect(res))
+                throw new ModivcareSessionExpiredException();
 
             await CheckIfDateIsInCurrentPage(response);
         }
@@ -249,20 +238,9 @@ namespace Hiatme_Tool_Suite_v3
             HttpResponseMessage res = await mcloginhandler.Client.PostAsync("https://transportationco.logisticare.com/TripDownload.aspx", formContent);
             var response = await res.Content.ReadAsStringAsync();
 
-            try
-            {
-                string responseUri = res.RequestMessage.RequestUri.ToString();
-                //Console.WriteLine("Location: " + responseUri);
-                if (responseUri.Contains("login.aspx"))
-                {
-                    mcloginhandler.Connected = false;
-                }
-            }
-            catch
-            {
-                //Console.WriteLine("There was a problem retrieving location.");
-                mcloginhandler.Connected = false;
-            }
+            if (MCLoginHandler.IsAuthRedirect(res))
+                throw new ModivcareSessionExpiredException();
+
             mcloginhandler.GrabViewStateToken(response);
             await GrabTripsIDs(response);
         }
@@ -308,20 +286,9 @@ namespace Hiatme_Tool_Suite_v3
             HttpResponseMessage res = await mcloginhandler.Client.PostAsync("https://transportationco.logisticare.com/TripDownload.aspx", formContent);
             var response = await res.Content.ReadAsStringAsync();
 
-            try
-            {
-                string responseUri = res.RequestMessage.RequestUri.ToString();
-                //Console.WriteLine("Location: " + responseUri);
-                if (responseUri.Contains("login.aspx"))
-                {
-                    mcloginhandler.Connected = false;
-                }
-            }
-            catch
-            {
-                //Console.WriteLine("There was a problem retrieving location.");
-                mcloginhandler.Connected = false;
-            }
+            if (MCLoginHandler.IsAuthRedirect(res))
+                throw new ModivcareSessionExpiredException();
+
             //Console.WriteLine(response);
             BuildTripObjects(response);
         }

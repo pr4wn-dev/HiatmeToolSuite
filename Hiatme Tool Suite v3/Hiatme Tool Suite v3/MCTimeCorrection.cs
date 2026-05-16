@@ -39,34 +39,28 @@ namespace Hiatme_Tool_Suite_v3
         //Finding Batches
         public async Task GetBatchLinks(MCLoginHandler mCLogin, bool IDs)
         {
-            HttpResponseMessage resmsg = mCLogin.Client.GetAsync("https://transportationco.logisticare.com/ProcessATMBatches.aspx").Result;
+            // GetWithAuthRetryAsync handles dead-cookie case: reconnect + replay the GET (tokenless, safe to retry).
+            HttpResponseMessage resmsg = await mCLogin.GetWithAuthRetryAsync("https://transportationco.logisticare.com/ProcessATMBatches.aspx");
             var response = await resmsg.Content.ReadAsStringAsync();
 
             try
             {
-                //try to update tokens
-                mCLogin.GrabTokens(response);
-            if (IDs == true){
-                GrabBatchIDs(response);
-            }else{
-
-            }
-                string responseUri = resmsg.RequestMessage.RequestUri.ToString();
-                //Console.WriteLine("Location: " + responseUri);
-                if (responseUri.Contains("Login.aspx"))
+                if (MCLoginHandler.IsAuthRedirect(resmsg))
                 {
-                    await mCLogin.ResetConnection();
-                    await GetBatchLinks(mCLogin, IDs);
+                    // Helper already attempted reconnect; if we still landed on login.aspx (e.g. bad cached creds),
+                    // give up gracefully so caller shows an empty result rather than parsing the login page as data.
+                    return;
+                }
+                mCLogin.GrabTokens(response);
+                if (IDs == true)
+                {
+                    GrabBatchIDs(response);
                 }
             }
             catch
             {
                 Console.WriteLine("There was a problem retrieving location.");
-                //await mCLogin.ResetConnection();
-                //await GetBatchLinks(mCLogin, true);
             }
-            
-            return;
         }
         public async Task GetBatchPage(MCLoginHandler mcloginhandler, string batchtoken, bool returnbatch)
         {
@@ -86,17 +80,12 @@ namespace Hiatme_Tool_Suite_v3
             HttpResponseMessage res = await mcloginhandler.Client.PostAsync("https://transportationco.logisticare.com/ProcessATMBatches.aspx", formContent);
             var response = await res.Content.ReadAsStringAsync();
 
-            try
-            {
-                mcloginhandler.GrabTokens(response);
-                string responseUri = res.RequestMessage.RequestUri.ToString();
-                if (responseUri.Contains("login.aspx")){
-                    mcloginhandler.Connected = false;
-                }
-            }catch{
-                Console.WriteLine("There was a problem retrieving location.");
-                mcloginhandler.Connected = false;
-            }
+            // Mid-flow session expiry: bail out hard so the outer Form1 handler can reconnect + restart the op.
+            // We can't retry inline because ViewState/EventValidation tokens captured above belong to the dead session.
+            if (MCLoginHandler.IsAuthRedirect(res))
+                throw new ModivcareSessionExpiredException();
+
+            mcloginhandler.GrabTokens(response);
 
             if (returnbatch){
                 mcBatchRecords.MCBatchTrips = new List<MCBatchTripRecord>();
@@ -3422,23 +3411,19 @@ namespace Hiatme_Tool_Suite_v3
             }
             HttpResponseMessage res = await mcloginhandler.Client.PostAsync("https://transportationco.logisticare.com/TripActuals.aspx", testformContent);
             var response = await res.Content.ReadAsStringAsync();
-            //await GetTripActualsReponse(mcloginhandler);
+
+            // Mid-batch session expiry: mark this trip failed and bail. Outer loop will see the exception and
+            // can reconnect + tell the user to retry the batch (rather than marching through and failing every trip).
+            if (MCLoginHandler.IsAuthRedirect(res))
+            {
+                trip.Status = "Failed";
+                throw new ModivcareSessionExpiredException();
+            }
+
             mcloginhandler.GrabTokens(response);
-            //mcloginhandler.GrabTokens(response); //JUST ADDED!!!!!
             try
             {
                 string responseUri = res.RequestMessage.RequestUri.ToString();
-                //Console.WriteLine("Location: " + responseUri);
-                if (responseUri.Contains("login.aspx"))
-                {
-                    mcloginhandler.Connected = false;
-                    trip.Status = "Failed";
-                }
-                if (responseUri.Contains("Login.aspx"))
-                {
-                    mcloginhandler.Connected = false;
-                    trip.Status = "Failed";
-                }
                 if (responseUri.Contains("ProcessATMBatches.aspx"))
                 {
                     trip.Status = "Passed";
@@ -3462,10 +3447,14 @@ namespace Hiatme_Tool_Suite_v3
                     await GetBatchPage(mcloginhandler, mcBatchRecords.ActiveBatchLink, false);
                 }
             }
+            catch (ModivcareSessionExpiredException)
+            {
+                trip.Status = "Failed";
+                throw;
+            }
             catch
             {
                 Console.WriteLine("There was a problem retrieving location.");
-                mcloginhandler.Connected = false;
             }
 
         }
@@ -3491,6 +3480,12 @@ namespace Hiatme_Tool_Suite_v3
              });
                 HttpResponseMessage res = await mcloginhandler.Client.PostAsync("https://transportationco.logisticare.com/ProcessATMBatches.aspx", formContent);
                 var response = await res.Content.ReadAsStringAsync();
+                if (MCLoginHandler.IsAuthRedirect(res))
+                    throw new ModivcareSessionExpiredException();
+            }
+            catch (ModivcareSessionExpiredException)
+            {
+                throw;
             }
             catch
             {
@@ -3697,16 +3692,21 @@ namespace Hiatme_Tool_Suite_v3
             var response = "";
             try
             {
-                HttpResponseMessage res = await handler.Client.GetAsync("https://transportationco.logisticare.com/TripActuals.aspx");
+                // GetWithAuthRetryAsync: if cookie is dead, reconnect via cached creds and replay the GET once.
+                // Safe to use here because this is a tokenless GET that doesn't depend on prior page state.
+                HttpResponseMessage res = await handler.GetWithAuthRetryAsync("https://transportationco.logisticare.com/TripActuals.aspx");
                 response = await res.Content.ReadAsStringAsync();
                 res.EnsureSuccessStatusCode();
-                string responseUri = res.RequestMessage.RequestUri.ToString();
-                //Console.WriteLine("Location: " + responseUri);
-                if (responseUri.Contains("login.aspx"))
+                if (MCLoginHandler.IsAuthRedirect(res))
                 {
                     Console.WriteLine("You're not logged in.");
-                    handler.Connected = false;
+                    // Reconnect already attempted by GetWithAuthRetryAsync. Surface to outer op so it can retry the whole batch.
+                    throw new ModivcareSessionExpiredException();
                 }
+            }
+            catch (ModivcareSessionExpiredException)
+            {
+                throw;
             }
             catch
             {
@@ -3990,8 +3990,14 @@ namespace Hiatme_Tool_Suite_v3
              });
                 HttpResponseMessage res = await handler.Client.PostAsync("https://transportationco.logisticare.com/ProcessATMBatches.aspx", formContent);
                 var response = await res.Content.ReadAsStringAsync();
+                if (MCLoginHandler.IsAuthRedirect(res))
+                    throw new ModivcareSessionExpiredException();
                 //handler.GrabTokens(response);
                 await GetTripActualsReponse(handler);
+            }
+            catch (ModivcareSessionExpiredException)
+            {
+                throw;
             }
             catch (Exception ex) 
             {
@@ -4005,16 +4011,19 @@ namespace Hiatme_Tool_Suite_v3
             var response = "";
             try
             {
-                
-                HttpResponseMessage res = await mchandler.Client.GetAsync("https://transportationco.logisticare.com/TripActuals.aspx");
+                HttpResponseMessage res = await mchandler.GetWithAuthRetryAsync("https://transportationco.logisticare.com/TripActuals.aspx");
                 response = await res.Content.ReadAsStringAsync();
                 mchandler.GrabTokens(response);
-                string responseUri = res.RequestMessage.RequestUri.ToString();
-                if (responseUri.Contains("login.aspx"))
+                if (MCLoginHandler.IsAuthRedirect(res))
                 {
                     Console.WriteLine("You're not logged in.");
+                    throw new ModivcareSessionExpiredException();
                 }
 
+            }
+            catch (ModivcareSessionExpiredException)
+            {
+                throw;
             }
             catch
             {

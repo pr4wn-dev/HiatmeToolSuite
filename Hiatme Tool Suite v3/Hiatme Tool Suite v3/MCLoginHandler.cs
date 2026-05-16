@@ -14,6 +14,17 @@ using System.Web.UI.WebControls;
 
 namespace Hiatme_Tool_Suite_v3
 {
+    /// <summary>
+    /// Thrown by Modivcare tool inner methods when an HTTP response was redirected to <c>login.aspx</c> —
+    /// i.e. the cookie expired mid-flow. The outer entry point catches this, reconnects, and retries once.
+    /// Inner methods throw instead of silently parsing the login page as if it were data.
+    /// </summary>
+    public class ModivcareSessionExpiredException : Exception
+    {
+        public ModivcareSessionExpiredException() : base("Modivcare session expired mid-operation.") { }
+        public ModivcareSessionExpiredException(string message) : base(message) { }
+    }
+
     public class MCLoginHandler : INotifyPropertyChanged
     {
         public WebProxy Proxy { get; set; }
@@ -28,6 +39,11 @@ namespace Hiatme_Tool_Suite_v3
         public string EventValidationToken { get; set; }
         public string EventArguement { get; set; }
         public bool IntentionalLogout { get; set; }
+
+        // Cache last-good creds so the handler can self-heal after server-side session expiry without
+        // bothering Form1 for them. Plaintext is fine here — Properties.Settings already stores them in plaintext.
+        private string _lastUser;
+        private string _lastPass;
         public MCLoginHandler()
         {
             Proxy = new WebProxy();
@@ -100,6 +116,8 @@ namespace Hiatme_Tool_Suite_v3
                 return false;
             }
             //MessageBox.Show("Modivcare login success!");
+            _lastUser = user;
+            _lastPass = pass;
             Connected = true;
             return true;
         }
@@ -114,27 +132,143 @@ namespace Hiatme_Tool_Suite_v3
             catch (NullReferenceException e)
             {
                 Connected = false;
+                _lastUser = null;
+                _lastPass = null;
                 return false;
             }
             Connected = false;
+            _lastUser = null;
+            _lastPass = null;
             return true;
         }
+
+        /// <summary>
+        /// Cheap GET against an auth-required page. Returns true if Modivcare still considers the cookie valid
+        /// (response did not bounce to login.aspx). Does NOT mutate <see cref="Connected"/> or any tokens —
+        /// callers decide what to do with the result so in-flight operations aren't disturbed.
+        /// </summary>
+        public async Task<bool> ProbeSessionAsync()
+        {
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Get,
+                    "https://transportationco.logisticare.com/ProcessATMBatches.aspx"))
+                using (var res = await Client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false))
+                {
+                    string finalUri = res.RequestMessage?.RequestUri?.ToString() ?? string.Empty;
+                    if (finalUri.IndexOf("login.aspx", StringComparison.OrdinalIgnoreCase) >= 0)
+                        return false;
+                    return res.IsSuccessStatusCode;
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Re-login using the credentials cached from the last successful <see cref="Login"/>. Returns false if
+        /// no creds are cached (caller should fall back to prompting / saved settings).
+        /// </summary>
+        public async Task<bool> ReconnectAsync()
+        {
+            if (string.IsNullOrEmpty(_lastUser) || string.IsNullOrEmpty(_lastPass))
+                return false;
+            // Login() flips IntentionalLogout=false on entry and sets Connected on success.
+            return await Login(_lastUser, _lastPass).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Seed the cached credentials without performing a network login. Lets the handler self-heal even on
+        /// first launch (before the user has manually signed in this session) when settings already have creds.
+        /// Safe to call repeatedly; passing null/empty values clears the cache.
+        /// </summary>
+        public void PrimeCachedCredentials(string user, string pass)
+        {
+            if (string.IsNullOrEmpty(user) || string.IsNullOrEmpty(pass))
+            {
+                _lastUser = null;
+                _lastPass = null;
+                return;
+            }
+            _lastUser = user;
+            _lastPass = pass;
+        }
+
+        /// <summary>True when the response's final URI bounced to Modivcare's login page (session expired or absent).</summary>
+        public static bool IsAuthRedirect(HttpResponseMessage res)
+        {
+            if (res == null)
+                return false;
+            string uri = res.RequestMessage?.RequestUri?.ToString();
+            if (string.IsNullOrEmpty(uri))
+                return false;
+            return uri.IndexOf("login.aspx", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        /// <summary>
+        /// One-shot resend wrapper for MC POSTs: send, and if the response was redirected to <c>login.aspx</c>,
+        /// reconnect synchronously via cached creds and replay the request once. Caller passes a factory because
+        /// <see cref="HttpContent"/> is single-use after sending.
+        ///
+        /// NOTE: replay reuses the URL and the factory-rebuilt content. ASP.NET ViewState/EventValidation tokens
+        /// captured before re-login may be stale on the new session — that is fine for top-level pages (e.g. a
+        /// fresh GET of ProcessATMBatches.aspx) but is unsafe to retry a deep postback that depends on tokens
+        /// from a prior step in the same operation. For those, prefer recursing the outer operation.
+        /// </summary>
+        public async Task<HttpResponseMessage> PostWithAuthRetryAsync(string url, Func<HttpContent> contentFactory)
+        {
+            if (contentFactory == null) throw new ArgumentNullException(nameof(contentFactory));
+            HttpResponseMessage res = await Client.PostAsync(url, contentFactory()).ConfigureAwait(false);
+            if (!IsAuthRedirect(res))
+                return res;
+            res.Dispose();
+            bool reconnected = await ReconnectAsync().ConfigureAwait(false);
+            if (!reconnected)
+            {
+                Connected = false;
+                return await Client.PostAsync(url, contentFactory()).ConfigureAwait(false);
+            }
+            return await Client.PostAsync(url, contentFactory()).ConfigureAwait(false);
+        }
+
+        /// <summary>Same as <see cref="PostWithAuthRetryAsync"/> for GETs.</summary>
+        public async Task<HttpResponseMessage> GetWithAuthRetryAsync(string url)
+        {
+            HttpResponseMessage res = await Client.GetAsync(url).ConfigureAwait(false);
+            if (!IsAuthRedirect(res))
+                return res;
+            res.Dispose();
+            bool reconnected = await ReconnectAsync().ConfigureAwait(false);
+            if (!reconnected)
+            {
+                Connected = false;
+                return await Client.GetAsync(url).ConfigureAwait(false);
+            }
+            return await Client.GetAsync(url).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Resets to a known-good signed-in state. Replaces the legacy busy-wait that depended on Form1's
+        /// PropertyChanged handler to externally re-login; now does the work in-band via <see cref="ReconnectAsync"/>.
+        /// Returns silently if no cached creds (caller should surface the failure to the user via the next request).
+        ///
+        /// We set <see cref="IntentionalLogout"/>=true BEFORE flipping <see cref="Connected"/>=false so Form1's
+        /// <c>UpdateMCConnectionStatus</c> doesn't race us by spinning up a parallel MCLogin from the UI fields.
+        /// <see cref="Login"/> inside <see cref="ReconnectAsync"/> resets IntentionalLogout to false on success.
+        /// </summary>
         public async Task ResetConnection()
         {
-
-            this.IntentionalLogout = false;
+            this.IntentionalLogout = true;
             this.Connected = false;
-            await Task.Run(() => {
-                while (!this.Connected)
-                {
-                    // operation
-
-                    Console.WriteLine("Modivcare: Waiting for connection..");
-                    System.Threading.Thread.Sleep(1000);
-                }
-                //Console.WriteLine("connected");
-            });
-
+            await ReconnectAsync().ConfigureAwait(false);
+            if (!Connected)
+            {
+                // Reconnect failed (e.g. no cached creds or wrong creds). Hand control back to the form's
+                // auto-relogin path so it can prompt or use UI fields.
+                IntentionalLogout = false;
+            }
         }
 
 
