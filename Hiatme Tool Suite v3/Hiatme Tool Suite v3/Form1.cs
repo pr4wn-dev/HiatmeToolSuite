@@ -86,12 +86,27 @@ namespace Hiatme_Tool_Suite_v3
 
         private static int _startupMyPreciousPlayedFlag;
 
+        /// <summary>
+        /// Trip Scout's master result set for the currently-loaded date. <see cref="tssearchbox"/>
+        /// filters this list in-memory on every keystroke and re-binds <see cref="tslv"/>; the
+        /// underlying portal data is only refetched when the user clicks <see cref="tsloadbtn"/>.
+        /// </summary>
+        private List<WRDownloadedTrip> _tripScoutAllTrips = new List<WRDownloadedTrip>();
+
         public Form1()
         {
             // Login combo may raise SelectedIndexChanged during InitializeComponent; handlers must exist first.
             InitializeMCLoginHandler();
             InitializeHiatmeLoginHandler();
             InitializeComponent();;
+            // Tabs added after the designer-baked ImageStream need their icon injected before the first tab strip paint.
+            RegisterRuntimeTabIcons();
+            // Click-to-sort + smart cell typing on every custom-drawn listview. Default column resize already works.
+            WireListViewSorters();
+            // Trip Scout right-click menu inherits the listview's dark palette + gets generated person+badge icons.
+            ApplyTripScoutContextMenuTheme();
+            // Build the Supey schedule tab UI programmatically (the designer placeholder is intentionally empty).
+            InitializeSupeyTab();
             CheckForIllegalCrossThreadCalls = false;
             materialSkinManager = MaterialSkinManager.Instance;
             materialSkinManager.EnforceBackcolorOnAllComponents = false;
@@ -120,6 +135,77 @@ namespace Hiatme_Tool_Suite_v3
             // Default login provider is set in the designer before SelectedIndexChanged is wired; sync saved credentials once at show.
             Shown += Form1_Shown_SyncLoginPanelFromSettings;
             Load += Form1_OnLoad_DeferRevampPaintHook;
+        }
+
+        /// <summary>
+        /// Wires <see cref="ListViewSorter"/> (click-to-sort) and <see cref="ListViewMinWidthEnforcer"/>
+        /// (per-column min-width clamp at <c>max(header, widest cell) + padding</c>) onto every
+        /// custom-drawn listview. Must run after <c>InitializeComponent</c>; safe to call once.
+        /// </summary>
+        private void WireListViewSorters()
+        {
+            ListView[] lists =
+            {
+                billinglistview,
+                tctripcorrectlv,
+                tcbatchelinkslv,
+                templatelv,
+                aalv,
+                tslv,
+                listView1,
+            };
+            foreach (var lv in lists)
+            {
+                if (lv == null) continue;
+                ListViewSorter.Attach(lv);
+                ListViewMinWidthEnforcer.Attach(lv);
+                ListViewHeaderEmptyAreaPainter.Attach(lv);
+            }
+        }
+
+        /// <summary>
+        /// Skin <see cref="tsTripContextMenu"/> to match the listview body (RGB 70/70/70 fill, white
+        /// text, RoyalBlue hover) and slot the generated assign/unassign icons onto the items.
+        /// Safe to call once after <c>InitializeComponent</c>.
+        /// </summary>
+        private void ApplyTripScoutContextMenuTheme()
+        {
+            if (tsTripContextMenu == null) return;
+            tsTripContextMenu.Renderer = new DarkContextMenuRenderer();
+            tsTripContextMenu.BackColor = DarkContextMenuRenderer.Background;
+            tsTripContextMenu.ForeColor = DarkContextMenuRenderer.ForeColor;
+            tsTripContextMenu.ShowImageMargin = true;
+            foreach (ToolStripItem item in tsTripContextMenu.Items)
+            {
+                item.BackColor = DarkContextMenuRenderer.Background;
+                item.ForeColor = DarkContextMenuRenderer.ForeColor;
+            }
+            if (tsTripCtxAssign != null) tsTripCtxAssign.Image = MenuIconFactory.GetAssignIcon();
+            if (tsTripCtxUnassign != null) tsTripCtxUnassign.Image = MenuIconFactory.GetUnassignIcon();
+            if (tsTripCtxLocate != null) tsTripCtxLocate.Image = MenuIconFactory.GetLocateIcon();
+        }
+
+        /// <summary>
+        /// Adds tab icons that aren't part of the designer-serialized <see cref="tabImageList"/> ImageStream.
+        /// Any TabPage whose <c>ImageKey</c> points here must be registered before the tab strip paints.
+        /// </summary>
+        private void RegisterRuntimeTabIcons()
+        {
+            try
+            {
+                if (tabImageList != null && !tabImageList.Images.ContainsKey("magnify.png"))
+                {
+                    tabImageList.Images.Add("magnify.png", Properties.Resources.magnify);
+                }
+                if (tabImageList != null && !tabImageList.Images.ContainsKey("supey-shield.png"))
+                {
+                    tabImageList.Images.Add("supey-shield.png", Properties.Resources.supey_shield);
+                }
+            }
+            catch
+            {
+                // Missing tab icons must never break form construction; the tab will just render without an image.
+            }
         }
 
         /// <summary>Never load fonts or take locks inside <see cref="PictureBox.Paint"/> — that can break first-frame layout for MaterialSkin.</summary>
@@ -371,6 +457,11 @@ namespace Hiatme_Tool_Suite_v3
                     // ignore
                 }
             });
+
+            // Flush the geocoder's persistent cache so the freshest resolved addresses are on
+            // disk before the process exits. Cheap (single file write) and prevents losing the
+            // last few entries from a build that finished right before close.
+            try { AddressGeocoder.Flush(); } catch { }
 
             base.OnFormClosing(e);
         }
@@ -1429,6 +1520,127 @@ namespace Hiatme_Tool_Suite_v3
             return await wrBillingTool.ReloadTripsFromPortalAsync(_wellRydeSession, rjDatePicker1.Value);
         }
 
+        /// <summary>
+        /// Pulls WellRyde trips for an arbitrary date without touching <see cref="wrBillingTool"/> state, so callers
+        /// (e.g. Trip Scout) don't clobber the Billing tab's loaded trip list. Mirrors the auth-retry pattern used by billing,
+        /// and pages through <c>/portal/filterdata</c> until the full day is collected — the portal often caps responses
+        /// (commonly ~200/page) regardless of <c>maxResult</c>, so iteration is required to actually fetch everything.
+        /// </summary>
+        private async Task<(WellRydePortalFilterDataResult result, List<WRDownloadedTrip> trips, int portalTotalRecords)>
+            LoadWellRydeTripsForDateWithAuthRetryAsync(DateTime date)
+        {
+            if (!await EnsureWellRydePortalSessionForBillingAsync() || _wellRydeSession == null)
+                return (WellRydePortalFilterDataResult.Fail(null, "WellRyde portal session is not available."), null, 0);
+
+            WellRydePortalFilterDataResult firstFd;
+            try
+            {
+                firstFd = await _wellRydeSession.PostTripFilterDataAsync(date,
+                    maxResults: WellRydePortalSession.DefaultTripFilterMaxResult, page: 1).ConfigureAwait(true);
+            }
+            catch (Exception ex)
+            {
+                return (WellRydePortalFilterDataResult.Fail(null, ex.Message ?? "filterdata request failed."), null, 0);
+            }
+
+            if (!firstFd.IsSuccess && WellRydeFilterDataLooksLikeAuthOrSessionFailure(firstFd))
+            {
+                InvalidateWellRydePortalSession();
+                if (!await EnsureWellRydePortalSessionForBillingAsync() || _wellRydeSession == null)
+                    return (WellRydePortalFilterDataResult.Fail(null, "Could not re-authenticate to WellRyde."), null, 0);
+
+                try
+                {
+                    firstFd = await _wellRydeSession.PostTripFilterDataAsync(date,
+                        maxResults: WellRydePortalSession.DefaultTripFilterMaxResult, page: 1).ConfigureAwait(true);
+                }
+                catch (Exception ex)
+                {
+                    return (WellRydePortalFilterDataResult.Fail(null, ex.Message ?? "filterdata request failed."), null, 0);
+                }
+            }
+
+            if (!firstFd.IsSuccess)
+                return (firstFd, null, 0);
+
+            int totalRecords;
+            List<WRDownloadedTrip> firstPageTrips;
+            try
+            {
+                firstPageTrips = WellRydeFilterDataParser.ParseTrips(firstFd.JsonBody, out totalRecords);
+            }
+            catch (Exception ex)
+            {
+                return (WellRydePortalFilterDataResult.Fail(firstFd.StatusCode,
+                    "Failed to parse trip list: " + (ex.Message ?? "unknown error."), firstFd.JsonBody), null, 0);
+            }
+
+            firstPageTrips = firstPageTrips ?? new List<WRDownloadedTrip>();
+            // Fast path: a single response that already contains the whole day.
+            if (totalRecords <= 0 || firstPageTrips.Count >= totalRecords)
+                return (firstFd, firstPageTrips, totalRecords);
+
+            // Paginate. We dedupe by TripUUID so a portal that ignores the page parameter (and keeps
+            // returning page 1) terminates instead of looping forever.
+            var aggregated = new List<WRDownloadedTrip>(totalRecords);
+            var seenUuids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var t in firstPageTrips)
+            {
+                string key = !string.IsNullOrEmpty(t.TripUUID) ? t.TripUUID : (t.TripNumber ?? "");
+                if (seenUuids.Add(key)) aggregated.Add(t);
+            }
+
+            const int MaxPages = 50;
+            int pageSize = WellRydePortalSession.DefaultTripFilterMaxResult;
+            for (int page = 2; page <= MaxPages && aggregated.Count < totalRecords; page++)
+            {
+                WellRydePortalFilterDataResult pageFd;
+                try
+                {
+                    pageFd = await _wellRydeSession.PostTripFilterDataAsync(date,
+                        maxResults: pageSize, page: page).ConfigureAwait(true);
+                }
+                catch (Exception)
+                {
+                    // Stop pagination on any network blip; return what we have so far so the user
+                    // still sees most of the day rather than nothing.
+                    break;
+                }
+
+                if (!pageFd.IsSuccess) break;
+
+                List<WRDownloadedTrip> pageTrips;
+                int pageTotal;
+                try
+                {
+                    pageTrips = WellRydeFilterDataParser.ParseTrips(pageFd.JsonBody, out pageTotal);
+                }
+                catch
+                {
+                    break;
+                }
+                if (pageTotal > totalRecords) totalRecords = pageTotal;
+
+                if (pageTrips == null || pageTrips.Count == 0) break;
+
+                int addedThisPage = 0;
+                foreach (var t in pageTrips)
+                {
+                    string key = !string.IsNullOrEmpty(t.TripUUID) ? t.TripUUID : (t.TripNumber ?? "");
+                    if (seenUuids.Add(key))
+                    {
+                        aggregated.Add(t);
+                        addedThisPage++;
+                    }
+                }
+                // No new rows means the portal is ignoring our page param (or recycling page 1) —
+                // bail before we spin forever.
+                if (addedThisPage == 0) break;
+            }
+
+            return (firstFd, aggregated, totalRecords);
+        }
+
         /// <summary>For billing and tools: probe an existing session with /portal/nu; if stale, re-login then return. Uses saved or on-screen WellRyde credentials.</summary>
         private async Task<bool> EnsureWellRydePortalSessionForBillingAsync()
         {
@@ -1845,6 +2057,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 Console.WriteLine("No batches found!");
             }
+            ListViewMinWidthEnforcer.Recompute(tcbatchelinkslv);
             await SetLoadingGifLabel("Finalizing process..");
             tcorrectstatuslbl.Text = "Status: Search completed with " + mcTimeCorrectionTool.mcBatchRecords.MCBatchLinks.Count + " batches found. To continue, select a batch and click 'LOAD'.'";
             loadinggifhandler_hidescreen();
@@ -2111,12 +2324,12 @@ namespace Hiatme_Tool_Suite_v3
                         lvi.SubItems.Add(triprcd.Date + "-" + triprcd.Trip);
                         lvi.SubItems.Add(triprcd.Alerts);
                         lvi.SubItems.Add(triprcd.Driver);
-                        lvi.SubItems.Add(triprcd.ScheduledPUTime);
-                        lvi.SubItems.Add(triprcd.ScheduledDOTime);
-                        lvi.SubItems.Add(triprcd.PUTime);
-                        lvi.SubItems.Add(triprcd.DOTime);
-                        lvi.SubItems.Add(triprcd.SuggestedPUTime);
-                        lvi.SubItems.Add(triprcd.SuggestedDOTime);
+                        lvi.SubItems.Add(FormatTimeOnly(triprcd.ScheduledPUTime));
+                        lvi.SubItems.Add(FormatTimeOnly(triprcd.ScheduledDOTime));
+                        lvi.SubItems.Add(FormatTimeOnly(triprcd.PUTime));
+                        lvi.SubItems.Add(FormatTimeOnly(triprcd.DOTime));
+                        lvi.SubItems.Add(FormatTimeOnly(triprcd.SuggestedPUTime));
+                        lvi.SubItems.Add(FormatTimeOnly(triprcd.SuggestedDOTime));
                         //if &nbsp; found replace with empty space
                         if (triprcd.RiderCallTime.Contains("&nbsp;"))
                         {
@@ -2124,7 +2337,7 @@ namespace Hiatme_Tool_Suite_v3
                         }
                         else
                         {
-                            lvi.SubItems.Add(triprcd.RiderCallTime);
+                            lvi.SubItems.Add(FormatTimeOnly(triprcd.RiderCallTime));
                         }
                         if (triprcd.Vehicle.Contains("&nbsp;"))
                         {
@@ -2155,6 +2368,7 @@ namespace Hiatme_Tool_Suite_v3
             tctripcorrectlv.Columns[2].Text = "Alerts: " + mcTimeCorrectionTool.ReturnAlertCount().ToString();
             tcstatustext = "Status: Batch " + link.BatchID + " loaded with " + fixabletripscounter + " fixable trips.";
             tcorrectstatuslbl.Text = tcstatustext + " Estimated time to complete: " + ts;
+            ListViewMinWidthEnforcer.Recompute(tctripcorrectlv);
         }
 
         //Wellryde billing
@@ -2201,6 +2415,593 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         /// <summary>
+        /// Display-only formatter for time columns. If <paramref name="value"/> parses as a
+        /// <see cref="DateTime"/> (e.g. "5/16/2026 8:30:00 AM" coming back from WellRyde), returns
+        /// just the time portion ("8:30 AM"). Otherwise returns the input unchanged so already-formatted
+        /// strings, "&amp;nbsp;" placeholders, and arbitrary text pass through untouched.
+        /// </summary>
+        /// <remarks>
+        /// Operates on the string handed to a <see cref="ListViewItem"/> only — the underlying
+        /// <c>WRDownloadedTrip</c> / <c>MCDownloadedTrip</c> / <c>MCBatchTripRecord</c> time fields
+        /// keep their original values for any consumer that depends on them.
+        /// </remarks>
+        private static string FormatTimeOnly(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return value ?? string.Empty;
+            if (DateTime.TryParse(value, System.Globalization.CultureInfo.CurrentCulture,
+                    System.Globalization.DateTimeStyles.None, out var dt))
+            {
+                return dt.ToString("h:mm tt", System.Globalization.CultureInfo.InvariantCulture);
+            }
+            return value;
+        }
+
+        // Trip Scout — independent WellRyde trip pull / display, does not share state with the Billing tab.
+        private async void tsloadbtn_Click(object sender, EventArgs e)
+        {
+            ShowLoadingGif();
+            try
+            {
+                await SetLoadingGifLabel("Loading trips");
+                tsstatuslbl.Text = "Status: Loading trips for " + tsdatepicker.Value.ToLongDateString() + "...";
+
+                WellRydePortalFilterDataResult fd;
+                List<WRDownloadedTrip> trips;
+                int portalTotalRecords;
+                try
+                {
+                    (fd, trips, portalTotalRecords) = await LoadWellRydeTripsForDateWithAuthRetryAsync(tsdatepicker.Value);
+                }
+                catch (Exception ex)
+                {
+                    tsstatuslbl.Text = "Status: WellRyde filterdata error — " + ex.Message;
+                    MessageBox.Show("WellRyde filterdata: " + ex.Message);
+                    return;
+                }
+
+                if (!fd.IsSuccess)
+                {
+                    var prefix = fd.StatusCode.HasValue ? "HTTP " + (int)fd.StatusCode.Value + " — " : "";
+                    var msg = prefix + (fd.ErrorMessage ?? "filterdata failed.");
+                    tsstatuslbl.Text = "Status: " + msg;
+                    MessageBox.Show(msg);
+                    return;
+                }
+
+                _tripScoutAllTrips = trips ?? new List<WRDownloadedTrip>();
+                // A fresh date load invalidates any prior search; clearing the box re-binds the
+                // unfiltered list via the TextChanged handler. Suppress that side-effect once so we
+                // don't double-bind.
+                _suppressTripScoutSearch = true;
+                try { tssearchbox.Text = ""; }
+                finally { _suppressTripScoutSearch = false; }
+                BindTripScoutListView(_tripScoutAllTrips, recomputeMinWidths: true);
+
+                int loadedCount = _tripScoutAllTrips.Count;
+                if (portalTotalRecords > 0 && loadedCount != portalTotalRecords)
+                {
+                    tsstatuslbl.Text = "Status: WellRyde reports " + portalTotalRecords + " trips; " +
+                        loadedCount + " rows parsed for " + tsdatepicker.Value.ToLongDateString() + ".";
+                }
+                else
+                {
+                    tsstatuslbl.Text = "Status: " + loadedCount + " trips loaded for " +
+                        tsdatepicker.Value.ToLongDateString() + ".";
+                }
+            }
+            finally
+            {
+                hidegiftimer.Start();
+            }
+        }
+
+        /// <summary>True while a programmatic <see cref="tssearchbox"/> mutation is in progress.</summary>
+        private bool _suppressTripScoutSearch;
+
+        /// <summary>
+        /// Live filter for <see cref="tslv"/>. Empty query shows the full master list; otherwise
+        /// case-insensitive substring match across the most useful WellRyde fields. We never
+        /// re-fetch from the portal here — only re-bind the in-memory <see cref="_tripScoutAllTrips"/>.
+        /// </summary>
+        private void tssearchbox_TextChanged(object sender, EventArgs e)
+        {
+            if (_suppressTripScoutSearch) return;
+            ApplyTripScoutFilter(tssearchbox.Text);
+        }
+
+        /// <summary>
+        /// Applies <paramref name="query"/> against <see cref="_tripScoutAllTrips"/> and rebinds the
+        /// listview. Skips the min-width recompute so the user's column widths don't jump on every
+        /// keystroke.
+        /// </summary>
+        private void ApplyTripScoutFilter(string query)
+        {
+            if (_tripScoutAllTrips == null || _tripScoutAllTrips.Count == 0)
+            {
+                BindTripScoutListView(new List<WRDownloadedTrip>(), recomputeMinWidths: false);
+                tsstatuslbl.Text = "Status: No trips loaded. Pick a date and click Load.";
+                return;
+            }
+
+            string trimmed = (query ?? "").Trim();
+            List<WRDownloadedTrip> visible;
+            if (trimmed.Length == 0)
+            {
+                visible = _tripScoutAllTrips;
+            }
+            else
+            {
+                visible = new List<WRDownloadedTrip>(_tripScoutAllTrips.Count);
+                foreach (var trip in _tripScoutAllTrips)
+                {
+                    if (MatchesTripScoutFilter(trip, trimmed)) visible.Add(trip);
+                }
+            }
+
+            BindTripScoutListView(visible, recomputeMinWidths: false);
+
+            string dateStr = tsdatepicker.Value.ToLongDateString();
+            if (trimmed.Length == 0)
+            {
+                tsstatuslbl.Text = "Status: " + _tripScoutAllTrips.Count + " trips loaded for " + dateStr + ".";
+            }
+            else
+            {
+                tsstatuslbl.Text = "Status: " + visible.Count + " of " + _tripScoutAllTrips.Count +
+                    " trips match \"" + trimmed + "\" for " + dateStr + ".";
+            }
+        }
+
+        /// <summary>
+        /// Case-insensitive substring match across the searchable WellRyde trip fields.
+        /// Touches only display-relevant strings — leaves UUID/internal IDs out so users don't
+        /// match unintended hashes.
+        /// </summary>
+        private static bool MatchesTripScoutFilter(WRDownloadedTrip trip, string query)
+        {
+            if (trip == null) return false;
+            if (FieldContains(trip.TripNumber, query)) return true;
+            if (FieldContains(trip.ClientName, query)) return true;
+            if (FieldContains(trip.DriverName, query)) return true;
+            if (FieldContains(trip.Status, query)) return true;
+            if (FieldContains(trip.PUStreet, query)) return true;
+            if (FieldContains(trip.PUCity, query)) return true;
+            if (FieldContains(trip.DOStreet, query)) return true;
+            if (FieldContains(trip.DOCITY, query)) return true;
+            if (FieldContains(trip.PUPhone, query)) return true;
+            if (FieldContains(trip.DOPhone, query)) return true;
+            if (FieldContains(trip.References, query)) return true;
+            if (FieldContains(trip.Comments, query)) return true;
+            if (FieldContains(trip.Miles, query)) return true;
+            if (FieldContains(trip.Price, query)) return true;
+            if (trip.Alerts != null)
+            {
+                foreach (var alert in trip.Alerts)
+                {
+                    if (FieldContains(alert, query)) return true;
+                }
+            }
+            return false;
+        }
+
+        private static bool FieldContains(string field, string query)
+        {
+            if (string.IsNullOrEmpty(field)) return false;
+            return field.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        /// <summary>Roster cached on first context-menu open so we don't refetch /portal/getAllDriversForTripAssignment for every right-click.</summary>
+        private List<WRDrivers> _tripScoutDriverRoster;
+
+        /// <summary>
+        /// Tag/dim the right-click menu items based on the current selection. Without a selection the
+        /// portal calls have nothing to act on, so both items are disabled and labeled to make that obvious.
+        /// </summary>
+        private void tsTripContextMenu_Opening(object sender, System.ComponentModel.CancelEventArgs e)
+        {
+            int n = tslv.SelectedItems.Count;
+            bool hasSel = n > 0;
+            tsTripCtxAssign.Enabled = hasSel;
+            tsTripCtxUnassign.Enabled = hasSel;
+            if (n <= 1)
+            {
+                tsTripCtxAssign.Text = "Assign to driver...";
+                tsTripCtxUnassign.Text = "Unassign trip";
+            }
+            else
+            {
+                tsTripCtxAssign.Text = "Assign " + n + " trips to driver...";
+                tsTripCtxUnassign.Text = "Unassign " + n + " trips";
+            }
+
+            // Locate is single-driver only and requires the picked row to actually have a driver
+            // assigned (the AVL feed only knows about active drivers, not the trip itself).
+            string driverForLocate = GetSingleSelectedDriverNameForLocate();
+            tsTripCtxLocate.Enabled = !string.IsNullOrWhiteSpace(driverForLocate);
+            tsTripCtxLocate.Text = string.IsNullOrWhiteSpace(driverForLocate)
+                ? "Locate driver on map"
+                : "Locate " + driverForLocate + " on map";
+        }
+
+        /// <summary>Driver name to label/lookup for the right-click "Locate" item, or null if the selection isn't actionable.</summary>
+        private string GetSingleSelectedDriverNameForLocate()
+        {
+            var sel = GetSelectedTripScoutTrips();
+            if (sel.Count != 1) return null;
+            string name = sel[0].DriverName;
+            return string.IsNullOrWhiteSpace(name) ? null : name.Trim();
+        }
+
+        /// <summary>
+        /// Right-click → Assign to driver. Pulls (and caches) the WellRyde driver roster, lets the
+        /// user pick one in <see cref="DriverPickerForm"/>, then sends
+        /// <c>assignTrips → assignValidation → assignTripDriver</c> for every selected row.
+        /// On success, in-memory <see cref="WRDownloadedTrip.DriverName"/> is patched and the visible
+        /// rows are re-rendered so the user sees the assignment without having to re-click Load.
+        /// </summary>
+        private async void tsTripCtxAssign_Click(object sender, EventArgs e)
+        {
+            var selectedTrips = GetSelectedTripScoutTrips();
+            if (selectedTrips.Count == 0) return;
+
+            if (!await EnsureWellRydePortalSessionForBillingAsync() || _wellRydeSession == null)
+            {
+                MessageBox.Show("WellRyde portal session is not available.", "Trip Scout",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            ShowLoadingGif();
+            try
+            {
+                if (_tripScoutDriverRoster == null || _tripScoutDriverRoster.Count == 0)
+                {
+                    await SetLoadingGifLabel("Loading driver list");
+                    try
+                    {
+                        _tripScoutDriverRoster = await _wellRydeSession.GetAllDriversForTripAssignmentAsync().ConfigureAwait(true);
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show("Failed to load drivers: " + ex.Message, "Trip Scout",
+                            MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return;
+                    }
+                }
+
+                if (_tripScoutDriverRoster == null || _tripScoutDriverRoster.Count == 0)
+                {
+                    MessageBox.Show("WellRyde returned no drivers.", "Trip Scout",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+            }
+            finally
+            {
+                hidegiftimer.Start();
+            }
+
+            string contextLine = selectedTrips.Count == 1
+                ? "Assigning trip " + (selectedTrips[0].TripNumber ?? "(no id)")
+                : "Assigning " + selectedTrips.Count + " trips";
+
+            WRDrivers picked;
+            using (var dlg = new DriverPickerForm(_tripScoutDriverRoster, contextLine))
+            {
+                if (dlg.ShowDialog(this) != DialogResult.OK) return;
+                picked = dlg.SelectedDriver;
+            }
+            if (picked == null) return;
+
+            var uuids = new List<string>(selectedTrips.Count);
+            foreach (var trip in selectedTrips)
+            {
+                if (!string.IsNullOrWhiteSpace(trip.TripUUID)) uuids.Add(trip.TripUUID);
+            }
+            if (uuids.Count == 0)
+            {
+                MessageBox.Show("Selected trips are missing portal UUIDs; cannot assign.", "Trip Scout",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            ShowLoadingGif();
+            try
+            {
+                await SetLoadingGifLabel("Assigning " + uuids.Count + " trip" + (uuids.Count == 1 ? "" : "s") +
+                    " to " + (picked.text ?? "driver"));
+
+                WellRydePortalTripMutationResult result;
+                try
+                {
+                    result = await _wellRydeSession.PostAssignTripsToDriverAsync(picked.value, uuids).ConfigureAwait(true);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("Assign failed: " + ex.Message, "Trip Scout",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                if (!result.IsSuccess)
+                {
+                    MessageBox.Show("WellRyde rejected the assignment.\n\n" +
+                        (result.ErrorMessage ?? "(no error message)"),
+                        "Trip Scout", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                string newDriverName = picked.text ?? "";
+                foreach (var trip in selectedTrips)
+                {
+                    trip.DriverName = newDriverName;
+                }
+                RefreshTripScoutListViewKeepingFilter();
+                tsstatuslbl.Text = "Status: Assigned " + uuids.Count + " trip" + (uuids.Count == 1 ? "" : "s") +
+                    " to " + newDriverName + ".";
+            }
+            finally
+            {
+                hidegiftimer.Start();
+            }
+        }
+
+        /// <summary>
+        /// Right-click → Unassign trip(s). Confirms first (this is destructive on the portal side),
+        /// then sends <c>unAssignValidation → unassign</c>. Patches in-memory driver name to empty
+        /// so the row UI reflects the change without a full reload.
+        /// </summary>
+        private async void tsTripCtxUnassign_Click(object sender, EventArgs e)
+        {
+            var selectedTrips = GetSelectedTripScoutTrips();
+            if (selectedTrips.Count == 0) return;
+
+            string prompt = selectedTrips.Count == 1
+                ? "Unassign trip " + (selectedTrips[0].TripNumber ?? "(no id)") +
+                    " from " + (string.IsNullOrWhiteSpace(selectedTrips[0].DriverName) ? "(no driver)" : selectedTrips[0].DriverName) + "?"
+                : "Unassign " + selectedTrips.Count + " trips from their current drivers?";
+            if (MessageBox.Show(prompt, "Confirm unassign", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK)
+                return;
+
+            if (!await EnsureWellRydePortalSessionForBillingAsync() || _wellRydeSession == null)
+            {
+                MessageBox.Show("WellRyde portal session is not available.", "Trip Scout",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            var uuids = new List<string>(selectedTrips.Count);
+            foreach (var trip in selectedTrips)
+            {
+                if (!string.IsNullOrWhiteSpace(trip.TripUUID)) uuids.Add(trip.TripUUID);
+            }
+            if (uuids.Count == 0)
+            {
+                MessageBox.Show("Selected trips are missing portal UUIDs; cannot unassign.", "Trip Scout",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            ShowLoadingGif();
+            try
+            {
+                await SetLoadingGifLabel("Unassigning " + uuids.Count + " trip" + (uuids.Count == 1 ? "" : "s"));
+
+                WellRydePortalTripMutationResult result;
+                try
+                {
+                    result = await _wellRydeSession.PostUnassignTripsAsync(uuids).ConfigureAwait(true);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("Unassign failed: " + ex.Message, "Trip Scout",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                if (!result.IsSuccess)
+                {
+                    MessageBox.Show("WellRyde rejected the unassignment.\n\n" +
+                        (result.ErrorMessage ?? "(no error message)"),
+                        "Trip Scout", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                foreach (var trip in selectedTrips)
+                {
+                    trip.DriverName = "";
+                }
+                RefreshTripScoutListViewKeepingFilter();
+                tsstatuslbl.Text = "Status: Unassigned " + uuids.Count + " trip" + (uuids.Count == 1 ? "" : "s") + ".";
+            }
+            finally
+            {
+                hidegiftimer.Start();
+            }
+        }
+
+        /// <summary>
+        /// Right-click → Locate driver on map. Pulls the selected trip's driver name + portal id
+        /// (best-effort cross-reference into the cached driver roster), then opens
+        /// <see cref="DriverLocationMapForm"/> as a non-modal popup so the user can keep working
+        /// in the listview while the map is open.
+        /// </summary>
+        private async void tsTripCtxLocate_Click(object sender, EventArgs e)
+        {
+            var selected = GetSelectedTripScoutTrips();
+            if (selected.Count != 1)
+            {
+                MessageBox.Show("Pick exactly one trip to locate its driver.", "Trip Scout",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            var trip = selected[0];
+            if (string.IsNullOrWhiteSpace(trip.DriverName))
+            {
+                MessageBox.Show("That trip has no driver assigned.", "Trip Scout",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            if (!await EnsureWellRydePortalSessionForBillingAsync() || _wellRydeSession == null)
+            {
+                MessageBox.Show("WellRyde portal session is not available.", "Trip Scout",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            // The AVL feed keys on driverid (e.g. "SEC-u-..."), which the trip row doesn't carry.
+            // Reuse the cached roster to translate name → id; it's a single round-trip per session.
+            string driverId = await ResolveDriverIdForLocateAsync(trip.DriverName).ConfigureAwait(true);
+
+            // Pass the day's full trip list so the popup can show every trip already assigned to
+            // this driver — dispatch needs to see in-progress vs. upcoming to estimate ETAs over
+            // the phone. Snapshot via ToList so subsequent loads in Trip Scout don't mutate the
+            // list under the popup.
+            var dayTrips = _tripScoutAllTrips != null
+                ? new List<WRDownloadedTrip>(_tripScoutAllTrips)
+                : new List<WRDownloadedTrip>();
+
+            // Always spin up a fresh popup so the trip snapshot reflects the latest Trip Scout
+            // load. A previous popup with a stale trip list would otherwise stay docked.
+            if (_driverLocationMap != null && !_driverLocationMap.IsDisposed)
+            {
+                try { _driverLocationMap.Close(); } catch { /* dispose race is harmless */ }
+                _driverLocationMap = null;
+            }
+            _driverLocationMap = new DriverLocationMapForm(_wellRydeSession, driverId, trip.DriverName, dayTrips);
+            _driverLocationMap.FormClosed += (_, __) => _driverLocationMap = null;
+            _driverLocationMap.Show(this);
+        }
+
+        /// <summary>The currently open driver-location popup (non-modal); null when no map is shown.</summary>
+        private DriverLocationMapForm _driverLocationMap;
+
+        /// <summary>
+        /// Translate a portal trip's <c>DriverName</c> to the driverid the AVL feed expects.
+        /// Returns null if the roster isn't available; the popup will then fall back to name matching.
+        /// </summary>
+        private async Task<string> ResolveDriverIdForLocateAsync(string driverName)
+        {
+            if (string.IsNullOrWhiteSpace(driverName)) return null;
+            try
+            {
+                if (_tripScoutDriverRoster == null || _tripScoutDriverRoster.Count == 0)
+                {
+                    _tripScoutDriverRoster = await _wellRydeSession.GetAllDriversForTripAssignmentAsync().ConfigureAwait(true);
+                }
+            }
+            catch
+            {
+                return null;
+            }
+            if (_tripScoutDriverRoster == null) return null;
+
+            string target = driverName.Trim();
+            foreach (var d in _tripScoutDriverRoster)
+            {
+                if (d == null) continue;
+                if (string.Equals(d.text, target, StringComparison.OrdinalIgnoreCase))
+                    return d.value;
+            }
+            // Loose match: collapse whitespace.
+            string normTarget = string.Join(" ", target.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries));
+            foreach (var d in _tripScoutDriverRoster)
+            {
+                if (d == null || string.IsNullOrWhiteSpace(d.text)) continue;
+                string normCandidate = string.Join(" ", d.text.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries));
+                if (string.Equals(normCandidate, normTarget, StringComparison.OrdinalIgnoreCase))
+                    return d.value;
+            }
+            return null;
+        }
+
+        /// <summary>Snapshot the underlying <see cref="WRDownloadedTrip"/>s for the user's selection.</summary>
+        private List<WRDownloadedTrip> GetSelectedTripScoutTrips()
+        {
+            var result = new List<WRDownloadedTrip>();
+            foreach (ListViewItem item in tslv.SelectedItems)
+            {
+                if (item?.Tag is WRDownloadedTrip trip) result.Add(trip);
+            }
+            return result;
+        }
+
+        /// <summary>Re-renders <see cref="tslv"/> after an in-memory mutation, preserving the active search filter.</summary>
+        private void RefreshTripScoutListViewKeepingFilter()
+        {
+            ApplyTripScoutFilter(tssearchbox.Text);
+        }
+
+        /// <summary>
+        /// Fills <see cref="tslv"/> from a Trip Scout-owned trip list. Each row's <see cref="ListViewItem.Tag"/>
+        /// holds the originating <see cref="WRDownloadedTrip"/> so future actions can act on the underlying record.
+        /// </summary>
+        /// <param name="recomputeMinWidths">
+        /// True for fresh full-day loads (lets <see cref="ListViewMinWidthEnforcer"/> auto-fit columns
+        /// to the new content); false when called from the live search filter, where re-fitting on
+        /// every keystroke would make the column widths jitter as the user types.
+        /// </param>
+        private void BindTripScoutListView(List<WRDownloadedTrip> trips, bool recomputeMinWidths = true)
+        {
+            try
+            {
+                tslv.BeginUpdate();
+                tslv.Items.Clear();
+                if (trips == null || trips.Count == 0)
+                {
+                    tslv.Columns[2].Text = "Alerts: 0";
+                    return;
+                }
+
+                int alertCount = 0;
+                foreach (WRDownloadedTrip trip in trips)
+                {
+                    string alertseries = "";
+                    if (trip.Alerts != null)
+                    {
+                        foreach (string alert in trip.Alerts)
+                        {
+                            if (!string.IsNullOrEmpty(alert))
+                            {
+                                alertCount++;
+                                alertseries = string.IsNullOrEmpty(alertseries) ? alert : alertseries + ", " + alert;
+                            }
+                        }
+                    }
+
+                    ListViewItem item = new ListViewItem();
+                    item.Tag = trip;
+                    item.Text = trip.Status ?? "";
+                    item.SubItems.Add(trip.TripNumber ?? "");
+                    item.SubItems.Add(alertseries);
+                    item.SubItems.Add(trip.ClientName ?? "");
+                    item.SubItems.Add(trip.DriverName ?? "");
+                    item.SubItems.Add(FormatTimeOnly(trip.PUTime ?? ""));
+                    item.SubItems.Add(FormatTimeOnly(trip.DOTime ?? ""));
+                    item.SubItems.Add(trip.PUStreet ?? "");
+                    item.SubItems.Add(trip.PUCity ?? "");
+                    item.SubItems.Add(trip.DOStreet ?? "");
+                    item.SubItems.Add(trip.DOCITY ?? "");
+                    item.SubItems.Add(trip.Miles ?? "");
+                    item.SubItems.Add("$" + (trip.Price ?? ""));
+                    item.SubItems.Add(trip.References ?? "");
+                    tslv.Items.Add(item);
+                }
+
+                tslv.Columns[2].Text = "Alerts: " + alertCount;
+            }
+            finally
+            {
+                tslv.EndUpdate();
+            }
+            if (recomputeMinWidths)
+            {
+                ListViewMinWidthEnforcer.Recompute(tslv);
+            }
+        }
+
+        /// <summary>
         /// Fills <see cref="billinglistview"/> from <see cref="WRBillingTool.WRTripList"/> / <see cref="WRBillingTool.WRCalculations"/>.
         /// </summary>
         private void BindBillingListViewFromWrTool(decimal totalbilled, bool billinprogress, bool billexrta)
@@ -2230,8 +3031,8 @@ namespace Hiatme_Tool_Suite_v3
                     item.SubItems.Add(alertseries);
                     item.SubItems.Add(trip.ClientName);
                     item.SubItems.Add(trip.DriverName);
-                    item.SubItems.Add(trip.PUTime);
-                    item.SubItems.Add(trip.DOTime);
+                    item.SubItems.Add(FormatTimeOnly(trip.PUTime));
+                    item.SubItems.Add(FormatTimeOnly(trip.DOTime));
                     item.SubItems.Add(trip.PUStreet);
                     item.SubItems.Add(trip.PUCity);
                     item.SubItems.Add(trip.DOStreet);
@@ -2273,6 +3074,7 @@ namespace Hiatme_Tool_Suite_v3
                 billinglistview.Columns[2].Text = "Alerts: " + wrBillingTool.WRCalculations.GetAlertCount().ToString();
             }
             catch (Exception) { }
+            ListViewMinWidthEnforcer.Recompute(billinglistview);
             wrBillingTool.WRCalculations.CheckIfAllTripsAreBeingBilled(billingmmcb.CheckState, billingallcb.CheckState);
         }
 
@@ -2892,11 +3694,11 @@ namespace Hiatme_Tool_Suite_v3
                     lvi.SubItems.Add(loggedtrip.GetAlerts());
                     lvi.SubItems.Add(loggedtrip.DriverNameParsed);
                     lvi.SubItems.Add(loggedtrip.ClientFullName);
-                    lvi.SubItems.Add(loggedtrip.PUTime);
+                    lvi.SubItems.Add(FormatTimeOnly(loggedtrip.PUTime));
                     lvi.SubItems.Add(loggedtrip.PUStreet);
                     lvi.SubItems.Add(loggedtrip.PUCity);
                     lvi.SubItems.Add(loggedtrip.PUTelephone);
-                    lvi.SubItems.Add(loggedtrip.DOTime);
+                    lvi.SubItems.Add(FormatTimeOnly(loggedtrip.DOTime));
                     lvi.SubItems.Add(loggedtrip.DOStreet);
                     lvi.SubItems.Add(loggedtrip.DOCITY);
                     lvi.SubItems.Add(loggedtrip.DOTelephone);
@@ -2906,6 +3708,7 @@ namespace Hiatme_Tool_Suite_v3
                 }
 
             }
+            ListViewMinWidthEnforcer.Recompute(aalv);
 
             reportCard = new ReportCard(hiatmeTabControl.SelectedTab, aaassbtn);
 
@@ -3373,6 +4176,7 @@ namespace Hiatme_Tool_Suite_v3
                 //tbtemplatenamecb.SelectedIndex = 0;
                 // VerifyDriverTripsInfo(drivertriplist);
             }
+            ListViewMinWidthEnforcer.Recompute(templatelv);
         }
         private async void hiatmeTabControl_SelectedIndexChanged(object sender, EventArgs e)
         {
@@ -3466,6 +4270,28 @@ namespace Hiatme_Tool_Suite_v3
                 }
                 TextRenderer.DrawText(e.Graphics, e.Header.Text, headerFont, bounds, Color.Gainsboro,
                     align | TextFormatFlags.SingleLine | TextFormatFlags.GlyphOverhangPadding | TextFormatFlags.VerticalCenter | TextFormatFlags.WordEllipsis);
+            }
+
+            // Faint divider on the right edge of every header cell so users see the resize grabber
+            // (the flat #333333 fill above otherwise hides Windows' default column boundary).
+            using (var dividerPen = new Pen(Color.FromArgb(64, 255, 255, 255), 1f))
+            {
+                e.Graphics.DrawLine(dividerPen, e.Bounds.Right - 1, e.Bounds.Top + 4, e.Bounds.Right - 1, e.Bounds.Bottom - 4);
+            }
+
+            // Sort arrow indicator if this column is the active sort column on a ListViewSorter-equipped list.
+            var sorter = listView.ListViewItemSorter as ListViewSorter;
+            if (sorter != null && sorter.SortColumn == e.ColumnIndex && sorter.Order != SortOrder.None)
+            {
+                int cx = e.Bounds.Right - 16;
+                int cy = e.Bounds.Top + (e.Bounds.Height / 2);
+                Point[] tri = sorter.Order == SortOrder.Ascending
+                    ? new[] { new Point(cx, cy + 3), new Point(cx + 8, cy + 3), new Point(cx + 4, cy - 3) }
+                    : new[] { new Point(cx, cy - 3), new Point(cx + 8, cy - 3), new Point(cx + 4, cy + 3) };
+                using (var arrowBrush = new SolidBrush(Color.Gainsboro))
+                {
+                    e.Graphics.FillPolygon(arrowBrush, tri);
+                }
             }
 
             return;
@@ -3968,6 +4794,7 @@ namespace Hiatme_Tool_Suite_v3
             lvi.SubItems.Add(android_ver);
         
             listView1.Items.Add(lvi);
+            ListViewMinWidthEnforcer.Recompute(listView1);
 
             onlinecountlbl.Text = "Online: " + listView1.Items.Count.ToString();
             listBox1.Items.Add("[" + DateTime.Now.ToString("HH:mm:ss") + "]" + (socket != null ? socket.Handle.ToString() : "-") +

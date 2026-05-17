@@ -31,6 +31,14 @@ namespace Hiatme_Tool_Suite_v3
         private static readonly Uri TripAssignTripsUri = new Uri(PortalOrigin + "/portal/trip/assignTrips");
         private static readonly Uri TripAssignValidationUri = new Uri(PortalOrigin + "/portal/trip/assignValidation");
         private static readonly Uri TripAssignTripDriverUri = new Uri(PortalOrigin + "/portal/trip/assignTripDriver");
+        private static readonly Uri AvlInitiateUri = new Uri(PortalOrigin + "/portal/avl/avlinitiate");
+
+        // Supey roster import: portal users list + per-user detail page. The list lives behind the
+        // same /portal/filterdata pipeline as the trip list but with a different listDefId and a
+        // 3-sequence filter shape; the detail page is a plain HTML view at /portal/users/{secId}.
+        public const string SupeyUsersListDefId = "SEC-nPAmL7CyXxAhUHgE0x1NUA";
+        private static readonly Uri PortalUsersBaseUri = new Uri(PortalOrigin + "/portal/users/");
+        public const int DefaultUsersFilterMaxResult = 500;
 
         /// <summary>Trip list grid (PU/DO addresses, schedule times, miles) from browser capture; tenant-specific if portal differs.</summary>
         public const string DefaultTripFilterListDefId = "SEC-J0JwBzGuni0ZopMPBRCNuQ";
@@ -308,9 +316,11 @@ namespace Hiatme_Tool_Suite_v3
         /// Uses the same 10-sequence <c>filterList</c> shape as the portal trip list; sequence 7 carries <c>specificDate</c> (e.g. April 30, 2026).
         /// For the portal &quot;today&quot; slice only, pass <paramref name="usePeriodDayFilter"/> true (uses <c>{"period":"0d"}</c> instead of a calendar date).
         /// <paramref name="maxResults"/> sets both <c>maxResult</c> and <c>defaultSize</c> (clamped to 1–10000).
+        /// <paramref name="page"/> selects the 1-based page when the portal caps results-per-page below <paramref name="maxResults"/>; iterate to collect a full day.
         /// </summary>
         public async Task<WellRydePortalFilterDataResult> PostTripFilterDataAsync(DateTime tripDate,
             string listDefId = null, bool usePeriodDayFilter = false, int maxResults = DefaultTripFilterMaxResult,
+            int page = 1,
             CancellationToken cancellationToken = default)
         {
             LastTripFilterDataJson = null;
@@ -318,7 +328,9 @@ namespace Hiatme_Tool_Suite_v3
                 maxResults = 1;
             if (maxResults > TripFilterMaxResultUpperBound)
                 maxResults = TripFilterMaxResultUpperBound;
+            if (page < 1) page = 1;
             string maxResultsStr = maxResults.ToString(CultureInfo.InvariantCulture);
+            string pageStr = page.ToString(CultureInfo.InvariantCulture);
             if (string.IsNullOrEmpty(_lastPortalNuHtml))
             {
                 var nu = await GetPortalNuAsync(cancellationToken).ConfigureAwait(false);
@@ -363,7 +375,7 @@ namespace Hiatme_Tool_Suite_v3
                 new KeyValuePair<string, string>("canEdit", "false"),
                 new KeyValuePair<string, string>("canShow", "false"),
                 new KeyValuePair<string, string>("canSelect", "true"),
-                new KeyValuePair<string, string>("page", "1"),
+                new KeyValuePair<string, string>("page", pageStr),
                 new KeyValuePair<string, string>("currentPageSize", ""),
                 new KeyValuePair<string, string>("maxResult", maxResultsStr),
                 new KeyValuePair<string, string>("defaultSize", maxResultsStr),
@@ -418,6 +430,179 @@ namespace Hiatme_Tool_Suite_v3
 
             LastTripFilterDataJson = body;
             return WellRydePortalFilterDataResult.Ok(statusCode, body);
+        }
+
+        /// <summary>
+        /// POST <c>/portal/filterdata</c> for the WellRyde users list (Supey roster import).
+        /// Same CSRF + cookie path as <see cref="PostTripFilterDataAsync"/> but with the user
+        /// <c>listDefId</c> and the 3-sequence filter the portal sends for that page (Username /
+        /// Email / CreatedDTTM all <c>"-1"</c> = no filter). Returns the raw JSON body for
+        /// <see cref="WellRydeUserParser.ParseUsersList"/> to digest.
+        /// </summary>
+        /// <remarks>
+        /// Pagination: <paramref name="maxResults"/> is the page size; <paramref name="page"/> is
+        /// 1-based. Caller should look at <c>totalRecords</c> in the parsed result to decide
+        /// whether to fetch more pages. <see cref="WellRydeRosterImporter"/> handles that loop.
+        /// </remarks>
+        public async Task<WellRydePortalFilterDataResult> PostUsersFilterDataAsync(
+            int page = 1, int maxResults = DefaultUsersFilterMaxResult,
+            CancellationToken cancellationToken = default)
+        {
+            if (maxResults < 1) maxResults = 1;
+            if (maxResults > TripFilterMaxResultUpperBound) maxResults = TripFilterMaxResultUpperBound;
+            if (page < 1) page = 1;
+            string maxResultsStr = maxResults.ToString(CultureInfo.InvariantCulture);
+            string pageStr = page.ToString(CultureInfo.InvariantCulture);
+
+            if (string.IsNullOrEmpty(_lastPortalNuHtml))
+            {
+                var nu = await GetPortalNuAsync(cancellationToken).ConfigureAwait(false);
+                if (!nu.IsSuccess)
+                    return WellRydePortalFilterDataResult.Fail(nu.StatusCode,
+                        nu.ErrorMessage ?? "GET /portal/nu required before filterdata.");
+            }
+
+            string csrf = ResolveAjaxCsrfToken();
+            if (string.IsNullOrEmpty(csrf))
+                return WellRydePortalFilterDataResult.Fail(null,
+                    "Could not find _csrf for users filterdata. Sign in and load /portal/nu again.");
+
+            // Captured browser request uses 3 sequences (Username / Email / CreatedDTTM filters),
+            // all set to "-1" meaning no filter. Order matters: the portal validates sequence ids.
+            var filterList = new JArray(
+                new JObject { ["sequence"] = "1", ["value"] = "-1" },
+                new JObject { ["sequence"] = "2", ["value"] = "-1" },
+                new JObject { ["sequence"] = "3", ["value"] = "-1" }
+            );
+            string filterListStr = filterList.ToString(Formatting.None);
+
+            var pairs = new List<KeyValuePair<string, string>>
+            {
+                new KeyValuePair<string, string>("filterList", filterListStr),
+                new KeyValuePair<string, string>("listDefId", SupeyUsersListDefId),
+                new KeyValuePair<string, string>("customListDefId", ""),
+                new KeyValuePair<string, string>("canDelete", "false"),
+                new KeyValuePair<string, string>("canEdit", "false"),
+                new KeyValuePair<string, string>("canShow", "false"),
+                new KeyValuePair<string, string>("canSelect", "true"),
+                new KeyValuePair<string, string>("page", pageStr),
+                new KeyValuePair<string, string>("currentPageSize", ""),
+                new KeyValuePair<string, string>("maxResult", maxResultsStr),
+                new KeyValuePair<string, string>("defaultSize", maxResultsStr),
+                new KeyValuePair<string, string>("userDefaultFilter", "true"),
+                new KeyValuePair<string, string>("filterArgsJson", "{}"),
+                new KeyValuePair<string, string>("filterValues", "[]"),
+                new KeyValuePair<string, string>("_csrf", csrf),
+            };
+
+            HttpResponseMessage response = null;
+            try
+            {
+                using (var request = new HttpRequestMessage(HttpMethod.Post, FilterDataUri))
+                {
+                    request.Content = new FormUrlEncodedContent(pairs);
+                    request.Headers.TryAddWithoutValidation("Accept", "application/json, text/javascript, */*; q=0.01");
+                    request.Headers.TryAddWithoutValidation("X-Requested-With", "XMLHttpRequest");
+                    request.Headers.TryAddWithoutValidation("Origin", PortalOrigin);
+                    request.Headers.TryAddWithoutValidation("Referer", PortalNuUri.ToString());
+                    request.Headers.TryAddWithoutValidation("Sec-Fetch-Site", "same-origin");
+                    request.Headers.TryAddWithoutValidation("Sec-Fetch-Mode", "cors");
+                    request.Headers.TryAddWithoutValidation("Sec-Fetch-Dest", "empty");
+                    request.Headers.TryAddWithoutValidation("Priority", "u=1, i");
+
+                    response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+            }
+            catch (Exception ex)
+            {
+                return WellRydePortalFilterDataResult.Fail(null, ex.Message ?? "POST users filterdata failed.");
+            }
+
+            string body;
+            try
+            {
+                body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                var code = response.StatusCode;
+                response.Dispose();
+                return WellRydePortalFilterDataResult.Fail(code, ex.Message ?? "Failed to read users filterdata response.");
+            }
+
+            var statusCode = response.StatusCode;
+            response.Dispose();
+            LastPortalCookies = SnapMergedPortalCookies();
+
+            if ((int)statusCode < 200 || (int)statusCode >= 300)
+                return WellRydePortalFilterDataResult.Fail(statusCode,
+                    "HTTP " + (int)statusCode + " from users filterdata.", body);
+
+            return WellRydePortalFilterDataResult.Ok(statusCode, body);
+        }
+
+        /// <summary>
+        /// GET <c>/portal/users/{secId}</c> (HTML detail page for one user). Caller hands the body
+        /// to <see cref="WellRydeUserParser.ParseUserDetail"/>. We surface the raw HTML rather
+        /// than parsing here so the network and parsing concerns stay separable / testable.
+        /// </summary>
+        /// <remarks>
+        /// Requires a live session — the portal returns the login HTML otherwise. We don't
+        /// auto-redirect because the caller's <c>EnsureWellRydePortalSessionForBillingAsync</c>
+        /// already handles login flow before this endpoint is invoked. <paramref name="secId"/>
+        /// is the opaque <c>SEC-...</c> key from the user list.
+        /// </remarks>
+        public async Task<WellRydePortalUserDetailResult> GetUserDetailHtmlAsync(string secId,
+            CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrWhiteSpace(secId))
+                return WellRydePortalUserDetailResult.Fail(null, "secId is required.");
+
+            // Build the absolute URI explicitly — Uri's relative-resolution gets confused if the
+            // secId contains '/', '?', or other delimiters (they don't here, but defensive coding).
+            var uri = new Uri(PortalUsersBaseUri, secId.Trim());
+
+            HttpResponseMessage response = null;
+            try
+            {
+                using (var request = new HttpRequestMessage(HttpMethod.Get, uri))
+                {
+                    request.Headers.TryAddWithoutValidation("Accept", "application/json, text/plain, */*");
+                    request.Headers.TryAddWithoutValidation("Referer", PortalNuUri.ToString());
+                    request.Headers.TryAddWithoutValidation("Sec-Fetch-Site", "same-origin");
+                    request.Headers.TryAddWithoutValidation("Sec-Fetch-Mode", "cors");
+                    request.Headers.TryAddWithoutValidation("Sec-Fetch-Dest", "empty");
+
+                    response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+            }
+            catch (Exception ex)
+            {
+                return WellRydePortalUserDetailResult.Fail(null, ex.Message ?? "GET user detail failed.");
+            }
+
+            string body;
+            try
+            {
+                body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                var code = response.StatusCode;
+                response.Dispose();
+                return WellRydePortalUserDetailResult.Fail(code, ex.Message ?? "Failed to read user detail body.");
+            }
+
+            var statusCode = response.StatusCode;
+            response.Dispose();
+            LastPortalCookies = SnapMergedPortalCookies();
+
+            if ((int)statusCode < 200 || (int)statusCode >= 300)
+                return WellRydePortalUserDetailResult.Fail(statusCode, "HTTP " + (int)statusCode + " from user detail.", body);
+
+            return WellRydePortalUserDetailResult.Ok(statusCode, body);
         }
 
         /// <summary>
@@ -615,6 +800,84 @@ namespace Hiatme_Tool_Suite_v3
                 new KeyValuePair<string, string>("hasAssigned", "1"),
             };
             return await PostTripAjaxFormAsync(TripAssignTripDriverUri, driverFields, cancellationToken).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// GET <c>/portal/avl/avlinitiate</c> — fetches every driver currently visible on the live map.
+        /// The portal expects an <c>avlFilterCriteria</c> JSON with bounding box; we send a continent-sized box
+        /// so a single call returns the full fleet (matches the field names captured from the browser request).
+        /// </summary>
+        public async Task<List<WRDriverPosition>> GetDriverPositionsAsync(CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrEmpty(_lastPortalNuHtml))
+            {
+                var nu = await GetPortalNuAsync(cancellationToken).ConfigureAwait(false);
+                if (!nu.IsSuccess)
+                    return new List<WRDriverPosition>();
+            }
+
+            // Continent-sized bounds so the portal returns every driver in one shot.
+            var avlFilter = new JObject
+            {
+                ["avlMapSearch"] = new JObject
+                {
+                    ["centerLatLng"] = new JObject { ["lat"] = "39.000000", ["lng"] = "-95.000000" },
+                    ["northEastBoundsLatLng"] = new JObject { ["lat"] = "71.000000", ["lng"] = "-30.000000" },
+                    ["southWestBoundsLatLng"] = new JObject { ["lat"] = "15.000000", ["lng"] = "-170.000000" },
+                },
+            };
+
+            var qs = new System.Text.StringBuilder();
+            qs.Append("avlFilterCriteria=").Append(Uri.EscapeDataString(avlFilter.ToString(Formatting.None)));
+            qs.Append("&avlQueryDate=");
+            qs.Append("&quickSearchJsonArr=").Append(Uri.EscapeDataString("[]"));
+            qs.Append("&riderSearchJSON=");
+
+            var requestUri = new Uri(AvlInitiateUri + "?" + qs);
+
+            HttpResponseMessage response = null;
+            string body;
+            try
+            {
+                using (var request = new HttpRequestMessage(HttpMethod.Get, requestUri))
+                {
+                    request.Headers.TryAddWithoutValidation("Accept", "application/json, text/javascript, */*; q=0.01");
+                    request.Headers.TryAddWithoutValidation("X-Requested-With", "XMLHttpRequest");
+                    request.Headers.TryAddWithoutValidation("Referer", PortalOrigin + "/portal/avl/");
+                    request.Headers.TryAddWithoutValidation("Sec-Fetch-Site", "same-origin");
+                    request.Headers.TryAddWithoutValidation("Sec-Fetch-Mode", "cors");
+                    request.Headers.TryAddWithoutValidation("Sec-Fetch-Dest", "empty");
+
+                    response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            }
+            catch
+            {
+                response?.Dispose();
+                return new List<WRDriverPosition>();
+            }
+
+            var statusCode = response.StatusCode;
+            response.Dispose();
+            LastPortalCookies = SnapMergedPortalCookies();
+
+            if ((int)statusCode < 200 || (int)statusCode >= 300 || string.IsNullOrWhiteSpace(body))
+                return new List<WRDriverPosition>();
+
+            try
+            {
+                var root = JObject.Parse(body);
+                var arr = root["drivers"] as JArray;
+                if (arr == null)
+                    return new List<WRDriverPosition>();
+                return arr.ToObject<List<WRDriverPosition>>() ?? new List<WRDriverPosition>();
+            }
+            catch
+            {
+                return new List<WRDriverPosition>();
+            }
         }
 
         private static string JoinTripUuids(IEnumerable<string> tripUuids)
@@ -955,6 +1218,37 @@ namespace Hiatme_Tool_Suite_v3
         public static WellRydePortalFilterDataResult Fail(HttpStatusCode? statusCode, string errorMessage, string jsonBody = null)
         {
             return new WellRydePortalFilterDataResult(false, statusCode, errorMessage, jsonBody);
+        }
+    }
+
+    /// <summary>
+    /// Result of a <c>GET /portal/users/{secId}</c> call. <see cref="HtmlBody"/> is the raw HTML
+    /// (may be present even on a failure to help diagnostics — e.g. a 200 with the login form means
+    /// session expired).
+    /// </summary>
+    internal sealed class WellRydePortalUserDetailResult
+    {
+        private WellRydePortalUserDetailResult(bool success, HttpStatusCode? statusCode, string errorMessage, string htmlBody)
+        {
+            IsSuccess = success;
+            StatusCode = statusCode;
+            ErrorMessage = errorMessage;
+            HtmlBody = htmlBody;
+        }
+
+        public bool IsSuccess { get; }
+        public HttpStatusCode? StatusCode { get; }
+        public string ErrorMessage { get; }
+        public string HtmlBody { get; }
+
+        public static WellRydePortalUserDetailResult Ok(HttpStatusCode statusCode, string htmlBody)
+        {
+            return new WellRydePortalUserDetailResult(true, statusCode, null, htmlBody);
+        }
+
+        public static WellRydePortalUserDetailResult Fail(HttpStatusCode? statusCode, string errorMessage, string htmlBody = null)
+        {
+            return new WellRydePortalUserDetailResult(false, statusCode, errorMessage, htmlBody);
         }
     }
 

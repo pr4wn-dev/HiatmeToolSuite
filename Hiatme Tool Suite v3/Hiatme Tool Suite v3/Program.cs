@@ -81,6 +81,9 @@ namespace Hiatme_Tool_Suite_v3
 
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
+            // Set GMap.NET's User-Agent / Referer / cache path before any tile fetches so OSM
+            // doesn't 403 us with the "Access blocked" warning tiles.
+            GMapInitializer.EnsureInitialized();
             try
             {
                 Application.Run(new Form1());

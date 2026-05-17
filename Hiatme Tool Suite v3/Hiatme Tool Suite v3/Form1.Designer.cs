@@ -150,6 +150,7 @@
             this.pictureBox2 = new System.Windows.Forms.PictureBox();
             this.fsbdatepicker = new Hiatme_Tool_Suite_v3.RJDatePicker();
             this.fsbtn = new MaterialSkin.Controls.MaterialButton();
+            this.tabPageSupey = new System.Windows.Forms.TabPage();
             this.tabPage7 = new System.Windows.Forms.TabPage();
             this.materialCard17 = new MaterialSkin.Controls.MaterialCard();
             this.aastatuslbl = new MaterialSkin.Controls.MaterialLabel();
@@ -174,6 +175,33 @@
             this.aaloadbtn = new MaterialSkin.Controls.MaterialButton();
             this.aadatepicker = new Hiatme_Tool_Suite_v3.RJDatePicker();
             this.tabPage8 = new System.Windows.Forms.TabPage();
+            this.tabPage9 = new System.Windows.Forms.TabPage();
+            this.tsmaterialCard = new MaterialSkin.Controls.MaterialCard();
+            this.tslv = new System.Windows.Forms.ListView();
+            this.tsColStatus = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
+            this.tsColTripId = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
+            this.tsColAlerts = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
+            this.tsColClient = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
+            this.tsColDriver = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
+            this.tsColPUTime = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
+            this.tsColDOTime = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
+            this.tsColPUStreet = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
+            this.tsColPUCity = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
+            this.tsColDOStreet = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
+            this.tsColDOCity = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
+            this.tsColMiles = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
+            this.tsColPrice = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
+            this.tsColReferences = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
+            this.tsloadbtn = new MaterialSkin.Controls.MaterialButton();
+            this.tsdatepicker = new Hiatme_Tool_Suite_v3.RJDatePicker();
+            this.tssearchbox = new MaterialSkin.Controls.MaterialTextBox2();
+            this.tsstatuspanel = new MaterialSkin.Controls.MaterialCard();
+            this.tsstatuslbl = new MaterialSkin.Controls.MaterialLabel();
+            this.tsTripContextMenu = new System.Windows.Forms.ContextMenuStrip(this.components);
+            this.tsTripCtxAssign = new System.Windows.Forms.ToolStripMenuItem();
+            this.tsTripCtxUnassign = new System.Windows.Forms.ToolStripMenuItem();
+            this.tsTripCtxLocateSeparator = new System.Windows.Forms.ToolStripSeparator();
+            this.tsTripCtxLocate = new System.Windows.Forms.ToolStripMenuItem();
             this.tabPage3 = new System.Windows.Forms.TabPage();
             this.materialCard18 = new MaterialSkin.Controls.MaterialCard();
             this.materialCard7 = new MaterialSkin.Controls.MaterialCard();
@@ -236,6 +264,9 @@
             this.tabPage7.SuspendLayout();
             this.materialCard17.SuspendLayout();
             this.materialCard16.SuspendLayout();
+            this.tabPage9.SuspendLayout();
+            this.tsmaterialCard.SuspendLayout();
+            this.tsstatuspanel.SuspendLayout();
             this.tabPage3.SuspendLayout();
             this.materialCard7.SuspendLayout();
             this.ToolStripDropDownMenu.SuspendLayout();
@@ -249,8 +280,10 @@
             this.hiatmeTabControl.Controls.Add(this.tabPage4);
             this.hiatmeTabControl.Controls.Add(this.tabPage5);
             this.hiatmeTabControl.Controls.Add(this.tabPage6);
+            this.hiatmeTabControl.Controls.Add(this.tabPageSupey);
             this.hiatmeTabControl.Controls.Add(this.tabPage7);
             this.hiatmeTabControl.Controls.Add(this.tabPage8);
+            this.hiatmeTabControl.Controls.Add(this.tabPage9);
             this.hiatmeTabControl.Controls.Add(this.tabPage3);
             this.hiatmeTabControl.Depth = 0;
             this.hiatmeTabControl.Dock = System.Windows.Forms.DockStyle.Fill;
@@ -1657,6 +1690,18 @@
             this.fsbtn.UseVisualStyleBackColor = true;
             this.fsbtn.Click += new System.EventHandler(this.fsbtn_Click);
             // 
+            // tabPageSupey
+            // 
+            // Empty placeholder. Real Supey Schedule UI will be added in a follow-up — for now
+            // the tab just shows the shield icon + "Supey Schedule" caption so it's discoverable.
+            this.tabPageSupey.ImageKey = "supey-shield.png";
+            this.tabPageSupey.Location = new System.Drawing.Point(4, 39);
+            this.tabPageSupey.Name = "tabPageSupey";
+            this.tabPageSupey.Size = new System.Drawing.Size(1502, 777);
+            this.tabPageSupey.TabIndex = 9;
+            this.tabPageSupey.Text = "Supey Schedule";
+            this.tabPageSupey.UseVisualStyleBackColor = true;
+            // 
             // tabPage7
             // 
             this.tabPage7.Controls.Add(this.materialCard17);
@@ -1911,6 +1956,271 @@
             this.tabPage8.TabIndex = 7;
             this.tabPage8.Text = "Production";
             this.tabPage8.UseVisualStyleBackColor = true;
+            // 
+            // tabPage9
+            // 
+            this.tabPage9.Controls.Add(this.tsstatuspanel);
+            this.tabPage9.Controls.Add(this.tsmaterialCard);
+            this.tabPage9.ImageKey = "magnify.png";
+            this.tabPage9.Location = new System.Drawing.Point(4, 39);
+            this.tabPage9.Name = "tabPage9";
+            this.tabPage9.Size = new System.Drawing.Size(1502, 777);
+            this.tabPage9.TabIndex = 8;
+            this.tabPage9.Text = "Trip Scout";
+            this.tabPage9.UseVisualStyleBackColor = true;
+            // 
+            // tsmaterialCard
+            // 
+            this.tsmaterialCard.Anchor = ((System.Windows.Forms.AnchorStyles)((((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Bottom) 
+            | System.Windows.Forms.AnchorStyles.Left) 
+            | System.Windows.Forms.AnchorStyles.Right)));
+            this.tsmaterialCard.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(255)))), ((int)(((byte)(255)))), ((int)(((byte)(255)))));
+            this.tsmaterialCard.Controls.Add(this.tslv);
+            this.tsmaterialCard.Controls.Add(this.tssearchbox);
+            this.tsmaterialCard.Controls.Add(this.tsloadbtn);
+            this.tsmaterialCard.Controls.Add(this.tsdatepicker);
+            this.tsmaterialCard.Depth = 0;
+            this.tsmaterialCard.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(222)))), ((int)(((byte)(0)))), ((int)(((byte)(0)))), ((int)(((byte)(0)))));
+            this.tsmaterialCard.Location = new System.Drawing.Point(13, 15);
+            this.tsmaterialCard.Margin = new System.Windows.Forms.Padding(14);
+            this.tsmaterialCard.MouseState = MaterialSkin.MouseState.HOVER;
+            this.tsmaterialCard.Name = "tsmaterialCard";
+            this.tsmaterialCard.Padding = new System.Windows.Forms.Padding(14);
+            this.tsmaterialCard.Size = new System.Drawing.Size(1477, 707);
+            this.tsmaterialCard.TabIndex = 0;
+            // 
+            // tslv
+            // 
+            this.tslv.Anchor = ((System.Windows.Forms.AnchorStyles)((((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Bottom) 
+            | System.Windows.Forms.AnchorStyles.Left) 
+            | System.Windows.Forms.AnchorStyles.Right)));
+            this.tslv.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(70)))), ((int)(((byte)(70)))), ((int)(((byte)(70)))));
+            this.tslv.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
+            this.tslv.Columns.AddRange(new System.Windows.Forms.ColumnHeader[] {
+            this.tsColStatus,
+            this.tsColTripId,
+            this.tsColAlerts,
+            this.tsColClient,
+            this.tsColDriver,
+            this.tsColPUTime,
+            this.tsColDOTime,
+            this.tsColPUStreet,
+            this.tsColPUCity,
+            this.tsColDOStreet,
+            this.tsColDOCity,
+            this.tsColMiles,
+            this.tsColPrice,
+            this.tsColReferences});
+            this.tslv.Font = new System.Drawing.Font("Archivo Medium", 11.25F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.tslv.ForeColor = System.Drawing.SystemColors.Desktop;
+            this.tslv.FullRowSelect = true;
+            this.tslv.GridLines = true;
+            this.tslv.HideSelection = false;
+            this.tslv.Location = new System.Drawing.Point(17, 70);
+            this.tslv.Name = "tslv";
+            this.tslv.OwnerDraw = true;
+            this.tslv.Size = new System.Drawing.Size(1443, 620);
+            this.tslv.TabIndex = 4;
+            this.tslv.UseCompatibleStateImageBehavior = false;
+            this.tslv.View = System.Windows.Forms.View.Details;
+            this.tslv.ContextMenuStrip = this.tsTripContextMenu;
+            this.tslv.DrawColumnHeader += new System.Windows.Forms.DrawListViewColumnHeaderEventHandler(this.listView_DrawColumnHeader);
+            this.tslv.DrawItem += new System.Windows.Forms.DrawListViewItemEventHandler(this.listView_DrawItem);
+            this.tslv.DrawSubItem += new System.Windows.Forms.DrawListViewSubItemEventHandler(this.listView_DrawSubItem);
+            // 
+            // tsColStatus
+            // 
+            this.tsColStatus.Text = "Status";
+            this.tsColStatus.Width = 130;
+            // 
+            // tsColTripId
+            // 
+            this.tsColTripId.Text = "Trip ID";
+            this.tsColTripId.Width = 100;
+            // 
+            // tsColAlerts
+            // 
+            this.tsColAlerts.Text = "Alerts: 0";
+            this.tsColAlerts.Width = 100;
+            // 
+            // tsColClient
+            // 
+            this.tsColClient.Text = "Client";
+            this.tsColClient.Width = 250;
+            // 
+            // tsColDriver
+            // 
+            this.tsColDriver.Text = "Driver";
+            this.tsColDriver.Width = 180;
+            // 
+            // tsColPUTime
+            // 
+            this.tsColPUTime.Text = "PU Time";
+            this.tsColPUTime.Width = 130;
+            // 
+            // tsColDOTime
+            // 
+            this.tsColDOTime.Text = "DO Time";
+            this.tsColDOTime.Width = 130;
+            // 
+            // tsColPUStreet
+            // 
+            this.tsColPUStreet.Text = "PU Street";
+            this.tsColPUStreet.Width = 250;
+            // 
+            // tsColPUCity
+            // 
+            this.tsColPUCity.Text = "PU City";
+            this.tsColPUCity.Width = 170;
+            // 
+            // tsColDOStreet
+            // 
+            this.tsColDOStreet.Text = "DO Street";
+            this.tsColDOStreet.Width = 250;
+            // 
+            // tsColDOCity
+            // 
+            this.tsColDOCity.Text = "DO City";
+            this.tsColDOCity.Width = 170;
+            // 
+            // tsColMiles
+            // 
+            this.tsColMiles.Text = "Miles";
+            // 
+            // tsColPrice
+            // 
+            this.tsColPrice.Text = "Price";
+            this.tsColPrice.Width = 80;
+            // 
+            // tsColReferences
+            // 
+            this.tsColReferences.Text = "References";
+            this.tsColReferences.Width = 140;
+            // 
+            // tsloadbtn
+            // 
+            this.tsloadbtn.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
+            this.tsloadbtn.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
+            this.tsloadbtn.Density = MaterialSkin.Controls.MaterialButton.MaterialButtonDensity.Default;
+            this.tsloadbtn.Depth = 0;
+            this.tsloadbtn.HighEmphasis = true;
+            this.tsloadbtn.Icon = null;
+            this.tsloadbtn.Location = new System.Drawing.Point(1396, 17);
+            this.tsloadbtn.Margin = new System.Windows.Forms.Padding(4, 6, 4, 6);
+            this.tsloadbtn.MouseState = MaterialSkin.MouseState.HOVER;
+            this.tsloadbtn.Name = "tsloadbtn";
+            this.tsloadbtn.NoAccentTextColor = System.Drawing.Color.Empty;
+            this.tsloadbtn.Size = new System.Drawing.Size(64, 36);
+            this.tsloadbtn.TabIndex = 1;
+            this.tsloadbtn.Text = "Load";
+            this.tsloadbtn.Type = MaterialSkin.Controls.MaterialButton.MaterialButtonType.Contained;
+            this.tsloadbtn.UseAccentColor = false;
+            this.tsloadbtn.UseVisualStyleBackColor = true;
+            this.tsloadbtn.Click += new System.EventHandler(this.tsloadbtn_Click);
+            // 
+            // tsdatepicker
+            // 
+            this.tsdatepicker.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
+            this.tsdatepicker.BorderColor = System.Drawing.Color.Black;
+            this.tsdatepicker.BorderSize = 2;
+            this.tsdatepicker.Font = new System.Drawing.Font("Microsoft Sans Serif", 9.75F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.tsdatepicker.Location = new System.Drawing.Point(1101, 18);
+            this.tsdatepicker.MinimumSize = new System.Drawing.Size(4, 35);
+            this.tsdatepicker.Name = "tsdatepicker";
+            this.tsdatepicker.Size = new System.Drawing.Size(288, 35);
+            this.tsdatepicker.SkinColor = System.Drawing.Color.FromArgb(((int)(((byte)(64)))), ((int)(((byte)(64)))), ((int)(((byte)(64)))));
+            this.tsdatepicker.TabIndex = 0;
+            this.tsdatepicker.TextColor = System.Drawing.Color.White;
+            // 
+            // tssearchbox
+            // 
+            this.tssearchbox.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left)
+            | System.Windows.Forms.AnchorStyles.Right)));
+            this.tssearchbox.AnimateReadOnly = false;
+            this.tssearchbox.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(255)))), ((int)(((byte)(255)))), ((int)(((byte)(255)))));
+            this.tssearchbox.Depth = 0;
+            this.tssearchbox.Font = new System.Drawing.Font("Roboto", 16F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Pixel);
+            this.tssearchbox.HelperText = "";
+            this.tssearchbox.Hint = "Search loaded trips by ID, client, driver, address, phone, references...";
+            this.tssearchbox.LeadingIcon = global::Hiatme_Tool_Suite_v3.Properties.Resources.magnify;
+            this.tssearchbox.Location = new System.Drawing.Point(17, 18);
+            this.tssearchbox.MaxLength = 200;
+            this.tssearchbox.MouseState = MaterialSkin.MouseState.OUT;
+            this.tssearchbox.Name = "tssearchbox";
+            this.tssearchbox.PrefixSuffix = MaterialSkin.Controls.MaterialTextBox2.PrefixSuffixTypes.None;
+            this.tssearchbox.PrefixSuffixText = null;
+            this.tssearchbox.Size = new System.Drawing.Size(1078, 35);
+            this.tssearchbox.TabIndex = 5;
+            this.tssearchbox.Text = "";
+            this.tssearchbox.UseAccent = false;
+            this.tssearchbox.UseTallSize = false;
+            this.tssearchbox.TextChanged += new System.EventHandler(this.tssearchbox_TextChanged);
+            // 
+            // tsTripContextMenu
+            // 
+            this.tsTripContextMenu.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
+                this.tsTripCtxAssign,
+                this.tsTripCtxUnassign,
+                this.tsTripCtxLocateSeparator,
+                this.tsTripCtxLocate});
+            this.tsTripContextMenu.Name = "tsTripContextMenu";
+            this.tsTripContextMenu.Size = new System.Drawing.Size(220, 76);
+            this.tsTripContextMenu.Opening += new System.ComponentModel.CancelEventHandler(this.tsTripContextMenu_Opening);
+            // 
+            // tsTripCtxAssign
+            // 
+            this.tsTripCtxAssign.Name = "tsTripCtxAssign";
+            this.tsTripCtxAssign.Size = new System.Drawing.Size(219, 22);
+            this.tsTripCtxAssign.Text = "Assign to driver...";
+            this.tsTripCtxAssign.Click += new System.EventHandler(this.tsTripCtxAssign_Click);
+            // 
+            // tsTripCtxUnassign
+            // 
+            this.tsTripCtxUnassign.Name = "tsTripCtxUnassign";
+            this.tsTripCtxUnassign.Size = new System.Drawing.Size(219, 22);
+            this.tsTripCtxUnassign.Text = "Unassign trip";
+            this.tsTripCtxUnassign.Click += new System.EventHandler(this.tsTripCtxUnassign_Click);
+            // 
+            // tsTripCtxLocateSeparator
+            // 
+            this.tsTripCtxLocateSeparator.Name = "tsTripCtxLocateSeparator";
+            this.tsTripCtxLocateSeparator.Size = new System.Drawing.Size(216, 6);
+            // 
+            // tsTripCtxLocate
+            // 
+            this.tsTripCtxLocate.Name = "tsTripCtxLocate";
+            this.tsTripCtxLocate.Size = new System.Drawing.Size(219, 22);
+            this.tsTripCtxLocate.Text = "Locate driver on map";
+            this.tsTripCtxLocate.Click += new System.EventHandler(this.tsTripCtxLocate_Click);
+            // 
+            // tsstatuspanel
+            // 
+            this.tsstatuspanel.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Left) 
+            | System.Windows.Forms.AnchorStyles.Right)));
+            this.tsstatuspanel.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(255)))), ((int)(((byte)(255)))), ((int)(((byte)(255)))));
+            this.tsstatuspanel.Controls.Add(this.tsstatuslbl);
+            this.tsstatuspanel.Depth = 0;
+            this.tsstatuspanel.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(222)))), ((int)(((byte)(0)))), ((int)(((byte)(0)))), ((int)(((byte)(0)))));
+            this.tsstatuspanel.Location = new System.Drawing.Point(13, 728);
+            this.tsstatuspanel.Margin = new System.Windows.Forms.Padding(14);
+            this.tsstatuspanel.MouseState = MaterialSkin.MouseState.HOVER;
+            this.tsstatuspanel.Name = "tsstatuspanel";
+            this.tsstatuspanel.Padding = new System.Windows.Forms.Padding(14);
+            this.tsstatuspanel.Size = new System.Drawing.Size(1478, 41);
+            this.tsstatuspanel.TabIndex = 1;
+            // 
+            // tsstatuslbl
+            // 
+            this.tsstatuslbl.Anchor = System.Windows.Forms.AnchorStyles.Left;
+            this.tsstatuslbl.AutoSize = true;
+            this.tsstatuslbl.Depth = 0;
+            this.tsstatuslbl.Font = new System.Drawing.Font("Roboto", 14F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Pixel);
+            this.tsstatuslbl.Location = new System.Drawing.Point(12, 11);
+            this.tsstatuslbl.MouseState = MaterialSkin.MouseState.HOVER;
+            this.tsstatuslbl.Name = "tsstatuslbl";
+            this.tsstatuslbl.Size = new System.Drawing.Size(332, 19);
+            this.tsstatuslbl.TabIndex = 0;
+            this.tsstatuslbl.Text = "Status: Select a date and click \'Load\' to pull WellRyde trips.";
             // 
             // tabPage3
             // 
@@ -2262,6 +2572,10 @@
             this.materialCard17.PerformLayout();
             this.materialCard16.ResumeLayout(false);
             this.materialCard16.PerformLayout();
+            this.tabPage9.ResumeLayout(false);
+            this.tsmaterialCard.ResumeLayout(false);
+            this.tsstatuspanel.ResumeLayout(false);
+            this.tsstatuspanel.PerformLayout();
             this.tabPage3.ResumeLayout(false);
             this.materialCard7.ResumeLayout(false);
             this.materialCard7.PerformLayout();
@@ -2402,6 +2716,7 @@
         private RJDatePicker fsbdatepicker;
         private System.Windows.Forms.PictureBox pictureBox2;
         private MaterialSkin.Controls.MaterialLabel sbstatuslbl;
+        private System.Windows.Forms.TabPage tabPageSupey;
         private System.Windows.Forms.TabPage tabPage7;
         private MaterialSkin.Controls.MaterialCard materialCard17;
         private MaterialSkin.Controls.MaterialCard materialCard16;
@@ -2426,6 +2741,33 @@
         private System.Windows.Forms.ColumnHeader columnHeader70;
         private System.Windows.Forms.ColumnHeader columnHeader71;
         private System.Windows.Forms.TabPage tabPage8;
+        private System.Windows.Forms.TabPage tabPage9;
+        private MaterialSkin.Controls.MaterialCard tsmaterialCard;
+        private MaterialSkin.Controls.MaterialCard tsstatuspanel;
+        private MaterialSkin.Controls.MaterialLabel tsstatuslbl;
+        private MaterialSkin.Controls.MaterialButton tsloadbtn;
+        private Hiatme_Tool_Suite_v3.RJDatePicker tsdatepicker;
+        private MaterialSkin.Controls.MaterialTextBox2 tssearchbox;
+        private System.Windows.Forms.ContextMenuStrip tsTripContextMenu;
+        private System.Windows.Forms.ToolStripMenuItem tsTripCtxAssign;
+        private System.Windows.Forms.ToolStripMenuItem tsTripCtxUnassign;
+        private System.Windows.Forms.ToolStripSeparator tsTripCtxLocateSeparator;
+        private System.Windows.Forms.ToolStripMenuItem tsTripCtxLocate;
+        private System.Windows.Forms.ListView tslv;
+        private System.Windows.Forms.ColumnHeader tsColStatus;
+        private System.Windows.Forms.ColumnHeader tsColTripId;
+        private System.Windows.Forms.ColumnHeader tsColAlerts;
+        private System.Windows.Forms.ColumnHeader tsColClient;
+        private System.Windows.Forms.ColumnHeader tsColDriver;
+        private System.Windows.Forms.ColumnHeader tsColPUTime;
+        private System.Windows.Forms.ColumnHeader tsColDOTime;
+        private System.Windows.Forms.ColumnHeader tsColPUStreet;
+        private System.Windows.Forms.ColumnHeader tsColPUCity;
+        private System.Windows.Forms.ColumnHeader tsColDOStreet;
+        private System.Windows.Forms.ColumnHeader tsColDOCity;
+        private System.Windows.Forms.ColumnHeader tsColMiles;
+        private System.Windows.Forms.ColumnHeader tsColPrice;
+        private System.Windows.Forms.ColumnHeader tsColReferences;
         private MaterialSkin.Controls.MaterialCard materialCard18;
         private System.Windows.Forms.Label LoadingGifLabel;
         private System.Windows.Forms.Panel panel1;

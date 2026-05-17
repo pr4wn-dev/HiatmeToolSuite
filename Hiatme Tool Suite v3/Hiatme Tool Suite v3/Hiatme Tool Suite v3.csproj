@@ -64,6 +64,9 @@
     <Reference Include="GMap.NET.Core, Version=2.1.7.0, Culture=neutral, PublicKeyToken=b85b9027b614afef, processorArchitecture=MSIL">
       <HintPath>..\packages\GMap.NET.Core.2.1.7\lib\net48\GMap.NET.Core.dll</HintPath>
     </Reference>
+    <Reference Include="GMap.NET.WindowsForms, Version=2.1.7.0, Culture=neutral, PublicKeyToken=b85b9027b614afef, processorArchitecture=MSIL">
+      <HintPath>..\packages\GMap.NET.WinForms.2.1.7\lib\net48\GMap.NET.WindowsForms.dll</HintPath>
+    </Reference>
     <Reference Include="MaterialSkin, Version=2.3.1.0, Culture=neutral, processorArchitecture=MSIL">
       <HintPath>..\packages\MaterialSkin.2.2.3.1\lib\net48\MaterialSkin.dll</HintPath>
     </Reference>
@@ -207,8 +210,70 @@
     <Compile Include="WRBillingTool.cs" />
     <Compile Include="WRCalculations.cs" />
     <Compile Include="WRDrivers.cs" />
+    <Compile Include="WRDriverPosition.cs" />
     <Compile Include="WRDownloadedTrip.cs" />
     <Compile Include="JsonSerializer.cs" />
+    <Compile Include="ListViewSorter.cs" />
+    <Compile Include="ListViewMinWidthEnforcer.cs" />
+    <Compile Include="ListViewHeaderEmptyAreaPainter.cs" />
+    <Compile Include="DarkContextMenuRenderer.cs" />
+    <Compile Include="DarkOnAccentMaterialButton.cs">
+      <SubType>Component</SubType>
+    </Compile>
+    <Compile Include="MenuIconFactory.cs" />
+    <Compile Include="DriverPickerForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="DriverPickerForm.Designer.cs">
+      <DependentUpon>DriverPickerForm.cs</DependentUpon>
+    </Compile>
+    <Compile Include="DriverLocationMapForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="DriverLocationMapForm.Designer.cs">
+      <DependentUpon>DriverLocationMapForm.cs</DependentUpon>
+    </Compile>
+    <Compile Include="DriverMarkerToolTip.cs" />
+    <Compile Include="TripCardControl.cs">
+      <SubType>Component</SubType>
+    </Compile>
+    <Compile Include="GMapInitializer.cs" />
+    <Compile Include="AddressGeocoder.cs" />
+    <Compile Include="RouteEstimator.cs" />
+    <Compile Include="EtaPlanner.cs" />
+    <Compile Include="SupeyDriverProfile.cs" />
+    <Compile Include="SupeyDriverRosterStore.cs" />
+    <Compile Include="SupeyScheduleTypes.cs" />
+    <Compile Include="SupeyTripCluster.cs" />
+    <Compile Include="SupeyDriverPlan.cs" />
+    <Compile Include="SupeyScheduleResult.cs" />
+    <Compile Include="SupeyRouteCache.cs" />
+    <Compile Include="SupeyTemplateHints.cs" />
+    <Compile Include="SupeyScheduleAlgorithm.cs" />
+    <Compile Include="SupeyScheduleBuilder.cs" />
+    <Compile Include="SupeyMapWorkspace.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="SupeyDriverEditorForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="SupeyDriverEditorForm.Designer.cs">
+      <DependentUpon>SupeyDriverEditorForm.cs</DependentUpon>
+    </Compile>
+    <Compile Include="WellRydeUserSummary.cs" />
+    <Compile Include="WellRydeUserDetail.cs" />
+    <Compile Include="WellRydeUserParser.cs" />
+    <Compile Include="WellRydeRosterImporter.cs" />
+    <Compile Include="SupeyImportFromWellRydeForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="SupeyImportFromWellRydeForm.Designer.cs">
+      <DependentUpon>SupeyImportFromWellRydeForm.cs</DependentUpon>
+    </Compile>
+    <Compile Include="Form1.Supey.cs">
+      <DependentUpon>Form1.cs</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
     <EmbeddedResource Include="Form1.resx">
       <DependentUpon>Form1.cs</DependentUpon>
     </EmbeddedResource>
@@ -279,6 +344,10 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="Resources\calendarWhite.png" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Resources\magnify.png" />
+    <None Include="Resources\supey-shield.png" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="Doll-icon_35209.ico" />

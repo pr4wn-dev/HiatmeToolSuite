@@ -19,7 +19,7 @@ namespace Hiatme_Tool_Suite_v3
             this._notesBox = new System.Windows.Forms.TextBox();
             this._progress = new System.Windows.Forms.ProgressBar();
             this._progressLabel = new System.Windows.Forms.Label();
-            this._installButton = new MaterialSkin.Controls.MaterialButton();
+            this._installButton = new Hiatme_Tool_Suite_v3.DarkOnAccentMaterialButton();
             this._laterButton = new MaterialSkin.Controls.MaterialButton();
             this.SuspendLayout();
             //
@@ -93,6 +93,10 @@ namespace Hiatme_Tool_Suite_v3
             this._laterButton.Size = new System.Drawing.Size(110, 36);
             this._laterButton.Text = "LATER";
             this._laterButton.Type = MaterialSkin.Controls.MaterialButton.MaterialButtonType.Text;
+            // Text-type MaterialButton defaults to the scheme's Primary (Grey900) which disappears
+            // on this dark form; pin the label to a light gray so it stays legible.
+            this._laterButton.UseAccentColor = false;
+            this._laterButton.NoAccentTextColor = System.Drawing.Color.Gainsboro;
             this._laterButton.Click += new System.EventHandler(this.OnLaterClicked);
             //
             // UpdatePrompt
@@ -123,7 +127,7 @@ namespace Hiatme_Tool_Suite_v3
         private System.Windows.Forms.TextBox _notesBox;
         private System.Windows.Forms.ProgressBar _progress;
         private System.Windows.Forms.Label _progressLabel;
-        private MaterialSkin.Controls.MaterialButton _installButton;
+        private Hiatme_Tool_Suite_v3.DarkOnAccentMaterialButton _installButton;
         private MaterialSkin.Controls.MaterialButton _laterButton;
     }
 }
