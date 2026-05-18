@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -18,6 +18,12 @@ namespace Hiatme_Tool_Suite_v3
         public List<MCDriver> MCDrivers { get; set; }
         //store the date of this day
         public string MCBatchDate { get; set; }
+        /// <summary>Eligible drivers parsed from TripActuals after opening a sample trip (0 = not loaded).</summary>
+        public int PortalEligibleDriverCount { get; set; }
+        /// <summary>Eligible vehicles parsed from TripActuals (0 = not loaded).</summary>
+        public int PortalEligibleVehicleCount { get; set; }
+        /// <summary>How TripActuals HTML was interpreted (for status bar / debugging).</summary>
+        public string PortalListLoadMessage { get; set; }
         public MCBatchAdditionalInfo(){
             wrDownloadedTrips = new List<WRDownloadedTrip>();
             mcDownloadedTrips = new List<MCDownloadedTrip>();

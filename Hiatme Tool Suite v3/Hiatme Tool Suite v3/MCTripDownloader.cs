@@ -1,4 +1,4 @@
-﻿
+
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -326,6 +326,11 @@ namespace Hiatme_Tool_Suite_v3
                         trip.DOStreet = tripsubitems[16].Replace("\"", "");
                         trip.DOCITY = tripsubitems[19].Replace("\"", "");
                         trip.DOTelephone = tripsubitems[22].Replace("\"", "");
+                        // Column 23 = scheduled_dropoff, 24 = appointment_time. The website's
+                        // timing rules use appointment_time for A-leg DO deadlines and fall back
+                        // to scheduled_dropoff for B/C-legs (and for A-legs without an appt).
+                        // We capture both so the scheduler can pick the right one per leg.
+                        trip.SchedDOTime = tripsubitems[23].Replace("\"", "");
                         trip.DOTime = tripsubitems[24].Replace("\"", "");
                         trip.Age = tripsubitems[25].Replace("\"", "");
                         trip.Miles = tripsubitems[33].Replace("\"", "");

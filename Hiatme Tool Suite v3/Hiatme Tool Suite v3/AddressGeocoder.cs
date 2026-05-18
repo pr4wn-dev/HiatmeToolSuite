@@ -41,15 +41,40 @@ namespace Hiatme_Tool_Suite_v3
         private static readonly SemaphoreSlim _gate = new SemaphoreSlim(1, 1);
         private static DateTime _nextCallAfterUtc = DateTime.MinValue;
 
-        // Persistence machinery. _diskLoaded gates one-time load on first ResolveAsync call;
-        // _saveLock serializes disk writes; _pendingSave coalesces concurrent saves so we don't
-        // line up dozens of identical writes when a build geocodes hundreds of addresses back to
-        // back. _disposed lets static cleanup short-circuit if the AppDomain is unloading.
+        // Persistence machinery.
+        //
+        // We coalesce rapid mutations (typical case: a build geocoding hundreds of addresses
+        // back-to-back) into a single in-flight save using an epoch counter:
+        //
+        //   _dirtyEpoch  — incremented on every cache mutation
+        //   _savedEpoch  — value of _dirtyEpoch as of the last *successful* save
+        //
+        // After a save finishes, we compare the two: if more mutations happened during the
+        // write, we immediately schedule another save. That tail-recursion guarantees every
+        // entry eventually lands on disk, fixing the race in the previous "if-idle-go" design
+        // where new entries arriving during a write would never trigger their own save.
         private static bool _diskLoaded;
         private static readonly object _saveLock = new object();
         private static Task _pendingSave;
-        private static int _dirtyCount;
-        private const int SaveBatchSize = 5; // flush every N new entries (or on Flush())
+        private static long _dirtyEpoch;
+        private static long _savedEpoch;
+
+        // Diagnostics — visible to UI so users can confirm the cache is actually doing its job.
+        private static long _hits;
+        private static long _misses;
+
+        /// <summary>Cumulative cache hits for the current process. Reset with <see cref="ResetCounters"/>.</summary>
+        public static long CacheHits => Interlocked.Read(ref _hits);
+
+        /// <summary>Cumulative cache misses (Nominatim calls) for the current process.</summary>
+        public static long CacheMisses => Interlocked.Read(ref _misses);
+
+        /// <summary>Zeros the hit/miss counters. Call before a build to get per-build stats.</summary>
+        public static void ResetCounters()
+        {
+            Interlocked.Exchange(ref _hits, 0);
+            Interlocked.Exchange(ref _misses, 0);
+        }
 
         private static HttpClient CreateHttp()
         {
@@ -132,34 +157,54 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         /// <summary>
-        /// Schedules a background flush to disk. Multiple rapid mutations coalesce into a single
-        /// save (only one save task is in flight at a time); after the in-flight save completes
-        /// any newly accumulated dirty entries trigger another save. Caller never waits.
+        /// Marks the cache as dirty (a new entry was added) and schedules a background save.
+        /// Saves are coalesced — only one write runs at a time — but if more mutations happen
+        /// during the write, another save is automatically chained on completion so no entry is
+        /// ever permanently lost in memory.
         /// </summary>
         private static void ScheduleSave()
         {
-            // We don't strictly need this every time — but doing it batched (every N) avoids
-            // hundreds of disk hits during a build. Final state is always flushed by Flush().
-            if (Interlocked.Increment(ref _dirtyCount) < SaveBatchSize)
-            {
-                // Still kick off a single tail-save so the very last entry doesn't sit unsaved.
-                StartSaveIfIdle();
-                return;
-            }
-            Interlocked.Exchange(ref _dirtyCount, 0);
-            StartSaveIfIdle();
+            Interlocked.Increment(ref _dirtyEpoch);
+            StartSaveIfNeeded();
         }
 
-        private static void StartSaveIfIdle()
+        private static void StartSaveIfNeeded()
         {
             lock (_saveLock)
             {
+                // If a save is currently writing we don't start another — but the worker's
+                // continuation will re-check the epoch and chain a follow-up if needed.
                 if (_pendingSave != null && !_pendingSave.IsCompleted) return;
-                _pendingSave = Task.Run((Action)WriteCacheToDisk);
+
+                long target = Interlocked.Read(ref _dirtyEpoch);
+                if (target == Interlocked.Read(ref _savedEpoch))
+                {
+                    // No outstanding mutations — nothing to do.
+                    return;
+                }
+
+                _pendingSave = Task.Run(() =>
+                {
+                    bool ok = WriteCacheToDisk();
+                    if (ok) Interlocked.Exchange(ref _savedEpoch, target);
+                    // Trailing-save: if mutations slipped in while we were writing, we owe another
+                    // pass. This is what guarantees every dirty entry eventually persists. Without
+                    // it, addresses resolved during an in-flight save would sit only in memory and
+                    // disappear on app close (modulo Flush()).
+                    if (Interlocked.Read(ref _dirtyEpoch) != Interlocked.Read(ref _savedEpoch))
+                    {
+                        StartSaveIfNeeded();
+                    }
+                });
             }
         }
 
-        private static void WriteCacheToDisk()
+        /// <summary>
+        /// Serializes the in-memory cache to disk via a temp-file + replace pattern so a crash
+        /// mid-write can't leave a half-written file that we'd refuse to load. Returns true on
+        /// success, false on any IO failure (the next mutation will trigger another retry).
+        /// </summary>
+        private static bool WriteCacheToDisk()
         {
             try
             {
@@ -188,16 +233,16 @@ namespace Hiatme_Tool_Suite_v3
 
                 string path = CacheFilePath;
                 string tmp = path + ".tmp";
-                // Atomic-ish write: write to .tmp then replace, so a crash mid-write can't leave
-                // a half-written cache that we'd then refuse to load on next launch.
                 File.WriteAllText(tmp, doc.ToString(Formatting.None));
                 if (File.Exists(path)) File.Replace(tmp, path, null);
                 else File.Move(tmp, path);
+                return true;
             }
             catch
             {
                 // Disk full / permission denied / antivirus lock — keep running with the
                 // in-memory cache; the next save attempt will retry.
+                return false;
             }
         }
 
@@ -231,6 +276,60 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         /// <summary>
+        /// Trip PU/DO lookup: known Maine clinics first, then Nominatim with ME fallbacks.
+        /// </summary>
+        public static async Task<GeoPoint?> ResolveTripEndpointAsync(string street, string city,
+            CancellationToken token = default)
+        {
+            GeoPoint known;
+            if (SupeyKnownFacilities.TryResolve(street, city, out known))
+                return known;
+
+            return await ResolveWithFallbacksAsync(street, city, "ME", null, "us", token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Resolves with progressive simplification of the query — useful for hand-typed driver
+        /// homes where a misspelled city ("Lvermore Falls") would otherwise leave the driver
+        /// silently excluded from a build. Tries the full address first, then drops the
+        /// (often-misspelled) city while keeping zip + state + country, then drops the zip too
+        /// as a last-ditch street + state lookup. Returns the first match, or <c>null</c> if
+        /// every variant came back empty.
+        /// </summary>
+        /// <remarks>
+        /// Each variant is cached individually, so a successful fallback for one driver doesn't
+        /// poison cache lookups for unrelated addresses sharing partial components. The 1
+        /// req/sec Nominatim throttle still applies across variants — typically just one or two
+        /// extra calls per driver, only on addresses that didn't match cleanly.
+        /// </remarks>
+        public static async Task<GeoPoint?> ResolveWithFallbacksAsync(string street, string city, string state,
+            string zip, string countryCode, CancellationToken token = default)
+        {
+            var p = await ResolveAsync(street, city, state, zip, countryCode, token).ConfigureAwait(false);
+            if (p.HasValue) return p;
+
+            // Nominatim resolves US addresses very reliably from "street + zip + state" alone,
+            // so dropping a misspelled city usually wins on the first fallback. Only worth
+            // trying if we actually have a zip — otherwise the request would be too vague.
+            if (!string.IsNullOrWhiteSpace(zip))
+            {
+                p = await ResolveAsync(street, "", state, zip, countryCode, token).ConfigureAwait(false);
+                if (p.HasValue) return p;
+            }
+
+            // Final fallback: street + state. Loose enough to risk hitting another street with
+            // the same name in a different city, but for driver homes where the user told us
+            // every address is in Maine, the country/state filter keeps the match in-scope.
+            if (!string.IsNullOrWhiteSpace(state))
+            {
+                p = await ResolveAsync(street, "", state, "", countryCode, token).ConfigureAwait(false);
+                if (p.HasValue) return p;
+            }
+
+            return null;
+        }
+
+        /// <summary>
         /// Richer overload that lets the caller add state + zip + country to the query string.
         /// Critical for the Supey driver roster: the user told us all drivers are in Maine, so we
         /// pin the state and country code on every lookup to keep Nominatim from matching, e.g.,
@@ -250,7 +349,11 @@ namespace Hiatme_Tool_Suite_v3
 
             lock (_cache)
             {
-                if (_cache.TryGetValue(key, out var cached)) return cached;
+                if (_cache.TryGetValue(key, out var cached))
+                {
+                    Interlocked.Increment(ref _hits);
+                    return cached;
+                }
             }
 
             await _gate.WaitAsync(token).ConfigureAwait(false);
@@ -260,8 +363,14 @@ namespace Hiatme_Tool_Suite_v3
                 // we were waiting in line.
                 lock (_cache)
                 {
-                    if (_cache.TryGetValue(key, out var cached2)) return cached2;
+                    if (_cache.TryGetValue(key, out var cached2))
+                    {
+                        Interlocked.Increment(ref _hits);
+                        return cached2;
+                    }
                 }
+                // Past the cache — we're committed to a Nominatim call.
+                Interlocked.Increment(ref _misses);
 
                 // Honor the 1-req/sec policy globally across every concurrent lookup.
                 var wait = _nextCallAfterUtc - DateTime.UtcNow;

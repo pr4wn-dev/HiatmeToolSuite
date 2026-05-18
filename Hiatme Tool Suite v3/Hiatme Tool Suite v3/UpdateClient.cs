@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.IO.Compression;
 using System.Net;
 using System.Net.Http;
 using System.Reflection;
@@ -224,7 +225,11 @@ namespace Hiatme_Tool_Suite_v3
             string mainExe = Assembly.GetExecutingAssembly().Location;
             string updaterExe = Path.Combine(installDir, "Update.exe");
             if (!File.Exists(updaterExe))
-                return false;
+            {
+                // Older installs shipped before Update.exe was bundled next to the main exe.
+                if (!TryBootstrapUpdaterFromZip(zipPath, installDir))
+                    return false;
+            }
 
             var pid = System.Diagnostics.Process.GetCurrentProcess().Id;
             string args =
@@ -243,6 +248,38 @@ namespace Hiatme_Tool_Suite_v3
                     WorkingDirectory = installDir,
                 });
                 return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Pulls <c>Update.exe</c> (and its .config) out of the verified download so legacy installs can update once.
+        /// </summary>
+        private static bool TryBootstrapUpdaterFromZip(string zipPath, string installDir)
+        {
+            if (string.IsNullOrEmpty(zipPath) || !File.Exists(zipPath) || string.IsNullOrEmpty(installDir))
+                return false;
+
+            try
+            {
+                using (ZipArchive archive = ZipFile.OpenRead(zipPath))
+                {
+                    bool gotExe = false;
+                    foreach (string name in new[] { "Update.exe", "Update.exe.config" })
+                    {
+                        ZipArchiveEntry entry = archive.GetEntry(name);
+                        if (entry == null)
+                            continue;
+                        string dest = Path.Combine(installDir, name);
+                        entry.ExtractToFile(dest, overwrite: true);
+                        if (name.Equals("Update.exe", StringComparison.OrdinalIgnoreCase))
+                            gotExe = true;
+                    }
+                    return gotExe && File.Exists(Path.Combine(installDir, "Update.exe"));
+                }
             }
             catch
             {

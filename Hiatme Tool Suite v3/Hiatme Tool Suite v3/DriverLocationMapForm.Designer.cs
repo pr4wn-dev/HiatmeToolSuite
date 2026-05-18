@@ -21,6 +21,9 @@ namespace Hiatme_Tool_Suite_v3
             this._statusDot = new System.Windows.Forms.Panel();
             this._driverNameLabel = new System.Windows.Forms.Label();
             this._statusLabel = new System.Windows.Forms.Label();
+            this._diagnosticsPanel = new System.Windows.Forms.Panel();
+            this._diagnosticsHeadlineLabel = new System.Windows.Forms.Label();
+            this._diagnosticsBodyLabel = new System.Windows.Forms.Label();
             this._footerPanel = new System.Windows.Forms.Panel();
             this._lastReportedLabel = new System.Windows.Forms.Label();
             this._autoRefreshCheck = new System.Windows.Forms.CheckBox();
@@ -38,6 +41,7 @@ namespace Hiatme_Tool_Suite_v3
             this._tripsEmptyLabel = new System.Windows.Forms.Label();
             this._refreshTimer = new System.Windows.Forms.Timer(this.components);
             this._headerPanel.SuspendLayout();
+            this._diagnosticsPanel.SuspendLayout();
             this._footerPanel.SuspendLayout();
             this._tripsPanel.SuspendLayout();
             this.SuspendLayout();
@@ -87,6 +91,45 @@ namespace Hiatme_Tool_Suite_v3
                 | System.Windows.Forms.AnchorStyles.Left
                 | System.Windows.Forms.AnchorStyles.Right)));
             // 
+            // _diagnosticsPanel
+            // 
+            this._diagnosticsPanel.BackColor = System.Drawing.Color.FromArgb(45, 45, 45);
+            this._diagnosticsPanel.Controls.Add(this._diagnosticsHeadlineLabel);
+            this._diagnosticsPanel.Controls.Add(this._diagnosticsBodyLabel);
+            this._diagnosticsPanel.Dock = System.Windows.Forms.DockStyle.Top;
+            this._diagnosticsPanel.Location = new System.Drawing.Point(3, 124);
+            this._diagnosticsPanel.Name = "_diagnosticsPanel";
+            this._diagnosticsPanel.Padding = new System.Windows.Forms.Padding(14, 8, 14, 8);
+            this._diagnosticsPanel.Size = new System.Drawing.Size(894, 96);
+            this._diagnosticsPanel.TabIndex = 4;
+            // 
+            // _diagnosticsHeadlineLabel
+            // 
+            this._diagnosticsHeadlineLabel.AutoSize = false;
+            this._diagnosticsHeadlineLabel.Font = new System.Drawing.Font("Segoe UI Semibold", 9.5F);
+            this._diagnosticsHeadlineLabel.ForeColor = System.Drawing.Color.Gainsboro;
+            this._diagnosticsHeadlineLabel.Location = new System.Drawing.Point(14, 8);
+            this._diagnosticsHeadlineLabel.Name = "_diagnosticsHeadlineLabel";
+            this._diagnosticsHeadlineLabel.Size = new System.Drawing.Size(866, 20);
+            this._diagnosticsHeadlineLabel.Text = "Connection status";
+            this._diagnosticsHeadlineLabel.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top
+                | System.Windows.Forms.AnchorStyles.Left)
+                | System.Windows.Forms.AnchorStyles.Right)));
+            // 
+            // _diagnosticsBodyLabel
+            // 
+            this._diagnosticsBodyLabel.AutoSize = false;
+            this._diagnosticsBodyLabel.Font = new System.Drawing.Font("Segoe UI", 8.75F);
+            this._diagnosticsBodyLabel.ForeColor = System.Drawing.Color.Silver;
+            this._diagnosticsBodyLabel.Location = new System.Drawing.Point(14, 28);
+            this._diagnosticsBodyLabel.Name = "_diagnosticsBodyLabel";
+            this._diagnosticsBodyLabel.Size = new System.Drawing.Size(866, 60);
+            this._diagnosticsBodyLabel.Text = "";
+            this._diagnosticsBodyLabel.Anchor = ((System.Windows.Forms.AnchorStyles)((((System.Windows.Forms.AnchorStyles.Top
+                | System.Windows.Forms.AnchorStyles.Bottom)
+                | System.Windows.Forms.AnchorStyles.Left)
+                | System.Windows.Forms.AnchorStyles.Right)));
+            // 
             // _footerPanel
             // 
             this._footerPanel.BackColor = System.Drawing.Color.FromArgb(50, 50, 50);
@@ -125,6 +168,7 @@ namespace Hiatme_Tool_Suite_v3
             this._autoRefreshCheck.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom
                 | System.Windows.Forms.AnchorStyles.Right)));
             this._autoRefreshCheck.UseVisualStyleBackColor = false;
+            this._autoRefreshCheck.Checked = true;
             this._autoRefreshCheck.CheckedChanged += new System.EventHandler(this.OnAutoRefreshChanged);
             // 
             // _refreshButton
@@ -321,6 +365,7 @@ namespace Hiatme_Tool_Suite_v3
             this.ClientSize = new System.Drawing.Size(1200, 680);
             this.Controls.Add(this._gmap);
             this.Controls.Add(this._tripsPanel);
+            this.Controls.Add(this._diagnosticsPanel);
             this.Controls.Add(this._headerPanel);
             this.Controls.Add(this._footerPanel);
             this.MinimumSize = new System.Drawing.Size(800, 520);
@@ -328,6 +373,7 @@ namespace Hiatme_Tool_Suite_v3
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterParent;
             this.Text = "Driver location";
             this._headerPanel.ResumeLayout(false);
+            this._diagnosticsPanel.ResumeLayout(false);
             this._footerPanel.ResumeLayout(false);
             this._footerPanel.PerformLayout();
             this._tripsPanel.ResumeLayout(false);
@@ -338,6 +384,9 @@ namespace Hiatme_Tool_Suite_v3
         private System.Windows.Forms.Panel _statusDot;
         private System.Windows.Forms.Label _driverNameLabel;
         private System.Windows.Forms.Label _statusLabel;
+        private System.Windows.Forms.Panel _diagnosticsPanel;
+        private System.Windows.Forms.Label _diagnosticsHeadlineLabel;
+        private System.Windows.Forms.Label _diagnosticsBodyLabel;
         private System.Windows.Forms.Panel _footerPanel;
         private System.Windows.Forms.Label _lastReportedLabel;
         private System.Windows.Forms.CheckBox _autoRefreshCheck;

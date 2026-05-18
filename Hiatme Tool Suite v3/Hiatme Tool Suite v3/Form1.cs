@@ -45,6 +45,9 @@ namespace Hiatme_Tool_Suite_v3
 {
     public partial class Form1 : MaterialForm
     {
+        // WIP tools — flip to true to show these tabs again (designer + code stay in place).
+        private const bool ShowSupeyScheduleTab = false;
+        private const bool ShowCameraTab = false;
 
         private bool manuallogin = false;
         /// <summary>True after WellRyde portal bootstrap (GET main page) succeeds.</summary>
@@ -93,20 +96,60 @@ namespace Hiatme_Tool_Suite_v3
         /// </summary>
         private List<WRDownloadedTrip> _tripScoutAllTrips = new List<WRDownloadedTrip>();
 
+        /// <summary>
+        /// Removes WIP tabs from <see cref="hiatmeTabControl"/> (and the Material drawer icons).
+        /// Visible=false is not enough — the drawer still lists every tab page in the control.
+        /// </summary>
+        private void ApplyHiddenToolTabs()
+        {
+            if (hiatmeTabControl == null) return;
+
+            // Designer order: … tabPage6, tabPageSupey, tabPage7 … tabPage9, tabPage3
+            SetToolTabOnMainStrip(tabPageSupey, ShowSupeyScheduleTab, insertBefore: tabPage7);
+            SetToolTabOnMainStrip(tabPage3, ShowCameraTab, appendToEnd: true);
+        }
+
+        private void SetToolTabOnMainStrip(TabPage page, bool show, TabPage insertBefore = null, bool appendToEnd = false)
+        {
+            if (page == null) return;
+            bool onStrip = hiatmeTabControl.TabPages.Contains(page);
+            if (show)
+            {
+                if (onStrip) return;
+                if (appendToEnd)
+                    hiatmeTabControl.TabPages.Add(page);
+                else if (insertBefore != null)
+                {
+                    int idx = hiatmeTabControl.TabPages.IndexOf(insertBefore);
+                    if (idx >= 0)
+                        hiatmeTabControl.TabPages.Insert(idx, page);
+                    else
+                        hiatmeTabControl.TabPages.Add(page);
+                }
+                else
+                    hiatmeTabControl.TabPages.Add(page);
+            }
+            else if (onStrip)
+                hiatmeTabControl.TabPages.Remove(page);
+        }
+
         public Form1()
         {
             // Login combo may raise SelectedIndexChanged during InitializeComponent; handlers must exist first.
             InitializeMCLoginHandler();
             InitializeHiatmeLoginHandler();
             InitializeComponent();;
+            ApplyHiddenToolTabs();
             // Tabs added after the designer-baked ImageStream need their icon injected before the first tab strip paint.
             RegisterRuntimeTabIcons();
             // Click-to-sort + smart cell typing on every custom-drawn listview. Default column resize already works.
             WireListViewSorters();
+            BuildTimeCorrectionTripListContextMenu();
             // Trip Scout right-click menu inherits the listview's dark palette + gets generated person+badge icons.
             ApplyTripScoutContextMenuTheme();
             // Build the Supey schedule tab UI programmatically (the designer placeholder is intentionally empty).
-            InitializeSupeyTab();
+            if (ShowSupeyScheduleTab)
+                InitializeSupeyTab();
             CheckForIllegalCrossThreadCalls = false;
             materialSkinManager = MaterialSkinManager.Instance;
             materialSkinManager.EnforceBackcolorOnAllComponents = false;
@@ -120,12 +163,26 @@ namespace Hiatme_Tool_Suite_v3
             tbuilder.HideLoadingScreen += loadinggifhandler_hidescreen;
 
             mcTimeCorrectionTool = new MCTimeCorrection(tccb);
+            EnsureTimeCorrectionCompanyAccuracyUi();
             wrBillingTool = new WRBillingTool();
 
             //Connect_Setup();
             billtimer = new System.Windows.Forms.Timer();
             billtimer.Tick += billtimer_Tick;
             billtimer.Interval = 10000; //milisecunde
+
+            if (billingmmcb != null)
+                billingmmcb.CheckStateChanged += BillingOptions_ChangedRefreshCharts;
+            if (billingallcb != null)
+                billingallcb.CheckStateChanged += BillingOptions_ChangedRefreshCharts;
+
+            if (billingstatuspanel != null)
+            {
+                billingstatuspanel.Resize += (_, __) => LayoutStatusLabelInCard(billingstatuspanel, billingstatuslbl);
+                LayoutStatusLabelInCard(billingstatuspanel, billingstatuslbl);
+            }
+            if (materialCard10 != null)
+                materialCard10.Resize += (_, __) => LayoutStatusLabelInCard(materialCard10, tcorrectstatuslbl);
 
             analyzer.UpdateLoadingScreen += loadinggifhandler_update;
             analyzer.ShowLoadingScreen += loadinggifhandler_showscreen;
@@ -161,6 +218,38 @@ namespace Hiatme_Tool_Suite_v3
                 ListViewMinWidthEnforcer.Attach(lv);
                 ListViewHeaderEmptyAreaPainter.Attach(lv);
             }
+
+            if (billinglistview != null)
+                ListViewMinWidthEnforcer.SetColumnFloor(billinglistview, 13, 500);
+
+            if (tsColAlerts != null)
+            {
+                tsColAlerts.Tag = "hidden";
+                tsColAlerts.Width = 0;
+            }
+
+            ConfigureTripScoutColumnWidths();
+        }
+
+        private void ConfigureTripScoutColumnWidths()
+        {
+            if (tslv == null) return;
+            SetTripScoutColumnCeiling(tsColClient, 170);
+            SetTripScoutColumnCeiling(tsColDriver, 140);
+            SetTripScoutColumnCeiling(tsColPUStreet, 180);
+            SetTripScoutColumnCeiling(tsColPUCity, 110);
+            SetTripScoutColumnCeiling(tsColDOStreet, 180);
+            SetTripScoutColumnCeiling(tsColDOCity, 110);
+            // Search rebinds swap rows in memory; don't refit widths on every keystroke.
+            ListViewMinWidthEnforcer.SetContentAutoFit(tslv, false);
+        }
+
+        private void SetTripScoutColumnCeiling(ColumnHeader column, int maxPixels)
+        {
+            if (column == null || tslv == null || maxPixels <= 0) return;
+            int index = tslv.Columns.IndexOf(column);
+            if (index >= 0)
+                ListViewMinWidthEnforcer.SetColumnCeiling(tslv, index, maxPixels);
         }
 
         /// <summary>
@@ -365,8 +454,10 @@ namespace Hiatme_Tool_Suite_v3
                     if (!UpdateClient.LaunchUpdaterAndExit(dlg.DownloadedZipPath))
                     {
                         MessageBox.Show(this,
-                            "Could not start the updater (Update.exe missing from the install folder).\n" +
-                            "The downloaded file is here:\n" + dlg.DownloadedZipPath,
+                            "Could not start the updater. Your install folder is missing Update.exe and it could not be extracted from the download.\n\n" +
+                            "Install folder:\n" + AppDomain.CurrentDomain.BaseDirectory + "\n\n" +
+                            "Downloaded zip:\n" + dlg.DownloadedZipPath + "\n\n" +
+                            "Copy Update.exe from a full release zip into your install folder, or reinstall from HiatmeToolSuite-3.0.1.1.zip.",
                             "Update", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                         return;
                     }
@@ -2015,7 +2106,262 @@ namespace Hiatme_Tool_Suite_v3
 
         //Modivcare
 
+        //Time Corrections — trip list right-click: copy for review / chat paste
+        private ContextMenuStrip _tcTripListCtxMenu;
+        private ToolStripMenuItem _tcTripListCtxCopySelected;
+        private ToolStripMenuItem _tcTripListCtxCopyAll;
+        private ToolStripMenuItem _tcTripListCtxCopyFixable;
+
+        private void BuildTimeCorrectionTripListContextMenu()
+        {
+            if (tctripcorrectlv == null) return;
+
+            _tcTripListCtxMenu = new ContextMenuStrip
+            {
+                Renderer = new DarkContextMenuRenderer(),
+                BackColor = DarkContextMenuRenderer.Background,
+                ForeColor = DarkContextMenuRenderer.ForeColor,
+                ShowImageMargin = true,
+            };
+
+            _tcTripListCtxCopySelected = new ToolStripMenuItem("Copy selected trips")
+            {
+                BackColor = DarkContextMenuRenderer.Background,
+                ForeColor = DarkContextMenuRenderer.ForeColor,
+                ShortcutKeys = Keys.Control | Keys.C,
+                ShowShortcutKeys = true,
+                Image = MenuIconFactory.GetCopyIcon(),
+            };
+            _tcTripListCtxCopySelected.Click += (s, e) => CopyTimeCorrectionTripsToClipboard(TimeCorrectionCopyScope.Selected);
+
+            _tcTripListCtxCopyAll = new ToolStripMenuItem("Copy all trips")
+            {
+                BackColor = DarkContextMenuRenderer.Background,
+                ForeColor = DarkContextMenuRenderer.ForeColor,
+                ShortcutKeys = Keys.Control | Keys.Shift | Keys.C,
+                ShowShortcutKeys = true,
+                Image = MenuIconFactory.GetCopyAllIcon(),
+            };
+            _tcTripListCtxCopyAll.Click += (s, e) => CopyTimeCorrectionTripsToClipboard(TimeCorrectionCopyScope.All);
+
+            _tcTripListCtxCopyFixable = new ToolStripMenuItem("Copy fixable trips only")
+            {
+                BackColor = DarkContextMenuRenderer.Background,
+                ForeColor = DarkContextMenuRenderer.ForeColor,
+                Image = MenuIconFactory.GetCopyIcon(),
+            };
+            _tcTripListCtxCopyFixable.Click += (s, e) => CopyTimeCorrectionTripsToClipboard(TimeCorrectionCopyScope.FixableOnly);
+
+            _tcTripListCtxMenu.Items.Add(_tcTripListCtxCopySelected);
+            _tcTripListCtxMenu.Items.Add(_tcTripListCtxCopyAll);
+            _tcTripListCtxMenu.Items.Add(_tcTripListCtxCopyFixable);
+
+            tctripcorrectlv.MouseUp += TimeCorrectionTripList_MouseUp_ShowContextMenu;
+        }
+
+        private enum TimeCorrectionCopyScope { Selected, All, FixableOnly }
+
+        private void TimeCorrectionTripList_MouseUp_ShowContextMenu(object sender, MouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Right) return;
+            if (tctripcorrectlv == null) return;
+
+            int selected = tctripcorrectlv.SelectedItems.Count;
+            int total = tctripcorrectlv.Items.Count;
+            int fixable = 0;
+            foreach (ListViewItem row in tctripcorrectlv.Items)
+            {
+                if (string.Equals(row.Text, "Fixable", StringComparison.OrdinalIgnoreCase))
+                    fixable++;
+            }
+
+            _tcTripListCtxCopySelected.Enabled = selected > 0;
+            _tcTripListCtxCopySelected.Text = selected > 1
+                ? "Copy " + selected + " selected trips"
+                : "Copy selected trip";
+            _tcTripListCtxCopyAll.Enabled = total > 0;
+            _tcTripListCtxCopyFixable.Enabled = fixable > 0;
+            _tcTripListCtxCopyFixable.Text = fixable == 1
+                ? "Copy fixable trip only"
+                : "Copy fixable trips only (" + fixable + ")";
+
+            _tcTripListCtxMenu.Show(tctripcorrectlv, e.Location);
+        }
+
+        private void CopyTimeCorrectionTripsToClipboard(TimeCorrectionCopyScope scope)
+        {
+            if (tctripcorrectlv == null || tctripcorrectlv.Items.Count == 0)
+                return;
+
+            var rows = new List<ListViewItem>();
+            switch (scope)
+            {
+                case TimeCorrectionCopyScope.Selected:
+                    if (tctripcorrectlv.SelectedItems.Count == 0) return;
+                    foreach (ListViewItem r in tctripcorrectlv.SelectedItems)
+                        rows.Add(r);
+                    break;
+                case TimeCorrectionCopyScope.All:
+                    foreach (ListViewItem r in tctripcorrectlv.Items)
+                        rows.Add(r);
+                    break;
+                case TimeCorrectionCopyScope.FixableOnly:
+                    foreach (ListViewItem r in tctripcorrectlv.Items)
+                    {
+                        if (string.Equals(r.Text, "Fixable", StringComparison.OrdinalIgnoreCase))
+                            rows.Add(r);
+                    }
+                    if (rows.Count == 0) return;
+                    break;
+            }
+
+            var sb = new StringBuilder();
+            for (int c = 0; c < tctripcorrectlv.Columns.Count; c++)
+            {
+                if (c > 0) sb.Append('\t');
+                sb.Append(SanitizeClipboardField(tctripcorrectlv.Columns[c].Text));
+            }
+            sb.AppendLine();
+
+            foreach (ListViewItem row in rows)
+            {
+                // SubItems[0] is the first column (same as row.Text); do not copy Text + all SubItems or Status duplicates.
+                for (int c = 0; c < tctripcorrectlv.Columns.Count; c++)
+                {
+                    if (c > 0) sb.Append('\t');
+                    string cell = c < row.SubItems.Count ? row.SubItems[c].Text : "";
+                    sb.Append(SanitizeClipboardField(cell));
+                }
+                sb.AppendLine();
+            }
+
+            try
+            {
+                Clipboard.SetText(sb.ToString());
+                SetTimeCorrectionStatus("Copied " + rows.Count + " row" + (rows.Count == 1 ? "" : "s") + ".");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this,
+                    "Could not copy to the clipboard:\n\n" + ex.Message,
+                    "Time Correction",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+            }
+        }
+
+        private static string SanitizeClipboardField(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "";
+            return s.Replace('\t', ' ').Replace('\r', ' ').Replace('\n', ' ');
+        }
+
+        private ColumnHeader _batchToolRunColumn;
+        private bool _batchToolRunColumnAdded;
+
+        private void EnsureBatchListToolRunColumn()
+        {
+            if (_batchToolRunColumnAdded || tcbatchelinkslv == null)
+                return;
+
+            _batchToolRunColumn = new ColumnHeader
+            {
+                Text = "Last tool run",
+                Width = 175,
+            };
+            tcbatchelinkslv.Columns.Add(_batchToolRunColumn);
+            _batchToolRunColumnAdded = true;
+        }
+
+        private void RecordTimeCorrectionBatchHistory(MCBatchLink link, bool afterExecute)
+        {
+            if (link == null || mcTimeCorrectionTool == null)
+                return;
+
+            EnsureBatchListToolRunColumn();
+
+            mcTimeCorrectionTool.GetBatchTripStatusCounts(out int fixable, out int passed, out int failed,
+                out int total, out string serviceDate);
+
+            if (afterExecute)
+            {
+                TimeCorrectionBatchHistoryStore.RecordExecute(link.BatchID, mcTimeCorrectionTool.LoadMode,
+                    fixable, passed, failed, total, serviceDate);
+            }
+            else
+            {
+                TimeCorrectionBatchHistoryStore.RecordLoad(link.BatchID, mcTimeCorrectionTool.LoadMode,
+                    fixable, passed, failed, total, serviceDate);
+            }
+
+            UpdateBatchListToolRunCell(link.BatchID);
+        }
+
+        private void UpdateBatchListToolRunCell(string batchId)
+        {
+            if (!_batchToolRunColumnAdded || string.IsNullOrWhiteSpace(batchId))
+                return;
+
+            string summary = TimeCorrectionBatchHistoryStore.FormatListSummary(batchId);
+            foreach (ListViewItem row in tcbatchelinkslv.Items)
+            {
+                if (row.Text != batchId)
+                    continue;
+
+                while (row.SubItems.Count < tcbatchelinkslv.Columns.Count)
+                    row.SubItems.Add("");
+
+                row.SubItems[tcbatchelinkslv.Columns.Count - 1].Text = summary;
+                ListViewMinWidthEnforcer.ScheduleRecompute(tcbatchelinkslv);
+                break;
+            }
+        }
+
         //Time Corrections
+        private const int TimeCorrectionStatusMaxLength = 200;
+
+        private static string ShortTimeCorrectionLoadModeLabel(TimeCorrectionLoadMode mode)
+        {
+            switch (mode)
+            {
+                case TimeCorrectionLoadMode.DataOnly:
+                    return "data";
+                case TimeCorrectionLoadMode.Lenient:
+                    return "lenient";
+                case TimeCorrectionLoadMode.ModivcareRedOnly:
+                    return "red only";
+                default:
+                    return "standard";
+            }
+        }
+
+        private static string FormatTimeCorrectionEta(TimeSpan ts)
+        {
+            if (ts.TotalHours >= 1)
+                return "~" + (int)ts.TotalHours + "h " + ts.Minutes + "m";
+            if (ts.TotalMinutes >= 1)
+                return "~" + (int)ts.TotalMinutes + "m";
+            return "~" + Math.Max(0, (int)ts.TotalSeconds) + "s";
+        }
+
+        private void SetTimeCorrectionStatus(string message, TimeSpan? eta = null)
+        {
+            if (tcorrectstatuslbl == null || tcorrectstatuslbl.IsDisposed)
+                return;
+
+            string text = message ?? string.Empty;
+            if (!text.StartsWith("Status:", StringComparison.OrdinalIgnoreCase))
+                text = "Status: " + text;
+
+            if (eta.HasValue && eta.Value > TimeSpan.Zero)
+                text += " · ETA " + FormatTimeCorrectionEta(eta.Value);
+
+            if (text.Length > TimeCorrectionStatusMaxLength)
+                text = text.Substring(0, TimeCorrectionStatusMaxLength - 1) + "…";
+
+            tcorrectstatuslbl.Text = text;
+        }
+
         private async void tcfindbatchesbtn_Click(object sender, EventArgs e)
         {
             loadinggifhandler_showscreen();
@@ -2025,6 +2371,7 @@ namespace Hiatme_Tool_Suite_v3
                 loadinggifhandler_hidescreen();
                 return;
             }
+            EnsureBatchListToolRunColumn();
             tcbatchelinkslv.Items.Clear();
             try
             {
@@ -2050,6 +2397,7 @@ namespace Hiatme_Tool_Suite_v3
                     lvi.SubItems.Add(link.FailedTripCount);
                     lvi.SubItems.Add(link.RequiresAttention);
                     lvi.SubItems.Add(link.TotalBilledAmount);
+                    lvi.SubItems.Add(TimeCorrectionBatchHistoryStore.FormatListSummary(link.BatchID));
                     tcbatchelinkslv.Items.Add(lvi);
                 }
             }
@@ -2057,9 +2405,9 @@ namespace Hiatme_Tool_Suite_v3
             {
                 Console.WriteLine("No batches found!");
             }
-            ListViewMinWidthEnforcer.Recompute(tcbatchelinkslv);
+            ListViewMinWidthEnforcer.ScheduleRecompute(tcbatchelinkslv);
             await SetLoadingGifLabel("Finalizing process..");
-            tcorrectstatuslbl.Text = "Status: Search completed with " + mcTimeCorrectionTool.mcBatchRecords.MCBatchLinks.Count + " batches found. To continue, select a batch and click 'LOAD'.'";
+            SetTimeCorrectionStatus(mcTimeCorrectionTool.mcBatchRecords.MCBatchLinks.Count + " batches found — select one and LOAD.");
             loadinggifhandler_hidescreen();
         }
 
@@ -2069,64 +2417,92 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (mcTimeCorrectionTool == null)
             {
-                tcorrectstatuslbl.Text = "Status: You must click 'Find' to search for batches to load.";
+                SetTimeCorrectionStatus("Click FIND first.");
                 return;
             }
 
             if (tcbatchelinkslv.SelectedItems.Count == 0)
             {
-                tcorrectstatuslbl.Text = "Status: Please select a batch to continue.";
+                SetTimeCorrectionStatus("Select a batch.");
                 return;
             }
 
-            tcorrectstatuslbl.Text = "Status: Attempting to load batch..";
+            TimeCorrectionLoadMode? loadMode = PromptTimeCorrectionLoadMode();
+            if (loadMode == null)
+            {
+                SetTimeCorrectionStatus("Load cancelled.");
+                return;
+            }
+
+            mcTimeCorrectionTool.LoadMode = loadMode.Value;
+
+            SetTimeCorrectionStatus("Loading batch…");
+            mcTimeCorrectionTool.ReportProgressAsync = SetLoadingGifLabel;
             loadinggifhandler_showscreen();
 
-            await SetLoadingGifLabel("Checking connections");
-            if (!await EnsureModivcareSessionAsync())
-            {
-                loadinggifhandler_hidescreen();
-                return;
-            }
-            WellRydePortalSession wrForBatch = null;
-            if (await EnsureWellRydePortalSessionForBillingAsync())
-                wrForBatch = _wellRydeSession;
             try
             {
+                await SetLoadingGifLabel("Checking connections…");
+                if (!await EnsureModivcareSessionAsync())
+                    return;
+
+                WellRydePortalSession wrForBatch = null;
+                if (await EnsureWellRydePortalSessionForBillingAsync())
+                    wrForBatch = _wellRydeSession;
+
+                await SetLoadingGifLabel("Refreshing batch list…");
                 await mcTimeCorrectionTool.GetBatchLinks(mcLoginHandler, true);
 
+                bool batchLoaded = false;
                 foreach (MCBatchLink link in mcTimeCorrectionTool.mcBatchRecords.MCBatchLinks)
                 {
-                    if (link.BatchID == tcbatchelinkslv.SelectedItems[0].Text)
-                    {
-                        mcTimeCorrectionTool.mcBatchRecords.ActiveBatchLink = link.BatchLinkToken;
-                        batchlink = link;
-                        await mcTimeCorrectionTool.InitializeCorrections(mcLoginHandler, link, wrForBatch);
-                        await SetLoadingGifLabel("Initializing corrections");
-                        await SetLoadingGifLabel("Calculating accuracies");
-                        await LoadBtnAsync(batchlink);
-                        await SetLoadingGifLabel("Finalizing process..");
-                    }
+                    if (link.BatchID != tcbatchelinkslv.SelectedItems[0].Text)
+                        continue;
+
+                    mcTimeCorrectionTool.mcBatchRecords.ActiveBatchLink = link.BatchLinkToken;
+                    batchlink = link;
+                    await mcTimeCorrectionTool.InitializeCorrections(mcLoginHandler, link, wrForBatch);
+                    await SetLoadingGifLabel("Calculating driver accuracies…");
+                    await LoadBtnAsync(batchlink);
+                    await SetLoadingGifLabel("Finalizing…");
+                    RecordTimeCorrectionBatchHistory(batchlink, afterExecute: false);
+                    batchLoaded = true;
+                    break;
                 }
+
+                if (!batchLoaded)
+                    SetTimeCorrectionStatus("Batch not found after refresh — click FIND.");
             }
             catch (ModivcareSessionExpiredException)
             {
                 await HandleModivcareSessionExpiredAsync();
-                return;
             }
-            loadinggifhandler_hidescreen();
+            catch (Exception ex)
+            {
+                SetTimeCorrectionStatus("Load failed — " + ex.Message);
+                MessageBox.Show(this,
+                    "Time Correction could not finish loading this batch.\r\n\r\n" + ex.Message,
+                    "Load batch failed",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+            }
+            finally
+            {
+                mcTimeCorrectionTool.ReportProgressAsync = null;
+                loadinggifhandler_hidescreen();
+            }
         }
         private async void tcexebtn_Click(object sender, EventArgs e)
         {
             if (mcTimeCorrectionTool == null)
             {
-                tcorrectstatuslbl.Text = "Status: You must click 'Find' to search for batches to load.";
+                SetTimeCorrectionStatus("Click FIND first.");
                 return;
             }
             
             if (mcTimeCorrectionTool.mcBatchRecords.MCBatchTrips.Count == 0 & mcTimeCorrectionTool.mcBatchRecords.MCBatchTrips != null)
             {
-                tcorrectstatuslbl.Text = "Status: No batches loaded.";
+                SetTimeCorrectionStatus("No batch loaded.");
                 return;
             }
             
@@ -2185,7 +2561,7 @@ namespace Hiatme_Tool_Suite_v3
 
             loadinggifhandler_hidescreen();
 
-            List<MCDriver> drivers = mcTimeCorrectionTool.CalculateAccuracies();
+            RefreshAccuracyChart();
 
             StartTimer();
 
@@ -2206,7 +2582,7 @@ namespace Hiatme_Tool_Suite_v3
                             if (itemRow.SubItems[1].Text == (mctrprcd.Date + "-" + mctrprcd.Trip))
                             {
                                 currenttripcounter += 1;
-                                tcstatustext = "Status: Fixing " + currenttripcounter + " of " + fixabletripscounter + " fixable trips.";
+                                tcstatustext = "Fixing " + currenttripcounter + "/" + fixabletripscounter;
 
                                 itemRow.UseItemStyleForSubItems = false;
                                 itemRow.BackColor = Color.OrangeRed;
@@ -2241,6 +2617,8 @@ namespace Hiatme_Tool_Suite_v3
                                     itemRow.BackColor = Color.DarkRed;
                                     itemRow.ForeColor = Color.Black;
                                 }
+
+                                RefreshAccuracyChart();
                                 break;
                             }
                         }
@@ -2249,10 +2627,12 @@ namespace Hiatme_Tool_Suite_v3
                     {
                         mctrprcd.Status = "Failed";
                         sessionLostMidLoop = true;
+                        RefreshAccuracyChart();
                     }
                     catch 
                     {
                         mctrprcd.Status = "Failed";
+                        RefreshAccuracyChart();
                     }
                 }
                 if (sessionLostMidLoop)
@@ -2262,9 +2642,14 @@ namespace Hiatme_Tool_Suite_v3
             tcfindbatchesbtn.Enabled = true;
             tcloadbtn.Enabled = true;
             tcexebtn.Enabled = true;
-            tcorrectstatuslbl.Text = "Status: Corrections have finished " + currenttripcounter + " of " + fixabletripscounter + " trips.";
+            SetTimeCorrectionStatus("Done " + currenttripcounter + "/" + fixabletripscounter + ".");
             if (sessionLostMidLoop)
                 await HandleModivcareSessionExpiredAsync();
+
+            RefreshAccuracyChart();
+            ListViewMinWidthEnforcer.ScheduleRecompute(tctripcorrectlv);
+            if (batchlink != null && !string.IsNullOrWhiteSpace(batchlink.BatchID))
+                RecordTimeCorrectionBatchHistory(batchlink, afterExecute: true);
         }
         TimeSpan ts = new TimeSpan();
         private void StartTimer()
@@ -2306,12 +2691,135 @@ namespace Hiatme_Tool_Suite_v3
                 ts = TimeSpan.FromSeconds(timelefsecs);
                 tensecs = 0;
             }
-            tcorrectstatuslbl.Text = tcstatustext + " Estimated time to complete: " + ts;
+            SetTimeCorrectionStatus(tcstatustext, ts);
         }
+        private bool _tcAccuracyChartUiReady;
+
+        private void EnsureTimeCorrectionCompanyAccuracyUi()
+        {
+            if (_tcAccuracyChartUiReady || materialCard11 == null)
+                return;
+
+            materialCard11.Controls.Remove(tcchart);
+            materialCard11.Controls.Add(tcchart);
+            tcchart.Dock = DockStyle.Fill;
+            tcchart.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+
+            tabPage4.Resize -= TabPage4_LayoutTimeCorrectionPanels;
+            tabPage4.Resize += TabPage4_LayoutTimeCorrectionPanels;
+
+            _tcAccuracyChartUiReady = true;
+            LayoutTimeCorrectionBottomPanels();
+            ConfigureAccuracyChartLayout();
+            LayoutStatusLabelInCard(materialCard10, tcorrectstatuslbl);
+        }
+
+        /// <summary>
+        /// Keeps the accuracy chart directly above the status bar without overlapping it.
+        /// </summary>
+        private void LayoutTimeCorrectionBottomPanels()
+        {
+            if (materialCard11 == null || materialCard10 == null || tabPage4 == null)
+                return;
+
+            const int gapPx = 8;
+            const int chartHeightPx = 186;
+
+            materialCard10.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
+            materialCard11.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
+
+            int bottomInset = 8;
+            materialCard10.Top = tabPage4.ClientSize.Height - bottomInset - materialCard10.Height;
+            materialCard11.Height = chartHeightPx;
+            materialCard11.Top = materialCard10.Top - gapPx - chartHeightPx;
+            materialCard11.Left = materialCard10.Left;
+            materialCard11.Width = materialCard10.Width;
+
+            materialCard10.BringToFront();
+            LayoutStatusLabelInCard(materialCard10, tcorrectstatuslbl);
+        }
+
+        /// <summary>Centers status text vertically inside the slim status card without increasing card height.</summary>
+        private static void LayoutStatusLabelInCard(System.Windows.Forms.Control card, System.Windows.Forms.Control label)
+        {
+            if (card == null || label == null || card.IsDisposed || label.IsDisposed)
+                return;
+
+            const int horizontalInset = 14;
+            Rectangle client = card.ClientRectangle;
+            int labelH = TextRenderer.MeasureText(
+                "Status: Ay",
+                label.Font,
+                new Size(int.MaxValue, int.MaxValue),
+                TextFormatFlags.SingleLine).Height;
+            int y = Math.Max(0, (client.Height - labelH) / 2);
+
+            int padH = card.Padding.Left + card.Padding.Right;
+            bool paddingShrinksClient = padH > 0 && card.ClientSize.Width <= card.Width - padH + 2;
+            int x = paddingShrinksClient ? 0 : horizontalInset;
+            int w = paddingShrinksClient
+                ? Math.Max(4, client.Width)
+                : Math.Max(4, client.Width - horizontalInset * 2);
+            label.SetBounds(x, y, w, labelH);
+        }
+
+        private void TabPage4_LayoutTimeCorrectionPanels(object sender, EventArgs e)
+        {
+            LayoutTimeCorrectionBottomPanels();
+        }
+
+        private void RefreshAccuracyChart()
+        {
+            if (mcTimeCorrectionTool == null || tcchart == null || tcchart.IsDisposed)
+                return;
+
+            TimeCorrectionAccuracySnapshot snapshot = mcTimeCorrectionTool.CalculateAccuracySnapshot();
+            DrawAccuracyChart(snapshot.Drivers);
+            ApplyCompanyAccuracyLabel(snapshot);
+        }
+
+        private void ApplyCompanyAccuracyLabel(TimeCorrectionAccuracySnapshot snapshot)
+        {
+            if (tcchart == null || tcchart.IsDisposed)
+                return;
+
+            tcchart.Titles.Clear();
+
+            string text;
+            Color color = Color.Gainsboro;
+            if (snapshot == null || snapshot.TotalLegs == 0)
+            {
+                text = "Company accuracy: —";
+            }
+            else
+            {
+                string datePart = string.IsNullOrWhiteSpace(snapshot.ServiceDateLabel)
+                    ? ""
+                    : " · " + snapshot.ServiceDateLabel;
+                text = "Company" + datePart + ": " + snapshot.CompanyAccuracyPercent.ToString("0") + "%" +
+                    "  |  " + snapshot.AccurateLegs + "/" + snapshot.TotalLegs + " legs" +
+                    "  |  " + snapshot.PassedTrips + "/" + snapshot.TotalTrips + " trips passed";
+                color = snapshot.CompanyAccuracyPercent >= 70 ? Color.LightGreen : Color.Salmon;
+            }
+
+            var title = new Title
+            {
+                Name = "CompanyAccuracy",
+                Text = text,
+                Docking = Docking.Top,
+                IsDockedInsideChartArea = false,
+                Alignment = System.Drawing.ContentAlignment.TopRight,
+                ForeColor = color,
+                Font = new Font("Segoe UI", 9.5F, FontStyle.Bold, GraphicsUnit.Point),
+                BackColor = Color.Transparent,
+            };
+            tcchart.Titles.Add(title);
+        }
+
         private async Task LoadBtnAsync(MCBatchLink link)
         {
 
-                    DrawAccuracyChart(mcTimeCorrectionTool.CalculateAccuracies());
+                    RefreshAccuracyChart();
 
                     tctripcorrectlv.Items.Clear();
                     foreach (MCBatchTripRecord triprcd in mcTimeCorrectionTool.mcBatchRecords.MCBatchTrips)
@@ -2366,9 +2874,32 @@ namespace Hiatme_Tool_Suite_v3
             int timelefsecs = (fixabletripscounter * 10);
             TimeSpan ts = TimeSpan.FromSeconds(timelefsecs);
             tctripcorrectlv.Columns[2].Text = "Alerts: " + mcTimeCorrectionTool.ReturnAlertCount().ToString();
-            tcstatustext = "Status: Batch " + link.BatchID + " loaded with " + fixabletripscounter + " fixable trips.";
-            tcorrectstatuslbl.Text = tcstatustext + " Estimated time to complete: " + ts;
-            ListViewMinWidthEnforcer.Recompute(tctripcorrectlv);
+            ListViewMinWidthEnforcer.ScheduleRecompute(tctripcorrectlv);
+            string modeLabel = ShortTimeCorrectionLoadModeLabel(mcTimeCorrectionTool.LoadMode);
+            string portalAudit = mcTimeCorrectionTool.BuildPortalAssignmentAuditSummaryCompact();
+            tcstatustext = "Batch " + link.BatchID + " (" + modeLabel + "): " + fixabletripscounter + " fixable";
+            if (!string.IsNullOrWhiteSpace(portalAudit))
+                tcstatustext += " · " + portalAudit;
+            SetTimeCorrectionStatus(tcstatustext, ts);
+            ListViewMinWidthEnforcer.ScheduleRecompute(tctripcorrectlv);
+        }
+
+        private TimeCorrectionLoadMode? PromptTimeCorrectionLoadMode()
+        {
+            UseWaitCursor = true;
+            try
+            {
+                using (var dlg = new TimeCorrectionLoadModeForm())
+                {
+                    if (dlg.ShowDialog(this) != DialogResult.OK)
+                        return null;
+                    return dlg.SelectedMode;
+                }
+            }
+            finally
+            {
+                UseWaitCursor = false;
+            }
         }
 
         //Wellryde billing
@@ -2398,7 +2929,9 @@ namespace Hiatme_Tool_Suite_v3
                     return;
                 }
 
+                _billingSubmitPending = false;
                 BindBillingListViewFromWrTool(0, false, false);
+                RefreshBillingCharts();
                 var trips = wrBillingTool.WRTripList;
                 if (portalTotalRecords > 0 && trips != null && trips.Count != portalTotalRecords)
                 {
@@ -2475,7 +3008,7 @@ namespace Hiatme_Tool_Suite_v3
                 _suppressTripScoutSearch = true;
                 try { tssearchbox.Text = ""; }
                 finally { _suppressTripScoutSearch = false; }
-                BindTripScoutListView(_tripScoutAllTrips, recomputeMinWidths: true);
+                BindTripScoutListView(_tripScoutAllTrips, fitColumns: true);
 
                 int loadedCount = _tripScoutAllTrips.Count;
                 if (portalTotalRecords > 0 && loadedCount != portalTotalRecords)
@@ -2518,7 +3051,7 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (_tripScoutAllTrips == null || _tripScoutAllTrips.Count == 0)
             {
-                BindTripScoutListView(new List<WRDownloadedTrip>(), recomputeMinWidths: false);
+                BindTripScoutListView(new List<WRDownloadedTrip>());
                 tsstatuslbl.Text = "Status: No trips loaded. Pick a date and click Load.";
                 return;
             }
@@ -2538,7 +3071,7 @@ namespace Hiatme_Tool_Suite_v3
                 }
             }
 
-            BindTripScoutListView(visible, recomputeMinWidths: false);
+            BindTripScoutListView(visible);
 
             string dateStr = tsdatepicker.Value.ToLongDateString();
             if (trimmed.Length == 0)
@@ -2937,50 +3470,28 @@ namespace Hiatme_Tool_Suite_v3
         /// Fills <see cref="tslv"/> from a Trip Scout-owned trip list. Each row's <see cref="ListViewItem.Tag"/>
         /// holds the originating <see cref="WRDownloadedTrip"/> so future actions can act on the underlying record.
         /// </summary>
-        /// <param name="recomputeMinWidths">
-        /// True for fresh full-day loads (lets <see cref="ListViewMinWidthEnforcer"/> auto-fit columns
-        /// to the new content); false when called from the live search filter, where re-fitting on
-        /// every keystroke would make the column widths jitter as the user types.
-        /// </param>
-        private void BindTripScoutListView(List<WRDownloadedTrip> trips, bool recomputeMinWidths = true)
+        private void BindTripScoutListView(List<WRDownloadedTrip> trips, bool fitColumns = false)
         {
             try
             {
                 tslv.BeginUpdate();
                 tslv.Items.Clear();
                 if (trips == null || trips.Count == 0)
-                {
-                    tslv.Columns[2].Text = "Alerts: 0";
                     return;
-                }
 
-                int alertCount = 0;
                 foreach (WRDownloadedTrip trip in trips)
                 {
-                    string alertseries = "";
-                    if (trip.Alerts != null)
-                    {
-                        foreach (string alert in trip.Alerts)
-                        {
-                            if (!string.IsNullOrEmpty(alert))
-                            {
-                                alertCount++;
-                                alertseries = string.IsNullOrEmpty(alertseries) ? alert : alertseries + ", " + alert;
-                            }
-                        }
-                    }
-
                     ListViewItem item = new ListViewItem();
                     item.Tag = trip;
                     item.Text = trip.Status ?? "";
                     item.SubItems.Add(trip.TripNumber ?? "");
-                    item.SubItems.Add(alertseries);
+                    item.SubItems.Add(""); // alerts column hidden; keep index alignment
                     item.SubItems.Add(trip.ClientName ?? "");
                     item.SubItems.Add(trip.DriverName ?? "");
                     item.SubItems.Add(FormatTimeOnly(trip.PUTime ?? ""));
-                    item.SubItems.Add(FormatTimeOnly(trip.DOTime ?? ""));
                     item.SubItems.Add(trip.PUStreet ?? "");
                     item.SubItems.Add(trip.PUCity ?? "");
+                    item.SubItems.Add(FormatTimeOnly(trip.DOTime ?? ""));
                     item.SubItems.Add(trip.DOStreet ?? "");
                     item.SubItems.Add(trip.DOCITY ?? "");
                     item.SubItems.Add(trip.Miles ?? "");
@@ -2988,17 +3499,42 @@ namespace Hiatme_Tool_Suite_v3
                     item.SubItems.Add(trip.References ?? "");
                     tslv.Items.Add(item);
                 }
-
-                tslv.Columns[2].Text = "Alerts: " + alertCount;
             }
             finally
             {
                 tslv.EndUpdate();
             }
-            if (recomputeMinWidths)
+            if (fitColumns)
+                ScheduleTripScoutColumnFit();
+        }
+
+        /// <summary>Runs after the Trip Scout list handle is ready and layout has settled.</summary>
+        private void ScheduleTripScoutColumnFit()
+        {
+            if (tslv == null || tslv.IsDisposed) return;
+            void fit()
             {
+                if (tslv.IsDisposed || !tslv.IsHandleCreated) return;
+                var savedFont = tslv.Font;
+                try
+                {
+                    // Native auto-size uses ListView.Font; match owner-draw cell font so widths aren't wrong.
+                    tslv.Font = ListViewOwnerDrawFonts.Cell;
+                    tslv.AutoResizeColumns(ColumnHeaderAutoResizeStyle.ColumnContent);
+                }
+                finally
+                {
+                    tslv.Font = savedFont;
+                }
                 ListViewMinWidthEnforcer.Recompute(tslv);
+                if (tsColAlerts != null)
+                    tsColAlerts.Width = 0;
+                tslv.Invalidate(true);
             }
+            if (tslv.InvokeRequired)
+                tslv.BeginInvoke((MethodInvoker)fit);
+            else
+                tslv.BeginInvoke((MethodInvoker)fit);
         }
 
         /// <summary>
@@ -3047,38 +3583,39 @@ namespace Hiatme_Tool_Suite_v3
                             item.BackColor = Color.OrangeRed;
                     }
                 }
-                if (wrBillingTool.WRCalculations.CalculateBillableTripCount(billingmmcb.CheckState, billingallcb.CheckState) == 0)
+                if (_billingSubmitPending && _lastBillingSubmitCount > 0)
                 {
-                    if (!billinprogress)
-                    {
-                        billingstatuslbl.Text = "Status: " + wrBillingTool.WRTripList.Count.ToString() + " trips have been loaded for " + rjDatePicker1.Value.ToLongDateString() + ". " + wrBillingTool.WRCalculations.CalculateBillableTripCount(billingmmcb.CheckState, billingallcb.CheckState) + " trips are billable for a total of $" + wrBillingTool.WRCalculations.CalculateActualBillTotal(billingmmcb.CheckState, billingallcb.CheckState) + ".";
-                    }
-                    else
-                    {
-                        billinprogress = false;
-                        billingstatuslbl.Text = "Status: " + wrBillingTool.WRTripList.Count.ToString() + " trips have been loaded for " + rjDatePicker1.Value.ToLongDateString() + ". " + wrBillingTool.WRCalculations.CalculateBillableTripCount(billingmmcb.CheckState, billingallcb.CheckState) + " trips are billable for a total of $" + wrBillingTool.WRCalculations.CalculateActualBillTotal(billingmmcb.CheckState, billingallcb.CheckState) + ".";
-                    }
+                    SetBillingStatusLabel(BuildBillingSubmitStatusMessage(billed_trips_counter));
                 }
                 else
                 {
-                    if (!billinprogress)
-                    {
-                        billingstatuslbl.Text = "Status: " + wrBillingTool.WRTripList.Count.ToString() + " trips have been loaded for " + rjDatePicker1.Value.ToLongDateString() + ". " + wrBillingTool.WRCalculations.CalculateBillableTripCount(billingmmcb.CheckState, billingallcb.CheckState) + " trips are billable for a total of $" + wrBillingTool.WRCalculations.CalculateActualBillTotal(billingmmcb.CheckState, billingallcb.CheckState) + ". Click 'SUBMIT' to submit.";
-                    }
-                    else
-                    {
-                        billinprogress = false;
-                        billingstatuslbl.Text = "Status: Bill has been submitted. Trips may take some time to arrive for corrections.";
-                    }
+                    int billableCount = wrBillingTool.WRCalculations.CalculateBillableTripCount(billingmmcb.CheckState, billingallcb.CheckState);
+                    decimal billableTotal = wrBillingTool.WRCalculations.CalculateActualBillTotal(billingmmcb.CheckState, billingallcb.CheckState);
+                    string loaded = "Status: " + wrBillingTool.WRTripList.Count + " trips loaded for " + rjDatePicker1.Value.ToLongDateString()
+                        + ". " + billableCount + " billable ($" + billableTotal.ToString("N2") + ").";
+                    if (billableCount > 0)
+                        loaded += " Click 'SUBMIT' to submit.";
+                    SetBillingStatusLabel(loaded);
                 }
                 billinglistview.Columns[2].Text = "Alerts: " + wrBillingTool.WRCalculations.GetAlertCount().ToString();
             }
             catch (Exception) { }
-            ListViewMinWidthEnforcer.Recompute(billinglistview);
+            ListViewMinWidthEnforcer.ScheduleRecompute(billinglistview);
             wrBillingTool.WRCalculations.CheckIfAllTripsAreBeingBilled(billingmmcb.CheckState, billingallcb.CheckState);
+            RefreshBillingCharts();
+        }
+
+        private void BillingOptions_ChangedRefreshCharts(object sender, EventArgs e)
+        {
+            if (wrBillingTool?.WRTripList == null || wrBillingTool.WRTripList.Count == 0)
+                return;
+            RefreshBillingCharts();
         }
 
         private List<BillableTrip> billedtrips = new List<BillableTrip>();
+        private int _lastBillingSubmitCount;
+        private decimal _lastBillingSubmitDollars;
+        private bool _billingSubmitPending;
         private async Task populateBillingList(decimal totalbilled, bool billinprogress, bool billexrta)
         {
             try
@@ -3102,7 +3639,6 @@ namespace Hiatme_Tool_Suite_v3
             //billtimer.Enabled = true;
             bool billall = false;
             
-            decimal billedtotal = Math.Round(wrBillingTool.WRCalculations.CalculateSimpleBillableTotal(), 2, MidpointRounding.AwayFromZero);
             if (billingallcb.CheckState == CheckState.Checked)
             {
                 await SetLoadingGifLabel("Using the bill all feature will bill trips drivers are still on. Continue?");
@@ -3136,6 +3672,9 @@ namespace Hiatme_Tool_Suite_v3
                     return;
                 }
                 billedtrips = await wrBillingTool.SendBill(_wellRydeSession, billingmmcb.CheckState, billingallcb.CheckState);
+                _lastBillingSubmitCount = billedtrips.Count;
+                _lastBillingSubmitDollars = SumBillableTripAmounts(billedtrips);
+                _billingSubmitPending = _lastBillingSubmitCount > 0;
                 await SetLoadingGifLabel("Waiting for trips to arrive. 0 / " + billedtrips.Count + " trips billed..");
             }
             catch (NullReferenceException)
@@ -3161,8 +3700,9 @@ namespace Hiatme_Tool_Suite_v3
             else
             {
                 //loadinggifhandler_hidescreen();
-                await populateBillingList(billedtotal, true, billall);
-                DrawPriceGroupChart(wrBillingTool.WRCalculations.CalculateBillablePriceGroups());
+                await populateBillingList(0, true, billall);
+                RefreshBillingCharts();
+                SetBillingStatusLabel(BuildBillingSubmitStatusMessage(0));
                 billtimer.Start();
             }
             
@@ -3205,15 +3745,24 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             await SetLoadingGifLabel("Waiting for trips to arrive. " + billed_trips_counter.ToString() + " / " + billable_trip_counter + " trips billed..");
+            SetBillingStatusLabel(BuildBillingSubmitStatusMessage(billed_trips_counter));
             if (!found_trip_not_billed)
             {
                 Console.WriteLine("Found all trips!");
+                _billingSubmitPending = false;
                 billtimer.Stop();
+                int portalBilledCount = wrBillingTool.WRCalculations.CountBilledTrips();
+                decimal portalBilledTotal = Math.Round(wrBillingTool.WRCalculations.CalculateBilledTotal(), 2, MidpointRounding.AwayFromZero);
+                SetBillingStatusLabel(
+                    "Status: All " + _lastBillingSubmitCount + " submitted trips ($" + _lastBillingSubmitDollars.ToString("N2") + ") are Billed on WellRyde. "
+                    + portalBilledCount + " total Billed on portal ($" + portalBilledTotal.ToString("N2") + ").");
+                RunOnUiThread(RefreshBillingCharts);
                 loadinggifhandler_hidescreen();
             }
             else
             {
                 Console.WriteLine("There were some trips not billed yet.");
+                RunOnUiThread(RefreshBillingCharts);
             }
         }
 
@@ -3708,7 +4257,7 @@ namespace Hiatme_Tool_Suite_v3
                 }
 
             }
-            ListViewMinWidthEnforcer.Recompute(aalv);
+            ListViewMinWidthEnforcer.ScheduleRecompute(aalv);
 
             reportCard = new ReportCard(hiatmeTabControl.SelectedTab, aaassbtn);
 
@@ -3922,138 +4471,185 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         //charts
+        private void ConfigureAccuracyChartLayout()
+        {
+            if (tcchart == null || tcchart.IsDisposed)
+                return;
+
+            ChartArea area = tcchart.ChartAreas["TCChartArea"];
+            Series series = tcchart.Series["Accuracies"];
+
+            area.BackColor = Color.FromArgb(80, 80, 80);
+            area.Position.Auto = false;
+            area.Position.X = 3f;
+            area.Position.Y = 17f;
+            area.Position.Width = 94f;
+            area.Position.Height = 80f;
+
+            area.InnerPlotPosition.Auto = false;
+            area.InnerPlotPosition.X = 8f;
+            area.InnerPlotPosition.Y = 4f;
+            area.InnerPlotPosition.Width = 88f;
+            area.InnerPlotPosition.Height = 82f;
+
+            area.AxisX.LabelStyle.ForeColor = Color.White;
+            area.AxisX.LabelStyle.Font = new Font("Segoe UI", 8.25f);
+            area.AxisX.LabelStyle.Angle = 0;
+            area.AxisX.LabelStyle.Interval = 1;
+            area.AxisX.Interval = 1;
+            area.AxisX.IsMarginVisible = true;
+            area.AxisX.IsLabelAutoFit = true;
+            area.AxisX.LabelAutoFitStyle = LabelAutoFitStyles.DecreaseFont;
+            area.AxisX.LineColor = Color.White;
+            area.AxisX.MajorGrid.Enabled = false;
+            area.AxisX.TitleForeColor = Color.White;
+
+            // Headroom above 100% bars so Outside labels clear the bar tops.
+            area.AxisY.Minimum = 0;
+            area.AxisY.Maximum = 115;
+            area.AxisY.Interval = 20;
+            area.AxisY.IsStartedFromZero = true;
+            area.AxisY.LabelStyle.ForeColor = Color.White;
+            area.AxisY.LineColor = Color.White;
+            area.AxisY.MajorGrid.LineColor = Color.FromArgb(95, 95, 95);
+            area.AxisY.TitleForeColor = Color.White;
+
+            series.ChartType = SeriesChartType.Column;
+            series.IsValueShownAsLabel = true;
+            series.Font = new Font("Segoe UI", 8.25f, FontStyle.Bold);
+            series.LabelForeColor = Color.White;
+            series["PointWidth"] = "0.62";
+            series["BarLabelStyle"] = "Outside";
+            series.SmartLabelStyle.Enabled = false;
+        }
+
         private void DrawAccuracyChart(List<MCDriver> driverslist)
         {
+            ConfigureAccuracyChartLayout();
 
-            tcchart.Series["Accuracies"].Points.Clear();
-            tcchart.Series["Accuracies"].LabelForeColor = Color.White;
-            tcchart.ChartAreas["TCChartArea"].AxisX.LabelStyle.ForeColor = Color.White;
-            tcchart.ChartAreas["TCChartArea"].AxisX.LabelStyle.Font = new System.Drawing.Font("Microsoft Sans Serif", 10F, System.Drawing.FontStyle.Regular);
+            ChartArea area = tcchart.ChartAreas["TCChartArea"];
+            Series series = tcchart.Series["Accuracies"];
+            series.Points.Clear();
+            area.AxisY.StripLines.Clear();
 
-            tcchart.ChartAreas["TCChartArea"].AxisY.LabelStyle.ForeColor = Color.White;
-
-            tcchart.ChartAreas["TCChartArea"].Axes[0].LineColor = Color.White;
-            tcchart.ChartAreas["TCChartArea"].Axes[1].LineColor = Color.White;
-
-            tcchart.ChartAreas["TCChartArea"].AxisX.TitleForeColor = Color.White;
-            tcchart.ChartAreas["TCChartArea"].AxisY.TitleForeColor = Color.White;
-
-            tcchart.ChartAreas["TCChartArea"].AxisX.Interval = 1;
-
-            StripLine stripline = new StripLine();
-            stripline.IntervalOffset = 70;
-            stripline.StripWidth = 1;
-            stripline.BackColor = Color.Orange;
-
-            tcchart.ChartAreas["TCChartArea"].AxisY.StripLines.Add(stripline);
+            StripLine stripline = new StripLine
+            {
+                IntervalOffset = 70,
+                StripWidth = 1,
+                BackColor = Color.Orange,
+            };
+            area.AxisY.StripLines.Add(stripline);
 
             int point = 0;
             foreach (MCDriver driver in driverslist)
             {
-                //Console.WriteLine("price: " + priceandnumofthem.Key + " amount: " + priceandnumofthem.Value);
+                double pct = driver.AccuracyPercent;
+                if (pct < 0)
+                    pct = 0;
+                if (pct > 100)
+                    pct = 100;
 
-                tcchart.Series["Accuracies"].Points.Add((int)driver.AccuracyPercent);
+                series.Points.Add(pct);
 
-                if ((int)driver.AccuracyPercent > 70)
-                {
-                    tcchart.Series["Accuracies"].Points[point].Color = Color.ForestGreen;
-                }
+                if ((int)pct > 70)
+                    series.Points[point].Color = Color.ForestGreen;
                 else
-                {
-                    tcchart.Series["Accuracies"].Points[point].Color = Color.DarkRed;
-                }
+                    series.Points[point].Color = Color.DarkRed;
 
-                tcchart.Series["Accuracies"].Points[point].LabelForeColor = Color.White;
-                tcchart.Series["Accuracies"].Points[point].AxisLabel = SplitDriverName(driver.Driver);
-                tcchart.Series["Accuracies"].Points[point].LegendText = "...";
-                tcchart.Series["Accuracies"].Points[point].Label = driver.AccuracyPercent.ToString() + "%";
+                series.Points[point].LabelForeColor = Color.White;
+                series.Points[point].AxisLabel = SplitDriverName(driver.Driver);
+                series.Points[point].LegendText = "...";
+                series.Points[point].Label = pct.ToString("0") + "%";
+                series.Points[point]["BarLabelStyle"] = "Outside";
                 point++;
             }
 
+            tcchart.Invalidate();
         }
-        private void DrawBillableVsLossesChart(decimal billtotal, bool submit, bool billextra)
+        private static decimal SumBillableTripAmounts(IEnumerable<BillableTrip> trips)
         {
-            decimal billabletotaldouble = 0;
-            string billablegtotalstr = string.Empty;
-
-            decimal billedtotaldouble = 0;
-            string billedtotalstr = string.Empty;
-
-            if (submit)
+            decimal total = 0;
+            if (trips == null)
+                return 0;
+            foreach (BillableTrip trip in trips)
             {
-                if (billextra)
-                {
-                    billedtotaldouble = Math.Round(wrBillingTool.WRCalculations.CalculateBillAllTotal(), 2, MidpointRounding.AwayFromZero);
-                    billedtotalstr = wrBillingTool.WRCalculations.CalculateBillAllTotal().ToString();
-                }
-                else
-                {
-                    billedtotaldouble = billtotal;
-                    billedtotalstr = billtotal.ToString();
-                }
+                if (!string.IsNullOrEmpty(trip.billedAmount))
+                    total += Convert.ToDecimal(trip.billedAmount);
             }
-            else
-            {
+            return Math.Round(total, 2, MidpointRounding.AwayFromZero);
+        }
 
-                if (billextra)
-                {
-                    billabletotaldouble = Math.Round(wrBillingTool.WRCalculations.CalculateBillableTotal(), 2, MidpointRounding.AwayFromZero);
-                    billablegtotalstr = wrBillingTool.WRCalculations.CalculateBillableTotal().ToString();
+        private string BuildBillingSubmitStatusMessage(int confirmedOnPortal)
+        {
+            if (_lastBillingSubmitCount <= 0)
+                return "Status: No trips were submitted.";
+            if (confirmedOnPortal >= _lastBillingSubmitCount)
+                return "Status: Submitted " + _lastBillingSubmitCount + " trips ($" + _lastBillingSubmitDollars.ToString("N2")
+                    + "). All confirmed Billed on WellRyde.";
+            return "Status: Submitted " + _lastBillingSubmitCount + " trips ($" + _lastBillingSubmitDollars.ToString("N2")
+                + "). Portal confirmed " + confirmedOnPortal + " / " + _lastBillingSubmitCount + " as Billed (refreshing…).";
+        }
 
-                    billedtotaldouble = Math.Round(wrBillingTool.WRCalculations.CalculateBilledTotal(), 2, MidpointRounding.AwayFromZero);
-                    billedtotalstr = wrBillingTool.WRCalculations.CalculateBilledTotal().ToString();
-                }
-                else
-                {
-                    billabletotaldouble = Math.Round(wrBillingTool.WRCalculations.CalculateNoobBilledTotal(), 2, MidpointRounding.AwayFromZero);
-                    billablegtotalstr = wrBillingTool.WRCalculations.CalculateNoobBilledTotal().ToString();
-
-                    billedtotaldouble = Math.Round(wrBillingTool.WRCalculations.CalculateBilledTotal(), 2, MidpointRounding.AwayFromZero);
-                    billedtotalstr = wrBillingTool.WRCalculations.CalculateBilledTotal().ToString();
-                }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-                    /*
-                    if (drawbillable)
-                    {
-                        billingtotaldouble = Math.Round(wrBillingTool.WRCalculations.CalculateSimpleBillableTotal(), 2, MidpointRounding.AwayFromZero);
-                        billingtotalstr = wrBillingTool.WRCalculations.CalculateSimpleBillableTotal().ToString();
-                    }
-                    else
-                    {
-                        billingtotaldouble = Math.Round(wrBillingTool.WRCalculations.CalculateBillableTotal(), 2, MidpointRounding.AwayFromZero);
-                        billingtotalstr = wrBillingTool.WRCalculations.CalculateBillableTotal().ToString();
-                    }
-
-
-                    billedtotaldouble = Math.Round(wrBillingTool.WRCalculations.CalculateBilledTotal(), 2, MidpointRounding.AwayFromZero);
-                    billedtotalstr = wrBillingTool.WRCalculations.CalculateBilledTotal().ToString();
-                    */
-                }
-
-            incomevslosseschart.Series["Totals"].Points.Clear();
-
-            /*
-            if (billingtotaldouble == 0 & billedtotaldouble == 0)
-            {
+        private void SetBillingStatusLabel(string text)
+        {
+            if (_applicationExitRequested || IsDisposed || billingstatuslbl == null)
                 return;
+            void apply()
+            {
+                if (!billingstatuslbl.IsDisposed)
+                    billingstatuslbl.Text = text ?? string.Empty;
             }
-            */
+            if (billingstatuslbl.InvokeRequired)
+                billingstatuslbl.BeginInvoke((MethodInvoker)apply);
+            else
+                apply();
+        }
+
+        private void RunOnUiThread(Action action)
+        {
+            if (_applicationExitRequested || IsDisposed || action == null)
+                return;
+            if (InvokeRequired)
+                BeginInvoke(action);
+            else
+                action();
+        }
+
+        private void RefreshBillingCharts()
+        {
+            if (wrBillingTool?.WRCalculations == null)
+                return;
+
+            int billableCount = wrBillingTool.WRCalculations.CalculateBillableTripCount(billingmmcb.CheckState, billingallcb.CheckState);
+            decimal billableDollars = Math.Round(
+                wrBillingTool.WRCalculations.CalculateActualBillTotal(billingmmcb.CheckState, billingallcb.CheckState),
+                2,
+                MidpointRounding.AwayFromZero);
+            int billedCount = wrBillingTool.WRCalculations.CountBilledTrips();
+            decimal billedDollars = Math.Round(wrBillingTool.WRCalculations.CalculateBilledTotal(), 2, MidpointRounding.AwayFromZero);
+
+            var billableByPrice = wrBillingTool.WRCalculations.CalculatePriceGroupsForBillableTrips(
+                billingmmcb.CheckState, billingallcb.CheckState);
+            var billedByPrice = wrBillingTool.WRCalculations.CalculateBillablePriceGroups();
+
+            DrawBillableVsLossesChart(billableDollars, billableCount, billedDollars, billedCount);
+            DrawBillingPriceGroupChart(billableByPrice, billedByPrice);
+        }
+
+        private void DrawBillableVsLossesChart(decimal billableDollars, int billableCount, decimal billedDollars, int billedCount)
+        {
+            string billableLabel = "$" + billableDollars.ToString("N2") + " (" + billableCount + ")";
+            string billedLabel = "$" + billedDollars.ToString("N2") + " (" + billedCount + ")";
+
+
+
+
+
+
+
+
+
+
             incomevslosseschart.Series["Totals"].Points.Clear();
             incomevslosseschart.Series["Totals"].LabelForeColor = Color.White;
 
@@ -4067,53 +4663,129 @@ namespace Hiatme_Tool_Suite_v3
             incomevslosseschart.ChartAreas["ChartArea1"].AxisX.TitleForeColor = Color.White;
             incomevslosseschart.ChartAreas["ChartArea1"].AxisY.TitleForeColor = Color.White;
 
-            string mismatchtotal = wrBillingTool.FindTripPriceMismatches().Count.ToString();
-
-            incomevslosseschart.Series["Totals"].Points.Add(Convert.ToDouble(billabletotaldouble));
+            incomevslosseschart.Series["Totals"].Points.Add(Convert.ToDouble(billableDollars));
             incomevslosseschart.Series["Totals"].Points[0].Color = Color.Green;
             incomevslosseschart.Series["Totals"].Points[0].LabelForeColor = Color.White;
             incomevslosseschart.Series["Totals"].Points[0].AxisLabel = "Billable";
             incomevslosseschart.Series["Totals"].Points[0].LegendText = "Billable";
-            incomevslosseschart.Series["Totals"].Points[0].Label = billablegtotalstr;
+            incomevslosseschart.Series["Totals"].Points[0].Label = billableLabel;
 
-            incomevslosseschart.Series["Totals"].Points.Add(Convert.ToDouble(billedtotaldouble));
+            incomevslosseschart.Series["Totals"].Points.Add(Convert.ToDouble(billedDollars));
             incomevslosseschart.Series["Totals"].Points[1].Color = Color.RoyalBlue;
             incomevslosseschart.Series["Totals"].Points[1].LabelForeColor = Color.White;
             incomevslosseschart.Series["Totals"].Points[1].AxisLabel = "Billed";
             incomevslosseschart.Series["Totals"].Points[1].LegendText = "Billed";
-            incomevslosseschart.Series["Totals"].Points[1].Label = billedtotalstr;
+            incomevslosseschart.Series["Totals"].Points[1].Label = billedLabel;
+
+            var totalsArea = incomevslosseschart.ChartAreas["ChartArea1"];
+            totalsArea.AxisY.Minimum = 0;
+            double yMax = Math.Max(Convert.ToDouble(billableDollars), Convert.ToDouble(billedDollars));
+            if (yMax <= 0 && (billableCount > 0 || billedCount > 0))
+                yMax = 1;
+            totalsArea.AxisY.Maximum = yMax > 0 ? double.NaN : 1;
+            incomevslosseschart.Invalidate();
         }
 
-        private void DrawPriceGroupChart(IDictionary<decimal, int> pricegroups)
+        private void EnsureBillingPriceGroupChartSeries()
         {
+            if (pgchart == null)
+                return;
 
-            pgchart.Series["Totals"].Points.Clear();
-            pgchart.Series["Totals"].LabelForeColor = Color.White;
-            pgchart.ChartAreas["PGChartArea"].AxisX.LabelStyle.ForeColor = Color.White;
-            pgchart.ChartAreas["PGChartArea"].AxisY.LabelStyle.ForeColor = Color.White;
+            const string billableSeries = "Billable";
+            const string billedSeries = "Billed";
 
-            pgchart.ChartAreas["PGChartArea"].Axes[0].LineColor = Color.White;
-            pgchart.ChartAreas["PGChartArea"].Axes[1].LineColor = Color.White;
+            if (pgchart.Series.IndexOf(billableSeries) < 0)
+            {
+                if (pgchart.Series.IndexOf("Totals") >= 0)
+                {
+                    pgchart.Series["Totals"].Name = billableSeries;
+                    pgchart.Series[billableSeries].LegendText = billableSeries;
+                }
+                else
+                {
+                    var s = new System.Windows.Forms.DataVisualization.Charting.Series(billableSeries)
+                    {
+                        ChartArea = "PGChartArea",
+                        ChartType = System.Windows.Forms.DataVisualization.Charting.SeriesChartType.Column,
+                        LegendText = billableSeries,
+                    };
+                    pgchart.Series.Add(s);
+                }
+            }
 
-            pgchart.ChartAreas["PGChartArea"].AxisX.TitleForeColor = Color.White;
-            pgchart.ChartAreas["PGChartArea"].AxisY.TitleForeColor = Color.White;
+            if (pgchart.Series.IndexOf(billedSeries) < 0)
+            {
+                var s = new System.Windows.Forms.DataVisualization.Charting.Series(billedSeries)
+                {
+                    ChartArea = "PGChartArea",
+                    ChartType = System.Windows.Forms.DataVisualization.Charting.SeriesChartType.Column,
+                    LegendText = billedSeries,
+                };
+                pgchart.Series.Add(s);
+            }
+        }
 
-            pgchart.ChartAreas["PGChartArea"].AxisX.Interval = 1;
+        private void DrawBillingPriceGroupChart(
+            IDictionary<decimal, int> billableByPrice,
+            IDictionary<decimal, int> billedByPrice)
+        {
+            if (pgchart == null)
+                return;
+
+            EnsureBillingPriceGroupChartSeries();
+
+            pgchart.Series["Billable"].Points.Clear();
+            pgchart.Series["Billed"].Points.Clear();
+            pgchart.Series["Billable"].LabelForeColor = Color.White;
+            pgchart.Series["Billed"].LabelForeColor = Color.White;
+
+            var pgArea = pgchart.ChartAreas["PGChartArea"];
+            pgArea.AxisX.LabelStyle.ForeColor = Color.White;
+            pgArea.AxisY.LabelStyle.ForeColor = Color.White;
+            pgArea.Axes[0].LineColor = Color.White;
+            pgArea.Axes[1].LineColor = Color.White;
+            pgArea.AxisX.TitleForeColor = Color.White;
+            pgArea.AxisY.TitleForeColor = Color.White;
+            pgArea.AxisY.Minimum = 0;
+            pgArea.AxisX.Interval = 1;
+
+            var allPrices = new SortedSet<decimal>();
+            if (billableByPrice != null)
+            {
+                foreach (decimal p in billableByPrice.Keys)
+                    allPrices.Add(p);
+            }
+            if (billedByPrice != null)
+            {
+                foreach (decimal p in billedByPrice.Keys)
+                    allPrices.Add(p);
+            }
 
             int point = 0;
-            foreach (KeyValuePair<decimal, int> priceandnumofthem in pricegroups)
+            foreach (decimal price in allPrices)
             {
-                //Console.WriteLine("price: " + priceandnumofthem.Key + " amount: " + priceandnumofthem.Value);
+                int billableCount = billableByPrice != null && billableByPrice.TryGetValue(price, out int b) ? b : 0;
+                int billedCount = billedByPrice != null && billedByPrice.TryGetValue(price, out int b2) ? b2 : 0;
+                string priceLabel = "$" + price.ToString("0.##");
 
-                pgchart.Series["Totals"].Points.Add(priceandnumofthem.Value);
-                pgchart.Series["Totals"].Points[point].Color = Color.SlateGray;
-                pgchart.Series["Totals"].Points[point].LabelForeColor = Color.White;
-                pgchart.Series["Totals"].Points[point].AxisLabel = priceandnumofthem.Key.ToString();
-                pgchart.Series["Totals"].Points[point].LegendText = priceandnumofthem.Value.ToString();
-                pgchart.Series["Totals"].Points[point].Label = priceandnumofthem.Value.ToString();
+                pgchart.Series["Billable"].Points.Add(billableCount);
+                pgchart.Series["Billable"].Points[point].Color = Color.ForestGreen;
+                pgchart.Series["Billable"].Points[point].LabelForeColor = Color.White;
+                pgchart.Series["Billable"].Points[point].AxisLabel = priceLabel;
+                pgchart.Series["Billable"].Points[point].LegendText = billableCount.ToString();
+                pgchart.Series["Billable"].Points[point].Label = billableCount > 0 ? billableCount.ToString() : string.Empty;
+
+                pgchart.Series["Billed"].Points.Add(billedCount);
+                pgchart.Series["Billed"].Points[point].Color = Color.RoyalBlue;
+                pgchart.Series["Billed"].Points[point].LabelForeColor = Color.White;
+                pgchart.Series["Billed"].Points[point].AxisLabel = priceLabel;
+                pgchart.Series["Billed"].Points[point].LegendText = billedCount.ToString();
+                pgchart.Series["Billed"].Points[point].Label = billedCount > 0 ? billedCount.ToString() : string.Empty;
+
                 point++;
             }
 
+            pgchart.Invalidate();
         }
 
 
@@ -4176,7 +4848,7 @@ namespace Hiatme_Tool_Suite_v3
                 //tbtemplatenamecb.SelectedIndex = 0;
                 // VerifyDriverTripsInfo(drivertriplist);
             }
-            ListViewMinWidthEnforcer.Recompute(templatelv);
+            ListViewMinWidthEnforcer.ScheduleRecompute(templatelv);
         }
         private async void hiatmeTabControl_SelectedIndexChanged(object sender, EventArgs e)
         {
@@ -4184,6 +4856,8 @@ namespace Hiatme_Tool_Suite_v3
             {
                 if (hiatmeTabControl.SelectedTab == tabPage1)
                     pictureBox1?.Invalidate();
+                if (hiatmeTabControl.SelectedTab == tabPage9 && tslv != null)
+                    ScheduleTripScoutColumnFit();
             }
             catch
             {
@@ -4239,7 +4913,7 @@ namespace Hiatme_Tool_Suite_v3
             e.Graphics.FillRectangle(bluegrayBrush, e.Bounds);
 
             Rectangle rowBounds = e.Bounds;
-            Rectangle bounds = new Rectangle(rowBounds.Left + 10, rowBounds.Top, e.ColumnIndex == 0 ? 250 : (rowBounds.Width - 10 - 1), rowBounds.Height);
+            Rectangle bounds = new Rectangle(rowBounds.Left + 10, rowBounds.Top, Math.Max(0, rowBounds.Width - 10 - 1), rowBounds.Height);
             if (e.ColumnIndex == 0)
             {
                 /*
@@ -4252,25 +4926,21 @@ namespace Hiatme_Tool_Suite_v3
                 //CheckBoxRenderer.DrawCheckBox(e.Graphics, new Point(e.Bounds.Left + 18, e.Bounds.Top + 7), System.Windows.Forms.VisualStyles.CheckBoxState.UncheckedNormal);
             }
             // Draw the header text.
-            using (Font headerFont =
-                            new Font("Archivo Medium", 11, FontStyle.Regular))
+            TextFormatFlags align;
+            switch (listView.Columns[e.ColumnIndex].TextAlign)
             {
-                TextFormatFlags align;
-                switch (listView.Columns[e.ColumnIndex].TextAlign)
-                {
-                    case HorizontalAlignment.Right:
-                        align = TextFormatFlags.Right;
-                        break;
-                    case HorizontalAlignment.Center:
-                        align = TextFormatFlags.HorizontalCenter;
-                        break;
-                    default:
-                        align = TextFormatFlags.Left;
-                        break;
-                }
-                TextRenderer.DrawText(e.Graphics, e.Header.Text, headerFont, bounds, Color.Gainsboro,
-                    align | TextFormatFlags.SingleLine | TextFormatFlags.GlyphOverhangPadding | TextFormatFlags.VerticalCenter | TextFormatFlags.WordEllipsis);
+                case HorizontalAlignment.Right:
+                    align = TextFormatFlags.Right;
+                    break;
+                case HorizontalAlignment.Center:
+                    align = TextFormatFlags.HorizontalCenter;
+                    break;
+                default:
+                    align = TextFormatFlags.Left;
+                    break;
             }
+            TextRenderer.DrawText(e.Graphics, e.Header.Text, ListViewOwnerDrawFonts.Header, bounds, Color.Gainsboro,
+                align | TextFormatFlags.SingleLine | TextFormatFlags.GlyphOverhangPadding | TextFormatFlags.VerticalCenter | TextFormatFlags.WordEllipsis);
 
             // Faint divider on the right edge of every header cell so users see the resize grabber
             // (the flat #333333 fill above otherwise hides Windows' default column boundary).
@@ -4345,31 +5015,23 @@ namespace Hiatme_Tool_Suite_v3
             ListView listView = (ListView)sender;
 
             Rectangle rowBounds = e.Bounds;
-            Rectangle bounds = new Rectangle(rowBounds.Left + 10, rowBounds.Top, e.ColumnIndex == 0 ? 250 : (rowBounds.Width + 10 - 1), rowBounds.Height);
+            Rectangle bounds = new Rectangle(rowBounds.Left + 10, rowBounds.Top, Math.Max(0, rowBounds.Width - 10 - 1), rowBounds.Height);
 
-            using (Font headerFont =
-                    new Font("Ariel", 10, FontStyle.Regular))
+            TextFormatFlags align;
+            switch (listView.Columns[e.ColumnIndex].TextAlign)
             {
-                TextFormatFlags align;
-                switch (listView.Columns[e.ColumnIndex].TextAlign)
-                {
-                    case HorizontalAlignment.Right:
-                        align = TextFormatFlags.Right;
-                        break;
-                    case HorizontalAlignment.Center:
-                        align = TextFormatFlags.HorizontalCenter;
-                        break;
-                    default:
-                        align = TextFormatFlags.Left;
-                        break;
-                }
-                TextRenderer.DrawText(e.Graphics, e.SubItem.Text, headerFont, bounds, Color.White,
-                    align | TextFormatFlags.SingleLine | TextFormatFlags.GlyphOverhangPadding | TextFormatFlags.VerticalCenter | TextFormatFlags.WordEllipsis);
-                //e.DrawBackground();
-
+                case HorizontalAlignment.Right:
+                    align = TextFormatFlags.Right;
+                    break;
+                case HorizontalAlignment.Center:
+                    align = TextFormatFlags.HorizontalCenter;
+                    break;
+                default:
+                    align = TextFormatFlags.Left;
+                    break;
             }
-
-
+            TextRenderer.DrawText(e.Graphics, e.SubItem.Text, ListViewOwnerDrawFonts.Cell, bounds, Color.White,
+                align | TextFormatFlags.SingleLine | TextFormatFlags.GlyphOverhangPadding | TextFormatFlags.VerticalCenter | TextFormatFlags.WordEllipsis);
         }
         private void ListView_SizeChanged(object sender, EventArgs e)
         {
@@ -4794,7 +5456,7 @@ namespace Hiatme_Tool_Suite_v3
             lvi.SubItems.Add(android_ver);
         
             listView1.Items.Add(lvi);
-            ListViewMinWidthEnforcer.Recompute(listView1);
+            ListViewMinWidthEnforcer.ScheduleRecompute(listView1);
 
             onlinecountlbl.Text = "Online: " + listView1.Items.Count.ToString();
             listBox1.Items.Add("[" + DateTime.Now.ToString("HH:mm:ss") + "]" + (socket != null ? socket.Handle.ToString() : "-") +

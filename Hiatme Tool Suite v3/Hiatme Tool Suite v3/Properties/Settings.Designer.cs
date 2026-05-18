@@ -142,5 +142,17 @@ namespace Hiatme_Tool_Suite_v3.Properties {
                 this["wrDebugPortalTraffic"] = value;
             }
         }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("")]
+        public string LastRunAssemblyVersion {
+            get {
+                return ((string)(this["LastRunAssemblyVersion"]));
+            }
+            set {
+                this["LastRunAssemblyVersion"] = value;
+            }
+        }
     }
 }

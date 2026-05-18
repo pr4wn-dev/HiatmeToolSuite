@@ -111,7 +111,50 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         public static TimeSpan? TryParsePU(MCDownloadedTrip t) => t == null ? (TimeSpan?)null : TryParse(t.PUTime);
-        public static TimeSpan? TryParseDO(MCDownloadedTrip t) => t == null ? (TimeSpan?)null : TryParse(t.DOTime);
+
+        /// <summary>
+        /// Returns the dropoff deadline used for late/feasibility checks, matching the website
+        /// scoreboard rule (<c>check_scoreboard_trips.php</c> / <c>manage_daily_scores.php</c>):
+        /// <list type="bullet">
+        ///   <item>A-leg trips: prefer <c>appointment_time</c> (Modivcare col 24, stored on
+        ///         <see cref="MCDownloadedTrip.DOTime"/>). Fall back to <c>scheduled_dropoff</c>
+        ///         (col 23, on <see cref="MCDownloadedTrip.SchedDOTime"/>) when there's no
+        ///         appointment recorded.</item>
+        ///   <item>B/C-leg trips (return rides): use <c>scheduled_dropoff</c>. Fall back to
+        ///         <c>appointment_time</c> only if <c>scheduled_dropoff</c> is missing.</item>
+        /// </list>
+        /// </summary>
+        public static TimeSpan? TryParseDO(MCDownloadedTrip t)
+        {
+            if (t == null) return null;
+            char leg = DetectLegSuffix(t.TripNumber);
+            TimeSpan? candidate;
+            if (leg == 'A')
+                candidate = TryParse(t.DOTime) ?? TryParse(t.SchedDOTime);
+            else
+                candidate = TryParse(t.SchedDOTime) ?? TryParse(t.DOTime);
+
+            // Modivcare's export emits "00:00" / TimeSpan.Zero for B/C return rides where
+            // there's no specific appointment ("rider just needs to get home"). Treating
+            // that as a literal midnight deadline failed every return-ride feasibility check
+            // and is what was throwing 70+ afternoon trips into Reserves in the May 20 dump.
+            // Surface as null so the scheduler treats the trip as deadline-free; the shift
+            // window still bounds when the day can run.
+            if (candidate.HasValue && candidate.Value == TimeSpan.Zero) return null;
+            return candidate;
+        }
+
+        private static char DetectLegSuffix(string tripNumber)
+        {
+            if (string.IsNullOrEmpty(tripNumber)) return 'B';
+            int len = tripNumber.Length;
+            if (len >= 2 && tripNumber[len - 2] == '-')
+            {
+                char c = char.ToUpperInvariant(tripNumber[len - 1]);
+                if (c == 'A' || c == 'B' || c == 'C') return c;
+            }
+            return 'B';
+        }
 
         /// <summary>"5:45 PM" — the format we surface in stats / dropdown items.</summary>
         public static string FormatTimeOfDay(TimeSpan? t)

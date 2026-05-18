@@ -28,6 +28,14 @@ namespace Hiatme_Tool_Suite_v3
 
         public MCCalculateAccuracies MCCalc { get; private set; }
 
+        public TimeCorrectionLoadMode LoadMode { get; set; } = TimeCorrectionLoadMode.StandardScoreboard;
+
+        /// <summary>When set (e.g. by Form1 during LOAD), receives human-readable progress for the loading overlay.</summary>
+        public Func<string, Task> ReportProgressAsync { get; set; }
+
+        /// <summary>TripActuals HTML from the last per-trip open before submit (late-reason hidden fields).</summary>
+        private string _tripActualsFormHtml;
+
         public MCTimeCorrection(MaterialComboBox cb)
         {
             mcBatchRecords = new MCBatchRecords();
@@ -137,13 +145,7 @@ namespace Hiatme_Tool_Suite_v3
                         triprcd.TripToken = GetContentBulkRegex(subs[0], "doPostBack(&#39;", "&#39;,&#39;&#39;)");
 
                         string stringwitherrors = GetContentBulkRegex(subs[0], "doPostBack(&#39;", ">");
-                    //check trip for errors
-                    if (stringwitherrors.Contains("Red"))
-                    {
-                        triprcd.TripErrors = true;
-                    }else{
-                        triprcd.TripErrors = false;
-                    }
+                    triprcd.TripErrors = ParseModivcarePortalErrorFlag(stringwitherrors);
                         //set trip id
                         string tmptripid = GetContentBulkRegex(subs[0], "\">", "</a>");
                         triprcd.TripFull = tmptripid;
@@ -230,6 +232,8 @@ namespace Hiatme_Tool_Suite_v3
                     //set batchtoken first
                     triprcd.TripToken = GetContentBulkRegex(subs[0], "doPostBack(&#39;", "&#39;,&#39;&#39;)");
 
+                    string stringwitherrors = GetContentBulkRegex(subs[0], "doPostBack(&#39;", ">");
+
                     //set trip id
                     string tmptripid = GetContentBulkRegex(subs[0], "\">", "</a>");
                     triprcd.TripFull = tmptripid;
@@ -254,6 +258,7 @@ namespace Hiatme_Tool_Suite_v3
                         {
                             //Console.WriteLine(trp.TripFull);
                             trp.TripToken = triprcd.TripToken;
+                            trp.TripErrors = ParseModivcarePortalErrorFlag(stringwitherrors);
                         }
                     }
                 }
@@ -278,123 +283,190 @@ namespace Hiatme_Tool_Suite_v3
         {
             mcBatchRecords = new MCBatchRecords(); //  <---------NEW
 
-            //Console.WriteLine("Starting corrections..");
+            await ReportProgress("Downloading batch trips…");
             await GetBatchPage(mcLoginHandler, mylink.BatchLinkToken, true);
-            
-            //load drivers and vehicles
+
+            await ReportProgress("Loading portal driver and vehicle lists…");
             foreach (MCBatchAdditionalInfo addinfo in mcBatchRecords.MCBatchAdditionalInfo)
             {
+                MCBatchTripRecord sampleTrip = null;
                 foreach (MCBatchTripRecord trprcd in mcBatchRecords.MCBatchTrips)
                 {
-                    if (trprcd.Date == addinfo.MCBatchDate)
+                    if (trprcd.Date == addinfo.MCBatchDate && !string.IsNullOrWhiteSpace(trprcd.TripToken))
                     {
-                        await LoadAvailableVehicles(trprcd, mcLoginHandler, trprcd.Date);
-
-
-                        /////////////////////////////////////
-                        ///
-                        ///
-                        ///
-                        ///
-                        //
-                        ///
-                        ///
-                        ///
-                        ///
-                        ///
-                        ///
-                        ///
-                        /////////////////////////////////////////
-
-
-
-
-
-
-
-                        ///WORKING ON SELECTING A DIFFERENT DRIVER IF TRIP DRIVER IS NOT FOUND
-
-
-                        bool driverfound = false;
-                        foreach (MCDriver driver in addinfo.MCDrivers)
-                        {
-                            if (driver.Driver == trprcd.Driver)
-                            {
-                                driverfound = true;
-                                Console.WriteLine("Driver Found!");
-                            }
-                        }
-
-                        if (!driverfound)
-                        {
-                            trprcd.Alerts = trprcd.Alerts + " DRV";
-                        }
-
-
-
-
-
+                        sampleTrip = trprcd;
                         break;
                     }
                 }
+
+                await LoadPortalEligibleListsFromSampleTrip(mcLoginHandler, sampleTrip, addinfo.MCBatchDate);
             }
 
             tempbatchdetaillist = new List<MCBatchAdditionalInfo>();
-           
+
             foreach (MCBatchAdditionalInfo addinfo in mcBatchRecords.MCBatchAdditionalInfo)
             {
-                TimeSpan numofdays = DateTime.Now - GetParsedDate(addinfo);
-                /*
-                if (numofdays.TotalDays > 8)//date less than 8 days old
+                DateTime tripDate = GetParsedDate(addinfo);
+                string dateLabel = tripDate.ToString("d", CultureInfo.CurrentCulture);
+
+                if (IsModivcareTripDownloadDateSupported(tripDate))
                 {
-                    await GetModivcareTripsForBatchDates(mcLoginHandler, GetParsedDate(addinfo), addinfo);
-                    await GetWellrydesBackupTripsForBatchDates(wrLoginHandler, GetParsedDate(addinfo), addinfo);
-                    RevampedCorrectModivcareTimes(mcBatchRecords.MCBatchTrips, addinfo);
+                    await ReportProgress("Downloading Modivcare trips for " + dateLabel + "…");
+                    await GetModivcareTripsForBatchDates(mcLoginHandler, tripDate, addinfo);
                 }
                 else
                 {
-                    await GetWellrydesTripsForBatchDates(wrLoginHandler, GetParsedDate(addinfo), addinfo);
-                    RevampedCorrectModivcareTimes(mcBatchRecords.MCBatchTrips, addinfo);
+                    addinfo.mcDownloadedTrips = new List<MCDownloadedTrip>();
+                    Console.WriteLine("MCTimeCorrection: skipping Modivcare download for " +
+                        dateLabel +
+                        " (outside the 8-day past / 30-day future trip-download window).");
+                    if (!tempbatchdetaillist.Contains(addinfo))
+                        tempbatchdetaillist.Add(addinfo);
                 }
-                */
-                await GetModivcareTripsForBatchDates(mcLoginHandler, GetParsedDate(addinfo), addinfo);
-                await LoadWellRydeTripsForBatchDateAsync(wellRydePortalSession, GetParsedDate(addinfo), addinfo);
-                RevampedCorrectModivcareTimes(mcBatchRecords.MCBatchTrips, addinfo);
+
+                await ReportProgress("Downloading WellRyde trips for " + dateLabel + "…");
+                await LoadWellRydeTripsForBatchDateAsync(wellRydePortalSession, tripDate, addinfo);
+                EnsureScheduledTimesForBatchDate(addinfo);
+                if (!tempbatchdetaillist.Contains(addinfo))
+                    tempbatchdetaillist.Add(addinfo);
+
+                await ReportProgress("Applying timing rules for " + dateLabel + "…");
+                if (LoadMode == TimeCorrectionLoadMode.DataOnly)
+                    ApplyDataOnlyTripDefaults(mcBatchRecords.MCBatchTrips, addinfo);
+                else if (LoadMode == TimeCorrectionLoadMode.Lenient)
+                    LenientCorrectModivcareTimes(mcBatchRecords.MCBatchTrips, addinfo);
+                else
+                    RevampedCorrectModivcareTimes(mcBatchRecords.MCBatchTrips, addinfo);
+
+                if (UsesPortalRedStandardOverlay())
+                    ApplyPortalRedStandardPass(mcBatchRecords.MCBatchTrips, addinfo);
             }
             mcBatchRecords.MCBatchAdditionalInfo = tempbatchdetaillist;
 
+            await ReportProgress("Validating drivers and vehicles…");
             foreach (MCBatchAdditionalInfo batchInfo in mcBatchRecords.MCBatchAdditionalInfo)
             {
+                FillMissingDriversAndVehicles(batchInfo);
+                ValidateAssignmentsAgainstPortalLists(batchInfo);
+                FinalizeDataQualityFixable(batchInfo);
                 LoadAssignedVehicles(batchInfo);
                 AdjustVehicles(batchInfo);
             }
             SetVehiclesToTrips();
+            EnsurePortalRedTripsAreFixable(mcBatchRecords.MCBatchTrips);
         }
 
-        public List<MCDriver> CalculateAccuracies()
+        private async Task ReportProgress(string message)
         {
+            if (ReportProgressAsync == null || string.IsNullOrEmpty(message))
+                return;
+            try
+            {
+                await ReportProgressAsync(message).ConfigureAwait(false);
+            }
+            catch
+            {
+                // Overlay updates must not abort batch load.
+            }
+        }
+
+        public TimeCorrectionAccuracySnapshot CalculateAccuracySnapshot()
+        {
+            var snapshot = new TimeCorrectionAccuracySnapshot();
+            if (mcBatchRecords?.MCBatchTrips == null || mcBatchRecords.MCBatchAdditionalInfo == null)
+                return snapshot;
+
             MCCalc = new MCCalculateAccuracies();
 
             foreach (MCBatchAdditionalInfo addinfo in mcBatchRecords.MCBatchAdditionalInfo)
             {
+                if (addinfo.MCDrivers != null)
+                {
+                    foreach (MCDriver driver in addinfo.MCDrivers)
+                    {
+                        if (driver == null)
+                            continue;
+                        driver.Accuracies = 0;
+                        driver.Inaccuracies = 0;
+                        driver.Triplegs = 0;
+                    }
+                }
+
                 MCCalc.CalculateAccuracies(mcBatchRecords.MCBatchTrips, addinfo);
             }
-            List<MCDriver> driverstemp = new List<MCDriver>();
-            driverstemp = MCCalc.ReturnAccuracies(mcBatchRecords.MCBatchAdditionalInfo);
 
-            List<MCDriver> drivers = new List<MCDriver>();
+            List<MCDriver> driverstemp = MCCalc.ReturnAccuracies(mcBatchRecords.MCBatchAdditionalInfo);
+            int totalLegs = 0;
+            int accurateLegs = 0;
             foreach (MCDriver driver in driverstemp)
             {
-                if (driver.Triplegs != 0)
-                {
-                    driver.AccuracyPercent = Math.Round((double)driver.Accuracies / (double)driver.Triplegs * 100);
-                    drivers.Add(driver);
-                    //Console.WriteLine("Driver: " + driver.Driver + ". Accuracies: " + driver.Accuracies + ". Inaccuracies: " + driver.Inaccuracies + ". Trip Legs: " + driver.Triplegs + ". Accuracy: " + driver.AccuracyPercent.ToString() + "%");
+                if (driver == null || driver.Triplegs == 0)
+                    continue;
 
-                }
+                driver.AccuracyPercent = Math.Round((double)driver.Accuracies / driver.Triplegs * 100);
+                snapshot.Drivers.Add(driver);
+                totalLegs += driver.Triplegs;
+                accurateLegs += driver.Accuracies;
             }
 
-                return drivers;
+            snapshot.TotalLegs = totalLegs;
+            snapshot.AccurateLegs = accurateLegs;
+            snapshot.CompanyAccuracyPercent = totalLegs > 0
+                ? Math.Round(accurateLegs * 100.0 / totalLegs)
+                : 0;
+
+            var dateLabels = new List<string>();
+            foreach (MCBatchAdditionalInfo addinfo in mcBatchRecords.MCBatchAdditionalInfo)
+            {
+                if (!string.IsNullOrWhiteSpace(addinfo.MCBatchDate) &&
+                    !dateLabels.Contains(addinfo.MCBatchDate))
+                    dateLabels.Add(addinfo.MCBatchDate);
+            }
+            snapshot.ServiceDateLabel = string.Join(", ", dateLabels);
+
+            foreach (MCBatchTripRecord trip in mcBatchRecords.MCBatchTrips)
+            {
+                snapshot.TotalTrips++;
+                if (string.Equals(trip.Status, "Passed", StringComparison.OrdinalIgnoreCase))
+                    snapshot.PassedTrips++;
+                else if (string.Equals(trip.Status, "Failed", StringComparison.OrdinalIgnoreCase))
+                    snapshot.FailedTrips++;
+                else if (string.Equals(trip.Status, "Fixable", StringComparison.OrdinalIgnoreCase))
+                    snapshot.FixableTrips++;
+            }
+
+            return snapshot;
+        }
+
+        public List<MCDriver> CalculateAccuracies() => CalculateAccuracySnapshot().Drivers;
+
+        public void GetBatchTripStatusCounts(out int fixable, out int passed, out int failed, out int total,
+            out string serviceDateLabel)
+        {
+            fixable = 0;
+            passed = 0;
+            failed = 0;
+            total = 0;
+            serviceDateLabel = "";
+            if (mcBatchRecords?.MCBatchTrips == null)
+                return;
+
+            var dateLabels = new List<string>();
+            foreach (MCBatchTripRecord trip in mcBatchRecords.MCBatchTrips)
+            {
+                total++;
+                if (string.Equals(trip.Status, "Passed", StringComparison.OrdinalIgnoreCase))
+                    passed++;
+                else if (string.Equals(trip.Status, "Failed", StringComparison.OrdinalIgnoreCase))
+                    failed++;
+                else if (string.Equals(trip.Status, "Fixable", StringComparison.OrdinalIgnoreCase))
+                    fixable++;
+
+                if (!string.IsNullOrWhiteSpace(trip.Date) && !dateLabels.Contains(trip.Date))
+                    dateLabels.Add(trip.Date);
+            }
+
+            serviceDateLabel = string.Join(", ", dateLabels);
         }
 
         List<MCBatchAdditionalInfo> tempbatchdetaillist;
@@ -407,26 +479,28 @@ namespace Hiatme_Tool_Suite_v3
             mcbd.mcDownloadedTrips = new List<MCDownloadedTrip>();
             mcbd.mcDownloadedTrips = await mctripdler.DownloadTripRecords(mcdate, mcrLoginHandler);
 
+            if (mctripdler.InvalidDate)
+            {
+                Console.WriteLine("MCTimeCorrection: Modivcare trip download calendar rejected " +
+                    mcdate.ToString("d", CultureInfo.CurrentCulture) + ".");
+            }
+
             if (mcbd.mcDownloadedTrips != null)
+            {
+                foreach (MCDownloadedTrip mcrtr in mcbd.mcDownloadedTrips) 
                 {
-                    foreach (MCDownloadedTrip mcrtr in mcbd.mcDownloadedTrips) 
-                    {
-                        //Console.WriteLine(mcrtr.Date + ": " + mcrtr.ClientFullName + " " + mcrtr.TripNumber);
-                        foreach (MCBatchTripRecord mcbtr in mcBatchRecords.MCBatchTrips)
-                        {                    
-                            if (mcbtr.Trip.Replace(" ","") == mcrtr.TripNumber.Replace(" ", ""))
-                            {
-                            mcbtr.ScheduledPUTime = mcrtr.PUTime;
-                            mcbtr.ScheduledDOTime = mcrtr.DOTime;
-                            }
+                    foreach (MCBatchTripRecord mcbtr in mcBatchRecords.MCBatchTrips)
+                    {                    
+                        if (mcbtr.Trip.Replace(" ","") == mcrtr.TripNumber.Replace(" ", ""))
+                        {
+                            mcbtr.ScheduledPUTime = NormalizeBatchTime(mcrtr.PUTime);
+                            mcbtr.ScheduledDOTime = NormalizeBatchTime(mcrtr.DOTime);
                         }
                     }
+                }
+                if (!tempbatchdetaillist.Contains(mcbd))
                     tempbatchdetaillist.Add(mcbd);
-                }
-                else
-                {
-                    Console.WriteLine("durrrr..");
-                }
+            }
             Console.WriteLine("finished gathering trips!");
         }
         /// <summary>Loads <see cref="MCBatchAdditionalInfo.wrDownloadedTrips"/> from <c>POST /portal/filterdata</c> for the batch date.</summary>
@@ -542,7 +616,7 @@ namespace Hiatme_Tool_Suite_v3
                                             //Console.WriteLine(mcdledtrip.DOTime);
                                             if (mcdledtrip.DOTime.Replace(" ", "") == "00:00")
                                             {
-                                                if ((driverputime - schedputime).TotalMinutes <= 30)//driver time is good
+                                                if (McTripTimingRules.PuLateMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                                 {
                                                     trprcd.SuggestedPUTime = trprcd.PUTime;
                                                     if (driverdotime == (driverputime + new TimeSpan(0, (int)(10 + Convert.ToDecimal(mcdledtrip.Miles)), 0)))
@@ -619,7 +693,7 @@ namespace Hiatme_Tool_Suite_v3
                                     trprcd.SuggestedPUTime = trprcd.PUTime;
                                     break;
                                 case -1://driver is early
-                                    if ((schedputime - driverputime).TotalMinutes <= 30)//driver time is good
+                                    if (McTripTimingRules.PuEarlyMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                     {
                                         trprcd.SuggestedPUTime = trprcd.PUTime;
                                     }
@@ -633,7 +707,7 @@ namespace Hiatme_Tool_Suite_v3
                                     }
                                     break; //up to 30 minutes early
                                 case 1://driver is late
-                                    if ((driverputime - schedputime).TotalMinutes <= 15)//driver time is good
+                                    if (McTripTimingRules.PuLateMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                     {
                                         trprcd.SuggestedPUTime = trprcd.PUTime;
                                     }
@@ -684,7 +758,7 @@ namespace Hiatme_Tool_Suite_v3
                                     trprcd.SuggestedPUTime = trprcd.PUTime;
                                     break;
                                 case -1://driver is early
-                                    if ((schedputime - driverputime).TotalMinutes <= 30)//driver time is good
+                                    if (McTripTimingRules.PuEarlyMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                     {
                                         trprcd.SuggestedPUTime = trprcd.PUTime;
                                     }
@@ -698,7 +772,7 @@ namespace Hiatme_Tool_Suite_v3
                                     }
                                     break; //up to 30 minutes early
                                 case 1://driver is late
-                                    if ((driverputime - schedputime).TotalMinutes <= 15)//driver time is good
+                                    if (McTripTimingRules.PuLateMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                     {
                                         trprcd.SuggestedPUTime = trprcd.PUTime;
                                     }
@@ -749,7 +823,7 @@ namespace Hiatme_Tool_Suite_v3
                                     trprcd.SuggestedPUTime = trprcd.PUTime;
                                     break;
                                 case -1://driver is early
-                                    if ((schedputime - driverputime).TotalMinutes <= 30)//driver time is good
+                                    if (McTripTimingRules.PuEarlyMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                     {
                                         trprcd.SuggestedPUTime = trprcd.PUTime;
                                     }
@@ -763,7 +837,7 @@ namespace Hiatme_Tool_Suite_v3
                                     }
                                     break; //up to 30 minutes early
                                 case 1://driver is late
-                                    if ((driverputime - schedputime).TotalMinutes <= 10)//driver time is good
+                                    if (McTripTimingRules.PuLateMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                     {
                                         trprcd.SuggestedPUTime = trprcd.PUTime;
                                     }
@@ -814,7 +888,7 @@ namespace Hiatme_Tool_Suite_v3
                                     trprcd.SuggestedPUTime = trprcd.PUTime;
                                     break;
                                 case -1://driver is early
-                                    if ((schedputime - driverputime).TotalMinutes <= 30)//driver time is good
+                                    if (McTripTimingRules.PuEarlyMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                     {
                                         trprcd.SuggestedPUTime = trprcd.PUTime;
                                     }
@@ -828,7 +902,7 @@ namespace Hiatme_Tool_Suite_v3
                                     }
                                     break; //up to 30 minutes early
                                 case 1://driver is late
-                                    if ((driverputime - schedputime).TotalMinutes <= 5)//driver time is good
+                                    if (McTripTimingRules.PuLateMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                     {
                                         trprcd.SuggestedPUTime = trprcd.PUTime;
                                     }
@@ -880,7 +954,7 @@ namespace Hiatme_Tool_Suite_v3
                                     trprcd.SuggestedPUTime = trprcd.PUTime;
                                     break;
                                 case -1://driver is early
-                                    if ((schedputime - driverputime).TotalMinutes <= 30)//driver time is good
+                                    if (McTripTimingRules.PuEarlyMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                     {
                                         trprcd.SuggestedPUTime = trprcd.PUTime;
                                     }
@@ -938,7 +1012,7 @@ namespace Hiatme_Tool_Suite_v3
                                     trprcd.Status = "Fixable";
                                     break; 
                                 case 1://driver is late
-                                    if ((driverputime - schedputime).TotalMinutes <= 30)//driver time is good
+                                    if (McTripTimingRules.PuLateMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                     {
                                         trprcd.SuggestedPUTime = trprcd.PUTime;
                                     }
@@ -988,7 +1062,7 @@ namespace Hiatme_Tool_Suite_v3
                                     trprcd.Status = "Fixable";
                                     break; //up to 30 minutes late
                                 case 1://driver is late
-                                    if ((driverputime - schedputime).TotalMinutes <= 25)//driver time is good
+                                    if (McTripTimingRules.PuLateMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                     {
                                         trprcd.SuggestedPUTime = trprcd.PUTime;
                                     }
@@ -1046,7 +1120,7 @@ namespace Hiatme_Tool_Suite_v3
                                     trprcd.Status = "Fixable";
                                     break; //cant be early
                                 case 1://driver is late
-                                    if ((driverputime - schedputime).TotalMinutes <= 20)//driver time is good
+                                    if (McTripTimingRules.PuLateMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                     {
                                         trprcd.SuggestedPUTime = trprcd.PUTime;
                                     }
@@ -1104,7 +1178,7 @@ namespace Hiatme_Tool_Suite_v3
                                     trprcd.Status = "Fixable";
                                     break; //up to 10 minutes late
                                 case 1://driver is late
-                                    if ((driverputime - schedputime).TotalMinutes <= 10)//driver time is good
+                                    if (McTripTimingRules.PuLateMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                     {
                                         trprcd.SuggestedPUTime = trprcd.PUTime;
                                     }
@@ -1162,7 +1236,7 @@ namespace Hiatme_Tool_Suite_v3
                                     trprcd.Status = "Fixable";
                                     break; //up to 30 minutes early
                                 case 1://driver is late
-                                    if ((driverputime - schedputime).TotalMinutes <= 5)//driver time is good
+                                    if (McTripTimingRules.PuLateMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                     {
                                         trprcd.SuggestedPUTime = trprcd.PUTime;
                                     }
@@ -1265,7 +1339,7 @@ namespace Hiatme_Tool_Suite_v3
                                     trprcd.Status = "Fixable";
                                     break; //up to 30 minutes late
                                 case 1://driver is late
-                                    if ((driverputime - schedputime).TotalMinutes <= 25)//driver time is good
+                                    if (McTripTimingRules.PuLateMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                     {
                                         trprcd.SuggestedPUTime = trprcd.PUTime;
                                     }
@@ -1328,7 +1402,7 @@ namespace Hiatme_Tool_Suite_v3
                                     trprcd.Status = "Fixable";
                                     break; //cant be early
                                 case 1://driver is late
-                                    if ((driverputime - schedputime).TotalMinutes <= 20)//driver time is good
+                                    if (McTripTimingRules.PuLateMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                     {
                                         trprcd.SuggestedPUTime = trprcd.PUTime;
                                     }
@@ -1391,7 +1465,7 @@ namespace Hiatme_Tool_Suite_v3
                                     trprcd.Status = "Fixable";
                                     break; //up to 10 minutes late
                                 case 1://driver is late
-                                    if ((driverputime - schedputime).TotalMinutes <= 10)//driver time is good
+                                    if (McTripTimingRules.PuLateMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                     {
                                         trprcd.SuggestedPUTime = trprcd.PUTime;
                                     }
@@ -1454,7 +1528,7 @@ namespace Hiatme_Tool_Suite_v3
                                     trprcd.Status = "Fixable";
                                     break; //up to 30 minutes early
                                 case 1://driver is late
-                                    if ((driverputime - schedputime).TotalMinutes <= 5)//driver time is good
+                                    if (McTripTimingRules.PuLateMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                     {
                                         trprcd.SuggestedPUTime = trprcd.PUTime;
                                     }
@@ -1564,7 +1638,7 @@ namespace Hiatme_Tool_Suite_v3
                                     trprcd.Status = "Fixable";
                                     break; //up to 30 minutes late
                                 case 1://driver is late
-                                    if ((driverputime - schedputime).TotalMinutes <= 25)//driver time is good
+                                    if (McTripTimingRules.PuLateMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                     {
                                         trprcd.SuggestedPUTime = trprcd.PUTime;
                                     }
@@ -1627,7 +1701,7 @@ namespace Hiatme_Tool_Suite_v3
                                     trprcd.Status = "Fixable";
                                     break; //cant be early
                                 case 1://driver is late
-                                    if ((driverputime - schedputime).TotalMinutes <= 20)//driver time is good
+                                    if (McTripTimingRules.PuLateMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                     {
                                         trprcd.SuggestedPUTime = trprcd.PUTime;
                                     }
@@ -1690,7 +1764,7 @@ namespace Hiatme_Tool_Suite_v3
                                     trprcd.Status = "Fixable";
                                     break; //up to 10 minutes late
                                 case 1://driver is late
-                                    if ((driverputime - schedputime).TotalMinutes <= 10)//driver time is good
+                                    if (McTripTimingRules.PuLateMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                     {
                                         trprcd.SuggestedPUTime = trprcd.PUTime;
                                     }
@@ -1753,7 +1827,7 @@ namespace Hiatme_Tool_Suite_v3
                                     trprcd.Status = "Fixable";
                                     break; //up to 30 minutes early
                                 case 1://driver is late
-                                    if ((driverputime - schedputime).TotalMinutes <= 5)//driver time is good
+                                    if (McTripTimingRules.PuLateMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                     {
                                         trprcd.SuggestedPUTime = trprcd.PUTime;
                                     }
@@ -1856,7 +1930,62 @@ namespace Hiatme_Tool_Suite_v3
 
 
         }
-        private void RevampedCorrectModivcareTimes(List<MCBatchTripRecord> batchtrips, MCBatchAdditionalInfo dledtripsaddinfo)
+        internal static bool ParseModivcarePortalErrorFlag(string tripHtmlFragment)
+        {
+            if (string.IsNullOrEmpty(tripHtmlFragment))
+                return false;
+            if (tripHtmlFragment.IndexOf("color:Red", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+            if (tripHtmlFragment.IndexOf("ForeColor=Red", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+            if (tripHtmlFragment.IndexOf("color=\"Red\"", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+            return tripHtmlFragment.IndexOf("Red", StringComparison.Ordinal) >= 0;
+        }
+
+        private bool ShouldApplyCorrectionsToTrip(MCBatchTripRecord trip)
+        {
+            if (LoadMode != TimeCorrectionLoadMode.ModivcareRedOnly)
+                return true;
+            return trip != null && trip.TripErrors;
+        }
+
+        /// <summary>Lenient and data-only modes handle blue rows lightly; portal-red rows get standard scoreboard in a second pass.</summary>
+        private bool UsesPortalRedStandardOverlay() =>
+            LoadMode == TimeCorrectionLoadMode.Lenient || LoadMode == TimeCorrectionLoadMode.DataOnly;
+
+        private bool ShouldDeferPortalRedToStandardPass(MCBatchTripRecord trip) =>
+            UsesPortalRedStandardOverlay() && trip != null && trip.TripErrors;
+
+        private void ApplyPortalRedStandardPass(List<MCBatchTripRecord> batchtrips, MCBatchAdditionalInfo addinfo) =>
+            RevampedCorrectModivcareTimes(batchtrips, addinfo, onlyPortalRedTrips: true);
+
+        /// <summary>Any row Modivcare still shows in red must stay in the fixable list for Execute.</summary>
+        private static void EnsurePortalRedTripsAreFixable(List<MCBatchTripRecord> batchtrips)
+        {
+            foreach (MCBatchTripRecord tr in batchtrips)
+            {
+                if (tr == null || !tr.TripErrors)
+                    continue;
+                AppendTripAlert(tr, "RED");
+                tr.Status = "Fixable";
+            }
+        }
+
+        private static void LeaveTripUnchangedByTimeCorrection(MCBatchTripRecord trprcd)
+        {
+            trprcd.Alerts = null;
+            trprcd.Status = null;
+            if (TryParseBatchTime(trprcd.PUTime, out _) && TryParseBatchTime(trprcd.DOTime, out _))
+            {
+                trprcd.SuggestedPUTime = trprcd.PUTime;
+                trprcd.SuggestedDOTime = trprcd.DOTime;
+                trprcd.Status = "Passed";
+            }
+        }
+
+        private void RevampedCorrectModivcareTimes(List<MCBatchTripRecord> batchtrips, MCBatchAdditionalInfo dledtripsaddinfo,
+            bool onlyPortalRedTrips = false)
         {
             Random r = new Random();
             int rInt;
@@ -1865,17 +1994,32 @@ namespace Hiatme_Tool_Suite_v3
             {
                 if (trprcd.Date == dledtripsaddinfo.MCBatchDate)
                 {
+                    if (onlyPortalRedTrips)
+                    {
+                        if (!trprcd.TripErrors)
+                            continue;
+                    }
+                    else if (!ShouldApplyCorrectionsToTrip(trprcd))
+                    {
+                        LeaveTripUnchangedByTimeCorrection(trprcd);
+                        continue;
+                    }
+                    else if (ShouldDeferPortalRedToStandardPass(trprcd))
+                    {
+                        continue;
+                    }
 
-                    //Console.WriteLine(trprcd.ScheduledPUTime);
-                    DateTime schedputime = DateTime.ParseExact(trprcd.ScheduledPUTime, "HH:mm", CultureInfo.InvariantCulture);
-                    DateTime scheddotime = DateTime.ParseExact(trprcd.ScheduledDOTime, "HH:mm", CultureInfo.InvariantCulture);
-                    DateTime driverputime = DateTime.ParseExact(trprcd.PUTime, "HH:mm", CultureInfo.InvariantCulture);
-                    DateTime driverdotime = DateTime.ParseExact(trprcd.DOTime, "HH:mm", CultureInfo.InvariantCulture);
-                    DateTime ridercalltime = new DateTime();
-
+                    if (!TryParseBatchTime(trprcd.ScheduledPUTime, out DateTime schedputime) ||
+                        !TryParseBatchTime(trprcd.ScheduledDOTime, out DateTime scheddotime) ||
+                        !TryParseBatchTime(trprcd.PUTime, out DateTime driverputime) ||
+                        !TryParseBatchTime(trprcd.DOTime, out DateTime driverdotime))
+                    {
+                        trprcd.Alerts = (trprcd.Alerts ?? "") + " SCH";
+                        continue;
+                    }
 
                     decimal miles = 0;
-                    if (dledtripsaddinfo.mcDownloadedTrips.Any() & dledtripsaddinfo.mcDownloadedTrips != null)
+                    if (dledtripsaddinfo.mcDownloadedTrips != null && dledtripsaddinfo.mcDownloadedTrips.Any())
                     {
                         foreach (MCDownloadedTrip mcdledtrip in dledtripsaddinfo.mcDownloadedTrips)
                         {
@@ -1887,91 +2031,11 @@ namespace Hiatme_Tool_Suite_v3
                     }
 
                     double milemins = (int)(5 + miles);
-                    if (trprcd.RiderCallTime.Contains("nbsp"))
+
+                    if (!trprcd.RiderCallTime.Contains("nbsp") &&
+                        TryParseBatchTime(trprcd.RiderCallTime, out DateTime riderCallPu))
                     {
-
-                    }
-                    else
-                    {
-                        bool invalidrct = false;
-                        double triptotalmins = (driverdotime - schedputime).TotalMinutes;
-                        if (driverputime != schedputime)
-                        {
-                            trprcd.SuggestedPUTime = schedputime.ToString("HH:mm");
-                            invalidrct = true;
-                        }
-                        else
-                        {
-                            trprcd.SuggestedPUTime = driverputime.ToString("HH:mm");
-                        }
-
-
-                        if (driverdotime < schedputime + new TimeSpan(0, (int)milemins, 0))
-                        {
-                            DateTime suggtime = schedputime + new TimeSpan(0, (int)milemins, 0);
-                            trprcd.SuggestedDOTime = suggtime.ToString("HH:mm");
-                            invalidrct = true;
-                        }
-
-                        if (driverdotime >= schedputime + new TimeSpan(0, (int)milemins, 0))
-                        {
-                            if (driverdotime < schedputime + new TimeSpan(0, (int)milemins + 30, 0))
-                            {
-                                trprcd.SuggestedDOTime = driverdotime.ToString("HH:mm");
-                            }
-                            else
-                            {
-                                DateTime suggtime = schedputime + new TimeSpan(0, (int)milemins, 0);
-                                trprcd.SuggestedDOTime = suggtime.ToString("HH:mm");
-                                invalidrct = true;
-                            }
-                        }
-
-                        if (invalidrct)
-                        {
-                            trprcd.Alerts = trprcd.Alerts + " RCT";
-                            trprcd.Status = "Fixable";
-                        }
-
-                        
-
-
-
-
-
-
-                        /*
-                        ridercalltime = DateTime.ParseExact(trprcd.RiderCallTime, "HH:mm", CultureInfo.InvariantCulture);
-                        bool invalidrct = false;
-                        if (driverputime != ridercalltime)
-                        {
-                            trprcd.SuggestedPUTime = ridercalltime.ToString("HH:mm");
-                            invalidrct = true;
-                        }
-                        else
-                        {
-                            trprcd.SuggestedPUTime = driverputime.ToString("HH:mm");
-                        }
-                        
-                        if (driverdotime >= ridercalltime + new TimeSpan(0, (int)milemins, 0))
-                        {
-                            //ridercalltime = ridercalltime + new TimeSpan(0, (int)milemins, 0);
-                            trprcd.SuggestedDOTime = driverdotime.ToString("HH:mm");
-                        }
-                        else
-                        {
-                            DateTime suggtime = ridercalltime + new TimeSpan(0, (int)milemins, 0);
-                            trprcd.SuggestedDOTime = suggtime.ToString("HH:mm");
-                            invalidrct = true;
-
-                        }
-
-                        if (invalidrct)
-                        {
-                            trprcd.Alerts = trprcd.Alerts + " RCT";
-                            trprcd.Status = "Fixable";
-                        }
-                        */
+                        ApplyRiderCallTimeCorrections(trprcd, riderCallPu, driverputime, driverdotime, miles);
                         continue;
                     }
                         
@@ -1988,7 +2052,7 @@ namespace Hiatme_Tool_Suite_v3
                                     trprcd.SuggestedPUTime = trprcd.PUTime;
                                     break;
                                 case -1://driver is early
-                                    if ((schedputime - driverputime).TotalMinutes <= 30)//driver time is good
+                                    if (McTripTimingRules.PuEarlyMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                     {
                                         trprcd.SuggestedPUTime = trprcd.PUTime;
                                     }
@@ -2002,7 +2066,7 @@ namespace Hiatme_Tool_Suite_v3
                                     }
                                     break; //up to 30 minutes early
                                 case 1://driver is late
-                                    if ((driverputime - schedputime).TotalMinutes <= 15)//driver time is good
+                                    if (McTripTimingRules.PuLateMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                     {
                                         trprcd.SuggestedPUTime = trprcd.PUTime;
                                     }
@@ -2053,7 +2117,7 @@ namespace Hiatme_Tool_Suite_v3
                                     trprcd.SuggestedPUTime = trprcd.PUTime;
                                     break;
                                 case -1://driver is early
-                                    if ((schedputime - driverputime).TotalMinutes <= 30)//driver time is good
+                                    if (McTripTimingRules.PuEarlyMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                     {
                                         trprcd.SuggestedPUTime = trprcd.PUTime;
                                     }
@@ -2067,7 +2131,7 @@ namespace Hiatme_Tool_Suite_v3
                                     }
                                     break; //up to 30 minutes early
                                 case 1://driver is late
-                                    if ((driverputime - schedputime).TotalMinutes <= 15)//driver time is good
+                                    if (McTripTimingRules.PuLateMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                     {
                                         trprcd.SuggestedPUTime = trprcd.PUTime;
                                     }
@@ -2118,7 +2182,7 @@ namespace Hiatme_Tool_Suite_v3
                                     trprcd.SuggestedPUTime = trprcd.PUTime;
                                     break;
                                 case -1://driver is early
-                                    if ((schedputime - driverputime).TotalMinutes <= 30)//driver time is good
+                                    if (McTripTimingRules.PuEarlyMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                     {
                                         trprcd.SuggestedPUTime = trprcd.PUTime;
                                     }
@@ -2132,7 +2196,7 @@ namespace Hiatme_Tool_Suite_v3
                                     }
                                     break; //up to 30 minutes early
                                 case 1://driver is late
-                                    if ((driverputime - schedputime).TotalMinutes <= 10)//driver time is good
+                                    if (McTripTimingRules.PuLateMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                     {
                                         trprcd.SuggestedPUTime = trprcd.PUTime;
                                     }
@@ -2183,7 +2247,7 @@ namespace Hiatme_Tool_Suite_v3
                                     trprcd.SuggestedPUTime = trprcd.PUTime;
                                     break;
                                 case -1://driver is early
-                                    if ((schedputime - driverputime).TotalMinutes <= 30)//driver time is good
+                                    if (McTripTimingRules.PuEarlyMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                     {
                                         trprcd.SuggestedPUTime = trprcd.PUTime;
                                     }
@@ -2197,7 +2261,7 @@ namespace Hiatme_Tool_Suite_v3
                                     }
                                     break; //up to 30 minutes early
                                 case 1://driver is late
-                                    if ((driverputime - schedputime).TotalMinutes <= 5)//driver time is good
+                                    if (McTripTimingRules.PuLateMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                     {
                                         trprcd.SuggestedPUTime = trprcd.PUTime;
                                     }
@@ -2249,7 +2313,7 @@ namespace Hiatme_Tool_Suite_v3
                                     trprcd.SuggestedPUTime = trprcd.PUTime;
                                     break;
                                 case -1://driver is early
-                                    if ((schedputime - driverputime).TotalMinutes <= 30)//driver time is good
+                                    if (McTripTimingRules.PuEarlyMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                     {
                                         trprcd.SuggestedPUTime = trprcd.PUTime;
                                     }
@@ -2263,10 +2327,17 @@ namespace Hiatme_Tool_Suite_v3
                                     }
                                     break; //up to 30 minutes early
                                 case 1://driver is late
-                                    trprcd.Alerts = trprcd.Alerts + " LPU";
-                                    trprcd.SuggestedPUTime = schedputime.ToString("HH:mm");
-                                    trprcd.Status = "Fixable";
-                                    break;//cant be late
+                                    if (McTripTimingRules.PuLateMinutesOk(trprcd.Trip, driverputime, schedputime))
+                                        trprcd.SuggestedPUTime = trprcd.PUTime;
+                                    else
+                                    {
+                                        trprcd.Alerts = trprcd.Alerts + " LPU";
+                                        rInt = r.Next(0, McTripTimingRules.RandomLatePuCap(trprcd.Trip) + 1);
+                                        schedputime = schedputime + new TimeSpan(0, rInt, 0);
+                                        trprcd.SuggestedPUTime = schedputime.ToString("HH:mm");
+                                        trprcd.Status = "Fixable";
+                                    }
+                                    break;
                             }
                             switch (dotimediff)
                             {
@@ -2304,15 +2375,22 @@ namespace Hiatme_Tool_Suite_v3
 
                         if (schedputime.TimeOfDay.Ticks == 0)
                         {
-                            foreach (WRDownloadedTrip wrdt in dledtripsaddinfo.wrDownloadedTrips)
+                            if (dledtripsaddinfo.mcDownloadedTrips != null)
                             {
-                                if (wrdt.TripNumber == trprcd.Trip)
+                                foreach (MCDownloadedTrip mc in dledtripsaddinfo.mcDownloadedTrips)
                                 {
-                                    trprcd.Alerts = trprcd.Alerts + " LPU";
-                                    trprcd.SuggestedPUTime = wrdt.PUTime;
-                                    trprcd.SuggestedDOTime = wrdt.DOTime;
+                                    if (!TripNumbersMatch(trprcd.Trip, mc.TripNumber))
+                                        continue;
+                                    if (MCTimeCorrection.TryParseBatchTime(mc.PUTime, out DateTime mcPu))
+                                        schedputime = mcPu;
+                                    if (MCTimeCorrection.TryParseBatchTime(mc.DOTime, out DateTime mcDo))
+                                        scheddotime = mcDo;
+                                    trprcd.Alerts = (trprcd.Alerts ?? "") + " LPU";
+                                    trprcd.SuggestedPUTime = schedputime.ToString("HH:mm");
+                                    trprcd.SuggestedDOTime = scheddotime.ToString("HH:mm");
                                     nullputime = true;
                                     trprcd.Status = "Fixable";
+                                    break;
                                 }
                             }
                         }
@@ -2347,7 +2425,7 @@ namespace Hiatme_Tool_Suite_v3
                                         trprcd.Status = "Fixable";
                                         break;
                                     case 1://driver is late
-                                        if ((driverputime - schedputime).TotalMinutes <= 30)//driver time is good
+                                        if (McTripTimingRules.PuLateMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                         {
                                             trprcd.SuggestedPUTime = trprcd.PUTime;
                                             schedputime = driverputime;
@@ -2412,7 +2490,7 @@ namespace Hiatme_Tool_Suite_v3
                                         trprcd.Status = "Fixable";
                                         break; //up to 30 minutes late
                                     case 1://driver is late
-                                        if ((driverputime - schedputime).TotalMinutes <= 25)//driver time is good
+                                        if (McTripTimingRules.PuLateMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                         {
                                             trprcd.SuggestedPUTime = trprcd.PUTime;
                                         }
@@ -2470,7 +2548,7 @@ namespace Hiatme_Tool_Suite_v3
                                         trprcd.Status = "Fixable";
                                         break; //cant be early
                                     case 1://driver is late
-                                        if ((driverputime - schedputime).TotalMinutes <= 20)//driver time is good
+                                        if (McTripTimingRules.PuLateMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                         {
                                             trprcd.SuggestedPUTime = trprcd.PUTime;
                                         }
@@ -2528,7 +2606,7 @@ namespace Hiatme_Tool_Suite_v3
                                         trprcd.Status = "Fixable";
                                         break; //up to 10 minutes late
                                     case 1://driver is late
-                                        if ((driverputime - schedputime).TotalMinutes <= 10)//driver time is good
+                                        if (McTripTimingRules.PuLateMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                         {
                                             trprcd.SuggestedPUTime = trprcd.PUTime;
                                         }
@@ -2586,7 +2664,7 @@ namespace Hiatme_Tool_Suite_v3
                                         trprcd.Status = "Fixable";
                                         break; //up to 30 minutes early
                                     case 1://driver is late
-                                        if ((driverputime - schedputime).TotalMinutes <= 5)//driver time is good
+                                        if (McTripTimingRules.PuLateMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                         {
                                             trprcd.SuggestedPUTime = trprcd.PUTime;
                                         }
@@ -2690,7 +2768,7 @@ namespace Hiatme_Tool_Suite_v3
                                     trprcd.Status = "Fixable";
                                     break;
                                 case 1://driver is late
-                                    if ((driverputime - schedputime).TotalMinutes <= 30)//driver time is good
+                                    if (McTripTimingRules.PuLateMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                     {
                                         trprcd.SuggestedPUTime = trprcd.PUTime;
                                         schedputime = driverputime;
@@ -2736,7 +2814,7 @@ namespace Hiatme_Tool_Suite_v3
                                     trprcd.Status = "Fixable";
                                     break; //up to 30 minutes late
                                 case 1://driver is late
-                                    if ((driverputime - schedputime).TotalMinutes <= 25)//driver time is good
+                                    if (McTripTimingRules.PuLateMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                     {
                                         trprcd.SuggestedPUTime = trprcd.PUTime;
                                     }
@@ -2794,7 +2872,7 @@ namespace Hiatme_Tool_Suite_v3
                                     trprcd.Status = "Fixable";
                                     break; //cant be early
                                 case 1://driver is late
-                                    if ((driverputime - schedputime).TotalMinutes <= 20)//driver time is good
+                                    if (McTripTimingRules.PuLateMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                     {
                                         trprcd.SuggestedPUTime = trprcd.PUTime;
                                     }
@@ -2852,7 +2930,7 @@ namespace Hiatme_Tool_Suite_v3
                                     trprcd.Status = "Fixable";
                                     break; //up to 10 minutes late
                                 case 1://driver is late
-                                    if ((driverputime - schedputime).TotalMinutes <= 10)//driver time is good
+                                    if (McTripTimingRules.PuLateMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                     {
                                         trprcd.SuggestedPUTime = trprcd.PUTime;
                                     }
@@ -2910,7 +2988,7 @@ namespace Hiatme_Tool_Suite_v3
                                     trprcd.Status = "Fixable";
                                     break; //up to 30 minutes early
                                 case 1://driver is late
-                                    if ((driverputime - schedputime).TotalMinutes <= 5)//driver time is good
+                                    if (McTripTimingRules.PuLateMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                     {
                                         trprcd.SuggestedPUTime = trprcd.PUTime;
                                     }
@@ -3009,7 +3087,7 @@ namespace Hiatme_Tool_Suite_v3
                                     trprcd.Status = "Fixable";
                                     break;
                                 case 1://driver is late
-                                    if ((driverputime - schedputime).TotalMinutes <= 30)//driver time is good
+                                    if (McTripTimingRules.PuLateMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                     {
                                         trprcd.SuggestedPUTime = trprcd.PUTime;
                                         schedputime = driverputime;
@@ -3055,7 +3133,7 @@ namespace Hiatme_Tool_Suite_v3
                                     trprcd.Status = "Fixable";
                                     break; //up to 30 minutes late
                                 case 1://driver is late
-                                    if ((driverputime - schedputime).TotalMinutes <= 25)//driver time is good
+                                    if (McTripTimingRules.PuLateMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                     {
                                         trprcd.SuggestedPUTime = trprcd.PUTime;
                                     }
@@ -3113,7 +3191,7 @@ namespace Hiatme_Tool_Suite_v3
                                     trprcd.Status = "Fixable";
                                     break; //cant be early
                                 case 1://driver is late
-                                    if ((driverputime - schedputime).TotalMinutes <= 20)//driver time is good
+                                    if (McTripTimingRules.PuLateMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                     {
                                         trprcd.SuggestedPUTime = trprcd.PUTime;
                                     }
@@ -3171,7 +3249,7 @@ namespace Hiatme_Tool_Suite_v3
                                     trprcd.Status = "Fixable";
                                     break; //up to 10 minutes late
                                 case 1://driver is late
-                                    if ((driverputime - schedputime).TotalMinutes <= 10)//driver time is good
+                                    if (McTripTimingRules.PuLateMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                     {
                                         trprcd.SuggestedPUTime = trprcd.PUTime;
                                     }
@@ -3229,7 +3307,7 @@ namespace Hiatme_Tool_Suite_v3
                                     trprcd.Status = "Fixable";
                                     break; //up to 30 minutes early
                                 case 1://driver is late
-                                    if ((driverputime - schedputime).TotalMinutes <= 5)//driver time is good
+                                    if (McTripTimingRules.PuLateMinutesOk(trprcd.Trip, driverputime, schedputime))//driver time is good
                                     {
                                         trprcd.SuggestedPUTime = trprcd.PUTime;
                                     }
@@ -3314,14 +3392,289 @@ namespace Hiatme_Tool_Suite_v3
                 }
             }
 
+            if (onlyPortalRedTrips)
+                FinalizePassedTripStatus(batchtrips, t => t.TripErrors);
+            else
+                FinalizePassedTripStatus(batchtrips);
+        }
+
+        /// <summary>Data-only load: no PU/DO timing rules; suggested times mirror driver actuals.</summary>
+        private void ApplyDataOnlyTripDefaults(List<MCBatchTripRecord> batchtrips, MCBatchAdditionalInfo dledtripsaddinfo)
+        {
             foreach (MCBatchTripRecord trprcd in batchtrips)
             {
-                if (trprcd.Alerts == null)
+                if (trprcd.Date != dledtripsaddinfo.MCBatchDate)
+                    continue;
+
+                if (ShouldDeferPortalRedToStandardPass(trprcd))
+                    continue;
+
+                trprcd.Alerts = null;
+                trprcd.Status = null;
+
+                if (!TryParseBatchTime(trprcd.PUTime, out _) ||
+                    !TryParseBatchTime(trprcd.DOTime, out _))
                 {
-                    trprcd.Status = "Passed";
+                    AppendTripAlert(trprcd, "SCH");
+                    trprcd.Status = "Fixable";
+                    continue;
                 }
+
+                trprcd.SuggestedPUTime = trprcd.PUTime;
+                trprcd.SuggestedDOTime = trprcd.DOTime;
+            }
+
+            FinalizePassedTripStatus(batchtrips);
+        }
+
+        /// <summary>
+        /// Lenient load: keep driver times when they are a few minutes off scheduled (natural variance).
+        /// Flag only scoreboard failures, severe early/late, or rider-call issues.
+        /// Missing driver/vehicle is handled after this via <see cref="FinalizeDataQualityFixable"/>.
+        /// </summary>
+        private void LenientCorrectModivcareTimes(List<MCBatchTripRecord> batchtrips, MCBatchAdditionalInfo dledtripsaddinfo)
+        {
+            var r = new Random();
+
+            foreach (MCBatchTripRecord trprcd in batchtrips)
+            {
+                if (trprcd.Date != dledtripsaddinfo.MCBatchDate)
+                    continue;
+
+                if (ShouldDeferPortalRedToStandardPass(trprcd))
+                    continue;
+
+                trprcd.Alerts = null;
+                trprcd.Status = null;
+
+                if (!TryParseBatchTime(trprcd.ScheduledPUTime, out DateTime schedputime) ||
+                    !TryParseBatchTime(trprcd.ScheduledDOTime, out DateTime scheddotime) ||
+                    !TryParseBatchTime(trprcd.PUTime, out DateTime driverputime) ||
+                    !TryParseBatchTime(trprcd.DOTime, out DateTime driverdotime))
+                {
+                    AppendTripAlert(trprcd, "SCH");
+                    trprcd.Status = "Fixable";
+                    continue;
+                }
+
+                decimal miles = 0;
+                if (dledtripsaddinfo.mcDownloadedTrips != null && dledtripsaddinfo.mcDownloadedTrips.Any())
+                {
+                    foreach (MCDownloadedTrip mcdledtrip in dledtripsaddinfo.mcDownloadedTrips)
+                    {
+                        if (mcdledtrip.TripNumber.Replace(" ", "") == trprcd.Trip.Replace(" ", ""))
+                        {
+                            miles = Convert.ToDecimal(mcdledtrip.Miles);
+                            break;
+                        }
+                    }
+                }
+
+                if (!trprcd.RiderCallTime.Contains("nbsp") &&
+                    TryParseBatchTime(trprcd.RiderCallTime, out DateTime riderCallPu))
+                {
+                    ApplyRiderCallTimeCorrections(trprcd, riderCallPu, driverputime, driverdotime, miles);
+                    continue;
+                }
+
+                trprcd.SuggestedPUTime = trprcd.PUTime;
+                trprcd.SuggestedDOTime = trprcd.DOTime;
+
+                DateTime workSchedPu = schedputime;
+                DateTime workSchedDo = scheddotime;
+                bool fix = false;
+
+                if (McTripTimingRules.IsLenientPuLateViolation(trprcd.Trip, driverputime, schedputime))
+                {
+                    AppendTripAlert(trprcd, "LPU");
+                    int cap = McTripTimingRules.RandomLatePuCap(trprcd.Trip);
+                    int rInt = McTripTimingRules.LenientNudgeMinutes(cap, r);
+                    workSchedPu = schedputime + new TimeSpan(0, rInt, 0);
+                    trprcd.SuggestedPUTime = workSchedPu.ToString("HH:mm");
+                    fix = true;
+                }
+
+                if (McTripTimingRules.IsLenientPuEarlyViolation(trprcd.Trip, driverputime, schedputime))
+                {
+                    AppendTripAlert(trprcd, "EPU");
+                    int rInt = McTripTimingRules.LenientNudgeMinutes(29, r);
+                    if (McTripTimingRules.IsALeg(trprcd.Trip))
+                        workSchedPu = schedputime - new TimeSpan(0, rInt, 0);
+                    else
+                        workSchedPu = schedputime + new TimeSpan(0, rInt, 0);
+                    trprcd.SuggestedPUTime = workSchedPu.ToString("HH:mm");
+                    fix = true;
+                }
+
+                if (scheddotime.TimeOfDay.Ticks != 0)
+                {
+                    if (McTripTimingRules.IsLenientDoLateViolation(driverdotime, scheddotime))
+                    {
+                        AppendTripAlert(trprcd, "LDO");
+                        int rInt = McTripTimingRules.LenientNudgeMinutes(29, r);
+                        workSchedDo = scheddotime - new TimeSpan(0, rInt, 0);
+                        trprcd.SuggestedDOTime = workSchedDo.ToString("HH:mm");
+                        fix = true;
+                    }
+                    else if (McTripTimingRules.IsLenientDoEarlyViolation(driverdotime, scheddotime))
+                    {
+                        AppendTripAlert(trprcd, "EDO");
+                        int rInt = McTripTimingRules.LenientNudgeMinutes(29, r);
+                        workSchedDo = scheddotime - new TimeSpan(0, rInt, 0);
+                        trprcd.SuggestedDOTime = workSchedDo.ToString("HH:mm");
+                        fix = true;
+                    }
+                }
+
+                EnforceSuggestedTimesOrder(trprcd, miles, scheddotime);
+                FinalizeLenientTimingFlags(trprcd, ref fix);
+
+                if (fix)
+                    trprcd.Status = "Fixable";
+            }
+
+            FinalizePassedTripStatus(batchtrips);
+        }
+
+        /// <summary>
+        /// If timing rules flagged LDO/LPU/etc. but suggested times stayed at driver actuals, do not keep the trip fixable.
+        /// </summary>
+        private static void FinalizeLenientTimingFlags(MCBatchTripRecord trprcd, ref bool fix)
+        {
+            if (!fix)
+                return;
+
+            if (!TryParseBatchTime(trprcd.SuggestedPUTime, out DateTime suggPu) ||
+                !TryParseBatchTime(trprcd.PUTime, out DateTime driverPu) ||
+                !TryParseBatchTime(trprcd.SuggestedDOTime, out DateTime suggDo) ||
+                !TryParseBatchTime(trprcd.DOTime, out DateTime driverDo))
+                return;
+
+            if (suggPu != driverPu || suggDo != driverDo)
+                return;
+
+            string alerts = trprcd.Alerts ?? "";
+            if (alerts.IndexOf("RCT", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                alerts.IndexOf("SCH", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                alerts.IndexOf("MIS-", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                alerts.IndexOf("INV-", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                alerts.IndexOf("ASG-", StringComparison.OrdinalIgnoreCase) >= 0)
+                return;
+
+            trprcd.Alerts = null;
+            fix = false;
+        }
+
+        /// <summary>
+        /// Modivcare TripActuals rejects posts when drop-off is not after pick-up. Timing fixes can move PU and DO independently.
+        /// </summary>
+        private static void EnforceSuggestedTimesOrder(MCBatchTripRecord trprcd, decimal miles, DateTime schedDo)
+        {
+            if (!TryParseBatchTime(trprcd.SuggestedPUTime, out DateTime suggPu) ||
+                !TryParseBatchTime(trprcd.SuggestedDOTime, out DateTime suggDo))
+                return;
+
+            double minTripMins = Math.Max(5, (int)(5 + miles));
+            DateTime minDo = suggPu + TimeSpan.FromMinutes(minTripMins);
+
+            if (suggDo > minDo)
+                return;
+
+            DateTime resolved = minDo;
+            if (schedDo.TimeOfDay.Ticks != 0 && schedDo >= minDo)
+                resolved = schedDo;
+            else if (TryParseBatchTime(trprcd.DOTime, out DateTime driverDo) &&
+                     TryParseBatchTime(trprcd.PUTime, out DateTime driverPu) &&
+                     driverDo >= driverPu + TimeSpan.FromMinutes(minTripMins) &&
+                     driverDo >= minDo)
+                resolved = driverDo;
+
+            trprcd.SuggestedDOTime = resolved.ToString("HH:mm");
+        }
+
+        private static void ApplyRiderCallTimeCorrections(MCBatchTripRecord trprcd, DateTime riderCallPu,
+            DateTime driverputime, DateTime driverdotime, decimal miles)
+        {
+            double milemins = (int)(5 + miles);
+            DateTime minDo = riderCallPu + TimeSpan.FromMinutes(milemins);
+
+            // TripActuals: pickup = driver actual; rider call is a separate field (they often differ).
+            DateTime pickupForSubmit = driverputime >= riderCallPu ? driverputime : riderCallPu;
+            trprcd.SuggestedPUTime = pickupForSubmit.ToString("HH:mm", CultureInfo.InvariantCulture);
+
+            if (driverdotime >= minDo)
+                trprcd.SuggestedDOTime = driverdotime.ToString("HH:mm", CultureInfo.InvariantCulture);
+            else
+                trprcd.SuggestedDOTime = minDo.ToString("HH:mm", CultureInfo.InvariantCulture);
+
+            EnforceRiderCallSuggestedTimesOrder(trprcd, minDo);
+
+            if (!NeedsRiderCallTripCorrection(trprcd, riderCallPu, driverputime, driverdotime, minDo))
+                return;
+
+            AppendTripAlert(trprcd, "RCT");
+            trprcd.Status = "Fixable";
+        }
+
+        /// <summary>
+        /// Rider-call rows often show different call vs pickup times on the batch grid; that alone is not a fix.
+        /// Flag only when times are invalid for TripActuals submit or suggested values still need adjustment.
+        /// </summary>
+        private static bool NeedsRiderCallTripCorrection(MCBatchTripRecord trprcd, DateTime riderCallPu,
+            DateTime driverputime, DateTime driverdotime, DateTime minDo)
+        {
+            if (driverputime < riderCallPu)
+                return true;
+            if (driverdotime < minDo)
+                return true;
+
+            if (!TryParseBatchTime(trprcd.SuggestedPUTime, out DateTime suggPu) ||
+                !TryParseBatchTime(trprcd.SuggestedDOTime, out DateTime suggDo))
+                return true;
+
+            if (suggPu < riderCallPu || suggDo <= suggPu || suggDo < minDo)
+                return true;
+
+            return false;
+        }
+
+        /// <summary>
+        /// RCT trips: never snap DO to scheduled (often wrong); only ensure DO is after rider-call PU + mile time.
+        /// </summary>
+        private static void EnforceRiderCallSuggestedTimesOrder(MCBatchTripRecord trprcd, DateTime minDo)
+        {
+            if (!TryParseBatchTime(trprcd.SuggestedPUTime, out DateTime suggPu) ||
+                !TryParseBatchTime(trprcd.SuggestedDOTime, out DateTime suggDo))
+                return;
+
+            if (suggDo >= minDo && suggDo > suggPu)
+                return;
+
+            if (TryParseBatchTime(trprcd.DOTime, out DateTime driverDo) && driverDo >= minDo && driverDo > suggPu)
+                trprcd.SuggestedDOTime = driverDo.ToString("HH:mm", CultureInfo.InvariantCulture);
+            else
+                trprcd.SuggestedDOTime = minDo.ToString("HH:mm", CultureInfo.InvariantCulture);
+        }
+
+        private static void FinalizePassedTripStatus(List<MCBatchTripRecord> batchtrips,
+            Func<MCBatchTripRecord, bool> includeTrip = null)
+        {
+            foreach (MCBatchTripRecord trprcd in batchtrips)
+            {
+                if (includeTrip != null && !includeTrip(trprcd))
+                    continue;
+                if (string.IsNullOrWhiteSpace(trprcd.Alerts))
+                    trprcd.Status = "Passed";
             }
         }
+
+        private static void AppendTripAlert(MCBatchTripRecord trip, string alertCode)
+        {
+            string alerts = trip.Alerts ?? "";
+            if (alerts.IndexOf(alertCode, StringComparison.OrdinalIgnoreCase) < 0)
+                trip.Alerts = alerts + " " + alertCode;
+        }
+
         public async Task SubmitTrip(MCLoginHandler mcloginhandler, MCBatchTripRecord trip)
         {
 
@@ -3346,7 +3699,18 @@ namespace Hiatme_Tool_Suite_v3
                 signatureneeded = "false";
             }
 
-            if (trip.RiderCallTime.Contains("nbsp"))//object reference error
+            bool hasRiderCall = !trip.RiderCallTime.Contains("nbsp");
+            string submitPu = FormatTimeForModivcareSubmit(
+                !string.IsNullOrWhiteSpace(trip.SuggestedPUTime) ? trip.SuggestedPUTime : trip.PUTime);
+            string submitDo = FormatTimeForModivcareSubmit(
+                !string.IsNullOrWhiteSpace(trip.SuggestedDOTime) ? trip.SuggestedDOTime : trip.DOTime);
+            string submitRiderCall = hasRiderCall
+                ? FormatTimeForModivcareSubmit(trip.RiderCallTime)
+                : "";
+
+            TripActualsLateReasonFields lateFields = ParseLateReasonFieldsFromTripActualsHtml(_tripActualsFormHtml);
+
+            if (!hasRiderCall)
             {
                 testformContent = new MyFormUrlEncodedContent(new[]{
                 new KeyValuePair<string, string>("__LASTFOCUS", ""),
@@ -3357,20 +3721,20 @@ namespace Hiatme_Tool_Suite_v3
                 new KeyValuePair<string, string>("__SCROLLPOSITIONX", "0"),
                 new KeyValuePair<string, string>("__SCROLLPOSITIONY", "0"),
                 new KeyValuePair<string, string>("__EVENTVALIDATION", mcloginhandler.EventValidationToken),
-                new KeyValuePair<string, string>(maincontentstring + "hdnPULateReasonSelectedText", ""),
-                new KeyValuePair<string, string>(maincontentstring + "hdnPULateReasonSelectedCode", ""),
-                new KeyValuePair<string, string>(maincontentstring + "hdnDOLateReasonSelectedText", ""),
-                new KeyValuePair<string, string>(maincontentstring + "hdnDOLateReasonSelectedCode", ""),
-                new KeyValuePair<string, string>(maincontentstring + "hdnLateDialogToShow", ""),
+                new KeyValuePair<string, string>(maincontentstring + "hdnPULateReasonSelectedText", lateFields.PuLateText ?? ""),
+                new KeyValuePair<string, string>(maincontentstring + "hdnPULateReasonSelectedCode", lateFields.PuLateCode ?? ""),
+                new KeyValuePair<string, string>(maincontentstring + "hdnDOLateReasonSelectedText", lateFields.DoLateText ?? ""),
+                new KeyValuePair<string, string>(maincontentstring + "hdnDOLateReasonSelectedCode", lateFields.DoLateCode ?? ""),
+                new KeyValuePair<string, string>(maincontentstring + "hdnLateDialogToShow", lateFields.LateDialogToShow ?? ""),
                 new KeyValuePair<string, string>(maincontentstring + "ddlVehicle", trip.AssignedVehicle.VehicleTag),
                 new KeyValuePair<string, string>(maincontentstring + "ddlDriver", trip.AssignedVehicle.DriverTag),
                 new KeyValuePair<string, string>(maincontentstring + "ddlSignatureReceived", signaturereceived),
                 new KeyValuePair<string, string>(maincontentstring + "hdnSignatureNeeded", signatureneeded),
                 new KeyValuePair<string, string>(maincontentstring + "hdnInvalidOrMissingSignature", "false"),
-                new KeyValuePair<string, string>(maincontentstring + "txtPickupTime", HttpUtility.UrlDecode(trip.SuggestedPUTime.Replace(":", "%3A"))),
-                new KeyValuePair<string, string>(maincontentstring + "hdnShowPULateReasonFields", ""),
-                new KeyValuePair<string, string>(maincontentstring + "txtDropOffTime", HttpUtility.UrlDecode(trip.SuggestedDOTime.Replace(":", "%3A"))),
-                new KeyValuePair<string, string>(maincontentstring + "hdnShowDOLateReasonFields", ""),
+                new KeyValuePair<string, string>(maincontentstring + "txtPickupTime", submitPu),
+                new KeyValuePair<string, string>(maincontentstring + "hdnShowPULateReasonFields", lateFields.ShowPuLate ?? ""),
+                new KeyValuePair<string, string>(maincontentstring + "txtDropOffTime", submitDo),
+                new KeyValuePair<string, string>(maincontentstring + "hdnShowDOLateReasonFields", lateFields.ShowDoLate ?? ""),
                 new KeyValuePair<string, string>(maincontentstring + "txtBilledAmt", trip.BilledAmount.Replace("$", "")),
                 new KeyValuePair<string, string>(maincontentstring + "txtBillingNotes", ""),
                 new KeyValuePair<string, string>(maincontentstring + "btnSubmit", "Submit"),
@@ -3378,7 +3742,6 @@ namespace Hiatme_Tool_Suite_v3
             }
             else
             {
-                
                 testformContent = new MyFormUrlEncodedContent(new[]{
                 new KeyValuePair<string, string>("__LASTFOCUS", ""),
                 new KeyValuePair<string, string>("__EVENTTARGET", ""),
@@ -3388,26 +3751,25 @@ namespace Hiatme_Tool_Suite_v3
                 new KeyValuePair<string, string>("__SCROLLPOSITIONX", "0"),
                 new KeyValuePair<string, string>("__SCROLLPOSITIONY", "0"),
                 new KeyValuePair<string, string>("__EVENTVALIDATION", mcloginhandler.EventValidationToken),
-                new KeyValuePair<string, string>(maincontentstring + "hdnPULateReasonSelectedText", ""),
-                new KeyValuePair<string, string>(maincontentstring + "hdnPULateReasonSelectedCode", ""),
-                new KeyValuePair<string, string>(maincontentstring + "hdnDOLateReasonSelectedText", ""),
-                new KeyValuePair<string, string>(maincontentstring + "hdnDOLateReasonSelectedCode", ""),
-                new KeyValuePair<string, string>(maincontentstring + "hdnLateDialogToShow", ""),
+                new KeyValuePair<string, string>(maincontentstring + "hdnPULateReasonSelectedText", lateFields.PuLateText ?? ""),
+                new KeyValuePair<string, string>(maincontentstring + "hdnPULateReasonSelectedCode", lateFields.PuLateCode ?? ""),
+                new KeyValuePair<string, string>(maincontentstring + "hdnDOLateReasonSelectedText", lateFields.DoLateText ?? ""),
+                new KeyValuePair<string, string>(maincontentstring + "hdnDOLateReasonSelectedCode", lateFields.DoLateCode ?? ""),
+                new KeyValuePair<string, string>(maincontentstring + "hdnLateDialogToShow", lateFields.LateDialogToShow ?? ""),
                 new KeyValuePair<string, string>(maincontentstring + "ddlVehicle", trip.AssignedVehicle.VehicleTag),
                 new KeyValuePair<string, string>(maincontentstring + "ddlDriver", trip.AssignedVehicle.DriverTag),
                 new KeyValuePair<string, string>(maincontentstring + "ddlSignatureReceived", signaturereceived),
                 new KeyValuePair<string, string>(maincontentstring + "hdnSignatureNeeded", signatureneeded),
                 new KeyValuePair<string, string>(maincontentstring + "hdnInvalidOrMissingSignature", "false"),
-                new KeyValuePair<string, string>(maincontentstring + "txtPickupTime", HttpUtility.UrlDecode(trip.SuggestedPUTime.Replace(":", "%3A"))),
-                new KeyValuePair<string, string>(maincontentstring + "hdnShowPULateReasonFields", ""),
-                new KeyValuePair<string, string>(maincontentstring + "txtDropOffTime", HttpUtility.UrlDecode(trip.SuggestedDOTime.Replace(":", "%3A"))),
-                new KeyValuePair<string, string>(maincontentstring + "hdnShowDOLateReasonFields", ""),
-                new KeyValuePair<string, string>(maincontentstring + "txtRiderCallTime", trip.RiderCallTime),
+                new KeyValuePair<string, string>(maincontentstring + "txtPickupTime", submitPu),
+                new KeyValuePair<string, string>(maincontentstring + "hdnShowPULateReasonFields", lateFields.ShowPuLate ?? ""),
+                new KeyValuePair<string, string>(maincontentstring + "txtDropOffTime", submitDo),
+                new KeyValuePair<string, string>(maincontentstring + "hdnShowDOLateReasonFields", lateFields.ShowDoLate ?? ""),
+                new KeyValuePair<string, string>(maincontentstring + "txtRiderCallTime", submitRiderCall),
                 new KeyValuePair<string, string>(maincontentstring + "txtBilledAmt", trip.BilledAmount.Replace("$", "")),
                 new KeyValuePair<string, string>(maincontentstring + "txtBillingNotes", ""),
                 new KeyValuePair<string, string>(maincontentstring + "btnSubmit", "Submit"),
                 });
-                
             }
             HttpResponseMessage res = await mcloginhandler.Client.PostAsync("https://transportationco.logisticare.com/TripActuals.aspx", testformContent);
             var response = await res.Content.ReadAsStringAsync();
@@ -3466,33 +3828,588 @@ namespace Hiatme_Tool_Suite_v3
 
         public async Task LoadAvailableVehicles(MCBatchTripRecord mctriprecord, MCLoginHandler mcloginhandler, string date)
         {
+            await LoadPortalEligibleListsFromSampleTrip(mcloginhandler, mctriprecord, date);
+        }
+
+        /// <summary>
+        /// Posts a sample trip on the batch page, then reads TripActuals dropdowns for eligible drivers/vehicles.
+        /// </summary>
+        public async Task LoadPortalEligibleListsFromSampleTrip(MCLoginHandler mcloginhandler,
+            MCBatchTripRecord sampleTrip, string date)
+        {
+            string html = await FetchTripActualsPageHtmlAsync(mcloginhandler, sampleTrip);
+            if (string.IsNullOrEmpty(html))
+            {
+                SetPortalListLoadMessage(date, "TripActuals page was empty — assignment check skipped.");
+                Console.WriteLine("MCTimeCorrection: TripActuals page empty for " + date + ".");
+                return;
+            }
+
+            ParseVehicles(html, date, clearListsBeforeParse: true);
+            UpdatePortalListLoadMessageFromParse(date, html);
+        }
+
+        private void SetPortalListLoadMessage(string batchDate, string message)
+        {
+            foreach (MCBatchAdditionalInfo batchInfo in mcBatchRecords.MCBatchAdditionalInfo)
+            {
+                if (batchInfo.MCBatchDate == batchDate)
+                {
+                    batchInfo.PortalListLoadMessage = message;
+                    batchInfo.PortalEligibleDriverCount = batchInfo.MCDrivers?.Count ?? 0;
+                    batchInfo.PortalEligibleVehicleCount = batchInfo.MCAvailableVehicles?.Count ?? 0;
+                }
+            }
+        }
+
+        private void UpdatePortalListLoadMessageFromParse(string batchDate, string html)
+        {
+            foreach (MCBatchAdditionalInfo batchInfo in mcBatchRecords.MCBatchAdditionalInfo)
+            {
+                if (batchInfo.MCBatchDate != batchDate)
+                    continue;
+
+                batchInfo.PortalEligibleDriverCount = batchInfo.MCDrivers?.Count ?? 0;
+                batchInfo.PortalEligibleVehicleCount = batchInfo.MCAvailableVehicles?.Count ?? 0;
+
+                bool onTripActuals = (html ?? "").IndexOf("TripActuals", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    (html ?? "").IndexOf("ddlDriver", StringComparison.OrdinalIgnoreCase) >= 0;
+                bool hasDriverDropdown = (html ?? "").IndexOf("ddlDriver", StringComparison.OrdinalIgnoreCase) >= 0;
+
+                if (batchInfo.PortalEligibleDriverCount == 0 && batchInfo.PortalEligibleVehicleCount == 0)
+                {
+                    if (!onTripActuals)
+                        batchInfo.PortalListLoadMessage =
+                            "HTML does not look like TripActuals (still on batch/login?) — assignment check skipped.";
+                    else if (!hasDriverDropdown)
+                        batchInfo.PortalListLoadMessage =
+                            "TripActuals page had no driver dropdown — assignment check skipped.";
+                    else
+                        batchInfo.PortalListLoadMessage =
+                            "Driver/vehicle dropdowns found but no options parsed — assignment check skipped.";
+                }
+                else
+                {
+                    batchInfo.PortalListLoadMessage = batchInfo.PortalEligibleDriverCount + " eligible drivers, " +
+                        batchInfo.PortalEligibleVehicleCount + " vehicles from TripActuals.";
+                }
+            }
+        }
+
+        /// <summary>Human-readable post-load check: portal list sizes and how many batch rows match.</summary>
+        public string BuildPortalAssignmentAuditSummary()
+        {
+            if (mcBatchRecords?.MCBatchAdditionalInfo == null || mcBatchRecords.MCBatchTrips == null)
+                return "No batch loaded.";
+
+            var sb = new StringBuilder();
+            foreach (MCBatchAdditionalInfo info in mcBatchRecords.MCBatchAdditionalInfo)
+            {
+                if (sb.Length > 0)
+                    sb.Append(" | ");
+
+                int tripCount = 0;
+                int invD = 0;
+                int invV = 0;
+                int missingD = 0;
+                int missingV = 0;
+
+                foreach (MCBatchTripRecord trip in mcBatchRecords.MCBatchTrips)
+                {
+                    if (trip.Date != info.MCBatchDate)
+                        continue;
+                    tripCount++;
+
+                    if (IsMissingAssignment(trip.Driver))
+                        missingD++;
+                    else if (info.PortalEligibleDriverCount > 0 && !IsDriverInPortalList(info, trip.Driver))
+                        invD++;
+
+                    if (IsMissingAssignment(trip.Vehicle))
+                        missingV++;
+                    else if (info.PortalEligibleVehicleCount > 0 && !IsVehicleInPortalList(info, trip.Vehicle))
+                        invV++;
+                }
+
+                sb.Append(info.MCBatchDate);
+                sb.Append(": ");
+                if (!string.IsNullOrWhiteSpace(info.PortalListLoadMessage))
+                    sb.Append(info.PortalListLoadMessage);
+                else
+                    sb.Append("portal lists not reported");
+
+                sb.Append(" Trips ").Append(tripCount);
+                sb.Append(" — missing driver ").Append(missingD);
+                sb.Append(", missing vehicle ").Append(missingV);
+                sb.Append(", INV-D ").Append(invD);
+                sb.Append(", INV-V ").Append(invV);
+
+                if (info.PortalEligibleDriverCount == 0 && info.PortalEligibleVehicleCount == 0)
+                    sb.Append(" (assignment validation was skipped)");
+            }
+
+            return sb.ToString();
+        }
+
+        /// <summary>One-line assignment summary for the status bar (no per-date portal messages).</summary>
+        public string BuildPortalAssignmentAuditSummaryCompact()
+        {
+            if (mcBatchRecords?.MCBatchAdditionalInfo == null || mcBatchRecords.MCBatchTrips == null)
+                return string.Empty;
+
+            int tripCount = 0;
+            int missingD = 0;
+            int missingV = 0;
+            int invD = 0;
+            int invV = 0;
+            bool validationSkipped = false;
+
+            foreach (MCBatchAdditionalInfo info in mcBatchRecords.MCBatchAdditionalInfo)
+            {
+                if (info.PortalEligibleDriverCount == 0 && info.PortalEligibleVehicleCount == 0)
+                    validationSkipped = true;
+
+                foreach (MCBatchTripRecord trip in mcBatchRecords.MCBatchTrips)
+                {
+                    if (trip.Date != info.MCBatchDate)
+                        continue;
+                    tripCount++;
+
+                    if (IsMissingAssignment(trip.Driver))
+                        missingD++;
+                    else if (info.PortalEligibleDriverCount > 0 && !IsDriverInPortalList(info, trip.Driver))
+                        invD++;
+
+                    if (IsMissingAssignment(trip.Vehicle))
+                        missingV++;
+                    else if (info.PortalEligibleVehicleCount > 0 && !IsVehicleInPortalList(info, trip.Vehicle))
+                        invV++;
+                }
+            }
+
+            if (tripCount == 0)
+                return string.Empty;
+
+            if (validationSkipped && missingD == 0 && missingV == 0 && invD == 0 && invV == 0)
+                return "Assignments not validated";
+
+            if (missingD == 0 && missingV == 0 && invD == 0 && invV == 0)
+                return "Assignments OK";
+
+            var parts = new List<string>();
+            if (missingD > 0)
+                parts.Add(missingD + " no drv");
+            if (missingV > 0)
+                parts.Add(missingV + " no veh");
+            if (invD > 0)
+                parts.Add(invD + " INV-D");
+            if (invV > 0)
+                parts.Add(invV + " INV-V");
+            return string.Join(", ", parts);
+        }
+
+        /// <summary>
+        /// Mirrors browser flow: postback opens trip on ProcessATMBatches, then GET TripActuals.aspx
+        /// with Referer = batch page (see DevTools curl).
+        /// </summary>
+        private async Task<string> FetchTripActualsPageHtmlAsync(MCLoginHandler handler, MCBatchTripRecord sampleTrip)
+        {
+            if (handler == null)
+                return "";
+
+            handler.UpdateTripActualsHeaders(MCLoginHandler.ProcessAtmBatchesUrl);
+
+            if (sampleTrip != null && !string.IsNullOrWhiteSpace(sampleTrip.TripToken))
+            {
+                try
+                {
+                    HttpResponseMessage postRes = await handler.PostWithAuthRetryAsync(
+                        MCLoginHandler.ProcessAtmBatchesUrl,
+                        () => BuildOpenTripOnBatchFormContent(handler, sampleTrip.TripToken));
+
+                    string postBody = await postRes.Content.ReadAsStringAsync();
+                    if (MCLoginHandler.IsAuthRedirect(postRes))
+                        throw new ModivcareSessionExpiredException();
+
+                    string finalPath = postRes.RequestMessage?.RequestUri?.AbsolutePath ?? "";
+                    if (finalPath.IndexOf("TripActuals.aspx", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        handler.GrabTokens(postBody);
+                        _tripActualsFormHtml = postBody;
+                        return postBody;
+                    }
+
+                    if (!string.IsNullOrEmpty(postBody))
+                    {
+                        handler.GrabTokens(postBody);
+                        _tripActualsFormHtml = postBody;
+                    }
+                }
+                catch (ModivcareSessionExpiredException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine("MCTimeCorrection: sample trip open failed: " + ex.Message);
+                }
+            }
+            else
+            {
+                Console.WriteLine("MCTimeCorrection: no sample trip token; GET TripActuals without batch postback.");
+            }
+
+            handler.UpdateTripActualsHeaders(MCLoginHandler.ProcessAtmBatchesUrl);
             try
             {
-                var formContent = new MyFormUrlEncodedContent(new[]{
-                new KeyValuePair<string, string>("__EVENTTARGET", mctriprecord.TripToken),
-                new KeyValuePair<string, string>("__EVENTARGUMENT", ""),
-                new KeyValuePair<string, string>("__LASTFOCUS", ""),
-                new KeyValuePair<string, string>("__VIEWSTATE", mcloginhandler.ViewStateToken),
-                new KeyValuePair<string, string>("__VIEWSTATEGENERATOR", mcloginhandler.ViewStateGeneratorToken),
-                new KeyValuePair<string, string>("__VIEWSTATEENCRYPTED", ""),
-                new KeyValuePair<string, string>("__EVENTVALIDATION", mcloginhandler.EventValidationToken),
-                new KeyValuePair<string, string>("ctl00$cphMainContent$ddlTripSortBy", "VerifiedDenied"),
-             });
-                HttpResponseMessage res = await mcloginhandler.Client.PostAsync("https://transportationco.logisticare.com/ProcessATMBatches.aspx", formContent);
-                var response = await res.Content.ReadAsStringAsync();
-                if (MCLoginHandler.IsAuthRedirect(res))
+                HttpResponseMessage getRes = await handler.GetWithAuthRetryAsync(MCLoginHandler.TripActualsUrl);
+                string html = await getRes.Content.ReadAsStringAsync();
+                getRes.EnsureSuccessStatusCode();
+                if (MCLoginHandler.IsAuthRedirect(getRes))
                     throw new ModivcareSessionExpiredException();
+
+                if (!string.IsNullOrEmpty(html))
+                {
+                    handler.GrabTokens(html);
+                    if (sampleTrip != null)
+                        _tripActualsFormHtml = html;
+                }
+                return html;
             }
             catch (ModivcareSessionExpiredException)
             {
                 throw;
             }
-            catch
+            catch (Exception ex)
             {
-                Console.WriteLine("There was a problem in GetDriversAndVehiclesPage.");
+                Console.WriteLine("MCTimeCorrection: TripActuals GET failed: " + ex.Message);
+                return "";
             }
-            await GetTripActuals(mcloginhandler, date);
         }
+
+        private static MyFormUrlEncodedContent BuildOpenTripOnBatchFormContent(MCLoginHandler handler, string tripToken)
+        {
+            return new MyFormUrlEncodedContent(new[]{
+                new KeyValuePair<string, string>("__EVENTTARGET", tripToken),
+                new KeyValuePair<string, string>("__EVENTARGUMENT", ""),
+                new KeyValuePair<string, string>("__LASTFOCUS", ""),
+                new KeyValuePair<string, string>("__VIEWSTATE", handler.ViewStateToken),
+                new KeyValuePair<string, string>("__VIEWSTATEGENERATOR", handler.ViewStateGeneratorToken),
+                new KeyValuePair<string, string>("__VIEWSTATEENCRYPTED", ""),
+                new KeyValuePair<string, string>("__EVENTVALIDATION", handler.EventValidationToken),
+                new KeyValuePair<string, string>("ctl00$cphMainContent$ddlTripSortBy", "VerifiedDenied"),
+            });
+        }
+        /// <summary>
+        /// When batch rows have no driver and/or vehicle, assign from Modivcare only (not WellRyde):
+        /// trip download records, same-day batch siblings, and Trip Actuals dropdown lists.
+        /// </summary>
+        private void FillMissingDriversAndVehicles(MCBatchAdditionalInfo batchInfo)
+        {
+            if (batchInfo == null || mcBatchRecords?.MCBatchTrips == null)
+                return;
+
+            var vehiclesInUse = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var driverUsage = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (MCBatchTripRecord t in mcBatchRecords.MCBatchTrips)
+            {
+                if (t.Date != batchInfo.MCBatchDate)
+                    continue;
+                if (!IsMissingAssignment(t.Vehicle))
+                    vehiclesInUse.Add(NormalizeName(t.Vehicle));
+                if (!IsMissingAssignment(t.Driver))
+                {
+                    string dk = NormalizeName(t.Driver);
+                    driverUsage[dk] = driverUsage.TryGetValue(dk, out int n) ? n + 1 : 1;
+                }
+            }
+
+            foreach (MCBatchTripRecord trip in mcBatchRecords.MCBatchTrips)
+            {
+                if (trip.Date != batchInfo.MCBatchDate)
+                    continue;
+                if (!ShouldApplyCorrectionsToTrip(trip))
+                    continue;
+
+                bool driverWasMissing = IsMissingAssignment(trip.Driver);
+                bool vehicleWasMissing = IsMissingAssignment(trip.Vehicle);
+
+                if (driverWasMissing)
+                {
+                    string resolved = TryResolveDriverFromModivcareDownload(trip, batchInfo);
+                    if (!IsMissingAssignment(resolved))
+                    {
+                        trip.Driver = resolved.Trim();
+                        MarkTripAssignmentFix(trip, "ASG-D");
+                    }
+                }
+
+                if (IsMissingAssignment(trip.Driver))
+                {
+                    string picked = PickDriverFromPortalList(batchInfo, driverUsage);
+                    if (!IsMissingAssignment(picked))
+                    {
+                        trip.Driver = picked;
+                        MarkTripAssignmentFix(trip, "ASG-D");
+                        string dk = NormalizeName(picked);
+                        driverUsage[dk] = driverUsage.TryGetValue(dk, out int n) ? n + 1 : 1;
+                    }
+                }
+
+                if (vehicleWasMissing || IsMissingAssignment(trip.Vehicle))
+                {
+                    string vehicle = TryResolveVehicleForTrip(trip, batchInfo, vehiclesInUse);
+                    if (!IsMissingAssignment(vehicle))
+                    {
+                        trip.Vehicle = vehicle;
+                        MarkTripAssignmentFix(trip, "ASG-V");
+                        vehiclesInUse.Add(NormalizeName(vehicle));
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Batch grid may show a driver/vehicle who performed the trip, but Modivcare's trip form only
+        /// lists insured/eligible options. Compare each row to lists loaded from a sample trip open.
+        /// </summary>
+        private void ValidateAssignmentsAgainstPortalLists(MCBatchAdditionalInfo addinfo)
+        {
+            if (addinfo == null || mcBatchRecords?.MCBatchTrips == null)
+                return;
+
+            bool haveDriverList = addinfo.MCDrivers != null && addinfo.MCDrivers.Count > 0;
+            bool haveVehicleList = addinfo.MCAvailableVehicles != null && addinfo.MCAvailableVehicles.Count > 0;
+            if (!haveDriverList && !haveVehicleList)
+                return;
+
+            foreach (MCBatchTripRecord trprcd in mcBatchRecords.MCBatchTrips)
+            {
+                if (trprcd.Date != addinfo.MCBatchDate)
+                    continue;
+                if (!ShouldApplyCorrectionsToTrip(trprcd))
+                    continue;
+
+                if (haveDriverList && !IsMissingAssignment(trprcd.Driver) &&
+                    !IsDriverInPortalList(addinfo, trprcd.Driver))
+                {
+                    AppendTripAlert(trprcd, "INV-D");
+                    trprcd.Status = "Fixable";
+                }
+
+                if (haveVehicleList && !IsMissingAssignment(trprcd.Vehicle) &&
+                    !IsVehicleInPortalList(addinfo, trprcd.Vehicle))
+                {
+                    AppendTripAlert(trprcd, "INV-V");
+                    trprcd.Status = "Fixable";
+                }
+            }
+        }
+
+        private static bool IsDriverInPortalList(MCBatchAdditionalInfo addinfo, string driverName)
+        {
+            foreach (MCDriver driver in addinfo.MCDrivers)
+            {
+                if (NamesEqual(driver.Driver, driverName))
+                    return true;
+            }
+            return false;
+        }
+
+        private static bool IsVehicleInPortalList(MCBatchAdditionalInfo addinfo, string batchVehicle)
+        {
+            if (string.IsNullOrWhiteSpace(batchVehicle))
+                return false;
+
+            string key = NormalizeName(batchVehicle);
+            foreach (MCAvailableVehicle vehicle in addinfo.MCAvailableVehicles)
+            {
+                if (NamesEqual(vehicle.Vehicle, batchVehicle))
+                    return true;
+                if (NamesEqual(vehicle.VehicleTag, batchVehicle))
+                    return true;
+                string label = vehicle.Vehicle ?? "";
+                if (label.IndexOf(batchVehicle, StringComparison.OrdinalIgnoreCase) >= 0)
+                    return true;
+                if (NormalizeName(label).IndexOf(key, StringComparison.OrdinalIgnoreCase) >= 0)
+                    return true;
+            }
+            return false;
+        }
+
+        private void FinalizeDataQualityFixable(MCBatchAdditionalInfo batchInfo)
+        {
+            if (batchInfo == null || mcBatchRecords?.MCBatchTrips == null)
+                return;
+
+            foreach (MCBatchTripRecord trip in mcBatchRecords.MCBatchTrips)
+            {
+                if (trip.Date != batchInfo.MCBatchDate)
+                    continue;
+                if (!ShouldApplyCorrectionsToTrip(trip))
+                    continue;
+
+                bool needsFix = false;
+
+                if (IsMissingAssignment(trip.Driver))
+                {
+                    AppendTripAlert(trip, "MIS-D");
+                    needsFix = true;
+                }
+
+                if (IsMissingAssignment(trip.Vehicle))
+                {
+                    AppendTripAlert(trip, "MIS-V");
+                    needsFix = true;
+                }
+
+                string alerts = trip.Alerts ?? "";
+                if (alerts.IndexOf("ASG-", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    alerts.IndexOf("DRV", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    alerts.IndexOf("INV-", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    alerts.IndexOf("MIS-", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    alerts.IndexOf("RCT", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    alerts.IndexOf("SCH", StringComparison.OrdinalIgnoreCase) >= 0)
+                    needsFix = true;
+
+                if (needsFix)
+                    trip.Status = "Fixable";
+            }
+        }
+
+        private static bool IsMissingAssignment(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return true;
+            string v = value.Trim();
+            if (v.IndexOf("nbsp", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+            if (v.IndexOf("select driver", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+            if (v.IndexOf("select vehicle", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+            return false;
+        }
+
+        private static bool NamesEqual(string a, string b) =>
+            string.Equals(NormalizeName(a), NormalizeName(b), StringComparison.OrdinalIgnoreCase);
+
+        private static string NormalizeName(string value) =>
+            (value ?? "").Replace(" ", "");
+
+        private static void MarkTripAssignmentFix(MCBatchTripRecord trip, string alertCode)
+        {
+            AppendTripAlert(trip, alertCode);
+            trip.Status = "Fixable";
+        }
+
+        private static bool TripNumbersMatch(string batchTrip, string downloaded)
+        {
+            string a = NormalizeName(batchTrip);
+            string b = NormalizeName(downloaded);
+            if (a.Length == 0 || b.Length == 0)
+                return false;
+            if (string.Equals(a, b, StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (a.StartsWith("1", StringComparison.Ordinal) && a.Length > 1 &&
+                string.Equals(a.Substring(1), b, StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (b.StartsWith("1", StringComparison.Ordinal) && b.Length > 1 &&
+                string.Equals(b.Substring(1), a, StringComparison.OrdinalIgnoreCase))
+                return true;
+            return false;
+        }
+
+        private static string TryResolveDriverFromModivcareDownload(MCBatchTripRecord trip,
+            MCBatchAdditionalInfo batchInfo)
+        {
+            if (batchInfo.mcDownloadedTrips == null)
+                return null;
+
+            foreach (MCDownloadedTrip mc in batchInfo.mcDownloadedTrips)
+            {
+                if (!TripNumbersMatch(trip.Trip, mc.TripNumber))
+                    continue;
+                if (!IsMissingAssignment(mc.DriverNameParsed) &&
+                    !mc.DriverNameParsed.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
+                    return mc.DriverNameParsed.Trim();
+            }
+
+            return null;
+        }
+
+        private string PickDriverFromPortalList(MCBatchAdditionalInfo batchInfo,
+            Dictionary<string, int> driverUsage)
+        {
+            MCDriver best = null;
+            int bestCount = -1;
+
+            foreach (MCDriver driver in batchInfo.MCDrivers)
+            {
+                if (driver == null || IsMissingAssignment(driver.Driver) || IsMissingAssignment(driver.DriverTag))
+                    continue;
+                if (driver.Driver.IndexOf("Reserves", StringComparison.OrdinalIgnoreCase) >= 0)
+                    continue;
+
+                string key = NormalizeName(driver.Driver);
+                int count = driverUsage.TryGetValue(key, out int n) ? n : 0;
+                if (count > bestCount)
+                {
+                    bestCount = count;
+                    best = driver;
+                }
+            }
+
+            if (best != null)
+                return best.Driver.Trim();
+
+            return null;
+        }
+
+        private string TryResolveVehicleForTrip(MCBatchTripRecord trip, MCBatchAdditionalInfo batchInfo,
+            HashSet<string> vehiclesInUse)
+        {
+            if (!IsMissingAssignment(trip.Driver))
+            {
+                string fromSibling = FindVehicleForDriverOnDate(trip.Driver, trip.Date);
+                if (!IsMissingAssignment(fromSibling))
+                    return fromSibling.Trim();
+            }
+
+            if (batchInfo.MCAvailableVehicles != null)
+            {
+                foreach (MCAvailableVehicle v in batchInfo.MCAvailableVehicles)
+                {
+                    if (IsMissingAssignment(v.Vehicle))
+                        continue;
+                    string key = NormalizeName(v.Vehicle);
+                    if (!vehiclesInUse.Contains(key))
+                        return v.Vehicle.Trim();
+                }
+            }
+
+            if (batchInfo.MCAvailableVehicles != null && batchInfo.MCAvailableVehicles.Count > 0 &&
+                !IsMissingAssignment(batchInfo.MCAvailableVehicles[0].Vehicle))
+                return batchInfo.MCAvailableVehicles[0].Vehicle.Trim();
+
+            return null;
+        }
+
+        private string FindVehicleForDriverOnDate(string driver, string batchDate)
+        {
+            foreach (MCBatchTripRecord t in mcBatchRecords.MCBatchTrips)
+            {
+                if (t.Date != batchDate)
+                    continue;
+                if (!NamesEqual(t.Driver, driver))
+                    continue;
+                if (!IsMissingAssignment(t.Vehicle))
+                    return t.Vehicle;
+            }
+            return null;
+        }
+
         private void LoadAssignedVehicles(MCBatchAdditionalInfo batchInfos)
         {
             foreach (MCBatchTripRecord trprcd in mcBatchRecords.MCBatchTrips)
@@ -3599,9 +4516,8 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     foreach (MCBatchTripRecord batchTripRecord in mcBatchRecords.MCBatchTrips)
                     {
-
-
-
+                        if (!ShouldApplyCorrectionsToTrip(batchTripRecord))
+                            continue;
 
                         bool vehcileisgoodenough = false;
                         //if trip vehicle is not in availible vehicles then change it and set fixable
@@ -3686,38 +4602,36 @@ namespace Hiatme_Tool_Suite_v3
                 }
             }
         }
-        public async Task GetTripActuals(MCLoginHandler handler, string date)
+        public async Task GetTripActuals(MCLoginHandler handler, string date, bool clearListsBeforeParse = false)
         {
-            //handler.UpdateTripActualsHeaders("https://transportationco.logisticare.com/ProcessATMBatches.aspx");
-            var response = "";
-            try
+            string response = await FetchTripActualsPageHtmlAsync(handler, sampleTrip: null);
+            ParseVehicles(response, date, clearListsBeforeParse);
+        }
+        public void ParseVehicles(string webresponse, string date, bool clearListsBeforeParse = false)
+        {
+            if (clearListsBeforeParse)
             {
-                // GetWithAuthRetryAsync: if cookie is dead, reconnect via cached creds and replay the GET once.
-                // Safe to use here because this is a tokenless GET that doesn't depend on prior page state.
-                HttpResponseMessage res = await handler.GetWithAuthRetryAsync("https://transportationco.logisticare.com/TripActuals.aspx");
-                response = await res.Content.ReadAsStringAsync();
-                res.EnsureSuccessStatusCode();
-                if (MCLoginHandler.IsAuthRedirect(res))
+                foreach (MCBatchAdditionalInfo batchInfo in mcBatchRecords.MCBatchAdditionalInfo)
                 {
-                    Console.WriteLine("You're not logged in.");
-                    // Reconnect already attempted by GetWithAuthRetryAsync. Surface to outer op so it can retry the whole batch.
-                    throw new ModivcareSessionExpiredException();
+                    if (batchInfo.MCBatchDate == date)
+                    {
+                        batchInfo.MCDrivers.Clear();
+                        batchInfo.MCAvailableVehicles.Clear();
+                    }
                 }
             }
-            catch (ModivcareSessionExpiredException)
-            {
-                throw;
-            }
-            catch
-            {
-                Console.WriteLine("There was a problem in Test.");
-            }
-            ParseVehicles(response, date);
-        }
-        public void ParseVehicles(string webresponse, string date)
-        {
+
             string driverslistbulk = GetContentBulkRegex(webresponse, "ctl00$cphMainContent$ddlDriver", "ctl00$cphMainContent$ddlSignatureReceived");
+            if (string.IsNullOrWhiteSpace(driverslistbulk))
+                driverslistbulk = GetContentBulkRegex(webresponse, "ctl00_cphMainContent_ddlDriver", "ctl00_cphMainContent_ddlSignatureReceived");
+            if (string.IsNullOrWhiteSpace(driverslistbulk))
+                driverslistbulk = GetContentBulkRegex(webresponse, "id=\"ctl00_cphMainContent_ddlDriver\"", "ctl00_cphMainContent_ddlSignatureReceived");
+
             string vehicleslistbulk = GetContentBulkRegex(webresponse, "ctl00$cphMainContent$ddlVehicle", "ctl00$cphMainContent$ddlDriver");
+            if (string.IsNullOrWhiteSpace(vehicleslistbulk))
+                vehicleslistbulk = GetContentBulkRegex(webresponse, "ctl00_cphMainContent_ddlVehicle", "ctl00_cphMainContent_ddlDriver");
+            if (string.IsNullOrWhiteSpace(vehicleslistbulk))
+                vehicleslistbulk = GetContentBulkRegex(webresponse, "id=\"ctl00_cphMainContent_ddlVehicle\"", "ctl00_cphMainContent_ddlDriver");
 
             //Vehicles found and inserted into list
             foreach (Match match in GetStrBetweenTags(vehicleslistbulk, @"<option value=", "</option>"))
@@ -3973,27 +4887,7 @@ namespace Hiatme_Tool_Suite_v3
         {
             try
             {
-                //handler.UpdateTripActualsHeaders("https://transportationco.logisticare.com/ProcessATMBatches.aspx");
-                //handler.Client.DefaultRequestHeaders.Remove("Referer");
-                //handler.Client.DefaultRequestHeaders.Add("Referer", "https://transportationco.logisticare.com/ProcessATMBatches.aspx");
-                var formContent = new MyFormUrlEncodedContent(new[]{
-                new KeyValuePair<string, string>("__EVENTTARGET", trip.TripToken),
-                new KeyValuePair<string, string>("__EVENTARGUMENT", ""),
-                new KeyValuePair<string, string>("__LASTFOCUS", ""),
-                //new KeyValuePair<string, string>("__VIEWSTATE", ""),
-                new KeyValuePair<string, string>("__VIEWSTATE", handler.ViewStateToken),
-                //new KeyValuePair<string, string>("__VIEWSTATEGENERATOR", handler.ViewStateGeneratorToken),
-                new KeyValuePair<string, string>("__VIEWSTATEGENERATOR", handler.ViewStateGeneratorToken),
-                new KeyValuePair<string, string>("__VIEWSTATEENCRYPTED", ""),
-                new KeyValuePair<string, string>("__EVENTVALIDATION", handler.EventValidationToken),
-                new KeyValuePair<string, string>("ctl00$cphMainContent$ddlTripSortBy", "VerifiedDenied"),
-             });
-                HttpResponseMessage res = await handler.Client.PostAsync("https://transportationco.logisticare.com/ProcessATMBatches.aspx", formContent);
-                var response = await res.Content.ReadAsStringAsync();
-                if (MCLoginHandler.IsAuthRedirect(res))
-                    throw new ModivcareSessionExpiredException();
-                //handler.GrabTokens(response);
-                await GetTripActualsReponse(handler);
+                await FetchTripActualsPageHtmlAsync(handler, trip);
             }
             catch (ModivcareSessionExpiredException)
             {
@@ -4007,29 +4901,7 @@ namespace Hiatme_Tool_Suite_v3
         }
         public async Task GetTripActualsReponse(MCLoginHandler mchandler)
         {
-
-            var response = "";
-            try
-            {
-                HttpResponseMessage res = await mchandler.GetWithAuthRetryAsync("https://transportationco.logisticare.com/TripActuals.aspx");
-                response = await res.Content.ReadAsStringAsync();
-                mchandler.GrabTokens(response);
-                if (MCLoginHandler.IsAuthRedirect(res))
-                {
-                    Console.WriteLine("You're not logged in.");
-                    throw new ModivcareSessionExpiredException();
-                }
-
-            }
-            catch (ModivcareSessionExpiredException)
-            {
-                throw;
-            }
-            catch
-            {
-                Console.WriteLine("There was a problem in Test.");
-            }
-          
+            await FetchTripActualsPageHtmlAsync(mchandler, sampleTrip: null);
         }
 
 
@@ -4037,28 +4909,247 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
+        /// <summary>Modivcare Trip Download calendar only exposes about 8 days back and 30 days forward.</summary>
+        private static bool IsModivcareTripDownloadDateSupported(DateTime tripDate)
+        {
+            DateTime today = DateTime.Today;
+            DateTime d = tripDate.Date;
+            return d >= today.AddDays(-8) && d <= today.AddDays(30);
+        }
+
+        /// <summary>Fills scheduled PU/DO from Modivcare or WellRyde downloads when the MC calendar step failed.</summary>
+        private void EnsureScheduledTimesForBatchDate(MCBatchAdditionalInfo info)
+        {
+            if (info.mcDownloadedTrips == null)
+                info.mcDownloadedTrips = new List<MCDownloadedTrip>();
+            if (info.wrDownloadedTrips == null)
+                info.wrDownloadedTrips = new List<WRDownloadedTrip>();
+
+            foreach (MCBatchTripRecord trp in mcBatchRecords.MCBatchTrips)
+            {
+                if (trp.Date != info.MCBatchDate)
+                    continue;
+                if (TryParseBatchTime(trp.ScheduledPUTime, out _) && TryParseBatchTime(trp.ScheduledDOTime, out _))
+                    continue;
+
+                string tripKey = (trp.Trip ?? "").Replace(" ", "");
+                MCDownloadedTrip mc = null;
+                foreach (MCDownloadedTrip t in info.mcDownloadedTrips)
+                {
+                    if ((t.TripNumber ?? "").Replace(" ", "") == tripKey)
+                    {
+                        mc = t;
+                        break;
+                    }
+                }
+                if (mc != null)
+                {
+                    trp.ScheduledPUTime = NormalizeBatchTime(mc.PUTime);
+                    trp.ScheduledDOTime = NormalizeBatchTime(mc.DOTime);
+                    continue;
+                }
+
+                WRDownloadedTrip wr = null;
+                foreach (WRDownloadedTrip t in info.wrDownloadedTrips)
+                {
+                    if ((t.TripNumber ?? "").Replace(" ", "") == tripKey)
+                    {
+                        wr = t;
+                        break;
+                    }
+                }
+                if (wr != null)
+                {
+                    trp.ScheduledPUTime = NormalizeBatchTime(wr.PUTime);
+                    trp.ScheduledDOTime = NormalizeBatchTime(wr.DOTime);
+                }
+            }
+        }
+
+        internal static bool TryParseBatchTime(string value, out DateTime time)
+        {
+            time = default;
+            if (string.IsNullOrWhiteSpace(value))
+                return false;
+            string t = value.Trim();
+            if (t.IndexOf("nbsp", StringComparison.OrdinalIgnoreCase) >= 0)
+                return false;
+
+            string[] formats =
+            {
+                "HH:mm", "H:mm", "HH:mm:ss", "H:mm:ss",
+                "hh:mm tt", "h:mm tt", "hh:mm:ss tt", "h:mm:ss tt",
+            };
+            if (DateTime.TryParseExact(t, formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out time))
+                return true;
+            if (DateTime.TryParse(t, CultureInfo.InvariantCulture, DateTimeStyles.None, out time))
+                return true;
+            if (DateTime.TryParse(t, CultureInfo.CurrentCulture, DateTimeStyles.None, out time))
+                return true;
+            return false;
+        }
+
+        internal static string NormalizeBatchTime(string value)
+        {
+            if (!TryParseBatchTime(value, out DateTime time))
+                return value ?? "";
+            return time.ToString("HH:mm", CultureInfo.InvariantCulture);
+        }
+
+        private static string FormatTimeForModivcareSubmit(string time)
+        {
+            string normalized = NormalizeBatchTime(time);
+            if (string.IsNullOrWhiteSpace(normalized))
+                return "";
+            return HttpUtility.UrlDecode(normalized.Replace(":", "%3A"));
+        }
+
+        private sealed class TripActualsLateReasonFields
+        {
+            public string PuLateText;
+            public string PuLateCode;
+            public string DoLateText;
+            public string DoLateCode;
+            public string ShowPuLate;
+            public string ShowDoLate;
+            public string LateDialogToShow;
+        }
+
+        private static TripActualsLateReasonFields ParseLateReasonFieldsFromTripActualsHtml(string html)
+        {
+            var fields = new TripActualsLateReasonFields
+            {
+                ShowPuLate = ParseTripActualsHiddenValue(html, "hdnShowPULateReasonFields") ?? "",
+                ShowDoLate = ParseTripActualsHiddenValue(html, "hdnShowDOLateReasonFields") ?? "",
+                LateDialogToShow = ParseTripActualsHiddenValue(html, "hdnLateDialogToShow") ?? "",
+                PuLateText = ParseTripActualsHiddenValue(html, "hdnPULateReasonSelectedText") ?? "",
+                PuLateCode = ParseTripActualsHiddenValue(html, "hdnPULateReasonSelectedCode") ?? "",
+                DoLateText = ParseTripActualsHiddenValue(html, "hdnDOLateReasonSelectedText") ?? "",
+                DoLateCode = ParseTripActualsHiddenValue(html, "hdnDOLateReasonSelectedCode") ?? "",
+            };
+
+            if (IsTruthyHiddenFlag(fields.ShowPuLate) && string.IsNullOrWhiteSpace(fields.PuLateCode) &&
+                TryParseFirstTripActualsDropdownOption(html, "ddlPULateReason", out string puCode, out string puText))
+            {
+                fields.PuLateCode = puCode;
+                fields.PuLateText = puText;
+            }
+
+            if (IsTruthyHiddenFlag(fields.ShowDoLate) && string.IsNullOrWhiteSpace(fields.DoLateCode) &&
+                TryParseFirstTripActualsDropdownOption(html, "ddlDOLateReason", out string doCode, out string doText))
+            {
+                fields.DoLateCode = doCode;
+                fields.DoLateText = doText;
+            }
+
+            return fields;
+        }
+
+        private static bool IsTruthyHiddenFlag(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return false;
+            value = value.Trim();
+            return value.Equals("true", StringComparison.OrdinalIgnoreCase) ||
+                   value.Equals("1", StringComparison.OrdinalIgnoreCase) ||
+                   value.Equals("yes", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string ParseTripActualsHiddenValue(string html, string fieldSuffix)
+        {
+            if (string.IsNullOrEmpty(html) || string.IsNullOrEmpty(fieldSuffix))
+                return null;
+
+            Match m = Regex.Match(html,
+                Regex.Escape(fieldSuffix) + @"[^>]*\bvalue\s*=\s*""([^""]*)""",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            if (m.Success)
+                return HttpUtility.HtmlDecode(m.Groups[1].Value);
+
+            m = Regex.Match(html,
+                @"\bvalue\s*=\s*""([^""]*)""[^>]*" + Regex.Escape(fieldSuffix),
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            if (m.Success)
+                return HttpUtility.HtmlDecode(m.Groups[1].Value);
+
+            return null;
+        }
+
+        private static bool TryParseFirstTripActualsDropdownOption(string html, string ddlNameFragment,
+            out string code, out string text)
+        {
+            code = "";
+            text = "";
+            if (string.IsNullOrEmpty(html))
+                return false;
+
+            int idx = html.IndexOf(ddlNameFragment, StringComparison.OrdinalIgnoreCase);
+            if (idx < 0) return false;
+            int end = Math.Min(html.Length, idx + 6000);
+            string bulk = html.Substring(idx, end - idx);
+
+            foreach (Match match in Regex.Matches(bulk, @"<option\s+value=""([^""]*)""[^>]*>([^<]*)</option>",
+                         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+            {
+                string val = HttpUtility.HtmlDecode(match.Groups[1].Value ?? "").Trim();
+                string label = HttpUtility.HtmlDecode(match.Groups[2].Value ?? "").Trim();
+                if (string.IsNullOrEmpty(val) || val == "0")
+                    continue;
+                if (label.IndexOf("select", StringComparison.OrdinalIgnoreCase) >= 0)
+                    continue;
+
+                code = val;
+                text = label;
+                return true;
+            }
+
+            return false;
+        }
+
+        internal static bool TryParseBatchServiceDate(string value, out DateTime date)
+        {
+            date = default;
+            if (string.IsNullOrWhiteSpace(value))
+                return false;
+
+            string s = value.Trim();
+            if (DateTime.TryParse(s, CultureInfo.CurrentCulture, DateTimeStyles.None, out date))
+                return true;
+            if (DateTime.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.None, out date))
+                return true;
+
+            string[] parts = s.Split(new[] { '/', '-' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length < 3)
+                return false;
+
+            if (!int.TryParse(parts[0].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int m) ||
+                !int.TryParse(parts[1].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int d))
+                return false;
+
+            string yearToken = parts[2].Trim().Split(' ')[0];
+            if (!int.TryParse(yearToken, NumberStyles.Integer, CultureInfo.InvariantCulture, out int y))
+                return false;
+            if (y < 100)
+                y += 2000;
+
+            try
+            {
+                date = new DateTime(y, m, d);
+                return true;
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                return false;
+            }
+        }
+
         private DateTime GetParsedDate(MCBatchAdditionalInfo additionalinfo)
         {
             System.Threading.Thread.Sleep(1000);
-            //date (1/11/2023) string should be similar to "November+19%2C+2022"
-            string predate = additionalinfo.MCBatchDate;
+            if (TryParseBatchServiceDate(additionalinfo.MCBatchDate, out DateTime parsedDate))
+                return parsedDate;
 
-            string[] datesecions = predate.Split('/');
-
-            //convert month number to month name
-            string month = CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(int.Parse(datesecions[0]));
-
-            string day = datesecions[1];
-            string year = datesecions[2];
-
-            string dateInput = month + day + "," + year;
-            var parsedDate = DateTime.Parse(dateInput);
-            //Console.WriteLine("::" + parsedDate);
-            //string filterdate = month + "+" + day + "%2C+" + year;
-            string filterdate = parsedDate.DayOfWeek + ", " + month + " " + day + ", " + year;
-            //Console.WriteLine(filterdate);
-
-            return parsedDate;
+            throw new FormatException(
+                "Batch service date is not valid: \"" + (additionalinfo.MCBatchDate ?? "") + "\".");
         }
         public string GetContentBulkRegex(string batchcontent, string beginstring, string endstring)
         {

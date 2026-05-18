@@ -1,0 +1,13 @@
+# Local OSRM for Hiatme Tool Suite (Maine driving graph, MLD).
+# One-time: scripts/01-download-maine.ps1 then scripts/02-build-graph.ps1
+# Daily:    scripts/start-osrm.ps1
+services:
+  osrm:
+    image: ghcr.io/project-osrm/osrm-backend
+    container_name: hiatme-osrm-maine
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./data:/data
+    command: osrm-routed --algorithm mld /data/maine-latest.osrm
+    restart: unless-stopped

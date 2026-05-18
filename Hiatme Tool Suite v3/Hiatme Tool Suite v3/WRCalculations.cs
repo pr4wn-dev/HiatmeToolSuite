@@ -16,9 +16,16 @@ namespace Hiatme_Tool_Suite_v3
         {
             WRTripList = triplist ?? new List<WRDownloadedTrip>();
         }
+        private void EnsurePriceMismatchListLoaded()
+        {
+            if (WRPriceMismatchTripList == null)
+                GetTripPriceMismatches();
+        }
+
         public List<BillableTrip> BillableTrips(System.Windows.Forms.CheckState sendmismatches, System.Windows.Forms.CheckState sendall)
         {
             List<BillableTrip> BillableTripsList = new List<BillableTrip>();
+            EnsurePriceMismatchListLoaded();
 
             foreach (WRDownloadedTrip trip in WRTripList) //RETURNS NULL
             {
@@ -365,6 +372,16 @@ namespace Hiatme_Tool_Suite_v3
             }
             return billedTotal;
         }
+        public int CountBilledTrips()
+        {
+            int count = 0;
+            foreach (WRDownloadedTrip trip in WRTripList)
+            {
+                if (VerifyTripForBilled(trip.Status))
+                    count++;
+            }
+            return count;
+        }
         private bool VerifyTripForBilled(string tripstatus)
         {
             string status = tripstatus;
@@ -548,6 +565,26 @@ namespace Hiatme_Tool_Suite_v3
 
             return keyValuePairs;
         }
+
+        /// <summary>Trip counts per price for trips that would submit (same rules as <see cref="BillableTrips"/>).</summary>
+        public IDictionary<decimal, int> CalculatePriceGroupsForBillableTrips(
+            System.Windows.Forms.CheckState sendmms,
+            System.Windows.Forms.CheckState sendall)
+        {
+            var keyValuePairs = new Dictionary<decimal, int>();
+            foreach (BillableTrip trip in BillableTrips(sendmms, sendall))
+            {
+                if (string.IsNullOrEmpty(trip.billedAmount))
+                    continue;
+                decimal price = Convert.ToDecimal(trip.billedAmount);
+                if (keyValuePairs.ContainsKey(price))
+                    keyValuePairs[price]++;
+                else
+                    keyValuePairs[price] = 1;
+            }
+            return keyValuePairs;
+        }
+
         private bool VerifyTripForBillablePriceGroups(string tripstatus) //Must match billable verify conditions
         {
             string status = tripstatus;

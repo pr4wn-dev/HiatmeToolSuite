@@ -428,7 +428,7 @@ namespace Hiatme_Tool_Suite_v3
                 _driverList.EndUpdate();
             }
             // Auto-fit columns to the widest cell + header so long names / addresses aren't clipped.
-            try { ListViewMinWidthEnforcer.Recompute(_driverList); } catch { }
+            ListViewMinWidthEnforcer.ScheduleRecompute(_driverList);
         }
 
         private void SetAllChecked(bool value)

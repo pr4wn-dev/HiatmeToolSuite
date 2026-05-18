@@ -100,6 +100,7 @@ namespace Hiatme_Tool_Suite_v3
                     sorter.Order = SortOrder.Ascending;
                 }
                 lv.Sort();
+                ListViewMinWidthEnforcer.ScheduleRecompute(lv);
                 // Force header repaint so the indicator arrow follows the new state.
                 lv.Invalidate();
             };

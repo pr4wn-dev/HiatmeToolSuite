@@ -27,6 +27,8 @@ namespace Hiatme_Tool_Suite_v3
         public IReadOnlyDictionary<string, string> PreferredDriverByTrip { get; }
         public ICollection<HistoricalPair> HistoricalPairs { get; }
         public IReadOnlyDictionary<string, int> DriverHistoricalLoad { get; }
+        /// <summary>Ordered trip numbers per template driver name (PU sequence from CSV rows).</summary>
+        public IReadOnlyDictionary<string, List<string>> DriverTripOrder { get; }
         public bool HasAnyTemplate { get; }
 
         public SupeyTemplateHints(string weekday)
@@ -35,6 +37,7 @@ namespace Hiatme_Tool_Suite_v3
             var preferredDriver = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             var pairs = new HashSet<HistoricalPair>();
             var loads = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            var tripOrder = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
             HasAnyTemplate = false;
 
             string dir = TemplateBuilder.GetDayTemplateDirectory(weekday);
@@ -43,6 +46,7 @@ namespace Hiatme_Tool_Suite_v3
                 PreferredDriverByTrip = preferredDriver;
                 HistoricalPairs = pairs;
                 DriverHistoricalLoad = loads;
+                DriverTripOrder = tripOrder;
                 return;
             }
 
@@ -77,6 +81,12 @@ namespace Hiatme_Tool_Suite_v3
                         {
                             preferredDriver[trip] = driver;
                             HasAnyTemplate = true;
+                            if (!tripOrder.TryGetValue(driver, out var orderList))
+                            {
+                                orderList = new List<string>();
+                                tripOrder[driver] = orderList;
+                            }
+                            orderList.Add(trip);
                         }
                         if (!string.IsNullOrEmpty(client))
                             clientsThisDriver.Add(client);
@@ -105,6 +115,7 @@ namespace Hiatme_Tool_Suite_v3
             PreferredDriverByTrip = preferredDriver;
             HistoricalPairs = pairs;
             DriverHistoricalLoad = loads;
+            DriverTripOrder = tripOrder;
         }
 
         public bool RodeTogetherHistorically(string clientA, string clientB)

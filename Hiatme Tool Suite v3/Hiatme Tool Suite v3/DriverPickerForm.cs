@@ -50,6 +50,7 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             _tripsLabel.Text = contextLine ?? "";
+            ListViewMinWidthEnforcer.Attach(_driverList);
             PopulateList(_allDrivers);
             UpdateOkEnabled();
         }
@@ -169,6 +170,7 @@ namespace Hiatme_Tool_Suite_v3
             _countLabel.Text = drivers.Count == _allDrivers.Count
                 ? drivers.Count + " drivers"
                 : drivers.Count + " of " + _allDrivers.Count + " drivers";
+            ListViewMinWidthEnforcer.ScheduleRecompute(_driverList);
             UpdateOkEnabled();
         }
 

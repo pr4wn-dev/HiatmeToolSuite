@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
@@ -27,6 +27,9 @@ namespace Hiatme_Tool_Suite_v3
 
     public class MCLoginHandler : INotifyPropertyChanged
     {
+        public const string ProcessAtmBatchesUrl = "https://transportationco.logisticare.com/ProcessATMBatches.aspx";
+        public const string TripActualsUrl = "https://transportationco.logisticare.com/TripActuals.aspx";
+
         public WebProxy Proxy { get; set; }
         public CookieContainer CookieJar { get; set; }
         public HttpClientHandler Handler { get; set; }
@@ -276,8 +279,8 @@ namespace Hiatme_Tool_Suite_v3
         //update headers and tokens
         public void UpdateTripActualsHeaders(string referer)//update headers to retrieve batches of calls
         {
-            var _UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/97.0.4692.99 Safari/537.36";
-            string decodedsec = "\"Not ? A_Brand\";v=\"8\", \"Chromium\";v=\"108\", \"Google Chrome\";v=\"108\"";
+            var _UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36";
+            string decodedsec = "\"Chromium\";v=\"148\", \"Google Chrome\";v=\"148\", \"Not/A)Brand\";v=\"99\"";
             Client.DefaultRequestHeaders.Clear();
             Client.DefaultRequestHeaders.Add("Connection", "keep-alive");
             Client.DefaultRequestHeaders.Add("Cache-Control", "max-age=0");

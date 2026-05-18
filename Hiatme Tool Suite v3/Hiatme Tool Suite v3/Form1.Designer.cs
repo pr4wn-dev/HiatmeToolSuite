@@ -327,7 +327,7 @@
             this.loginPanel.MouseState = MaterialSkin.MouseState.HOVER;
             this.loginPanel.Name = "loginPanel";
             this.loginPanel.Padding = new System.Windows.Forms.Padding(14);
-            this.loginPanel.Size = new System.Drawing.Size(320, 469);
+            this.loginPanel.Size = new System.Drawing.Size(320, 458);
             this.loginPanel.TabIndex = 0;
             // 
             // materialCard3
@@ -346,7 +346,7 @@
             this.materialCard3.MouseState = MaterialSkin.MouseState.HOVER;
             this.materialCard3.Name = "materialCard3";
             this.materialCard3.Padding = new System.Windows.Forms.Padding(14);
-            this.materialCard3.Size = new System.Drawing.Size(302, 342);
+            this.materialCard3.Size = new System.Drawing.Size(302, 318);
             this.materialCard3.TabIndex = 5;
             // 
             // loginSwitch
@@ -354,7 +354,7 @@
             this.loginSwitch.AutoSize = true;
             this.loginSwitch.Depth = 0;
             this.loginSwitch.Font = new System.Drawing.Font("Roboto", 14F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Pixel);
-            this.loginSwitch.Location = new System.Drawing.Point(13, 292);
+            this.loginSwitch.Location = new System.Drawing.Point(13, 266);
             this.loginSwitch.Margin = new System.Windows.Forms.Padding(0);
             this.loginSwitch.MouseLocation = new System.Drawing.Point(-1, -1);
             this.loginSwitch.MouseState = MaterialSkin.MouseState.HOVER;
@@ -419,13 +419,13 @@
             this.loginPassTB.Font = new System.Drawing.Font("Roboto", 24F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Pixel);
             this.loginPassTB.Hint = "Password";
             this.loginPassTB.LeadingIcon = ((System.Drawing.Image)(resources.GetObject("loginPassTB.LeadingIcon")));
-            this.loginPassTB.Location = new System.Drawing.Point(9, 210);
+            this.loginPassTB.Location = new System.Drawing.Point(8, 200);
             this.loginPassTB.MaxLength = 50;
             this.loginPassTB.MouseState = MaterialSkin.MouseState.OUT;
             this.loginPassTB.Multiline = false;
             this.loginPassTB.Name = "loginPassTB";
             this.loginPassTB.Password = true;
-            this.loginPassTB.Size = new System.Drawing.Size(285, 58);
+            this.loginPassTB.Size = new System.Drawing.Size(286, 58);
             this.loginPassTB.TabIndex = 2;
             this.loginPassTB.Text = "";
             this.loginPassTB.TrailingIcon = ((System.Drawing.Image)(resources.GetObject("loginPassTB.TrailingIcon")));
@@ -436,15 +436,15 @@
             this.loginUserTB.AnimateReadOnly = false;
             this.loginUserTB.BorderStyle = System.Windows.Forms.BorderStyle.None;
             this.loginUserTB.Depth = 0;
-            this.loginUserTB.Font = new System.Drawing.Font("Roboto", 16F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Pixel);
+            this.loginUserTB.Font = new System.Drawing.Font("Roboto", 24F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Pixel);
             this.loginUserTB.Hint = "Username";
             this.loginUserTB.LeadingIcon = ((System.Drawing.Image)(resources.GetObject("loginUserTB.LeadingIcon")));
-            this.loginUserTB.Location = new System.Drawing.Point(8, 134);
+            this.loginUserTB.Location = new System.Drawing.Point(8, 142);
             this.loginUserTB.MaxLength = 50;
             this.loginUserTB.MouseState = MaterialSkin.MouseState.OUT;
             this.loginUserTB.Multiline = false;
             this.loginUserTB.Name = "loginUserTB";
-            this.loginUserTB.Size = new System.Drawing.Size(286, 50);
+            this.loginUserTB.Size = new System.Drawing.Size(286, 58);
             this.loginUserTB.TabIndex = 1;
             this.loginUserTB.Text = "";
             this.loginUserTB.TrailingIcon = null;
@@ -456,7 +456,7 @@
             this.materialCard2.Controls.Add(this.loginBtn);
             this.materialCard2.Depth = 0;
             this.materialCard2.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(222)))), ((int)(((byte)(0)))), ((int)(((byte)(0)))), ((int)(((byte)(0)))));
-            this.materialCard2.Location = new System.Drawing.Point(72, 394);
+            this.materialCard2.Location = new System.Drawing.Point(72, 386);
             this.materialCard2.Margin = new System.Windows.Forms.Padding(14);
             this.materialCard2.MouseState = MaterialSkin.MouseState.HOVER;
             this.materialCard2.Name = "materialCard2";
@@ -916,22 +916,25 @@
             this.billingstatuspanel.Margin = new System.Windows.Forms.Padding(14);
             this.billingstatuspanel.MouseState = MaterialSkin.MouseState.HOVER;
             this.billingstatuspanel.Name = "billingstatuspanel";
-            this.billingstatuspanel.Padding = new System.Windows.Forms.Padding(14);
+            this.billingstatuspanel.Padding = new System.Windows.Forms.Padding(14, 0, 14, 0);
             this.billingstatuspanel.Size = new System.Drawing.Size(1478, 41);
             this.billingstatuspanel.TabIndex = 6;
             // 
             // billingstatuslbl
             // 
-            this.billingstatuslbl.Anchor = System.Windows.Forms.AnchorStyles.Left;
-            this.billingstatuslbl.AutoSize = true;
+            this.billingstatuslbl.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left) 
+            | System.Windows.Forms.AnchorStyles.Right)));
+            this.billingstatuslbl.AutoEllipsis = true;
+            this.billingstatuslbl.AutoSize = false;
             this.billingstatuslbl.Depth = 0;
             this.billingstatuslbl.Font = new System.Drawing.Font("Roboto", 14F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Pixel);
-            this.billingstatuslbl.Location = new System.Drawing.Point(12, 11);
+            this.billingstatuslbl.Location = new System.Drawing.Point(14, 11);
             this.billingstatuslbl.MouseState = MaterialSkin.MouseState.HOVER;
             this.billingstatuslbl.Name = "billingstatuslbl";
-            this.billingstatuslbl.Size = new System.Drawing.Size(332, 19);
+            this.billingstatuslbl.Size = new System.Drawing.Size(1422, 19);
             this.billingstatuslbl.TabIndex = 0;
             this.billingstatuslbl.Text = "Status: To begin select a date and click \'LOAD\'.";
+            this.billingstatuslbl.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
             // 
             // tabPage4
             // 
@@ -994,21 +997,25 @@
             this.materialCard10.Margin = new System.Windows.Forms.Padding(14);
             this.materialCard10.MouseState = MaterialSkin.MouseState.HOVER;
             this.materialCard10.Name = "materialCard10";
-            this.materialCard10.Padding = new System.Windows.Forms.Padding(14);
+            this.materialCard10.Padding = new System.Windows.Forms.Padding(14, 0, 14, 0);
             this.materialCard10.Size = new System.Drawing.Size(1478, 41);
             this.materialCard10.TabIndex = 2;
             // 
             // tcorrectstatuslbl
             // 
-            this.tcorrectstatuslbl.AutoSize = true;
+            this.tcorrectstatuslbl.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left) 
+            | System.Windows.Forms.AnchorStyles.Right)));
+            this.tcorrectstatuslbl.AutoEllipsis = true;
+            this.tcorrectstatuslbl.AutoSize = false;
             this.tcorrectstatuslbl.Depth = 0;
             this.tcorrectstatuslbl.Font = new System.Drawing.Font("Roboto", 14F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Pixel);
-            this.tcorrectstatuslbl.Location = new System.Drawing.Point(12, 11);
+            this.tcorrectstatuslbl.Location = new System.Drawing.Point(14, 11);
             this.tcorrectstatuslbl.MouseState = MaterialSkin.MouseState.HOVER;
             this.tcorrectstatuslbl.Name = "tcorrectstatuslbl";
-            this.tcorrectstatuslbl.Size = new System.Drawing.Size(370, 19);
+            this.tcorrectstatuslbl.Size = new System.Drawing.Size(1422, 19);
             this.tcorrectstatuslbl.TabIndex = 0;
-            this.tcorrectstatuslbl.Text = "Status: To search for batches click the \'FIND\' button.";
+            this.tcorrectstatuslbl.Text = "Status: Click FIND to search for batches.";
+            this.tcorrectstatuslbl.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
             // 
             // materialCard9
             // 
@@ -2003,9 +2010,9 @@
             this.tsColClient,
             this.tsColDriver,
             this.tsColPUTime,
-            this.tsColDOTime,
             this.tsColPUStreet,
             this.tsColPUCity,
+            this.tsColDOTime,
             this.tsColDOStreet,
             this.tsColDOCity,
             this.tsColMiles,
@@ -2040,18 +2047,19 @@
             // 
             // tsColAlerts
             // 
-            this.tsColAlerts.Text = "Alerts: 0";
-            this.tsColAlerts.Width = 100;
+            this.tsColAlerts.Tag = "hidden";
+            this.tsColAlerts.Text = "Alerts";
+            this.tsColAlerts.Width = 0;
             // 
             // tsColClient
             // 
             this.tsColClient.Text = "Client";
-            this.tsColClient.Width = 250;
+            this.tsColClient.Width = 170;
             // 
             // tsColDriver
             // 
             this.tsColDriver.Text = "Driver";
-            this.tsColDriver.Width = 180;
+            this.tsColDriver.Width = 140;
             // 
             // tsColPUTime
             // 
@@ -2066,22 +2074,22 @@
             // tsColPUStreet
             // 
             this.tsColPUStreet.Text = "PU Street";
-            this.tsColPUStreet.Width = 250;
+            this.tsColPUStreet.Width = 180;
             // 
             // tsColPUCity
             // 
             this.tsColPUCity.Text = "PU City";
-            this.tsColPUCity.Width = 170;
+            this.tsColPUCity.Width = 110;
             // 
             // tsColDOStreet
             // 
             this.tsColDOStreet.Text = "DO Street";
-            this.tsColDOStreet.Width = 250;
+            this.tsColDOStreet.Width = 180;
             // 
             // tsColDOCity
             // 
             this.tsColDOCity.Text = "DO City";
-            this.tsColDOCity.Width = 170;
+            this.tsColDOCity.Width = 110;
             // 
             // tsColMiles
             // 

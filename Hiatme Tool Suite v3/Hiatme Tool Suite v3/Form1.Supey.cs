@@ -28,8 +28,13 @@ namespace Hiatme_Tool_Suite_v3
         // ---------- UI controls (all owned by tabPageSupey) ----------
         private Panel _supeyToolbar;
         private Panel _supeyStatusStrip;
-        private SplitContainer _supeyOuterSplit;
-        private SplitContainer _supeyInnerSplit;
+        private Panel _supeyMainHost;
+        private SplitContainer _supeyMainSplit;
+        private bool _supeySplitDistanceInitialized;
+        private SupeyCollapsiblePanel _supeyDriversCollapsible;
+        private SupeyCollapsiblePanel _supeyTripsCollapsible;
+        private SupeyCollapsiblePanel _supeyRightCollapsible;
+        private MaterialLabel _supeyTemplateCompareLbl;
 
         private RJDatePicker _supeyDatePicker;
         private MaterialButton _supeyLoadBtn;
@@ -38,6 +43,7 @@ namespace Hiatme_Tool_Suite_v3
         private MaterialButton _supeyCancelBtn;
         private MaterialCheckbox _supeyUseTemplatesChk;
         private MaterialLabel _supeyToolbarStatusLbl;
+        private MaterialLabel _supeyOsrmStatusLbl;
 
         private MaterialProgressBar _supeyProgressBar;
         private MaterialLabel _supeyStatsLbl;
@@ -98,13 +104,14 @@ namespace Hiatme_Tool_Suite_v3
             BuildSupeyStatusStrip();
             BuildSupeyWorkspace();
 
-            tabPageSupey.Controls.Add(_supeyOuterSplit);
+            tabPageSupey.Controls.Add(_supeyMainHost);
             tabPageSupey.Controls.Add(_supeyStatusStrip);
             tabPageSupey.Controls.Add(_supeyToolbar);
 
             LoadSupeyRosterFromDisk();
             UpdateSupeyButtonStates();
             SetSupeyStatus("Ready. Pick a service date and click Load Trips.");
+            _ = RefreshSupeyOsrmStatusAsync();
         }
 
         private void BuildSupeyToolbar()
@@ -114,25 +121,32 @@ namespace Hiatme_Tool_Suite_v3
                 Dock = DockStyle.Top,
                 Height = 64,
                 BackColor = Color.FromArgb(45, 45, 45),
-                Padding = new Padding(8),
+                Padding = new Padding(8, 6, 8, 6),
+            };
+
+            var flow = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = false,
+                AutoSize = true,
+                BackColor = Color.Transparent,
+                Padding = new Padding(0),
             };
 
             var dateLabel = new Label
             {
                 Text = "Service date:",
-                AutoSize = false,
-                Width = 90,
-                Height = 22,
-                Location = new Point(14, 22),
+                AutoSize = true,
                 ForeColor = Color.Gainsboro,
                 BackColor = Color.Transparent,
                 Font = new Font("Segoe UI", 9f),
-                TextAlign = ContentAlignment.MiddleLeft,
+                Margin = new Padding(4, 10, 4, 0),
             };
             _supeyDatePicker = new RJDatePicker
             {
-                Location = new Point(106, 18),
-                Size = new Size(220, 30),
+                Size = new Size(200, 30),
+                Margin = new Padding(0, 6, 12, 0),
                 BorderColor = Color.Black,
                 BorderSize = 1,
                 Font = new Font("Microsoft Sans Serif", 9.75f),
@@ -140,24 +154,28 @@ namespace Hiatme_Tool_Suite_v3
                 TextColor = Color.White,
             };
 
-            _supeyLoadBtn = MakeFlatButton("LOAD TRIPS", 340, 16, 110);
+            _supeyLoadBtn = MakeFlatButton("LOAD TRIPS", 0, 0, 110);
+            _supeyLoadBtn.Margin = new Padding(0, 4, 8, 0);
             _supeyLoadBtn.Click += async (s, e) => await OnSupeyLoadClickedAsync();
 
             _supeyUseTemplatesChk = new MaterialCheckbox
             {
                 Text = "Use templates as hints",
-                Location = new Point(460, 18),
                 AutoSize = true,
                 Checked = true,
+                Margin = new Padding(0, 8, 8, 0),
             };
 
-            _supeyBuildBtn = MakeFlatButton("BUILD", 660, 16, 100);
+            _supeyBuildBtn = MakeFlatButton("BUILD", 0, 0, 100);
+            _supeyBuildBtn.Margin = new Padding(0, 4, 8, 0);
             _supeyBuildBtn.Click += async (s, e) => await OnSupeyBuildClickedAsync();
 
-            _supeySaveBtn = MakeFlatButton("SAVE WORKBOOK", 770, 16, 160);
+            _supeySaveBtn = MakeFlatButton("SAVE WORKBOOK", 0, 0, 150);
+            _supeySaveBtn.Margin = new Padding(0, 4, 8, 0);
             _supeySaveBtn.Click += async (s, e) => await OnSupeySaveClickedAsync();
 
-            _supeyCancelBtn = MakeFlatButton("CANCEL", 940, 16, 100);
+            _supeyCancelBtn = MakeFlatButton("CANCEL", 0, 0, 100);
+            _supeyCancelBtn.Margin = new Padding(0, 4, 8, 0);
             _supeyCancelBtn.Type = MaterialButton.MaterialButtonType.Outlined;
             _supeyCancelBtn.UseAccentColor = false;
             _supeyCancelBtn.NoAccentTextColor = Color.Gainsboro;
@@ -166,22 +184,37 @@ namespace Hiatme_Tool_Suite_v3
             _supeyToolbarStatusLbl = new MaterialLabel
             {
                 Text = "Ready.",
-                Location = new Point(1060, 22),
                 AutoSize = false,
-                Width = 420,
+                Width = 400,
                 Height = 22,
                 ForeColor = Color.Gainsboro,
-                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+                Margin = new Padding(8, 10, 0, 0),
             };
 
-            _supeyToolbar.Controls.Add(dateLabel);
-            _supeyToolbar.Controls.Add(_supeyDatePicker);
-            _supeyToolbar.Controls.Add(_supeyLoadBtn);
-            _supeyToolbar.Controls.Add(_supeyUseTemplatesChk);
-            _supeyToolbar.Controls.Add(_supeyBuildBtn);
-            _supeyToolbar.Controls.Add(_supeySaveBtn);
-            _supeyToolbar.Controls.Add(_supeyCancelBtn);
-            _supeyToolbar.Controls.Add(_supeyToolbarStatusLbl);
+            _supeyOsrmStatusLbl = new MaterialLabel
+            {
+                Text = "OSRM: checking...",
+                AutoSize = true,
+                ForeColor = Color.Gray,
+                Margin = new Padding(8, 10, 0, 0),
+            };
+            _supeyOsrmStatusLbl.MouseClick += async (s, e) => await RefreshSupeyOsrmStatusAsync();
+            var osrmTip = "Local OSRM at " + OsrmSettings.LocalBaseUrl + "\r\n" +
+                "Start: tools\\osrm\\scripts\\start-osrm.ps1\r\n" +
+                "See: tools\\osrm\\README.md\r\nClick to refresh.";
+            var osrmTipProvider = new ToolTip { AutoPopDelay = 12000, InitialDelay = 400 };
+            osrmTipProvider.SetToolTip(_supeyOsrmStatusLbl, osrmTip);
+
+            flow.Controls.Add(dateLabel);
+            flow.Controls.Add(_supeyDatePicker);
+            flow.Controls.Add(_supeyLoadBtn);
+            flow.Controls.Add(_supeyUseTemplatesChk);
+            flow.Controls.Add(_supeyBuildBtn);
+            flow.Controls.Add(_supeySaveBtn);
+            flow.Controls.Add(_supeyCancelBtn);
+            flow.Controls.Add(_supeyOsrmStatusLbl);
+            flow.Controls.Add(_supeyToolbarStatusLbl);
+            _supeyToolbar.Controls.Add(flow);
         }
 
         private void BuildSupeyStatusStrip()
@@ -275,58 +308,130 @@ namespace Hiatme_Tool_Suite_v3
 
         private void BuildSupeyWorkspace()
         {
-            _supeyOuterSplit = new SplitContainer
+            _supeyMainHost = new Panel
             {
                 Dock = DockStyle.Fill,
-                Orientation = Orientation.Vertical,
-                FixedPanel = FixedPanel.Panel1,
-                BackColor = Color.FromArgb(35, 35, 35),
-            };
-            // Panel min-sizes AND SplitterDistance both have to be assigned after the control has
-            // a real Width — otherwise WinForms validates Panel2MinSize against the current
-            // splitter position (which is still its default of 50px on a 0-width control) and
-            // throws "SplitterDistance must be between Panel1MinSize and Width - Panel2MinSize".
-            // Doing all three in one HandleCreated guard is the safe order.
-            _supeyOuterSplit.HandleCreated += (s, e) =>
-            {
-                try
-                {
-                    if (_supeyOuterSplit.Width > 440)
-                    {
-                        // Splitter first (so the panels resize to a sane spot before we constrain
-                        // their minimums), then min sizes.
-                        _supeyOuterSplit.SplitterDistance = 400;
-                        _supeyOuterSplit.Panel1MinSize = 320;
-                        _supeyOuterSplit.Panel2MinSize = 480;
-                    }
-                }
-                catch { }
+                BackColor = Color.FromArgb(33, 33, 33),
+                Padding = new Padding(0),
             };
 
-            _supeyOuterSplit.Panel1.BackColor = Color.FromArgb(35, 35, 35);
-            _supeyOuterSplit.Panel2.BackColor = Color.FromArgb(33, 33, 33);
-
-            BuildSupeyDriversPanel(_supeyOuterSplit.Panel1);
-
-            _supeyInnerSplit = new SplitContainer
+            _supeyMainSplit = new SplitContainer
             {
                 Dock = DockStyle.Fill,
-                Orientation = Orientation.Vertical,
+                Orientation = Orientation.Horizontal,
+                BackColor = Color.FromArgb(50, 50, 50),
+                Panel1MinSize = 120,
+                Panel2MinSize = 72,
+                SplitterWidth = 8,
+                FixedPanel = FixedPanel.None,
+            };
+            _supeyMainSplit.Panel1.BackColor = Color.FromArgb(33, 33, 33);
+            _supeyMainSplit.Panel2.BackColor = Color.FromArgb(35, 35, 35);
+            _supeyMainSplit.SizeChanged += (s, e) => EnsureSupeySplitDistance();
+            _supeyMainSplit.SplitterMoved += (s, e) => { _supeySplitDistanceInitialized = true; };
+
+            var workPanel = new Panel
+            {
+                Dock = DockStyle.Fill,
                 BackColor = Color.FromArgb(33, 33, 33),
             };
-            _supeyOuterSplit.Panel2.Controls.Add(_supeyInnerSplit);
-            BuildSupeyTripsPanel(_supeyInnerSplit.Panel1);
-            BuildSupeyMapPanel(_supeyInnerSplit.Panel2);
-            // Defer SplitterDistance until after layout so the parent has nonzero width.
-            _supeyInnerSplit.HandleCreated += (s, e) =>
+
+            _supeyMap = new SupeyMapWorkspace { Dock = DockStyle.Fill };
+            workPanel.Controls.Add(_supeyMap);
+
+            _supeyDriversCollapsible = new SupeyCollapsiblePanel
             {
-                try
-                {
-                    int w = _supeyInnerSplit.Width;
-                    if (w > 200) _supeyInnerSplit.SplitterDistance = w / 2;
-                }
-                catch { }
+                Title = "Drivers",
+                Dock = DockStyle.Left,
+                ExpandedWidth = 300,
             };
+            BuildSupeyDriversPanel(_supeyDriversCollapsible.ContentPanel);
+
+            _supeyRightCollapsible = new SupeyCollapsiblePanel
+            {
+                Title = "Info",
+                Dock = DockStyle.Right,
+                ExpandedWidth = 280,
+            };
+            BuildSupeyRightPanel(_supeyRightCollapsible.ContentPanel);
+
+            workPanel.Controls.Add(_supeyRightCollapsible);
+            workPanel.Controls.Add(_supeyDriversCollapsible);
+            _supeyMainSplit.Panel1.Controls.Add(workPanel);
+
+            _supeyTripsCollapsible = new SupeyCollapsiblePanel
+            {
+                Title = "Trips",
+                Dock = DockStyle.Fill,
+            };
+            BuildSupeyTripsPanel(_supeyTripsCollapsible.ContentPanel);
+            _supeyMainSplit.Panel2.Controls.Add(_supeyTripsCollapsible);
+
+            _supeyMainHost.Controls.Add(_supeyMainSplit);
+        }
+
+        /// <summary>Default trip list to ~38% of workspace height; user drags the split bar after that.</summary>
+        private void EnsureSupeySplitDistance()
+        {
+            if (_supeyMainSplit == null || _supeySplitDistanceInitialized) return;
+            int total = _supeyMainSplit.Height;
+            if (total < 200) return;
+
+            int tripsH = Math.Max(_supeyMainSplit.Panel2MinSize,
+                Math.Min(480, (int)(total * 0.38)));
+            int mapH = total - tripsH - _supeyMainSplit.SplitterWidth;
+            if (mapH < _supeyMainSplit.Panel1MinSize)
+                mapH = _supeyMainSplit.Panel1MinSize;
+
+            _supeyMainSplit.SplitterDistance = mapH;
+            _supeySplitDistanceInitialized = true;
+        }
+
+        private void BuildSupeyRightPanel(Panel host)
+        {
+            host.Padding = new Padding(4);
+            var warnHeader = new Label
+            {
+                Dock = DockStyle.Top,
+                Height = 24,
+                Text = "Warnings",
+                ForeColor = Color.Gainsboro,
+                Font = new Font("Segoe UI Semibold", 9f),
+            };
+            var warnLink = new LinkLabel
+            {
+                Dock = DockStyle.Top,
+                Height = 22,
+                Text = "View warnings…",
+                LinkColor = Color.LightSkyBlue,
+                ActiveLinkColor = Color.White,
+                VisitedLinkColor = Color.LightSkyBlue,
+            };
+            warnLink.Click += (s, e) => ShowSupeyWarningsModal();
+
+            _supeyTemplateCompareLbl = new MaterialLabel
+            {
+                Dock = DockStyle.Fill,
+                Text = "Build a schedule to see template comparison.",
+                ForeColor = Color.Silver,
+                AutoSize = false,
+                Padding = new Padding(4, 12, 4, 4),
+            };
+
+            var compareHeader = new Label
+            {
+                Dock = DockStyle.Top,
+                Height = 24,
+                Text = "Template compare",
+                ForeColor = Color.Gainsboro,
+                Font = new Font("Segoe UI Semibold", 9f),
+            };
+
+            host.Controls.Add(_supeyTemplateCompareLbl);
+            host.Controls.Add(compareHeader);
+            host.Controls.Add(warnLink);
+            host.Controls.Add(warnHeader);
+            _supeyTemplateCompareLbl.BringToFront();
         }
 
         private void BuildSupeyDriversPanel(Panel host)
@@ -512,23 +617,23 @@ namespace Hiatme_Tool_Suite_v3
                 MultiSelect = true,
                 Font = new Font("Archivo Medium", 9.5f),
                 OwnerDraw = true,
+                HeaderStyle = ColumnHeaderStyle.Clickable,
             };
-            _supeyPrevColGrp = new ColumnHeader { Text = "Grp", Width = 50 };
-            _supeyPrevColTrip = new ColumnHeader { Text = "Trip #", Width = 90 };
-            _supeyPrevColClient = new ColumnHeader { Text = "Client", Width = 160 };
-            _supeyPrevColPUTime = new ColumnHeader { Text = "PU", Width = 70 };
-            _supeyPrevColPUStreet = new ColumnHeader { Text = "PU Street", Width = 160 };
-            _supeyPrevColPUCity = new ColumnHeader { Text = "PU City", Width = 90 };
-            _supeyPrevColDOTime = new ColumnHeader { Text = "DO", Width = 70 };
-            _supeyPrevColDOStreet = new ColumnHeader { Text = "DO Street", Width = 160 };
-            _supeyPrevColDOCity = new ColumnHeader { Text = "DO City", Width = 90 };
-            _supeyPrevColMiles = new ColumnHeader { Text = "Mi", Width = 50 };
+            _supeyPrevColGrp = new ColumnHeader { Text = "Grp", Width = 44 };
+            _supeyPrevColTrip = new ColumnHeader { Text = "Trip #", Width = 88 };
+            _supeyPrevColClient = new ColumnHeader { Text = "Client", Width = 140 };
+            _supeyPrevColPUTime = new ColumnHeader { Text = "PU", Width = 58 };
+            _supeyPrevColPUStreet = new ColumnHeader { Text = "Route", Width = -2 };
+            _supeyPrevColPUCity = new ColumnHeader { Text = "PU→DO detail", Width = 0 };
+            _supeyPrevColDOTime = new ColumnHeader { Text = "DO", Width = 58 };
+            _supeyPrevColDOStreet = new ColumnHeader { Text = "PU St", Width = 0 };
+            _supeyPrevColDOCity = new ColumnHeader { Text = "DO St", Width = 0 };
+            _supeyPrevColMiles = new ColumnHeader { Text = "Mi", Width = 44 };
             _supeyPreviewLv.Columns.AddRange(new[]
             {
                 _supeyPrevColGrp, _supeyPrevColTrip, _supeyPrevColClient,
-                _supeyPrevColPUTime, _supeyPrevColPUStreet, _supeyPrevColPUCity,
-                _supeyPrevColDOTime, _supeyPrevColDOStreet, _supeyPrevColDOCity,
-                _supeyPrevColMiles,
+                _supeyPrevColPUTime, _supeyPrevColPUStreet,
+                _supeyPrevColDOTime, _supeyPrevColMiles,
             });
             _supeyPreviewLv.DrawColumnHeader += SupeyPreviewLv_DrawColumnHeader;
             _supeyPreviewLv.DrawItem += SupeyPreviewLv_DrawItem;
@@ -565,6 +670,7 @@ namespace Hiatme_Tool_Suite_v3
             catch { }
 
             BuildSupeyWarningsContextMenu();
+            BuildSupeyTripsContextMenu();
         }
 
         // ----------------------------------------------------------------------
@@ -635,8 +741,9 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (e.Button != MouseButtons.Right) return;
             if (_supeyResult == null) return;
-            if (_supeyPreviewDriverCb?.SelectedItem is SupeyPreviewItem itm &&
-                itm.Kind == SupeyPreviewItem.ItemKind.Warnings)
+            if (!(_supeyPreviewDriverCb?.SelectedItem is SupeyPreviewItem itm)) return;
+
+            if (itm.Kind == SupeyPreviewItem.ItemKind.Warnings)
             {
                 int selected = _supeyPreviewLv.SelectedItems.Count;
                 _supeyWarningsCtxCopySelected.Enabled = selected > 0;
@@ -646,7 +753,12 @@ namespace Hiatme_Tool_Suite_v3
                 _supeyWarningsCtxCopyAll.Enabled = _supeyPreviewLv.Items.Count > 0;
                 _supeyWarningsCtxClear.Enabled = _supeyResult.WarningCount > 0;
                 _supeyWarningsCtxMenu.Show(_supeyPreviewLv, e.Location);
+                return;
             }
+
+            // Driver / Reserves view → show the trips context menu, with menu labels rewritten
+            // to reflect what the user is actually copying.
+            ShowSupeyTripsContextMenu(itm, e.Location);
         }
 
         /// <summary>
@@ -708,6 +820,266 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (string.IsNullOrEmpty(s)) return "";
             return s.Replace('\t', ' ').Replace('\r', ' ').Replace('\n', ' ');
+        }
+
+        // ----------------------------------------------------------------------
+        // Trips list right-click menu — Copy this driver / Copy all drivers.
+        // Used so the user can grab the schedule, paste it back into the chat,
+        // and we can A/B against the historical 2026 schedules to figure out
+        // where the auto-builder differs from the dispatcher's real-world calls.
+        // ----------------------------------------------------------------------
+
+        private ContextMenuStrip _supeyTripsCtxMenu;
+        private ToolStripMenuItem _supeyTripsCtxCopyThis;
+        private ToolStripMenuItem _supeyTripsCtxCopyAll;
+        private ToolStripMenuItem _supeyTripsCtxCopyCompare;
+        private SupeyTemplateCompare _supeyLastTemplateCompare;
+
+        private void BuildSupeyTripsContextMenu()
+        {
+            _supeyTripsCtxMenu = new ContextMenuStrip
+            {
+                Renderer = new DarkContextMenuRenderer(),
+                BackColor = DarkContextMenuRenderer.Background,
+                ForeColor = DarkContextMenuRenderer.ForeColor,
+                ShowImageMargin = true,
+            };
+
+            _supeyTripsCtxCopyThis = new ToolStripMenuItem("Copy this driver's schedule")
+            {
+                BackColor = DarkContextMenuRenderer.Background,
+                ForeColor = DarkContextMenuRenderer.ForeColor,
+                ShortcutKeys = Keys.Control | Keys.C,
+                ShowShortcutKeys = true,
+                Image = MenuIconFactory.GetCopyIcon(),
+            };
+            _supeyTripsCtxCopyThis.Click += (s, e) => CopyCurrentScheduleToClipboard();
+
+            _supeyTripsCtxCopyAll = new ToolStripMenuItem("Copy schedule for all drivers")
+            {
+                BackColor = DarkContextMenuRenderer.Background,
+                ForeColor = DarkContextMenuRenderer.ForeColor,
+                ShortcutKeys = Keys.Control | Keys.Shift | Keys.C,
+                ShowShortcutKeys = true,
+                Image = MenuIconFactory.GetCopyAllIcon(),
+            };
+            _supeyTripsCtxCopyAll.Click += (s, e) => CopyAllSchedulesToClipboard();
+
+            _supeyTripsCtxCopyCompare = new ToolStripMenuItem("Copy template compare (TSV)")
+            {
+                BackColor = DarkContextMenuRenderer.Background,
+                ForeColor = DarkContextMenuRenderer.ForeColor,
+                Image = MenuIconFactory.GetCopyIcon(),
+            };
+            _supeyTripsCtxCopyCompare.Click += (s, e) =>
+            {
+                if (_supeyLastTemplateCompare == null) return;
+                try
+                {
+                    Clipboard.SetText(_supeyLastTemplateCompare.ToTabSeparatedSummary());
+                    SetSupeyStatus("Template compare copied to clipboard.");
+                }
+                catch (Exception ex)
+                {
+                    SetSupeyStatus("Could not copy: " + ex.Message);
+                }
+            };
+
+            _supeyTripsCtxMenu.Items.Add(_supeyTripsCtxCopyThis);
+            _supeyTripsCtxMenu.Items.Add(_supeyTripsCtxCopyAll);
+            _supeyTripsCtxMenu.Items.Add(new ToolStripSeparator());
+            _supeyTripsCtxMenu.Items.Add(_supeyTripsCtxCopyCompare);
+        }
+
+        private void ShowSupeyTripsContextMenu(SupeyPreviewItem itm, System.Drawing.Point location)
+        {
+            // Tailor the "Copy this..." label to whatever the user is currently looking at.
+            // Reserves view has no driver name, so we frame it as "Copy reserves list" — same
+            // gesture, different scope. Disable when there's nothing to copy so the menu
+            // can't paste an empty TSV onto the clipboard.
+            if (itm.Kind == SupeyPreviewItem.ItemKind.Reserves)
+            {
+                _supeyTripsCtxCopyThis.Text = "Copy reserves list";
+                _supeyTripsCtxCopyThis.Enabled = _supeyResult.Reserves.Count > 0;
+            }
+            else
+            {
+                string driverName = itm.Plan?.Driver?.Name;
+                _supeyTripsCtxCopyThis.Text = string.IsNullOrEmpty(driverName)
+                    ? "Copy this driver's schedule"
+                    : "Copy " + driverName + "'s schedule";
+                _supeyTripsCtxCopyThis.Enabled = itm.Plan != null && itm.Plan.Groups.Count > 0;
+            }
+            _supeyTripsCtxCopyAll.Enabled = _supeyResult.DriverPlans.Count > 0
+                || _supeyResult.Reserves.Count > 0;
+            _supeyTripsCtxCopyCompare.Enabled = _supeyLastTemplateCompare != null && _supeyLastTemplateCompare.HadTemplates;
+
+            _supeyTripsCtxMenu.Show(_supeyPreviewLv, location);
+        }
+
+        /// <summary>
+        /// Copies just the currently-selected driver's schedule (or the Reserves list, if that's
+        /// what's on screen) to the clipboard as TSV. Header row + "=== driver name ===" banner
+        /// so the user can paste several copies into one chat message and the boundaries stay
+        /// readable. Falls through silently when nothing is selected.
+        /// </summary>
+        private void CopyCurrentScheduleToClipboard()
+        {
+            if (_supeyResult == null) return;
+            if (!(_supeyPreviewDriverCb?.SelectedItem is SupeyPreviewItem itm)) return;
+
+            var sb = new System.Text.StringBuilder();
+            sb.Append("Service date: ").AppendLine(_supeyResult.ServiceDate.ToString("yyyy-MM-dd"));
+            sb.AppendLine();
+
+            string descriptor;
+            if (itm.Kind == SupeyPreviewItem.ItemKind.Reserves)
+            {
+                AppendReservesToClipboard(sb);
+                descriptor = "reserves list";
+            }
+            else if (itm.Plan != null)
+            {
+                AppendDriverScheduleToClipboard(sb, itm.Plan);
+                descriptor = "schedule for " + (itm.Plan.Driver?.Name ?? "driver");
+            }
+            else
+            {
+                return;
+            }
+
+            try
+            {
+                Clipboard.SetText(sb.ToString());
+                SetSupeyStatus("Copied " + descriptor + " to the clipboard.");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "Could not copy to clipboard:\n\n" + ex.Message, "Supey Schedule",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+
+        /// <summary>
+        /// Copies every driver's schedule (and Reserves) into one big TSV blob — a section per
+        /// driver, separated by "=== name ===" banners. This is the form the user pastes back
+        /// into chat so we can compare the auto-built day against the historical 2026 schedules
+        /// without making them flip through the dropdown.
+        /// </summary>
+        private void CopyAllSchedulesToClipboard()
+        {
+            if (_supeyResult == null) return;
+
+            var sb = new System.Text.StringBuilder();
+            sb.Append("Service date: ").AppendLine(_supeyResult.ServiceDate.ToString("yyyy-MM-dd"));
+            sb.Append("Drivers: ").Append(_supeyResult.DriverPlans.Count)
+              .Append(", reserves: ").Append(_supeyResult.Reserves.Count).AppendLine();
+            if (_supeyResult.FleetActiveSeconds > 0)
+            {
+                sb.Append("Fleet active: ")
+                  .Append(SupeyTripTimes.FormatHoursMinutesFromSeconds(_supeyResult.FleetActiveSeconds))
+                  .Append(" · ").Append(SupeyTripTimes.FormatMiles(_supeyResult.FleetMeters)).AppendLine();
+            }
+            sb.AppendLine();
+
+            int driversWithTrips = 0;
+            foreach (var plan in _supeyResult.DriverPlans)
+            {
+                AppendDriverScheduleToClipboard(sb, plan);
+                if (plan.Groups.Count > 0) driversWithTrips++;
+            }
+            if (_supeyResult.Reserves.Count > 0)
+                AppendReservesToClipboard(sb);
+
+            try
+            {
+                Clipboard.SetText(sb.ToString());
+                SetSupeyStatus("Copied " + driversWithTrips + " driver schedule(s)" +
+                    (_supeyResult.Reserves.Count > 0
+                        ? " + " + _supeyResult.Reserves.Count + " reserves"
+                        : "") +
+                    " to the clipboard.");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "Could not copy to clipboard:\n\n" + ex.Message, "Supey Schedule",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+
+        /// <summary>
+        /// Renders one driver's schedule as a markdown-friendly TSV block: a banner with the
+        /// driver name + per-day stats, then a header row, then one row per trip in group +
+        /// pickup-time order. Drivers with no trips assigned still get a banner so it's obvious
+        /// in the dump that they participated in the build but weren't given anything.
+        /// </summary>
+        private static void AppendDriverScheduleToClipboard(System.Text.StringBuilder sb, SupeyDriverPlan plan)
+        {
+            string driverName = plan.Driver?.Name ?? "(driver)";
+            if (plan.Groups.Count == 0)
+            {
+                sb.Append("=== ").Append(driverName).AppendLine(" === — no trips assigned");
+                sb.AppendLine();
+                return;
+            }
+
+            int riders = plan.RiderCount;
+            int groups = plan.Groups.Count;
+            sb.Append("=== ").Append(driverName).Append(" === (")
+              .Append(riders).Append(" trip").Append(riders == 1 ? "" : "s")
+              .Append(", ").Append(groups).Append(" group").Append(groups == 1 ? "" : "s");
+            if (plan.FirstPickup.HasValue)
+                sb.Append(", first PU ").Append(SupeyTripTimes.FormatTimeOfDay(plan.FirstPickup.Value));
+            if (plan.LastDropoff.HasValue)
+                sb.Append(", last DO ").Append(SupeyTripTimes.FormatTimeOfDay(plan.LastDropoff.Value));
+            if (plan.ReleaseTimeOfDay.HasValue)
+                sb.Append(", release ").Append(SupeyTripTimes.FormatTimeOfDay(plan.ReleaseTimeOfDay.Value));
+            sb.Append(", ").Append(SupeyTripTimes.FormatHoursMinutesFromSeconds(plan.TotalDriveSeconds))
+              .Append(" / ").Append(SupeyTripTimes.FormatMiles(plan.TotalMeters));
+            sb.AppendLine(")");
+
+            sb.AppendLine("Grp\tTrip #\tClient\tPU Time\tPU Street\tPU City\tDO Time\tDO Street\tDO City\tMiles");
+            foreach (var g in plan.Groups)
+            {
+                foreach (var t in g.Trips)
+                {
+                    sb.Append(g.GroupNumber).Append('\t')
+                      .Append(Sanitize(t.TripNumber)).Append('\t')
+                      .Append(Sanitize(t.ClientFullName)).Append('\t')
+                      .Append(Sanitize(t.PUTime)).Append('\t')
+                      .Append(Sanitize(t.PUStreet)).Append('\t')
+                      .Append(Sanitize(t.PUCity)).Append('\t')
+                      .Append(Sanitize(t.DOTime)).Append('\t')
+                      .Append(Sanitize(t.DOStreet)).Append('\t')
+                      .Append(Sanitize(t.DOCITY)).Append('\t')
+                      .Append(Sanitize(t.Miles))
+                      .AppendLine();
+                }
+            }
+            sb.AppendLine();
+        }
+
+        private void AppendReservesToClipboard(System.Text.StringBuilder sb)
+        {
+            sb.Append("=== RESERVES === (")
+              .Append(_supeyResult.Reserves.Count)
+              .Append(" trip").Append(_supeyResult.Reserves.Count == 1 ? "" : "s")
+              .AppendLine(" left unassigned)");
+            sb.AppendLine("Trip #\tClient\tPU Time\tPU Street\tPU City\tDO Time\tDO Street\tDO City\tMiles");
+            foreach (var t in _supeyResult.Reserves)
+            {
+                sb.Append(Sanitize(t.TripNumber)).Append('\t')
+                  .Append(Sanitize(t.ClientFullName)).Append('\t')
+                  .Append(Sanitize(t.PUTime)).Append('\t')
+                  .Append(Sanitize(t.PUStreet)).Append('\t')
+                  .Append(Sanitize(t.PUCity)).Append('\t')
+                  .Append(Sanitize(t.DOTime)).Append('\t')
+                  .Append(Sanitize(t.DOStreet)).Append('\t')
+                  .Append(Sanitize(t.DOCITY)).Append('\t')
+                  .Append(Sanitize(t.Miles))
+                  .AppendLine();
+            }
+            sb.AppendLine();
         }
 
         /// <summary>
@@ -819,7 +1191,7 @@ namespace Hiatme_Tool_Suite_v3
             }
             // Auto-fit each column to the widest header / cell after binding so long driver names
             // and shift strings aren't clipped. Same pattern used by every other listview on Form1.
-            try { ListViewMinWidthEnforcer.Recompute(_supeyDriversLv); } catch { }
+            ListViewMinWidthEnforcer.ScheduleRecompute(_supeyDriversLv);
             _supeyRosterFooter.Text = _supeyRoster.Count + " drivers" +
                 (_supeyRosterLastSaved == DateTime.MinValue ? "" : " · saved " + _supeyRosterLastSaved.ToString("HH:mm"));
             if (_supeyDriversEmptyHint != null)
@@ -1078,6 +1450,7 @@ namespace Hiatme_Tool_Suite_v3
 
             try
             {
+                await RefreshSupeyOsrmStatusAsync().ConfigureAwait(true);
                 SetSupeyToolbarBusy(true, "Building schedule...");
                 var date = _supeyDatePicker.Value;
                 var hints = new SupeyTemplateHints(date.DayOfWeek.ToString());
@@ -1092,6 +1465,9 @@ namespace Hiatme_Tool_Suite_v3
                     selected, locks, progress, token));
 
                 BindSupeyPreview();
+                _supeyLastTemplateCompare = SupeyTemplateCompare.Run(_supeyResult, hints);
+                if (_supeyTemplateCompareLbl != null)
+                    _supeyTemplateCompareLbl.Text = _supeyLastTemplateCompare.SummaryText;
                 SetSupeyStatus("Build complete. " + _supeyResult.DriverPlans.Count + " driver(s), " +
                     _supeyResult.Reserves.Count + " reserve(s), " + _supeyResult.WarningCount + " warning(s).");
             }
@@ -1220,7 +1596,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 BindWarningsPreview();
                 _supeyPreviewLv.EndUpdate();
-                try { ListViewMinWidthEnforcer.Recompute(_supeyPreviewLv); } catch { }
+                ListViewMinWidthEnforcer.ScheduleRecompute(_supeyPreviewLv);
                 return;
             }
 
@@ -1231,17 +1607,15 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     foreach (var t in g.Trips)
                     {
+                        string route = ((t.PUCity ?? "").Trim() + " → " + (t.DOCITY ?? "").Trim()).Trim();
                         var lvi = new ListViewItem(new[]
                         {
                             g.GroupNumber.ToString(),
                             t.TripNumber ?? "",
                             t.ClientFullName ?? "",
                             t.PUTime ?? "",
-                            t.PUStreet ?? "",
-                            t.PUCity ?? "",
+                            route,
                             t.DOTime ?? "",
-                            t.DOStreet ?? "",
-                            t.DOCITY ?? "",
                             t.Miles ?? "",
                         });
                         lvi.UseItemStyleForSubItems = false;
@@ -1265,17 +1639,15 @@ namespace Hiatme_Tool_Suite_v3
                 // Reserves
                 foreach (var t in _supeyResult.Reserves)
                 {
+                    string route = ((t.PUCity ?? "").Trim() + " → " + (t.DOCITY ?? "").Trim()).Trim();
                     var lvi = new ListViewItem(new[]
                     {
                         "—",
                         t.TripNumber ?? "",
                         t.ClientFullName ?? "",
                         t.PUTime ?? "",
-                        t.PUStreet ?? "",
-                        t.PUCity ?? "",
+                        route,
                         t.DOTime ?? "",
-                        t.DOStreet ?? "",
-                        t.DOCITY ?? "",
                         t.Miles ?? "",
                     });
                     lvi.UseItemStyleForSubItems = false;
@@ -1288,7 +1660,7 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             _supeyPreviewLv.EndUpdate();
-            try { ListViewMinWidthEnforcer.Recompute(_supeyPreviewLv); } catch { }
+            ListViewMinWidthEnforcer.ScheduleRecompute(_supeyPreviewLv);
         }
 
         /// <summary>
@@ -1332,7 +1704,8 @@ namespace Hiatme_Tool_Suite_v3
                 driverName ?? "",
                 "",
                 w.Detail ?? "",
-                "", "", "", "", "",
+                "",
+                "",
             });
             lvi.UseItemStyleForSubItems = false;
             lvi.SubItems[0].BackColor = ColorForWarningKind(w.Kind);
@@ -1572,6 +1945,36 @@ namespace Hiatme_Tool_Suite_v3
             if (_supeyToolbarStatusLbl == null) return;
             if (InvokeRequired) { try { BeginInvoke((Action)(() => SetSupeyStatus(text))); } catch { } return; }
             _supeyToolbarStatusLbl.Text = text ?? "";
+        }
+
+        private async Task RefreshSupeyOsrmStatusAsync()
+        {
+            if (_supeyOsrmStatusLbl == null) return;
+            OsrmSettings.InvalidateHealthCache();
+            bool localOk = await Task.Run(() => OsrmSettings.TryHealthCheckAsync()).ConfigureAwait(true);
+            void Apply()
+            {
+                if (_supeyOsrmStatusLbl == null || _supeyOsrmStatusLbl.IsDisposed) return;
+                if (localOk)
+                {
+                    _supeyOsrmStatusLbl.Text = "OSRM: local OK";
+                    _supeyOsrmStatusLbl.ForeColor = Color.LightGreen;
+                }
+                else if (OsrmSettings.PreferLocal)
+                {
+                    _supeyOsrmStatusLbl.Text = "OSRM: offline (public fallback)";
+                    _supeyOsrmStatusLbl.ForeColor = Color.Orange;
+                }
+                else
+                {
+                    _supeyOsrmStatusLbl.Text = "OSRM: public demo";
+                    _supeyOsrmStatusLbl.ForeColor = Color.Gainsboro;
+                }
+            }
+            if (InvokeRequired)
+                BeginInvoke((Action)Apply);
+            else
+                Apply();
         }
 
         private void ShowSupeyWarningsModal()

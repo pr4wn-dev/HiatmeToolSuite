@@ -1,0 +1,1 @@
+3.0.1.2: Bootstrap Update.exe from download when legacy install folder is missing it.

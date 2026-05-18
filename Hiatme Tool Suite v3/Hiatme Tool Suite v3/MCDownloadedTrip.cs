@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
@@ -23,7 +23,19 @@ namespace Hiatme_Tool_Suite_v3
         public string DOStreet { get; set; }
         public string DOCITY { get; set; }
         public string DOTelephone { get; set; }
+        /// <summary>
+        /// Modivcare's appointment_time field (column 24). For A-leg trips this is the medical
+        /// appointment time used by the website's scoreboard as the DO deadline. For B/C-leg
+        /// (return) trips this is typically empty — use <see cref="SchedDOTime"/> instead.
+        /// Kept under the legacy "DOTime" name so existing callers don't break.
+        /// </summary>
         public string DOTime { get; set; }
+        /// <summary>
+        /// Modivcare's scheduled_dropoff field (column 23). Always populated; this is the planned
+        /// drop time regardless of whether there's an appointment. For A-legs we prefer
+        /// <see cref="DOTime"/> (appointment) when set; for B/C-legs this is the deadline.
+        /// </summary>
+        public string SchedDOTime { get; set; }
         public string Age { get; set; }
         public string Miles { get; set; }
         public string Comments { get; set; }

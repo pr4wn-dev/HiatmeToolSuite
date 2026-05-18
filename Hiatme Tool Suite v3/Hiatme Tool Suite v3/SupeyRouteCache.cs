@@ -6,27 +6,20 @@ using System.Threading.Tasks;
 namespace Hiatme_Tool_Suite_v3
 {
     /// <summary>
-    /// In-memory cache of OSRM route results keyed by an ordered waypoint sequence. The same dead
-    /// head from "home → group 1 PU" is asked for once during scoring, again during sequencing,
-    /// and again when the user clicks Rebuild — caching avoids hammering the public OSRM demo
-    /// server (and the rate limit it enforces).
+    /// In-memory cache of OSRM route results keyed by an ordered waypoint sequence.
     /// </summary>
-    /// <remarks>
-    /// Cache lives for the duration of a single build / preview session. It is cleared at the
-    /// start of every Build/Rebuild because OSRM road conditions never change, but the geocoded
-    /// driver homes might (the user could edit a roster between builds).
-    /// </remarks>
     internal sealed class SupeyRouteCache
     {
         private readonly Dictionary<string, RouteEstimator.RoutePolylineResult> _cache =
             new Dictionary<string, RouteEstimator.RoutePolylineResult>(StringComparer.Ordinal);
-        private readonly SemaphoreSlim _gate = new SemaphoreSlim(1, 1);
+        private readonly SemaphoreSlim _gate;
 
-        /// <summary>
-        /// Asks for the snap-to-street polyline + duration + distance for <paramref name="waypoints"/>;
-        /// returns the cached result if one exists, otherwise calls OSRM and caches the result
-        /// (success or failure) so a busted address pair doesn't get re-hit on every retry.
-        /// </summary>
+        public SupeyRouteCache()
+        {
+            int n = OsrmSettings.MaxConcurrent;
+            _gate = new SemaphoreSlim(n, n);
+        }
+
         public async Task<RouteEstimator.RoutePolylineResult> GetAsync(IList<GeoPoint> waypoints, CancellationToken token)
         {
             string key = BuildKey(waypoints);
@@ -39,8 +32,6 @@ namespace Hiatme_Tool_Suite_v3
                     return cached;
             }
 
-            // Single-flight: only one OSRM call in flight at a time, both for politeness to the
-            // public demo server and to avoid two concurrent identical calls cache-stampeding.
             await _gate.WaitAsync(token).ConfigureAwait(false);
             try
             {

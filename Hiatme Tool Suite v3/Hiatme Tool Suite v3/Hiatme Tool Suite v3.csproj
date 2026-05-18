@@ -93,6 +93,8 @@
     <Reference Include="System" />
     <Reference Include="System.ComponentModel.DataAnnotations" />
     <Reference Include="System.Core" />
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
     <Reference Include="System.Data.SqlClient, Version=4.6.1.3, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
       <HintPath>..\packages\System.Data.SqlClient.4.8.3\lib\net461\System.Data.SqlClient.dll</HintPath>
     </Reference>
@@ -149,6 +151,8 @@
     <Compile Include="MCDriverTab.cs" />
     <Compile Include="FullScheduleBuilder.cs" />
     <Compile Include="MCCalculateAccuracies.cs" />
+    <Compile Include="TimeCorrectionAccuracySnapshot.cs" />
+    <Compile Include="TimeCorrectionBatchHistoryStore.cs" />
     <Compile Include="Form1.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -182,11 +186,17 @@
     <Compile Include="MCDriversAndVehicles.cs" />
     <Compile Include="MCLoginHandler.cs" />
     <Compile Include="UpdateClient.cs" />
+    <Compile Include="UserSettingsMigration.cs" />
     <Compile Include="UpdatePrompt.cs">
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="UpdatePrompt.Designer.cs">
       <DependentUpon>UpdatePrompt.cs</DependentUpon>
+    </Compile>
+    <Compile Include="McTripTimingRules.cs" />
+    <Compile Include="TimeCorrectionLoadMode.cs" />
+    <Compile Include="TimeCorrectionLoadModeForm.cs">
+      <SubType>Form</SubType>
     </Compile>
     <Compile Include="MCTimeCorrection.cs" />
     <Compile Include="MCDownloadedTrip.cs" />
@@ -211,10 +221,12 @@
     <Compile Include="WRCalculations.cs" />
     <Compile Include="WRDrivers.cs" />
     <Compile Include="WRDriverPosition.cs" />
+    <Compile Include="AvlDriverDiagnostics.cs" />
     <Compile Include="WRDownloadedTrip.cs" />
     <Compile Include="JsonSerializer.cs" />
     <Compile Include="ListViewSorter.cs" />
     <Compile Include="ListViewMinWidthEnforcer.cs" />
+    <Compile Include="ListViewOwnerDrawFonts.cs" />
     <Compile Include="ListViewHeaderEmptyAreaPainter.cs" />
     <Compile Include="DarkContextMenuRenderer.cs" />
     <Compile Include="DarkOnAccentMaterialButton.cs">
@@ -239,6 +251,8 @@
     </Compile>
     <Compile Include="GMapInitializer.cs" />
     <Compile Include="AddressGeocoder.cs" />
+    <Compile Include="SupeyKnownFacilities.cs" />
+    <Compile Include="OsrmSettings.cs" />
     <Compile Include="RouteEstimator.cs" />
     <Compile Include="EtaPlanner.cs" />
     <Compile Include="SupeyDriverProfile.cs" />
@@ -250,6 +264,11 @@
     <Compile Include="SupeyRouteCache.cs" />
     <Compile Include="SupeyTemplateHints.cs" />
     <Compile Include="SupeyScheduleAlgorithm.cs" />
+    <Compile Include="SupeyClusterRouting.cs" />
+    <Compile Include="SupeyCollapsiblePanel.cs">
+      <SubType>Component</SubType>
+    </Compile>
+    <Compile Include="SupeyTemplateCompare.cs" />
     <Compile Include="SupeyScheduleBuilder.cs" />
     <Compile Include="SupeyMapWorkspace.cs">
       <SubType>UserControl</SubType>

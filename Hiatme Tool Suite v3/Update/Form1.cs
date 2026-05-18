@@ -4,6 +4,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -15,9 +16,10 @@ namespace Update
     ///   * <see cref="Form1()"/> — informational placeholder for the legacy double-click case.
     ///   * <see cref="Form1(UpdateArgs)"/> — drives the wait → extract → restart pipeline.
     ///
-    /// User data preservation: we ONLY overwrite files contained in the zip. Anything else in the install
-    /// directory (Monday/, Tuesday/, …, Template Temps/, user-saved files, etc.) is left untouched.
-    /// Login info lives in %LOCALAPPDATA% and never sees this code path at all.
+    /// User data preservation: we ONLY overwrite files contained in the zip, and we never copy
+    /// weekday template folders or Template Temps from the zip even if a bad package includes them.
+    /// Saved login creds live in a versioned user.config under %LOCALAPPDATA%; the main app migrates
+    /// those on first launch after a version bump (see UserSettingsMigration).
     /// </summary>
     public partial class Form1 : MaterialForm
     {
@@ -219,6 +221,19 @@ namespace Update
             }
         }
 
+        private static readonly HashSet<string> PreservedInstallSubdirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday", "Template Temps",
+        };
+
+        private static bool IsPreservedUserDataPath(string relativePath)
+        {
+            if (string.IsNullOrEmpty(relativePath))
+                return false;
+            string top = relativePath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)[0];
+            return PreservedInstallSubdirs.Contains(top);
+        }
+
         /// <summary>
         /// Recursive copy of <paramref name="srcDir"/> over <paramref name="dstDir"/>:
         ///   * Files in src overwrite the dst version (with a brief retry loop in case the OS is slow to release a lock).
@@ -230,12 +245,16 @@ namespace Update
             foreach (string sub in Directory.GetDirectories(srcDir, "*", SearchOption.AllDirectories))
             {
                 string rel = sub.Substring(srcDir.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                if (IsPreservedUserDataPath(rel))
+                    continue;
                 string target = Path.Combine(dstDir, rel);
                 Directory.CreateDirectory(target);
             }
             foreach (string file in Directory.GetFiles(srcDir, "*", SearchOption.AllDirectories))
             {
                 string rel = file.Substring(srcDir.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                if (IsPreservedUserDataPath(rel))
+                    continue;
                 string target = Path.Combine(dstDir, rel);
                 string targetDir = Path.GetDirectoryName(target);
                 if (!string.IsNullOrEmpty(targetDir))

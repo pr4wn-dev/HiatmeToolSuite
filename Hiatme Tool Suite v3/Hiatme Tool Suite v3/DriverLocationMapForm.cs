@@ -39,6 +39,9 @@ namespace Hiatme_Tool_Suite_v3
         // have to re-hit the portal — auto-refresh keeps this current.
         private WRDriverPosition _lastPosition;
         private DateTime _lastPositionAtLocal;
+        private WellRydeUserDetail _userProfile;
+        private bool _userProfileLoaded;
+        private bool _refreshProfileOnNextFetch;
 
         // Cached ETA result so toggling the horizon filter doesn't drop the badges; we reapply on
         // every PopulateTripsPanel pass. Cleared by a new "Estimate ETAs" run.
@@ -552,6 +555,8 @@ namespace Hiatme_Tool_Suite_v3
         protected override async void OnShown(EventArgs e)
         {
             base.OnShown(e);
+            if (_autoRefreshCheck.Checked)
+                _refreshTimer.Start();
             await FetchAndRenderAsync(recenter: true).ConfigureAwait(true);
         }
 
@@ -565,9 +570,17 @@ namespace Hiatme_Tool_Suite_v3
 
             _refreshButton.Enabled = false;
             _statusLabel.Text = "Loading position...";
+            if (_refreshProfileOnNextFetch)
+            {
+                _userProfileLoaded = false;
+                _refreshProfileOnNextFetch = false;
+            }
 
             try
             {
+                await EnsureUserProfileAsync(ct).ConfigureAwait(true);
+                if (IsDisposed || Disposing) return;
+
                 var positions = await _session.GetDriverPositionsAsync(ct).ConfigureAwait(true);
                 if (IsDisposed || Disposing) return;
 
@@ -610,12 +623,41 @@ namespace Hiatme_Tool_Suite_v3
             {
                 _statusLabel.Text = "Failed to load position: " + ex.Message;
                 ApplyStatusDotColor(StatusColors.Unknown);
+                ApplyDiagnostics(null, foundOnAvlFeed: false);
             }
             finally
             {
                 _isFetching = false;
                 if (!IsDisposed) _refreshButton.Enabled = true;
             }
+        }
+
+        private async Task EnsureUserProfileAsync(CancellationToken ct)
+        {
+            if (_userProfileLoaded || string.IsNullOrWhiteSpace(_driverId))
+                return;
+            _userProfileLoaded = true;
+            try
+            {
+                var result = await _session.GetUserDetailHtmlAsync(_driverId, ct).ConfigureAwait(true);
+                if (result.IsSuccess && !string.IsNullOrEmpty(result.HtmlBody))
+                    _userProfile = WellRydeUserParser.ParseUserDetail(_driverId, result.HtmlBody);
+            }
+            catch
+            {
+                // Profile is optional context for diagnostics only.
+            }
+        }
+
+        private void ApplyDiagnostics(WRDriverPosition match, bool foundOnAvlFeed)
+        {
+            if (_diagnosticsHeadlineLabel == null || _diagnosticsBodyLabel == null)
+                return;
+
+            var diag = AvlDriverDiagnosticsBuilder.Build(match, _userProfile, foundOnAvlFeed);
+            _diagnosticsHeadlineLabel.Text = "Connection status — " + diag.Headline;
+            _diagnosticsHeadlineLabel.ForeColor = diag.AccentColor;
+            _diagnosticsBodyLabel.Text = diag.FormatBody();
         }
 
         private void RenderPosition(WRDriverPosition match, bool recenter)
@@ -629,6 +671,7 @@ namespace Hiatme_Tool_Suite_v3
                 _lastReportedLabel.Text = "";
                 _lastReportedLabel.ForeColor = StatusColors.MutedText;
                 ApplyStatusDotColor(StatusColors.Unknown);
+                ApplyDiagnostics(null, foundOnAvlFeed: false);
                 return;
             }
 
@@ -643,6 +686,7 @@ namespace Hiatme_Tool_Suite_v3
                 _lastReportedLabel.Text = FormatLastReported(reported, age);
                 _lastReportedLabel.ForeColor = ageColor;
                 ApplyStatusDotColor(ageColor);
+                ApplyDiagnostics(match, foundOnAvlFeed: true);
                 return;
             }
 
@@ -681,6 +725,7 @@ namespace Hiatme_Tool_Suite_v3
             _lastReportedLabel.Text = FormatLastReported(reported, age);
             _lastReportedLabel.ForeColor = ageColor;
             ApplyStatusDotColor(ageColor);
+            ApplyDiagnostics(match, foundOnAvlFeed: true);
         }
 
         /// <summary>
@@ -711,7 +756,13 @@ namespace Hiatme_Tool_Suite_v3
             if (p.DelayTime > 0.5)
                 lines.Add("Delayed " + ((int)System.Math.Round(p.DelayTime)).ToString(CultureInfo.InvariantCulture) + "m");
             if (age.HasValue)
-                lines.Add("Updated " + FormatAge(age.Value));
+                lines.Add("GPS updated " + FormatAge(age.Value));
+            DateTime? connected = p.GetLastConnectedLocalTime();
+            if (connected.HasValue)
+            {
+                TimeSpan connAge = DateTime.Now - connected.Value;
+                lines.Add("App connected " + FormatAge(connAge));
+            }
             return lines;
         }
 
@@ -839,6 +890,7 @@ namespace Hiatme_Tool_Suite_v3
 
         private async void OnRefreshClicked(object sender, EventArgs e)
         {
+            _refreshProfileOnNextFetch = true;
             await FetchAndRenderAsync(recenter: true).ConfigureAwait(true);
         }
 

@@ -1,0 +1,1 @@
+3.0.1.5: Preserve saved login across updates; protect template folders during install.
