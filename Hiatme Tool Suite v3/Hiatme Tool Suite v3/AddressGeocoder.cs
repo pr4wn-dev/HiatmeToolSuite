@@ -356,6 +356,25 @@ namespace Hiatme_Tool_Suite_v3
                 }
             }
 
+            if (HiatmeGeoSettings.UseServer)
+            {
+                try
+                {
+                    var ai = HiatmeAiSettings.Load();
+                    var serverPt = await HiatmeGeoClient.ResolveAsync(
+                        ai, street, city, state, zip, countryCode, token).ConfigureAwait(false);
+                    lock (_cache) { _cache[key] = serverPt; }
+                    ScheduleSave();
+                    if (serverPt.HasValue) Interlocked.Increment(ref _hits);
+                    else Interlocked.Increment(ref _misses);
+                    return serverPt;
+                }
+                catch
+                {
+                    // fall through to local Nominatim
+                }
+            }
+
             await _gate.WaitAsync(token).ConfigureAwait(false);
             try
             {

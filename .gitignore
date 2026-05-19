@@ -1,3 +1,7 @@
+# Local AI connection (contains API token)
+hiatme_ai.defaults.json
+hiatme_ai.json
+
 # Visual Studio
 .vs/
 *.user

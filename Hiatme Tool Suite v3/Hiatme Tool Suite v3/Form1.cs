@@ -46,7 +46,7 @@ namespace Hiatme_Tool_Suite_v3
     public partial class Form1 : MaterialForm
     {
         // WIP tools — flip to true to show these tabs again (designer + code stay in place).
-        private const bool ShowSupeyScheduleTab = false;
+        private const bool ShowSupeyScheduleTab = true;
         private const bool ShowCameraTab = false;
 
         private bool manuallogin = false;

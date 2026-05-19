@@ -85,6 +85,10 @@ namespace Hiatme_Tool_Suite_v3
         private List<MCDownloadedTrip> _supeyLoadedTrips = new List<MCDownloadedTrip>();
         private SupeyScheduleResult _supeyResult;
         private CancellationTokenSource _supeyCts;
+
+        /// <summary>Loaded pool = raw Modivcare rows; AiSchedule = BUILD/revise JSON mapped to drivers.</summary>
+        private enum SupeyTripsPanelView { Empty, LoadedPool, AiSchedule }
+        private SupeyTripsPanelView _supeyTripsPanelView = SupeyTripsPanelView.Empty;
         private DateTime _supeyRosterLastSaved;
 
         /// <summary>
@@ -347,6 +351,8 @@ namespace Hiatme_Tool_Suite_v3
             };
             BuildSupeyDriversPanel(_supeyDriversCollapsible.ContentPanel);
 
+            BuildSupeyAiPanel();
+
             _supeyRightCollapsible = new SupeyCollapsiblePanel
             {
                 Title = "Info",
@@ -355,6 +361,7 @@ namespace Hiatme_Tool_Suite_v3
             };
             BuildSupeyRightPanel(_supeyRightCollapsible.ContentPanel);
 
+            workPanel.Controls.Add(_supeyAiCollapsible);
             workPanel.Controls.Add(_supeyRightCollapsible);
             workPanel.Controls.Add(_supeyDriversCollapsible);
             _supeyMainSplit.Panel1.Controls.Add(workPanel);
@@ -644,10 +651,10 @@ namespace Hiatme_Tool_Suite_v3
             _supeyPreviewEmptyHint = new Label
             {
                 Dock = DockStyle.Fill,
-                Text = "No schedule built yet.\n\n1. Pick a service date and click LOAD TRIPS.\n" +
-                       "2. Add and check the drivers you want to schedule.\n" +
-                       "3. Click BUILD to assemble routes.\n\n" +
-                       "Trips and stops will appear here per driver.",
+                Text = "No trips loaded yet.\n\n1. LOAD TRIPS (Modivcare)\n" +
+                       "2. Add/check drivers\n" +
+                       "3. BUILD — the AI schedule appears here per driver.\n\n" +
+                       "Before BUILD you can open \"Loaded pool\" in the dropdown to verify downloads.",
                 TextAlign = ContentAlignment.MiddleCenter,
                 ForeColor = Color.Silver,
                 BackColor = Color.FromArgb(70, 70, 70),
@@ -1401,7 +1408,11 @@ namespace Hiatme_Tool_Suite_v3
                 }
                 var date = _supeyDatePicker.Value;
                 _supeyLoadedTrips = await SupeyScheduleBuilder.DownloadTripsAsync(date, mcLoginHandler);
-                SetSupeyStatus(BuildPostLoadStatus(_supeyLoadedTrips.Count, date));
+                _supeyResult = null;
+                _supeyTripsPanelView = SupeyTripsPanelView.LoadedPool;
+                BindSupeyLoadedTripsList();
+                SetSupeyStatus(BuildPostLoadStatus(_supeyLoadedTrips.Count, date)
+                    + " Click BUILD for AI schedule in this list.");
             }
             catch (ScheduleBuilderException ex)
             {
@@ -1446,29 +1457,27 @@ namespace Hiatme_Tool_Suite_v3
 
             _supeyCts = new CancellationTokenSource();
             var token = _supeyCts.Token;
-            var progress = new Progress<string>(msg => SetSupeyStatus(msg));
 
             try
             {
-                await RefreshSupeyOsrmStatusAsync().ConfigureAwait(true);
-                SetSupeyToolbarBusy(true, "Building schedule...");
+                SetSupeyToolbarBusy(true, "Asking AIagent for schedule...");
+                AppendSupeyAiTranscriptIfPresent("AI Build · thinking", "…");
                 var date = _supeyDatePicker.Value;
-                var hints = new SupeyTemplateHints(date.DayOfWeek.ToString());
-                var algorithm = new SupeyScheduleAlgorithm
-                {
-                    Hints = hints,
-                    UseTemplateHints = _supeyUseTemplatesChk.Checked && hints.HasAnyTemplate,
-                };
 
-                Dictionary<string, string> locks = _supeyResult?.Locks ?? new Dictionary<string, string>();
-                _supeyResult = await Task.Run(() => algorithm.BuildAsync(date, _supeyLoadedTrips,
-                    selected, locks, progress, token));
+                if (_supeyAiSettings == null)
+                    _supeyAiSettings = HiatmeAiSettings.Load();
 
-                BindSupeyPreview();
-                _supeyLastTemplateCompare = SupeyTemplateCompare.Run(_supeyResult, hints);
-                if (_supeyTemplateCompareLbl != null)
-                    _supeyTemplateCompareLbl.Text = _supeyLastTemplateCompare.SummaryText;
-                SetSupeyStatus("Build complete. " + _supeyResult.DriverPlans.Count + " driver(s), " +
+                var ctx = HiatmeScheduleContextBuilder.Build(
+                    date, _supeyRoster, _supeyLoadedTrips, null, false, selected);
+
+                var aiResp = await HiatmeAiClient.ScheduleBuildAsync(
+                    _supeyAiSettings, ctx, token).ConfigureAwait(true);
+
+                if (aiResp?.Schedule == null)
+                    throw new InvalidOperationException("AI server returned no schedule.");
+
+                ApplySupeyAiSchedule(aiResp, "AI Build");
+                SetSupeyStatus("AI build complete. " + _supeyResult.DriverPlans.Count + " driver(s), " +
                     _supeyResult.Reserves.Count + " reserve(s), " + _supeyResult.WarningCount + " warning(s).");
             }
             catch (OperationCanceledException)
@@ -1477,9 +1486,9 @@ namespace Hiatme_Tool_Suite_v3
             }
             catch (Exception ex)
             {
-                MessageBox.Show(this, "Build failed:\n\n" + ex.Message, "Supey Schedule",
+                MessageBox.Show(this, "AI build failed:\n\n" + ex.Message, "Supey Schedule",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
-                SetSupeyStatus("Build failed.");
+                SetSupeyStatus("AI build failed — fix server/Ollama and try again.");
             }
             finally
             {
@@ -1502,6 +1511,36 @@ namespace Hiatme_Tool_Suite_v3
             {
                 SetSupeyToolbarBusy(true, "Saving workbook...");
                 await SupeyScheduleBuilder.SaveWorkbookAsync(_supeyResult, this);
+                if (_supeyAiSettings == null)
+                    _supeyAiSettings = HiatmeAiSettings.Load();
+                try
+                {
+                    var ctx = HiatmeScheduleContextBuilder.Build(
+                        _supeyDatePicker.Value,
+                        _supeyRoster,
+                        _supeyLoadedTrips,
+                        _supeyResult,
+                        true,
+                        GetCheckedSupeyDrivers());
+                    await HiatmeAiClient.SyncScheduleAsync(
+                        _supeyAiSettings, ctx, "save").ConfigureAwait(true);
+                }
+                catch
+                {
+                    // non-fatal
+                }
+                if (_supeyAiSettings.RememberOnSave)
+                {
+                    try
+                    {
+                        var summary = HiatmeScheduleSummary.ForMemory(_supeyResult);
+                        await HiatmeAiClient.AddMemoryAsync(_supeyAiSettings, summary).ConfigureAwait(true);
+                    }
+                    catch
+                    {
+                        // non-fatal
+                    }
+                }
                 SetSupeyStatus("Workbook saved.");
             }
             catch (Exception ex)
@@ -1529,13 +1568,21 @@ namespace Hiatme_Tool_Suite_v3
             if (_supeyResult == null)
             {
                 _supeyMap?.Clear();
-                _supeyPreviewLv.Items.Clear();
-                _supeyPreviewStatsLbl.Text = "";
                 _supeyStatsLbl.Text = "Fleet: -";
                 _supeyWarningsLink.Text = "0 warnings";
+                if (_supeyTripsPanelView == SupeyTripsPanelView.LoadedPool
+                    && (_supeyLoadedTrips?.Count ?? 0) > 0)
+                {
+                    BindSupeyLoadedTripsList();
+                    return;
+                }
+                _supeyPreviewLv.Items.Clear();
+                _supeyPreviewStatsLbl.Text = "";
                 if (_supeyPreviewEmptyHint != null) _supeyPreviewEmptyHint.Visible = true;
                 return;
             }
+
+            _supeyTripsPanelView = SupeyTripsPanelView.AiSchedule;
             if (_supeyPreviewEmptyHint != null) _supeyPreviewEmptyHint.Visible = false;
 
             // Refresh per-driver release time in the roster ListView.
@@ -1574,8 +1621,25 @@ namespace Hiatme_Tool_Suite_v3
             _supeyStatsLbl.Text = fleet;
             _supeyWarningsLink.Text = _supeyResult.WarningCount + " warning" + (_supeyResult.WarningCount == 1 ? "" : "s");
 
-            if (_supeyPreviewDriverCb.Items.Count > 0)
-                _supeyPreviewDriverCb.SelectedIndex = 0;
+            SelectSupeyPreviewDriverWithTrips();
+        }
+
+        private void SelectSupeyPreviewDriverWithTrips()
+        {
+            if (_supeyPreviewDriverCb == null || _supeyPreviewDriverCb.Items.Count == 0) return;
+            int pick = 0;
+            for (int i = 0; i < _supeyPreviewDriverCb.Items.Count; i++)
+            {
+                var pi = _supeyPreviewDriverCb.Items[i] as SupeyPreviewItem;
+                if (pi?.Plan == null) continue;
+                int n = pi.Plan.Groups?.Sum(g => g?.Trips?.Count ?? 0) ?? 0;
+                if (n > 0)
+                {
+                    pick = i;
+                    break;
+                }
+            }
+            _supeyPreviewDriverCb.SelectedIndex = pick;
         }
 
         private void OnSupeyPreviewDriverChanged()
@@ -1595,6 +1659,14 @@ namespace Hiatme_Tool_Suite_v3
             if (item.Kind == SupeyPreviewItem.ItemKind.Warnings)
             {
                 BindWarningsPreview();
+                _supeyPreviewLv.EndUpdate();
+                ListViewMinWidthEnforcer.ScheduleRecompute(_supeyPreviewLv);
+                return;
+            }
+
+            if (item.Kind == SupeyPreviewItem.ItemKind.LoadedTrips)
+            {
+                BindLoadedTripsPreview();
                 _supeyPreviewLv.EndUpdate();
                 ListViewMinWidthEnforcer.ScheduleRecompute(_supeyPreviewLv);
                 return;
@@ -1663,13 +1735,60 @@ namespace Hiatme_Tool_Suite_v3
             ListViewMinWidthEnforcer.ScheduleRecompute(_supeyPreviewLv);
         }
 
-        /// <summary>
-        /// Renders every <see cref="SupeyWarning"/> across <see cref="SupeyScheduleResult.BuildWarnings"/>
-        /// and each driver plan's <c>Warnings</c> into the preview ListView. Reuses the existing
-        /// columns: Grp = warning kind (color-coded), Trip # = trip number (or "—" for build-level
-        /// warnings), Client = driver name (or "Build"), and PU Street holds the human-readable
-        /// detail. Other columns are blank — the detail row is what the user reads.
-        /// </summary>
+        /// <summary>Raw Modivcare download (not the AI schedule) — only before BUILD.</summary>
+        private void BindSupeyLoadedTripsList()
+        {
+            if (_supeyPreviewDriverCb == null) return;
+            int n = _supeyLoadedTrips?.Count ?? 0;
+            _supeyPreviewDriverCb.Items.Clear();
+            if (n == 0)
+            {
+                _supeyPreviewLv.Items.Clear();
+                _supeyPreviewStatsLbl.Text = "";
+                if (_supeyPreviewEmptyHint != null) _supeyPreviewEmptyHint.Visible = true;
+                return;
+            }
+
+            _supeyPreviewDriverCb.Items.Add(new SupeyPreviewItem(
+                SupeyPreviewItem.ItemKind.LoadedTrips,
+                "Loaded pool (not scheduled) · " + n));
+            if (_supeyPreviewEmptyHint != null) _supeyPreviewEmptyHint.Visible = false;
+            _supeyPreviewDriverCb.SelectedIndex = 0;
+        }
+
+        private void BindLoadedTripsPreview()
+        {
+            _supeyPreviewLv.Items.Clear();
+            if (_supeyLoadedTrips == null || _supeyLoadedTrips.Count == 0) return;
+
+            var sorted = new List<MCDownloadedTrip>(_supeyLoadedTrips);
+            sorted.Sort((a, b) => string.Compare(a?.PUTime, b?.PUTime, StringComparison.OrdinalIgnoreCase));
+
+            foreach (var t in sorted)
+            {
+                if (t == null) continue;
+                string route = ((t.PUStreet ?? "").Trim() + ", " + (t.PUCity ?? "").Trim()).Trim(',', ' ');
+                if (!string.IsNullOrWhiteSpace(t.DOStreet) || !string.IsNullOrWhiteSpace(t.DOCITY))
+                    route += " → " + ((t.DOStreet ?? "").Trim() + ", " + (t.DOCITY ?? "").Trim()).Trim(',', ' ');
+                var lvi = new ListViewItem(new[]
+                {
+                    "—",
+                    t.TripNumber ?? "",
+                    t.ClientFullName ?? "",
+                    t.PUTime ?? "",
+                    route,
+                    t.DOTime ?? t.SchedDOTime ?? "",
+                    t.Miles ?? "",
+                });
+                lvi.Tag = t;
+                _supeyPreviewLv.Items.Add(lvi);
+            }
+
+            _supeyMap?.Clear();
+            _supeyPreviewStatsLbl.Text = sorted.Count
+                + " trips downloaded · click BUILD — this list will switch to the AI schedule per driver.";
+        }
+
         private void BindWarningsPreview()
         {
             int total = 0;
@@ -1950,12 +2069,37 @@ namespace Hiatme_Tool_Suite_v3
         private async Task RefreshSupeyOsrmStatusAsync()
         {
             if (_supeyOsrmStatusLbl == null) return;
+            HiatmeGeoSettings.Refresh();
+            if (_supeyAiSettings == null)
+                _supeyAiSettings = HiatmeAiSettings.Load();
+
+            HiatmeGeoClient.GeoStatus serverGeo = null;
+            if (HiatmeGeoSettings.UseServer)
+            {
+                serverGeo = await HiatmeGeoClient.GetStatusAsync(_supeyAiSettings).ConfigureAwait(true);
+            }
+
             OsrmSettings.InvalidateHealthCache();
-            bool localOk = await Task.Run(() => OsrmSettings.TryHealthCheckAsync()).ConfigureAwait(true);
+            bool localOk = serverGeo?.OsrmLocalOk == true
+                || await Task.Run(() => OsrmSettings.TryHealthCheckAsync()).ConfigureAwait(true);
+
             void Apply()
             {
                 if (_supeyOsrmStatusLbl == null || _supeyOsrmStatusLbl.IsDisposed) return;
-                if (localOk)
+                if (HiatmeGeoSettings.UseServer && serverGeo != null)
+                {
+                    if (serverGeo.OsrmLocalOk)
+                    {
+                        _supeyOsrmStatusLbl.Text = "Geo: server OSRM OK";
+                        _supeyOsrmStatusLbl.ForeColor = Color.LightGreen;
+                    }
+                    else
+                    {
+                        _supeyOsrmStatusLbl.Text = "Geo: server OSRM public fallback";
+                        _supeyOsrmStatusLbl.ForeColor = Color.Orange;
+                    }
+                }
+                else if (localOk)
                 {
                     _supeyOsrmStatusLbl.Text = "OSRM: local OK";
                     _supeyOsrmStatusLbl.ForeColor = Color.LightGreen;
@@ -2005,7 +2149,7 @@ namespace Hiatme_Tool_Suite_v3
 
         private sealed class SupeyPreviewItem
         {
-            public enum ItemKind { Driver, Reserves, Warnings }
+            public enum ItemKind { Driver, Reserves, Warnings, LoadedTrips }
             public ItemKind Kind { get; }
             public SupeyDriverPlan Plan { get; }
             public string Display { get; }
