@@ -40,6 +40,9 @@ namespace Hiatme_Tool_Suite_v3
         private CheckBox _deadheadToggle;
 
         private SupeyDriverPlan _currentPlan;
+        private readonly Dictionary<string, List<SupeyDraggableMarker>> _tripMarkers =
+            new Dictionary<string, List<SupeyDraggableMarker>>(StringComparer.OrdinalIgnoreCase);
+        private GMapOverlay _focusOverlay;
 
         public SupeyMapWorkspace()
         {
@@ -113,6 +116,48 @@ namespace Hiatme_Tool_Suite_v3
             _legendHost.Visible = false;
 
             _map.OnMapZoomChanged += () => Invalidate();
+            _map.OnMarkerClick += OnMarkerClick;
+            SupeyMapMarkerDrag.EnsureWired(_map);
+        }
+
+        private void OnMarkerClick(GMapMarker item, MouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Right)
+                return;
+            var info = item?.Tag as SupeyMapMarkerInfo;
+            if (info == null)
+                return;
+            var menu = new ContextMenuStrip();
+            var fix = new ToolStripMenuItem("Fix wrong geocode (move pin)…");
+            fix.Click += (s, ev) => OpenGeocodeFix(item, info);
+            menu.Items.Add(fix);
+            menu.Show(_map, e.Location);
+        }
+
+        private void OpenGeocodeFix(GMapMarker item, SupeyMapMarkerInfo info)
+        {
+            var initial = new GeoPoint(item.Position.Lat, item.Position.Lng);
+            GeoPoint saved = initial;
+            var dlgInfo = new SupeyMapMarkerInfo
+            {
+                EndpointLabel = info.EndpointLabel,
+                Street = info.Street,
+                City = info.City,
+                State = info.State,
+                Zip = info.Zip,
+                OnPinSaved = p =>
+                {
+                    saved = p;
+                    info.OnPinSaved?.Invoke(p);
+                },
+            };
+            using (var dlg = new SupeyGeocodeFixForm(dlgInfo, initial))
+            {
+                if (dlg.ShowDialog(FindForm()) != DialogResult.OK)
+                    return;
+            }
+            item.Position = new PointLatLng(saved.Lat, saved.Lng);
+            _map.Refresh();
         }
 
         /// <summary>Clears the map + legend so the host can show "no driver selected" state.</summary>
@@ -126,9 +171,77 @@ namespace Hiatme_Tool_Suite_v3
             _legend.Controls.Clear();
             _deadheadToggle = null;
             _currentPlan = null;
+            _tripMarkers.Clear();
+            _focusOverlay = null;
             _emptyLabel.Text = "Build a schedule to see driver routes here.";
             _emptyLabel.Visible = true;
             _legendHost.Visible = false;
+        }
+
+        /// <summary>Center map on a trip's PU/DO pins (from list selection).</summary>
+        public void FocusTrip(MCDownloadedTrip trip)
+        {
+            if (trip == null || string.IsNullOrWhiteSpace(trip.TripNumber))
+                return;
+            if (_focusOverlay != null)
+            {
+                _map.Overlays.Remove(_focusOverlay);
+                _focusOverlay = null;
+            }
+            if (!_tripMarkers.TryGetValue(trip.TripNumber.Trim(), out var markers) || markers.Count == 0)
+            {
+                SetSupeyStatusOnHost?.Invoke("No map pins for trip " + trip.TripNumber + " — geocode may be missing.");
+                return;
+            }
+
+            _focusOverlay = new GMapOverlay("focus");
+            var pts = new List<PointLatLng>();
+            foreach (var m in markers)
+            {
+                pts.Add(m.Position);
+                _focusOverlay.Markers.Add(new GMarkerGoogle(m.Position, GMarkerGoogleType.yellow_pushpin)
+                {
+                    ToolTipText = "Selected · " + (m.Tag as SupeyMapMarkerInfo)?.EndpointLabel,
+                    ToolTipMode = MarkerTooltipMode.Always,
+                });
+            }
+            _map.Overlays.Add(_focusOverlay);
+            FitPoints(pts, zoomSingle: 14, zoomMulti: 12);
+            _map.Refresh();
+        }
+
+        /// <summary>Optional status line on the Supey tab (set from Form1).</summary>
+        public Action<string> SetSupeyStatusOnHost { get; set; }
+
+        private void FitPoints(List<PointLatLng> pts, int zoomSingle, int zoomMulti)
+        {
+            if (pts == null || pts.Count == 0) return;
+            if (pts.Count == 1)
+            {
+                _map.Position = pts[0];
+                _map.Zoom = zoomSingle;
+                return;
+            }
+            double minLat = pts.Min(p => p.Lat), maxLat = pts.Max(p => p.Lat);
+            double minLng = pts.Min(p => p.Lng), maxLng = pts.Max(p => p.Lng);
+            double padLat = Math.Max((maxLat - minLat) * 0.15, 0.01);
+            double padLng = Math.Max((maxLng - minLng) * 0.15, 0.01);
+            var rect = RectLatLng.FromLTRB(minLng - padLng, maxLat + padLat, maxLng + padLng, minLat - padLat);
+            _map.SetZoomToFitRect(rect);
+            if (_map.Zoom > zoomMulti) _map.Zoom = zoomMulti;
+        }
+
+        private void RegisterTripMarker(MCDownloadedTrip trip, SupeyDraggableMarker marker)
+        {
+            if (trip == null || marker == null) return;
+            string key = (trip.TripNumber ?? "").Trim();
+            if (string.IsNullOrEmpty(key)) return;
+            if (!_tripMarkers.TryGetValue(key, out var list))
+            {
+                list = new List<SupeyDraggableMarker>();
+                _tripMarkers[key] = list;
+            }
+            list.Add(marker);
         }
 
         /// <summary>
@@ -143,6 +256,8 @@ namespace Hiatme_Tool_Suite_v3
             _groupOverlays.Clear();
             _groupCheckboxes.Clear();
             _legend.Controls.Clear();
+            _tripMarkers.Clear();
+            _focusOverlay = null;
 
             if (plan == null || (!plan.HomeGeo.HasValue && plan.Groups.Count == 0))
             {
@@ -217,31 +332,41 @@ namespace Hiatme_Tool_Suite_v3
                 // PU markers (one per trip).
                 for (int i = 0; i < g.PickupPoints.Count; i++)
                 {
+                    int idx = i;
                     var pt = g.PickupPoints[i];
+                    if (pt.Lat == 0 && pt.Lng == 0) continue;
                     var trip = i < g.Trips.Count ? g.Trips[i] : null;
-                    var marker = new GMarkerGoogle(new PointLatLng(pt.Lat, pt.Lng), GMarkerGoogleType.green_small)
+                    var marker = new SupeyDraggableMarker(
+                        new PointLatLng(pt.Lat, pt.Lng), GMarkerGoogleType.green_small)
                     {
-                        ToolTipText = "Group " + g.GroupNumber + " - PU\n" +
+                        ToolTipText = "Group " + g.GroupNumber + " - PU (right-click to fix geocode)\n" +
                             (trip?.ClientFullName ?? "") + "\n" + (trip?.PUStreet ?? "") + ", " + (trip?.PUCity ?? "") +
                             "\nPU: " + (trip?.PUTime ?? ""),
                         ToolTipMode = MarkerTooltipMode.OnMouseOver,
+                        Tag = BuildMarkerInfo(trip, "Pickup", true, p => g.PickupPoints[idx] = p),
                     };
                     overlay.Markers.Add(marker);
+                    RegisterTripMarker(trip, marker);
                 }
 
                 // DO markers.
                 for (int i = 0; i < g.DropoffPoints.Count; i++)
                 {
+                    int idx = i;
                     var pt = g.DropoffPoints[i];
+                    if (pt.Lat == 0 && pt.Lng == 0) continue;
                     var trip = i < g.Trips.Count ? g.Trips[i] : null;
-                    var marker = new GMarkerGoogle(new PointLatLng(pt.Lat, pt.Lng), GMarkerGoogleType.red_small)
+                    var marker = new SupeyDraggableMarker(
+                        new PointLatLng(pt.Lat, pt.Lng), GMarkerGoogleType.red_small)
                     {
-                        ToolTipText = "Group " + g.GroupNumber + " - DO\n" +
+                        ToolTipText = "Group " + g.GroupNumber + " - DO (right-click to fix geocode)\n" +
                             (trip?.ClientFullName ?? "") + "\n" + (trip?.DOStreet ?? "") + ", " + (trip?.DOCITY ?? "") +
                             "\nDO: " + (trip?.DOTime ?? ""),
                         ToolTipMode = MarkerTooltipMode.OnMouseOver,
+                        Tag = BuildMarkerInfo(trip, "Dropoff", false, p => g.DropoffPoints[idx] = p),
                     };
                     overlay.Markers.Add(marker);
+                    RegisterTripMarker(trip, marker);
                 }
 
                 _groupOverlays[g.GroupNumber] = overlay;
@@ -371,5 +496,25 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         public void RefitToCurrentPlan() => FitToPlan();
+
+        private static SupeyMapMarkerInfo BuildMarkerInfo(
+            MCDownloadedTrip trip,
+            string endpointLabel,
+            bool isPickup,
+            Action<GeoPoint> onSaved)
+        {
+            if (trip == null)
+                return new SupeyMapMarkerInfo { EndpointLabel = endpointLabel, OnPinSaved = onSaved };
+            return new SupeyMapMarkerInfo
+            {
+                Trip = trip,
+                EndpointLabel = endpointLabel,
+                IsPickup = isPickup,
+                Street = isPickup ? trip.PUStreet : trip.DOStreet,
+                City = isPickup ? trip.PUCity : trip.DOCITY,
+                State = "ME",
+                OnPinSaved = onSaved,
+            };
+        }
     }
 }

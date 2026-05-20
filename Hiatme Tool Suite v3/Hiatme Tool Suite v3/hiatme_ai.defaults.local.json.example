@@ -1,0 +1,5 @@
+{
+  "BaseUrl": "http://127.0.0.1:8787",
+  "ApiToken": "same-as-HIATME_API_TOKEN-in-AIagent-.env",
+  "UseServerGeo": false
+}

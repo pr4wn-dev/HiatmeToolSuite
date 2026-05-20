@@ -57,7 +57,7 @@ namespace Hiatme_Tool_Suite_v3
         public string TraceId { get; set; }
     }
 
-    /// <summary>Unified Send response — server chose chat, revise, or assist.</summary>
+    /// <summary>Unified Send response — chat or schedule update.</summary>
     internal sealed class HiatmeAiMessageResponse
     {
         [JsonProperty("mode")]
@@ -80,6 +80,9 @@ namespace Hiatme_Tool_Suite_v3
 
         [JsonProperty("remembered")]
         public bool Remembered { get; set; }
+
+        [JsonProperty("warnings")]
+        public List<string> Warnings { get; set; }
     }
 
     internal static class HiatmeAiClient
@@ -313,6 +316,7 @@ namespace Hiatme_Tool_Suite_v3
         public static async Task AddMemoryAsync(
             HiatmeAiSettings settings,
             string text,
+            JObject dispatcherContext = null,
             CancellationToken cancellationToken = default)
         {
             if (settings == null) throw new ArgumentNullException(nameof(settings));
@@ -326,7 +330,9 @@ namespace Hiatme_Tool_Suite_v3
                 ["client_id"] = settings.ResolvedClientId(),
                 ["text"] = note,
                 ["scope"] = "org",
+                ["source"] = "tool_suite",
             };
+            CopyDispatcherFields(body, dispatcherContext);
 
             using (var req = new HttpRequestMessage(HttpMethod.Post, baseUrl + "/api/hiatme/memory"))
             {
@@ -560,6 +566,23 @@ namespace Hiatme_Tool_Suite_v3
                             : null,
                     };
                 }
+            }
+        }
+
+        private static void CopyDispatcherFields(JObject body, JObject dispatcherContext)
+        {
+            if (body == null || dispatcherContext == null) return;
+            foreach (var key in new[]
+            {
+                "dispatcher_username",
+                "dispatcher_display_name",
+                "dispatcher_company_code",
+                "dispatcher_source",
+            })
+            {
+                var v = dispatcherContext[key]?.ToString();
+                if (!string.IsNullOrWhiteSpace(v))
+                    body[key] = v.Trim();
             }
         }
     }

@@ -51,6 +51,39 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        public static async Task ConfirmGeocodeAsync(
+            HiatmeAiSettings settings,
+            string street,
+            string city,
+            string state,
+            string zip,
+            GeoPoint point,
+            string dispatcherName = null,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null) throw new ArgumentNullException(nameof(settings));
+            string url = Base(settings) + "/api/hiatme/geocode/confirm";
+            var body = new JObject
+            {
+                ["street"] = street ?? "",
+                ["city"] = city ?? "",
+                ["state"] = string.IsNullOrWhiteSpace(state) ? "ME" : state,
+                ["zip"] = zip ?? "",
+                ["country_code"] = "us",
+                ["lat"] = point.Lat,
+                ["lon"] = point.Lng,
+            };
+            if (!string.IsNullOrWhiteSpace(dispatcherName))
+                body["dispatcher_display_name"] = dispatcherName.Trim();
+            using (var req = BuildPost(settings, url, body))
+            using (var resp = await SharedHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
+            {
+                var txt = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                if (!resp.IsSuccessStatusCode)
+                    throw new InvalidOperationException("Geocode confirm failed: " + txt);
+            }
+        }
+
         public static async Task<GeoPoint?> ResolveAsync(
             HiatmeAiSettings settings,
             string street,

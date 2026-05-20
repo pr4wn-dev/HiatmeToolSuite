@@ -251,6 +251,40 @@ namespace Hiatme_Tool_Suite_v3
         /// state is persisted. Call on app shutdown so the freshest entries always make it to
         /// disk; safe to call any time.
         /// </summary>
+        /// <summary>
+        /// Save a dispatcher-confirmed pin to the company AI cache (and local cache when using server geo).
+        /// </summary>
+        public static async Task ConfirmPinAsync(
+            string street,
+            string city,
+            string state,
+            string zip,
+            GeoPoint point,
+            CancellationToken token = default)
+        {
+            if (HiatmeGeoSettings.UseServer)
+            {
+                var ai = HiatmeAiSettings.Load();
+                string who = null;
+                try
+                {
+                    who = (Properties.Settings.Default.wrUserName ?? "").Trim();
+                }
+                catch { }
+                await HiatmeGeoClient.ConfirmGeocodeAsync(
+                    ai, street, city, state, zip, point, who, token).ConfigureAwait(false);
+            }
+
+            string key = NormalizeKey(street, city, state, zip, "us");
+            if (string.IsNullOrEmpty(key)) return;
+            EnsureDiskCacheLoaded();
+            lock (_cache)
+            {
+                _cache[key] = point;
+            }
+            ScheduleSave();
+        }
+
         public static void Flush()
         {
             try

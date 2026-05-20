@@ -14,13 +14,11 @@ namespace Hiatme_Tool_Suite_v3
         private TextBox _supeyAiTranscript;
         private TextBox _supeyAiPrompt;
         private MaterialButton _supeyAiSendBtn;
-        private MaterialButton _supeyAiApplyBtn;
-        private MaterialButton _supeyAiDismissBtn;
         private MaterialLabel _supeyAiStatusLbl;
+        private MaterialLabel _supeyAiLastAppliedLbl;
         private MaterialButton _supeyAiGoodBtn;
         private MaterialButton _supeyAiBadBtn;
         private HiatmeAiSettings _supeyAiSettings;
-        private HiatmeSchedulePatch _supeyAiPendingPatch;
         private string _supeyAiLastTraceId;
         private CancellationTokenSource _supeyAiCts;
 
@@ -49,6 +47,16 @@ namespace Hiatme_Tool_Suite_v3
                 AutoSize = false,
             };
 
+            _supeyAiLastAppliedLbl = new MaterialLabel
+            {
+                Dock = DockStyle.Top,
+                Height = 28,
+                ForeColor = Color.Gray,
+                Text = "List not updated by AI yet.",
+                AutoSize = false,
+                Font = new Font("Segoe UI", 8.5f),
+            };
+
             var settingsBtn = MakeFlatButton("SETTINGS", 0, 0, 90);
             settingsBtn.Dock = DockStyle.Top;
             settingsBtn.Height = 32;
@@ -57,9 +65,9 @@ namespace Hiatme_Tool_Suite_v3
             var hintLbl = new Label
             {
                 Dock = DockStyle.Top,
-                Height = 32,
+                Height = 44,
                 ForeColor = Color.Gray,
-                Text = "Talk normally. After BUILD, Send fixes the schedule. Reasoning shows above every AI reply.",
+                Text = "BUILD first, then talk here. The AI answers in this box; the trip list updates on its own.",
                 Font = new Font("Segoe UI", 8f),
             };
 
@@ -90,23 +98,10 @@ namespace Hiatme_Tool_Suite_v3
                 BackColor = Color.Transparent,
             };
 
-            _supeyAiApplyBtn = MakeFlatButton("APPLY", 0, 0, 72);
-            _supeyAiApplyBtn.Enabled = false;
-            _supeyAiApplyBtn.Click += async (s, e) => await OnSupeyAiApplyClickedAsync();
-
-            _supeyAiDismissBtn = MakeFlatButton("DISMISS", 0, 0, 80);
-            _supeyAiDismissBtn.Enabled = false;
-            _supeyAiDismissBtn.Type = MaterialButton.MaterialButtonType.Outlined;
-            _supeyAiDismissBtn.UseAccentColor = false;
-            _supeyAiDismissBtn.NoAccentTextColor = Color.Gainsboro;
-            _supeyAiDismissBtn.Click += (s, e) => ClearSupeyAiPendingPatch();
-
             _supeyAiSendBtn = MakeFlatButton("SEND", 0, 0, 72);
             _supeyAiSendBtn.Click += async (s, e) => await OnSupeyAiSendClickedAsync();
 
             btnRow.Controls.Add(_supeyAiSendBtn);
-            btnRow.Controls.Add(_supeyAiApplyBtn);
-            btnRow.Controls.Add(_supeyAiDismissBtn);
 
             _supeyAiPrompt = new TextBox
             {
@@ -146,6 +141,7 @@ namespace Hiatme_Tool_Suite_v3
             host.Controls.Add(feedbackRow);
             host.Controls.Add(hintLbl);
             host.Controls.Add(settingsBtn);
+            host.Controls.Add(_supeyAiLastAppliedLbl);
             host.Controls.Add(_supeyAiStatusLbl);
 
             _ = RefreshSupeyAiConnectionStatusAsync();
@@ -268,6 +264,8 @@ namespace Hiatme_Tool_Suite_v3
             if (_supeyAiTranscript == null) return;
             _supeyAiTranscript.AppendText(
                 "[" + DateTime.Now.ToString("HH:mm") + "] " + role + ":\r\n" + text + "\r\n\r\n");
+            _supeyAiTranscript.SelectionStart = _supeyAiTranscript.TextLength;
+            _supeyAiTranscript.ScrollToCaret();
         }
 
         private void AppendSupeyAiReply(string role, string thinking, string message)
@@ -307,37 +305,100 @@ namespace Hiatme_Tool_Suite_v3
                 schedule, date, selected, _supeyLoadedTrips, message);
             int scheduled = HiatmeAiScheduleMapper.CountAssignedTrips(_supeyResult);
             BindSupeyPreview();
+            _ = HydrateSupeyGeocodeForMapAsync();
             var hints = new SupeyTemplateHints(date.DayOfWeek.ToString());
             _supeyLastTemplateCompare = SupeyTemplateCompare.Run(_supeyResult, hints);
             if (_supeyTemplateCompareLbl != null)
                 _supeyTemplateCompareLbl.Text = _supeyLastTemplateCompare.SummaryText;
-            AppendSupeyAiReply(transcriptRole, thinking, message ?? "Schedule updated.");
-            var syncSource = (transcriptRole ?? "").IndexOf("revise", StringComparison.OrdinalIgnoreCase) >= 0
-                ? "revise"
-                : "build";
+            AppendSupeyAiReply(transcriptRole, thinking, message ?? "Done — check the trip list.");
+            var syncSource = (transcriptRole ?? "").IndexOf("build", StringComparison.OrdinalIgnoreCase) >= 0
+                ? "build"
+                : "update";
             SyncSupeyScheduleToServer(syncSource);
+            MarkSupeyScheduleUpdated(transcriptRole);
+            SetSupeyAiLastAppliedLabel(transcriptRole);
             SetSupeyStatus(scheduled > 0
-                ? "AI schedule on screen: " + scheduled + " trip(s) assigned. Save when ready."
-                : "AI schedule applied but no trips matched — check warnings, then BUILD again.");
+                ? "Schedule updated · " + scheduled + " trip(s) on screen. Save when ready."
+                : "Schedule updated but no trips matched — check warnings, then BUILD again.");
         }
 
-        private void ClearSupeyAiPendingPatch()
+        private static bool IsAiScheduleUpdate(string mode)
         {
-            _supeyAiPendingPatch = null;
-            _supeyAiApplyBtn.Enabled = false;
-            _supeyAiDismissBtn.Enabled = false;
+            return string.Equals(mode, "update", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(mode, "revise", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void AppendSupeyAiServerWarnings(HiatmeAiMessageResponse resp)
+        {
+            if (resp?.Warnings == null || resp.Warnings.Count == 0) return;
+            AppendSupeyAiTranscript("AI · note", string.Join(Environment.NewLine, resp.Warnings));
+        }
+
+        private void SetSupeyAiLastAppliedLabel(string source)
+        {
+            if (_supeyAiLastAppliedLbl == null) return;
+            string when = DateTime.Now.ToString("h:mm tt");
+            string text = "List updated " + when;
+            if (!string.IsNullOrWhiteSpace(source))
+                text += " · " + source.Trim();
+            _supeyAiLastAppliedLbl.Text = text;
+            _supeyAiLastAppliedLbl.ForeColor = Color.FromArgb(144, 238, 144);
         }
 
         private JObject BuildSupeyAiContext()
         {
             bool hasBuild = _supeyResult != null;
-            return HiatmeScheduleContextBuilder.Build(
+            var ctx = HiatmeScheduleContextBuilder.Build(
                 _supeyDatePicker.Value,
                 _supeyRoster,
                 _supeyLoadedTrips,
                 _supeyResult,
                 hasBuild,
                 GetCheckedSupeyDrivers());
+            ApplyWellRydeDispatcherToAiContext(ctx);
+            return ctx;
+        }
+
+        /// <summary>WellRyde login name so the server AI knows who is at the desk.</summary>
+        private async Task HydrateSupeyGeocodeForMapAsync()
+        {
+            if (_supeyResult == null) return;
+            try
+            {
+                SetSupeyStatus("Geocoding trips for map…");
+                await SupeyScheduleGeocoder.HydrateResultAsync(
+                    _supeyResult, _supeyAiCts?.Token ?? default).ConfigureAwait(true);
+                BindSupeyPreview();
+                SetSupeyStatus("Map pins ready · click a trip to focus PU/DO.");
+            }
+            catch (OperationCanceledException)
+            {
+                // ignore
+            }
+            catch (Exception ex)
+            {
+                SetSupeyStatus("Geocode for map failed: " + ex.Message);
+            }
+        }
+
+        private void ApplyWellRydeDispatcherToAiContext(JObject ctx)
+        {
+            if (ctx == null) return;
+            string user = null;
+            string company = null;
+            if (loginCB != null && loginCB.SelectedIndex != 2)
+            {
+                company = (loginCodeTB?.Text ?? "").Trim();
+                user = (loginUserTB?.Text ?? "").Trim();
+            }
+            if (string.IsNullOrWhiteSpace(user))
+                user = (Properties.Settings.Default.wrUserName ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(company))
+                company = (Properties.Settings.Default.wrCompanyCode ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(user))
+                WellRydeDispatcherIdentity.ApplyFromSettings(ctx);
+            else
+                WellRydeDispatcherIdentity.ApplyToContext(ctx, user, company);
         }
 
         private void SyncSupeyScheduleToServer(string source)
@@ -360,7 +421,6 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             _supeyAiCts = new CancellationTokenSource();
-            ClearSupeyAiPendingPatch();
             AppendSupeyAiTranscript("You", message);
             _supeyAiSendBtn.Enabled = false;
 
@@ -380,23 +440,21 @@ namespace Hiatme_Tool_Suite_v3
                     throw new InvalidOperationException("Empty response from server.");
 
                 _supeyAiLastTraceId = resp.TraceId;
-                string modeLabel = (resp.Mode ?? "chat").ToUpperInvariant();
+                string mode = resp.Mode ?? "chat";
 
-                if (string.Equals(resp.Mode, "revise", StringComparison.OrdinalIgnoreCase)
-                    && resp.Schedule != null)
+                if (IsAiScheduleUpdate(mode) && resp.Schedule != null)
                 {
-                    ApplySupeyAiSchedule(resp.Schedule, resp.Message, resp.Thinking, "AI (" + modeLabel + ")");
-                }
-                else if (string.Equals(resp.Mode, "assist", StringComparison.OrdinalIgnoreCase))
-                {
-                    await ApplyAssistPatchAsync(resp, modeLabel).ConfigureAwait(true);
+                    ApplySupeyAiSchedule(resp.Schedule, resp.Message, resp.Thinking, "AI");
+                    AppendSupeyAiServerWarnings(resp);
+                    SetSupeyStatus("Trip list updated · " + DateTime.Now.ToString("h:mm tt"));
                 }
                 else
                 {
                     AppendSupeyAiReply("AI", resp.Thinking, resp.Message ?? "");
+                    SetSupeyStatus(string.Equals(mode, "chat", StringComparison.OrdinalIgnoreCase)
+                        ? "AI replied (list unchanged)."
+                        : "AI replied.");
                 }
-
-                SetSupeyStatus("AI · " + modeLabel);
                 _supeyAiPrompt.Clear();
                 _ = RefreshSupeyAiConnectionStatusAsync();
             }
@@ -417,69 +475,5 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
-        private async Task ApplyAssistPatchAsync(HiatmeAiMessageResponse resp, string modeLabel)
-        {
-            var display = resp.Message ?? "";
-            var patch = resp.Patch;
-            if (patch?.Actions == null || patch.Actions.Count == 0)
-            {
-                AppendSupeyAiReply("AI (" + modeLabel + ")", resp.Thinking, display);
-                return;
-            }
-
-            if (_supeyResult == null)
-            {
-                AppendSupeyAiReply("AI (" + modeLabel + ")", resp.Thinking, display);
-                AppendSupeyAiTranscript("System", "BUILD a schedule first, then Send fixes.");
-                return;
-            }
-
-            var result = _supeyResult;
-            var applyOutcome = HiatmeSchedulePatchApplier.Apply(
-                patch,
-                _supeyLoadedTrips,
-                _supeyRoster,
-                ref result,
-                _supeyDriversLv,
-                _supeyDatePicker.Value);
-            _supeyResult = result;
-
-            if (applyOutcome.ShouldRebuild)
-            {
-                if (applyOutcome.RebuildUseTemplates.HasValue && _supeyUseTemplatesChk != null)
-                    _supeyUseTemplatesChk.Checked = applyOutcome.RebuildUseTemplates.Value;
-                await OnSupeyBuildClickedAsync().ConfigureAwait(true);
-                AppendSupeyAiReply("AI (" + modeLabel + ")", resp.Thinking, display);
-                return;
-            }
-
-            _supeyTripsPanelView = SupeyTripsPanelView.AiSchedule;
-            BindSupeyPreview();
-            UpdateSupeyButtonStates();
-            SyncSupeyScheduleToServer("assist");
-
-            AppendSupeyAiReply("AI (" + modeLabel + ")", resp.Thinking, display);
-            if (!string.IsNullOrWhiteSpace(applyOutcome.Summary))
-                AppendSupeyAiTranscript("System", applyOutcome.Summary);
-            if (applyOutcome.Errors.Count > 0)
-                AppendSupeyAiTranscript("System", string.Join(Environment.NewLine, applyOutcome.Errors));
-
-            SetSupeyStatus("Schedule updated on screen.");
-            ClearSupeyAiPendingPatch();
-        }
-
-        private async Task OnSupeyAiApplyClickedAsync()
-        {
-            if (_supeyAiPendingPatch == null) return;
-            await ApplyAssistPatchAsync(
-                new HiatmeAiMessageResponse
-                {
-                    Mode = "assist",
-                    Message = "",
-                    Patch = _supeyAiPendingPatch,
-                    Thinking = null,
-                },
-                "assist").ConfigureAwait(true);
-        }
     }
 }

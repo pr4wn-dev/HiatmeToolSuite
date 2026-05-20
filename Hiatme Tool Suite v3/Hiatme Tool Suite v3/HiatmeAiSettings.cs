@@ -1,4 +1,5 @@
 using System;
+using System.Configuration;
 using System.IO;
 using Newtonsoft.Json;
 
@@ -27,6 +28,7 @@ namespace Hiatme_Tool_Suite_v3
             var merged = new HiatmeAiSettings();
             TryMergeFile(merged, DefaultsConfigPath);
             TryMergeFile(merged, PersonalConfigPath);
+            ApplyAppConfigOverrides(merged);
             ApplyEnvironmentOverrides(merged);
             return merged;
         }
@@ -48,6 +50,16 @@ namespace Hiatme_Tool_Suite_v3
                 target.UseServerGeo = part.UseServerGeo;
             }
             catch { }
+        }
+
+        private static void ApplyAppConfigOverrides(HiatmeAiSettings s)
+        {
+            var url = ConfigurationManager.AppSettings["HiatmeAiBaseUrl"];
+            if (!string.IsNullOrWhiteSpace(url))
+                s.BaseUrl = url.Trim();
+            var tok = ConfigurationManager.AppSettings["HiatmeAiApiToken"];
+            if (!string.IsNullOrWhiteSpace(tok))
+                s.ApiToken = tok.Trim();
         }
 
         private static void ApplyEnvironmentOverrides(HiatmeAiSettings s)

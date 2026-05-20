@@ -301,6 +301,13 @@
     <Compile Include="HiatmeAiClient.cs" />
     <Compile Include="HiatmeSchedulePatch.cs" />
     <Compile Include="HiatmeScheduleContextBuilder.cs" />
+    <Compile Include="WellRydeDispatcherIdentity.cs" />
+    <Compile Include="SupeyMapMarkerInfo.cs" />
+    <Compile Include="SupeyDraggableMarker.cs" />
+    <Compile Include="SupeyMapMarkerDrag.cs" />
+    <Compile Include="SupeyGeocodeFixForm.cs" />
+    <Compile Include="SupeyTripGeocodeStatus.cs" />
+    <Compile Include="SupeyScheduleGeocoder.cs" />
     <Compile Include="HiatmeSchedulePatchApplier.cs" />
     <Compile Include="HiatmeAiScheduleMapper.cs" />
     <Compile Include="HiatmeTripLookup.cs" />
@@ -329,10 +336,14 @@
       <DependentUpon>Resources.resx</DependentUpon>
       <DesignTime>True</DesignTime>
     </Compile>
-    <None Include="hiatme_ai.defaults.json">
+    <!-- Local hiatme_ai.defaults.json (gitignored) copies to bin; else example without token. -->
+    <None Include="hiatme_ai.defaults.json" Condition="Exists('hiatme_ai.defaults.json')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <None Include="hiatme_ai.defaults.json.example" />
+    <None Include="hiatme_ai.defaults.json.example" Condition="!Exists('hiatme_ai.defaults.json')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <TargetPath>hiatme_ai.defaults.json</TargetPath>
+    </None>
     <None Include="packages.config" />
     <None Include="Properties\Settings.settings">
       <Generator>SettingsSingleFileGenerator</Generator>

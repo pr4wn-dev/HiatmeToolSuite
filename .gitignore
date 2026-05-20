@@ -1,6 +1,9 @@
-# Local AI connection (contains API token)
-hiatme_ai.defaults.json
-hiatme_ai.json
+# Nested clone for local dev (separate git repo)
+AIagent/
+
+# Local AI connection (contains API token) — never commit
+**/hiatme_ai.defaults.json
+**/hiatme_ai.json
 
 # Visual Studio
 .vs/
