@@ -96,15 +96,75 @@ namespace Hiatme_Tool_Suite_v3
             _legendHost.Controls.Add(_legend);
             _legendHost.Controls.Add(legendHeader);
 
+            // Empty-state composition: full-fill backdrop in the panel surface color, with
+            // a centered "card" carrying a glyph + headline + sub-line. Reads like a
+            // proper empty state, not a stranded run of label text.
             _emptyLabel = new Label
             {
                 Dock = DockStyle.Fill,
-                Text = "Build a schedule to see driver routes here.",
-                TextAlign = ContentAlignment.MiddleCenter,
-                ForeColor = Color.Silver,
-                BackColor = Color.FromArgb(40, 40, 40),
-                Font = new Font("Segoe UI", 11f),
+                Text = "",
+                BackColor = SupeyTheme.SurfaceBase,
                 Visible = true,
+            };
+
+            var emptyCard = new TableLayoutPanel
+            {
+                BackColor = Color.Transparent,
+                ColumnCount = 1,
+                RowCount = 3,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                Anchor = AnchorStyles.None,
+            };
+            emptyCard.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            emptyCard.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            emptyCard.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+            var glyph = new Label
+            {
+                Text = "🗺",
+                Font = new Font("Segoe UI Emoji", 36f),
+                ForeColor = SupeyTheme.TextMuted,
+                AutoSize = true,
+                TextAlign = ContentAlignment.MiddleCenter,
+                Margin = new Padding(0, 0, 0, 8),
+                Anchor = AnchorStyles.None,
+            };
+            var head = new Label
+            {
+                Text = "No schedule on screen yet",
+                Font = new Font("Segoe UI Semibold", 13f),
+                ForeColor = SupeyTheme.TextPrimary,
+                AutoSize = true,
+                TextAlign = ContentAlignment.MiddleCenter,
+                Margin = new Padding(0, 0, 0, 4),
+                Anchor = AnchorStyles.None,
+            };
+            var sub = new Label
+            {
+                Text = "Pick a service date · LOAD TRIPS · BUILD",
+                Font = SupeyTheme.BodyFont,
+                ForeColor = SupeyTheme.TextMuted,
+                AutoSize = true,
+                TextAlign = ContentAlignment.MiddleCenter,
+                Anchor = AnchorStyles.None,
+            };
+            emptyCard.Controls.Add(glyph, 0, 0);
+            emptyCard.Controls.Add(head, 0, 1);
+            emptyCard.Controls.Add(sub, 0, 2);
+
+            // Center the card in the empty-label surface. Re-anchor on resize so it stays
+            // pinned dead-center even when the user drags the splitter.
+            _emptyLabel.Controls.Add(emptyCard);
+            _emptyLabel.Resize += (s, e) =>
+            {
+                emptyCard.Left = Math.Max(0, (_emptyLabel.ClientSize.Width - emptyCard.Width) / 2);
+                emptyCard.Top = Math.Max(0, (_emptyLabel.ClientSize.Height - emptyCard.Height) / 2);
+            };
+            _emptyLabel.HandleCreated += (s, e) =>
+            {
+                emptyCard.Left = Math.Max(0, (_emptyLabel.ClientSize.Width - emptyCard.Width) / 2);
+                emptyCard.Top = Math.Max(0, (_emptyLabel.ClientSize.Height - emptyCard.Height) / 2);
             };
 
             Controls.Add(_map);
@@ -173,7 +233,6 @@ namespace Hiatme_Tool_Suite_v3
             _currentPlan = null;
             _tripMarkers.Clear();
             _focusOverlay = null;
-            _emptyLabel.Text = "Build a schedule to see driver routes here.";
             _emptyLabel.Visible = true;
             _legendHost.Visible = false;
         }

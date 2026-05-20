@@ -15,6 +15,8 @@ namespace Hiatme_Tool_Suite_v3
         public FİleManager(Socket s, string aydi)
         {
             InitializeComponent();
+            SupeyListViewHelpers.EnableDoubleBufferRecursively(this);
+            SupeyDarkScrollBars.Apply(this);
             soketimiz = s;
             ID = aydi;
             dizin_yukari.ImageIndex = 13;

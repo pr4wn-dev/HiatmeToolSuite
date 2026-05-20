@@ -152,6 +152,7 @@ namespace Hiatme_Tool_Suite_v3
         public List<string> PuLate { get; } = new List<string>();
         public List<string> DoInfeasible { get; } = new List<string>();
         public List<string> TimeConflict { get; } = new List<string>();
+        public List<string> PolicyAvoid { get; } = new List<string>();
 
         /// <summary>
         /// Free-form note attached to the most-recent DO-infeasibility — names the specific rider
@@ -162,12 +163,13 @@ namespace Hiatme_Tool_Suite_v3
 
         public int TotalRejections =>
             Capacity.Count + ShiftStart.Count + ShiftEnd.Count
-            + PuLate.Count + DoInfeasible.Count + TimeConflict.Count;
+            + PuLate.Count + DoInfeasible.Count + TimeConflict.Count + PolicyAvoid.Count;
 
         public void Clear()
         {
             Capacity.Clear(); ShiftStart.Clear(); ShiftEnd.Clear();
             PuLate.Clear(); DoInfeasible.Clear(); TimeConflict.Clear();
+            PolicyAvoid.Clear();
             LateRiderNote = null;
         }
 
@@ -196,6 +198,7 @@ namespace Hiatme_Tool_Suite_v3
             Append("PU late", PuLate);
             Append("time-conflict", TimeConflict);
             Append("DO infeasible", DoInfeasible);
+            Append("policy avoid", PolicyAvoid);
             if (!string.IsNullOrEmpty(LateRiderNote))
                 sb.Append(" — ").Append(LateRiderNote);
             return sb.ToString();

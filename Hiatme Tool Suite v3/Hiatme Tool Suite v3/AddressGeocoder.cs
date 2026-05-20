@@ -107,6 +107,30 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         /// <summary>
+        /// Read-only cache probe: returns true if we already have a coord (or remembered miss) for
+        /// this address. Does NOT call Nominatim or the AI server, and does not touch the hit/miss
+        /// counters. Used by the build prefetch pass to count "X cached vs Y new" up front so the
+        /// dispatcher knows what they're waiting on.
+        /// </summary>
+        /// <remarks>
+        /// Only reflects the local Tool Suite cache. With <see cref="HiatmeGeoSettings.UseServer"/>
+        /// the AI server has its own (typically larger) cache; on a fresh client install this will
+        /// under-report hits until the local cache fills via write-through. That's fine — the
+        /// prefetch loop just spends an extra 0-RTT call to the server which returns instantly for
+        /// already-cached entries.
+        /// </remarks>
+        public static bool IsCached(string street, string city, string state, string zip, string countryCode)
+        {
+            string key = NormalizeKey(street, city, state, zip, countryCode);
+            if (string.IsNullOrEmpty(key)) return false;
+            EnsureDiskCacheLoaded();
+            lock (_cache)
+            {
+                return _cache.ContainsKey(key);
+            }
+        }
+
+        /// <summary>
         /// Lazy-loads the persisted cache the first time a resolve happens. Idempotent — repeat
         /// calls after a successful load are no-ops. A corrupt file is logged-and-skipped so the
         /// app continues with an empty cache rather than crashing.

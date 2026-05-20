@@ -26,14 +26,19 @@ namespace Hiatme_Tool_Suite_v3
     internal partial class SupeyImportFromWellRydeForm : MaterialForm
     {
         private static readonly Color FormBg = Color.FromArgb(33, 33, 33);
-        private static readonly Color ListBg = Color.FromArgb(70, 70, 70);
-        private static readonly Color ListSelected = Color.RoyalBlue;
+        // Pulled into SupeyTheme so this dialog stays in lockstep with the Supey
+        // schedule listviews. Old hard-coded #464646 / RoyalBlue replaced with
+        // the muted dark surface + tinted blue selection from SupeyTheme.List*.
+        private static Color ListBg => SupeyTheme.ListBody;
+        private static Color ListSelected => SupeyTheme.ListSelected;
         private static readonly Color ListAlreadyAdded = Color.FromArgb(58, 70, 58); // muted green tint
-        private static readonly Color ListText = Color.White;
-        private static readonly Color ListTextDim = Color.LightGray;
+        private static Color ListText => SupeyTheme.ListText;
+        private static Color ListSelectedText => SupeyTheme.ListSelectedText;
+        private static Color ListTextDim => Color.FromArgb(170, 170, 170);
         // Owner-draw mode shortcuts the framework's GridLines rendering, so we paint cell
-        // borders ourselves to match the legacy listview look the user expects.
-        private static readonly Color ListGrid = Color.FromArgb(56, 56, 56);
+        // borders ourselves; pulled to the unified SupeyTheme.ListGrid so the
+        // weight matches the Supey tab.
+        private static Color ListGrid => SupeyTheme.ListGrid;
 
         private readonly WellRydePortalSession _session;
         private readonly HashSet<string> _alreadyImportedSecIds;
@@ -90,6 +95,10 @@ namespace Hiatme_Tool_Suite_v3
             catch { }
 
             BuildUi();
+            // Driver-list (and any other ListView added inside BuildUi) needs its row paints
+            // double-buffered or the first selection flashes gray-without-text.
+            SupeyListViewHelpers.EnableDoubleBufferRecursively(this);
+            SupeyDarkScrollBars.Apply(this);
             UpdateButtonStates();
         }
 
@@ -169,7 +178,7 @@ namespace Hiatme_Tool_Suite_v3
                 Size = new Size(920, 340),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom,
                 BackColor = ListBg,
-                ForeColor = Color.Gainsboro,
+                ForeColor = ListText,
                 BorderStyle = BorderStyle.FixedSingle,
                 Font = new Font("Archivo Medium", 9.75f),
                 FullRowSelect = true,
@@ -501,16 +510,19 @@ namespace Hiatme_Tool_Suite_v3
 
         private void OnDrawColumnHeader(object sender, DrawListViewColumnHeaderEventArgs e)
         {
-            // Match the trips preview / roster ListView header for visual consistency:
-            // 51/51/51 background, Gainsboro Archivo Medium 11pt label.
-            using (var bg = new SolidBrush(Color.FromArgb(51, 51, 51)))
+            // Match the Supey schedule ListView header chrome — pulls from the
+            // unified SupeyTheme.List* slots so the import dialog and the Supey
+            // tab read as one app.
+            using (var bg = new SolidBrush(SupeyTheme.ListHeader))
             {
                 e.Graphics.FillRectangle(bg, e.Bounds);
             }
+            using (var pen = new Pen(SupeyTheme.Divider, 1f))
+                e.Graphics.DrawLine(pen, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
             using (var fnt = new Font("Archivo Medium", 11f))
             {
                 var bounds = new Rectangle(e.Bounds.Left + 6, e.Bounds.Top, e.Bounds.Width - 6, e.Bounds.Height);
-                TextRenderer.DrawText(e.Graphics, e.Header.Text ?? "", fnt, bounds, Color.Gainsboro,
+                TextRenderer.DrawText(e.Graphics, e.Header.Text ?? "", fnt, bounds, SupeyTheme.ListHeaderText,
                     TextFormatFlags.Left | TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter);
             }
         }
@@ -542,23 +554,23 @@ namespace Hiatme_Tool_Suite_v3
                 e.Graphics.FillRectangle(brush, e.Bounds);
             }
 
-            // Column 0 (Use) carries the standard checkbox glyph drawn by the framework when the
-            // owner-draw item handler returns without painting it. We let the default checkbox
-            // renderer handle that — but ListView's owner-draw mode requires us to manually call
-            // it via DrawDefault for the first sub-item. To keep things simple we skip drawing
-            // text for the first sub-item and let the system render the checkbox when DrawDefault
-            // is set.
+            // Column 0 (Use) — paint the modern flat checkbox via the shared
+            // SupeyListViewHelpers.DrawModernCheckbox helper so this dialog's
+            // checkbox matches the Drivers roster on the Supey tab. Click-to-
+            // toggle is still owned by the ListView (CheckBoxes = true); we just
+            // override the visual.
             if (e.ColumnIndex == 0)
             {
-                e.DrawDefault = true;
-                DrawCellGridLines(e.Graphics, e.Bounds);
+                SupeyListViewHelpers.DrawModernCheckbox(e.Graphics, e.Bounds,
+                    e.Item != null && e.Item.Checked, selected);
+                SupeyListViewHelpers.DrawCellGridLines(e.Graphics, e.Bounds);
                 return;
             }
 
             Color fg;
-            if (selected) fg = Color.White;
+            if (selected) fg = ListSelectedText;
             else if (already) fg = Color.LightGreen;
-            else if (noAddress) fg = Color.IndianRed;
+            else if (noAddress) fg = SupeyTheme.ErrorText;
             else fg = ListText;
 
             var bounds = new Rectangle(e.Bounds.Left + 8, e.Bounds.Top, e.Bounds.Width - 12, e.Bounds.Height);
@@ -566,20 +578,7 @@ namespace Hiatme_Tool_Suite_v3
                 | TextFormatFlags.VerticalCenter | TextFormatFlags.WordEllipsis | TextFormatFlags.GlyphOverhangPadding;
             TextRenderer.DrawText(e.Graphics, e.SubItem.Text ?? "", _driverList.Font, bounds, fg, flags);
 
-            DrawCellGridLines(e.Graphics, e.Bounds);
-        }
-
-        /// <summary>
-        /// Owner-draw bypasses <see cref="ListView.GridLines"/>; we restore the grid by hand so the
-        /// dialog matches the rest of the suite's listviews.
-        /// </summary>
-        private static void DrawCellGridLines(System.Drawing.Graphics g, Rectangle bounds)
-        {
-            using (var pen = new Pen(ListGrid, 1f))
-            {
-                g.DrawLine(pen, bounds.Right - 1, bounds.Top, bounds.Right - 1, bounds.Bottom - 1);
-                g.DrawLine(pen, bounds.Left, bounds.Bottom - 1, bounds.Right - 1, bounds.Bottom - 1);
-            }
+            SupeyListViewHelpers.DrawCellGridLines(e.Graphics, e.Bounds);
         }
 
         private bool ItemIsAlreadyImported(ListViewItem item)

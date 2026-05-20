@@ -264,6 +264,7 @@
     <Compile Include="SupeyRouteCache.cs" />
     <Compile Include="SupeyTemplateHints.cs" />
     <Compile Include="SupeyScheduleAlgorithm.cs" />
+    <Compile Include="SupeyScheduleRules.cs" />
     <Compile Include="SupeyClusterRouting.cs" />
     <Compile Include="SupeyCollapsiblePanel.cs">
       <SubType>Component</SubType>
@@ -304,7 +305,12 @@
     <Compile Include="WellRydeDispatcherIdentity.cs" />
     <Compile Include="SupeyMapMarkerInfo.cs" />
     <Compile Include="SupeyDraggableMarker.cs" />
+    <Compile Include="SupeyListViewHelpers.cs" />
+    <Compile Include="SupeyDarkScrollBars.cs" />
+    <Compile Include="SupeyButton.cs" />
     <Compile Include="SupeyMapMarkerDrag.cs" />
+    <Compile Include="SupeyStatusPill.cs" />
+    <Compile Include="SupeyTheme.cs" />
     <Compile Include="SupeyGeocodeFixForm.cs" />
     <Compile Include="SupeyTripGeocodeStatus.cs" />
     <Compile Include="SupeyScheduleGeocoder.cs" />

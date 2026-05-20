@@ -120,6 +120,9 @@ namespace Hiatme_Tool_Suite_v3
         public SupeyTemplateHints Hints { get; set; }
         public bool UseTemplateHints { get; set; }
 
+        /// <summary>Human-accepted rules from AIagent (hard avoidances, preferred pairings).</summary>
+        public SupeyScheduleRules ScheduleRules { get; set; }
+
         public SupeyRouteCache RouteCache { get; } = new SupeyRouteCache();
 
         /// <summary>
@@ -141,10 +144,60 @@ namespace Hiatme_Tool_Suite_v3
             if (trips == null) trips = new List<MCDownloadedTrip>();
             if (drivers == null) drivers = new List<SupeyDriverProfile>();
 
-            // -------- Phase 1: Geocode --------
-            // Reset hit/miss counters so the progress log reports per-build stats — that's how
-            // the user verifies the persistent cache is actually working between runs.
+            // -------- Phase 0: Geocode prefetch --------
+            // Many trips share PU or DO addresses (e.g. 8 riders all going to the same dialysis
+            // clinic). Without dedupe, the per-trip loop below would still resolve correctly
+            // (cache deduplicates after the first hit) but the dispatcher couldn't see how many
+            // *unique* new addresses needed Nominatim until the loop was nearly done. The
+            // prefetch pass scans every PU/DO/driver-home, dedupes by normalized address key,
+            // and reports "X cached, Y new" up front so the user knows exactly how long the
+            // 1-req/sec Nominatim phase will take.
+            //
+            // After this pass the cache is warm; the per-trip loop in Phase 1 is pure cache
+            // reads (microseconds per call).
             AddressGeocoder.ResetCounters();
+            var seenKey = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var uniqueTripAddrs = new List<(string street, string city)>();
+            var uniqueDriverHomes = new List<SupeyDriverProfile>();
+
+            foreach (var t in trips)
+            {
+                if (TryAddUniqueTripAddr(seenKey, t.PUStreet, t.PUCity)) uniqueTripAddrs.Add((t.PUStreet, t.PUCity));
+                if (TryAddUniqueTripAddr(seenKey, t.DOStreet, t.DOCITY)) uniqueTripAddrs.Add((t.DOStreet, t.DOCITY));
+            }
+            foreach (var d in drivers)
+            {
+                string dk = "drv|" + (d.HomeStreet ?? "").Trim().ToLowerInvariant() + "|" +
+                    (d.HomeCity ?? "").Trim().ToLowerInvariant() + "|" + (d.HomeZip ?? "").Trim();
+                if (seenKey.Add(dk)) uniqueDriverHomes.Add(d);
+            }
+
+            int alreadyCached = 0;
+            int needFetch = 0;
+            foreach (var addr in uniqueTripAddrs)
+            {
+                if (AddressGeocoder.IsCached(addr.street, addr.city, "ME", "", "us")) alreadyCached++;
+                else needFetch++;
+            }
+            foreach (var d in uniqueDriverHomes)
+            {
+                if (AddressGeocoder.IsCached(d.HomeStreet, d.HomeCity, d.HomeState, d.HomeZip, "us")) alreadyCached++;
+                else needFetch++;
+            }
+            int totalUnique = uniqueTripAddrs.Count + uniqueDriverHomes.Count;
+
+            if (needFetch == 0)
+            {
+                progress?.Report("Geocode: all " + totalUnique + " unique addresses already cached.");
+            }
+            else
+            {
+                int estSeconds = (int)Math.Ceiling(needFetch * 1.1);
+                progress?.Report("Geocode: " + totalUnique + " unique addresses (" + alreadyCached +
+                    " cached, " + needFetch + " new — about " + estSeconds + "s).");
+            }
+
+            // -------- Phase 1: Geocode --------
             progress?.Report("Geocoding " + trips.Count + " trips and " + drivers.Count + " drivers...");
             var tripGeo = new Dictionary<MCDownloadedTrip, SupeyTripGeo>();
             int doneTrips = 0;
@@ -394,6 +447,19 @@ namespace Hiatme_Tool_Suite_v3
         /// won't be assigned to the 4-seat sedan. Capped at <see cref="AbsoluteCapacityFloor"/>
         /// as a sanity ceiling regardless.
         /// </summary>
+        /// <summary>
+        /// Adds a normalized (street, city) tuple to the seen set; returns true on first sight.
+        /// Used by the Phase 0 geocode prefetch to count unique addresses without double-counting
+        /// trips that share PU/DO with another trip in the same load.
+        /// </summary>
+        private static bool TryAddUniqueTripAddr(HashSet<string> seen, string street, string city)
+        {
+            string s = (street ?? "").Trim().ToLowerInvariant();
+            string c = (city ?? "").Trim().ToLowerInvariant();
+            if (s.Length == 0 && c.Length == 0) return false;
+            return seen.Add("trip|" + s + "|" + c);
+        }
+
         private static int ResolveCapacityFloor(IEnumerable<SupeyDriverProfile> drivers)
         {
             int floor = AbsoluteCapacityFloor;
@@ -1420,6 +1486,12 @@ namespace Hiatme_Tool_Suite_v3
                 return false;
             }
 
+            if (ScheduleRules != null && ScheduleRules.IsDriverBlockedForCluster(p.Driver.Name, cluster))
+            {
+                if (recordRejections) cluster.Rejections.PolicyAvoid.Add(p.Driver.Name);
+                return false;
+            }
+
             var shiftStart = p.Driver.ParseShiftStart();
             var shiftEnd = p.Driver.ParseShiftEnd();
             if (shiftStart.HasValue && cluster.EarliestPickup < shiftStart.Value)
@@ -1505,6 +1577,9 @@ namespace Hiatme_Tool_Suite_v3
                     cost -= Math.Min(UnderloadedMaxCreditSeconds, under * UnderloadedCreditPerRiderSeconds);
                 }
             }
+
+            if (ScheduleRules != null)
+                cost -= ScheduleRules.PreferredPairingBonusSeconds(cluster, p.Driver.Name);
 
             if (UseTemplateHints && Hints != null && Hints.HasAnyTemplate)
             {

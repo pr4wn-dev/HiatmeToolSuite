@@ -57,6 +57,12 @@ namespace Hiatme_Tool_Suite_v3
         public string TraceId { get; set; }
     }
 
+    internal sealed class HiatmeAiPreReviewResponse
+    {
+        public List<string> Warnings { get; set; } = new List<string>();
+        public JObject RulesContext { get; set; }
+    }
+
     /// <summary>Unified Send response — chat or schedule update.</summary>
     internal sealed class HiatmeAiMessageResponse
     {
@@ -83,6 +89,33 @@ namespace Hiatme_Tool_Suite_v3
 
         [JsonProperty("warnings")]
         public List<string> Warnings { get; set; }
+
+        /// <summary>Path B address-change proposal — set when chat detects "X moved to Y".</summary>
+        [JsonProperty("proposed_address_change")]
+        public HiatmeProposedAddressChange ProposedAddressChange { get; set; }
+    }
+
+    /// <summary>Driver address-change proposal queued by the AI; awaits dispatcher confirmation.</summary>
+    internal sealed class HiatmeProposedAddressChange
+    {
+        [JsonProperty("kind")] public string Kind { get; set; }
+        [JsonProperty("id")] public string Id { get; set; }
+        [JsonProperty("driver_name")] public string DriverName { get; set; }
+        [JsonProperty("current_home_pretty")] public string CurrentHomePretty { get; set; }
+        [JsonProperty("proposed_home_pretty")] public string ProposedHomePretty { get; set; }
+        [JsonProperty("source_message")] public string SourceMessage { get; set; }
+        [JsonProperty("ai_hint")] public string AiHint { get; set; }
+        [JsonProperty("proposed_home")] public HiatmeProposedHome ProposedHome { get; set; }
+    }
+
+    internal sealed class HiatmeProposedHome
+    {
+        [JsonProperty("street")] public string Street { get; set; }
+        [JsonProperty("city")] public string City { get; set; }
+        [JsonProperty("state")] public string State { get; set; }
+        [JsonProperty("zip")] public string Zip { get; set; }
+        [JsonProperty("lat")] public double? Lat { get; set; }
+        [JsonProperty("lon")] public double? Lon { get; set; }
     }
 
     internal static class HiatmeAiClient
@@ -121,6 +154,77 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        /// <summary>Standing-rule warnings before BUILD (accepted rules + memory).</summary>
+        public static async Task<HiatmeAiPreReviewResponse> PreReviewAsync(
+            HiatmeAiSettings settings,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null) return null;
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl)) return null;
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Post, baseUrl + "/api/hiatme/pre-review"))
+                {
+                    req.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
+                    {
+                        if (!resp.IsSuccessStatusCode) return null;
+                        var root = JObject.Parse(await resp.Content.ReadAsStringAsync().ConfigureAwait(false));
+                        var warnings = new List<string>();
+                        foreach (var w in root["warnings"] as JArray ?? new JArray())
+                        {
+                            var s = w?.ToString();
+                            if (!string.IsNullOrWhiteSpace(s)) warnings.Add(s.Trim());
+                        }
+                        return new HiatmeAiPreReviewResponse
+                        {
+                            Warnings = warnings,
+                            RulesContext = root["rules_context"] as JObject,
+                        };
+                    }
+                }
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        public static async Task SendDispatchFeedbackKindAsync(
+            HiatmeAiSettings settings,
+            string kind,
+            JObject payload,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null) throw new ArgumentNullException(nameof(settings));
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl)) return;
+            var path = string.Equals(kind, "bad", StringComparison.OrdinalIgnoreCase)
+                ? "/api/hiatme/feedback/bad"
+                : "/api/hiatme/feedback/good";
+            var body = payload ?? new JObject();
+            body["client_id"] = settings.ResolvedClientId();
+            using (var req = new HttpRequestMessage(HttpMethod.Post, baseUrl + path))
+            {
+                req.Content = new StringContent(body.ToString(Formatting.None), Encoding.UTF8, "application/json");
+                if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                    req.Headers.Authorization = new AuthenticationHeaderValue(
+                        "Bearer", settings.ApiToken.Trim());
+                using (var resp = await SharedHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
+                {
+                    if (!resp.IsSuccessStatusCode)
+                    {
+                        var txt = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        throw new InvalidOperationException("Dispatch feedback failed: " + txt);
+                    }
+                }
+            }
+        }
+
         public static async Task SendFeedbackAsync(
             HiatmeAiSettings settings,
             int rating,
@@ -150,6 +254,67 @@ namespace Hiatme_Tool_Suite_v3
                         throw new InvalidOperationException("Feedback failed: " + txt);
                     }
                 }
+            }
+        }
+
+        /// <summary>Approve a queued driver address change (Path B). Returns true on success.</summary>
+        public static async Task<bool> ApproveAddressChangeAsync(
+            HiatmeAiSettings settings,
+            string changeId,
+            string decidedBy = null,
+            CancellationToken cancellationToken = default)
+        {
+            return await PostAddressChangeDecisionAsync(
+                settings, changeId, "approve", decidedBy, cancellationToken).ConfigureAwait(false);
+        }
+
+        /// <summary>Reject a queued driver address change. Returns true on success.</summary>
+        public static async Task<bool> RejectAddressChangeAsync(
+            HiatmeAiSettings settings,
+            string changeId,
+            string decidedBy = null,
+            CancellationToken cancellationToken = default)
+        {
+            return await PostAddressChangeDecisionAsync(
+                settings, changeId, "reject", decidedBy, cancellationToken).ConfigureAwait(false);
+        }
+
+        private static async Task<bool> PostAddressChangeDecisionAsync(
+            HiatmeAiSettings settings,
+            string changeId,
+            string action,
+            string decidedBy,
+            CancellationToken cancellationToken)
+        {
+            if (settings == null) return false;
+            if (string.IsNullOrWhiteSpace(changeId)) return false;
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl)) return false;
+
+            var url = baseUrl + "/api/hiatme/driver/pending-address-changes/" +
+                      Uri.EscapeDataString(changeId) + "/" + action;
+            var body = new JObject
+            {
+                ["client_id"] = settings.ResolvedClientId(),
+                ["decided_by"] = decidedBy ?? "",
+            };
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Post, url))
+                {
+                    req.Content = new StringContent(body.ToString(Formatting.None), Encoding.UTF8, "application/json");
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
+                    {
+                        return resp.IsSuccessStatusCode;
+                    }
+                }
+            }
+            catch
+            {
+                return false;
             }
         }
 

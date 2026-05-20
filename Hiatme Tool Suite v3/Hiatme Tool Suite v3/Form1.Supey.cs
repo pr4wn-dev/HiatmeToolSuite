@@ -35,16 +35,23 @@ namespace Hiatme_Tool_Suite_v3
         private SupeyCollapsiblePanel _supeyDriversCollapsible;
         private SupeyCollapsiblePanel _supeyTripsCollapsible;
         private SupeyCollapsiblePanel _supeyRightCollapsible;
+        // Draggable bars between the docked side panels. They show only while their
+        // collapsible neighbor is expanded — a splitter on a 34px-wide collapsed panel
+        // would resize a sliver of the title strip and confuse users.
+        private Splitter _supeyDriversSplitter;
+        private Splitter _supeyAiSplitter;
+        private Splitter _supeyInfoSplitter;
         private MaterialLabel _supeyTemplateCompareLbl;
 
         private RJDatePicker _supeyDatePicker;
-        private MaterialButton _supeyLoadBtn;
-        private MaterialButton _supeyBuildBtn;
-        private MaterialButton _supeySaveBtn;
-        private MaterialButton _supeyCancelBtn;
+        private SupeyButton _supeyLoadBtn;
+        private SupeyButton _supeyBuildBtn;
+        private SupeyButton _supeySaveBtn;
+        private SupeyButton _supeyCancelBtn;
         private MaterialLabel _supeyScheduleUpdatedLbl;
-        private MaterialLabel _supeyToolbarStatusLbl;
-        private MaterialLabel _supeyOsrmStatusLbl;
+        private Label _supeyToolbarStatusLbl;
+        private MaterialLabel _supeyOsrmStatusLbl;          // legacy alias — not visible
+        private SupeyStatusPill _supeyOsrmStatusPill;       // the actual visible OSRM badge
 
         private MaterialProgressBar _supeyProgressBar;
         private MaterialLabel _supeyStatsLbl;
@@ -56,12 +63,12 @@ namespace Hiatme_Tool_Suite_v3
         private ColumnHeader _supeyDriversColCap;
         private ColumnHeader _supeyDriversColShift;
         private ColumnHeader _supeyDriversColRelease;
-        private MaterialButton _supeyDriverAddBtn;
-        private MaterialButton _supeyDriverEditBtn;
-        private MaterialButton _supeyDriverRemoveBtn;
-        private MaterialButton _supeyDriverSaveBtn;
-        private MaterialButton _supeyDriverPullBtn;
-        private MaterialLabel _supeyRosterFooter;
+        private SupeyButton _supeyDriverAddBtn;
+        private SupeyButton _supeyDriverEditBtn;
+        private SupeyButton _supeyDriverRemoveBtn;
+        private SupeyButton _supeyDriverSaveBtn;
+        private SupeyButton _supeyDriverPullBtn;
+        private Label _supeyRosterFooter;
         private Label _supeyDriversEmptyHint;
 
         private ComboBox _supeyPreviewDriverCb;
@@ -119,158 +126,252 @@ namespace Hiatme_Tool_Suite_v3
             UpdateSupeyButtonStates();
             SetSupeyStatus("Ready. Pick a service date and click Load Trips.");
             _ = RefreshSupeyOsrmStatusAsync();
+
+            // Belt-and-suspenders: the constructor-time SupeyDarkScrollBars.Apply
+            // walked the form before this tab was built. We hook ControlAdded
+            // recursively so descendants are picked up automatically, but a
+            // direct call here guarantees every control under tabPageSupey gets
+            // the DarkMode_Explorer theme even on the very first render — no
+            // scrollbar should ever appear bright gray on this tab.
+            SupeyDarkScrollBars.Apply(tabPageSupey);
         }
 
         private void BuildSupeyToolbar()
         {
+            // Toolbar = 56px header strip with a 1px bottom divider. Left group holds the
+            // action controls (date + load + build + save + cancel), right group holds the
+            // status pills (OSRM badge + free-form status text). Anchoring the right group
+            // to the right edge means the action cluster never gets pushed off-screen by a
+            // long status string, which used to happen with the old single-flow layout.
             _supeyToolbar = new Panel
             {
                 Dock = DockStyle.Top,
-                Height = 64,
-                BackColor = Color.FromArgb(45, 45, 45),
-                Padding = new Padding(8, 6, 8, 6),
+                Height = 56,
+                BackColor = SupeyTheme.SurfaceHeader,
+                Padding = new Padding(0),
             };
 
-            var flow = new FlowLayoutPanel
+            var divider = new Panel
             {
-                Dock = DockStyle.Fill,
+                Dock = DockStyle.Bottom,
+                Height = 1,
+                BackColor = SupeyTheme.Divider,
+            };
+
+            var leftFlow = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Left,
                 FlowDirection = FlowDirection.LeftToRight,
                 WrapContents = false,
                 AutoSize = true,
-                BackColor = Color.Transparent,
-                Padding = new Padding(0),
+                BackColor = SupeyTheme.SurfaceHeader,
+                Padding = new Padding(12, 12, 0, 0),
+                Width = 800,
+            };
+
+            var rightFlow = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Right,
+                FlowDirection = FlowDirection.RightToLeft,
+                WrapContents = false,
+                AutoSize = true,
+                BackColor = SupeyTheme.SurfaceHeader,
+                Padding = new Padding(0, 12, 12, 0),
+                Width = 720,
             };
 
             var dateLabel = new Label
             {
-                Text = "Service date:",
+                Text = "Service date",
                 AutoSize = true,
-                ForeColor = Color.Gainsboro,
-                BackColor = Color.Transparent,
-                Font = new Font("Segoe UI", 9f),
-                Margin = new Padding(4, 10, 4, 0),
+                ForeColor = SupeyTheme.TextSecondary,
+                BackColor = SupeyTheme.SurfaceHeader,
+                Font = SupeyTheme.CaptionFont,
+                Margin = new Padding(0, 8, 10, 0),
             };
+            // RJDatePicker needed more breathing room — at 190px the long-form date string
+            // ("Tuesday, May 19, 2026") was crashing into the calendar glyph. 230 fits it
+            // comfortably with weekday + month + day + year.
             _supeyDatePicker = new RJDatePicker
             {
-                Size = new Size(200, 30),
-                Margin = new Padding(0, 6, 12, 0),
-                BorderColor = Color.Black,
+                Size = new Size(232, 30),
+                Margin = new Padding(0, 1, 12, 0),
+                BorderColor = SupeyTheme.BorderSubtle,
                 BorderSize = 1,
-                Font = new Font("Microsoft Sans Serif", 9.75f),
-                SkinColor = Color.FromArgb(64, 64, 64),
-                TextColor = Color.White,
+                Font = new Font("Segoe UI", 9.5f),
+                SkinColor = SupeyTheme.SurfaceElevated,
+                TextColor = SupeyTheme.TextPrimary,
             };
 
-            _supeyLoadBtn = MakeFlatButton("LOAD TRIPS", 0, 0, 110);
-            _supeyLoadBtn.Margin = new Padding(0, 4, 8, 0);
+            var sep1 = MakeToolbarSeparator();
+
+            _supeyLoadBtn = new SupeyButton
+            {
+                Text = "LOAD TRIPS",
+                Kind = SupeyButton.Variant.Primary,
+                Size = new Size(120, 30),
+                Margin = new Padding(0, 1, 6, 0),
+            };
             _supeyLoadBtn.Click += async (s, e) => await OnSupeyLoadClickedAsync();
 
-            _supeyBuildBtn = MakeFlatButton("BUILD", 0, 0, 100);
-            _supeyBuildBtn.Margin = new Padding(0, 4, 8, 0);
+            _supeyBuildBtn = new SupeyButton
+            {
+                Text = "BUILD",
+                Kind = SupeyButton.Variant.Primary,
+                Size = new Size(96, 30),
+                Margin = new Padding(0, 1, 6, 0),
+                Visible = false,
+            };
             _supeyBuildBtn.Click += async (s, e) => await OnSupeyBuildClickedAsync();
 
-            _supeySaveBtn = MakeFlatButton("SAVE WORKBOOK", 0, 0, 150);
-            _supeySaveBtn.Margin = new Padding(0, 4, 8, 0);
+            _supeySaveBtn = new SupeyButton
+            {
+                Text = "SAVE WORKBOOK",
+                Kind = SupeyButton.Variant.Secondary,
+                Size = new Size(146, 30),
+                Margin = new Padding(0, 1, 6, 0),
+                Visible = false,
+            };
             _supeySaveBtn.Click += async (s, e) => await OnSupeySaveClickedAsync();
 
-            _supeyCancelBtn = MakeFlatButton("CANCEL", 0, 0, 100);
-            _supeyCancelBtn.Margin = new Padding(0, 4, 8, 0);
-            _supeyCancelBtn.Type = MaterialButton.MaterialButtonType.Outlined;
-            _supeyCancelBtn.UseAccentColor = false;
-            _supeyCancelBtn.NoAccentTextColor = Color.Gainsboro;
+            _supeyCancelBtn = new SupeyButton
+            {
+                Text = "CANCEL",
+                Kind = SupeyButton.Variant.Outlined,
+                Size = new Size(92, 30),
+                Margin = new Padding(0, 1, 0, 0),
+                Visible = false,
+            };
             _supeyCancelBtn.Click += (s, e) => OnSupeyCancelClicked();
 
-            _supeyToolbarStatusLbl = new MaterialLabel
+            // MaterialLabel forces the MaterialSkin Roboto font + its own line
+            // metrics, which clipped the top of every letter on this label
+            // ("Loaded 145 trips for May 29..." rendered with the upper half of
+            // each character cut off). Plain Label respects Height/Font cleanly
+            // — 28px is enough breathing room for Segoe UI 9.5pt with 4-5px of
+            // padding above and below.
+            _supeyToolbarStatusLbl = new Label
             {
-                Text = "Ready.",
+                Text = "Ready",
                 AutoSize = false,
-                Width = 400,
-                Height = 22,
-                ForeColor = Color.Gainsboro,
-                Margin = new Padding(8, 10, 0, 0),
+                Width = 460,
+                Height = 28,
+                ForeColor = SupeyTheme.TextSecondary,
+                BackColor = SupeyTheme.SurfaceHeader,
+                TextAlign = ContentAlignment.MiddleRight,
+                Font = SupeyTheme.BodyFont,
+                Margin = new Padding(0, 3, 8, 0),
             };
 
+            // OSRM as a real pill on the right side of the toolbar. Click to refresh.
+            _supeyOsrmStatusPill = new SupeyStatusPill
+            {
+                Label = "OSRM …",
+                DotColor = SupeyTheme.TextMuted,
+                Margin = new Padding(0, 5, 0, 0),
+                Cursor = Cursors.Hand,
+            };
+            _supeyOsrmStatusPill.Click += async (s, e) => await RefreshSupeyOsrmStatusAsync();
+            // Keep the legacy MaterialLabel field as a hidden alias so back-compat
+            // callers (RefreshSupeyOsrmStatusAsync etc.) can still write to .Text /
+            // .ForeColor without crashing — we project those onto the pill below.
             _supeyOsrmStatusLbl = new MaterialLabel
             {
-                Text = "OSRM: checking...",
-                AutoSize = true,
-                ForeColor = Color.Gray,
-                Margin = new Padding(8, 10, 0, 0),
+                Visible = false,
+                Width = 1,
+                Height = 1,
+                Location = new Point(-100, -100),
             };
-            _supeyOsrmStatusLbl.MouseClick += async (s, e) => await RefreshSupeyOsrmStatusAsync();
             var osrmTip = "Local OSRM at " + OsrmSettings.LocalBaseUrl + "\r\n" +
                 "Start: tools\\osrm\\scripts\\start-osrm.ps1\r\n" +
                 "See: tools\\osrm\\README.md\r\nClick to refresh.";
             var osrmTipProvider = new ToolTip { AutoPopDelay = 12000, InitialDelay = 400 };
-            osrmTipProvider.SetToolTip(_supeyOsrmStatusLbl, osrmTip);
+            osrmTipProvider.SetToolTip(_supeyOsrmStatusPill, osrmTip);
 
-            flow.Controls.Add(dateLabel);
-            flow.Controls.Add(_supeyDatePicker);
-            flow.Controls.Add(_supeyLoadBtn);
-            flow.Controls.Add(_supeyBuildBtn);
-            flow.Controls.Add(_supeySaveBtn);
-            flow.Controls.Add(_supeyCancelBtn);
-            flow.Controls.Add(_supeyOsrmStatusLbl);
-            flow.Controls.Add(_supeyToolbarStatusLbl);
-            _supeyToolbar.Controls.Add(flow);
+            // Left group — action cluster, ordered LTR.
+            leftFlow.Controls.Add(dateLabel);
+            leftFlow.Controls.Add(_supeyDatePicker);
+            leftFlow.Controls.Add(sep1);
+            leftFlow.Controls.Add(_supeyLoadBtn);
+            leftFlow.Controls.Add(_supeyBuildBtn);
+            leftFlow.Controls.Add(_supeySaveBtn);
+            leftFlow.Controls.Add(_supeyCancelBtn);
+
+            // Right group — status pills, ordered RTL so the OSRM badge sits at the far
+            // right with the status text wrapping toward the center.
+            rightFlow.Controls.Add(_supeyOsrmStatusPill);
+            rightFlow.Controls.Add(_supeyToolbarStatusLbl);
+
+            _supeyToolbar.Controls.Add(rightFlow);
+            _supeyToolbar.Controls.Add(leftFlow);
+            _supeyToolbar.Controls.Add(divider);
+        }
+
+        /// <summary>
+        /// 1×24px vertical hairline used inside the toolbar between logical groups.
+        /// Looks like a CSS border-left, just rendered as a thin Panel.
+        /// </summary>
+        private static Panel MakeToolbarSeparator()
+        {
+            return new Panel
+            {
+                Width = 1,
+                Height = 24,
+                BackColor = SupeyTheme.Divider,
+                Margin = new Padding(4, 6, 12, 0),
+            };
         }
 
         private void BuildSupeyStatusStrip()
         {
+            // Bottom strip is now intentionally minimal: the marquee progress bar on
+            // the left while a build/AI request is in flight, and the warnings link
+            // pinned to the right. Fleet totals moved up into the Trips panel header
+            // (where they sit directly above the schedule they summarize) and free-
+            // form status messages live in the toolbar status pill at the top.
             _supeyStatusStrip = new Panel
             {
                 Dock = DockStyle.Bottom,
-                Height = 38,
-                BackColor = Color.FromArgb(35, 35, 35),
-                Padding = new Padding(8, 4, 8, 4),
+                Height = 28,
+                BackColor = SupeyTheme.SurfaceStatusBar,
+                Padding = new Padding(12, 4, 12, 4),
             };
+            var statusTop = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 1,
+                BackColor = SupeyTheme.Divider,
+            };
+            _supeyStatusStrip.Controls.Add(statusTop);
 
             _supeyProgressBar = new MaterialProgressBar
             {
-                Location = new Point(12, 12),
-                Width = 280,
-                Height = 12,
+                Location = new Point(0, 8),
+                Width = 240,
+                Height = 10,
                 Style = ProgressBarStyle.Marquee,
                 Visible = false,
-            };
-
-            _supeyStatsLbl = new MaterialLabel
-            {
-                Text = "Fleet: -",
-                Location = new Point(310, 8),
-                Width = 700,
-                Height = 22,
-                ForeColor = Color.Gainsboro,
-                AutoSize = false,
-                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
             };
 
             _supeyWarningsLink = new LinkLabel
             {
                 Text = "0 warnings",
-                // The previous Anchor=Top|Right setup was placed at x=1300 in design coordinates,
-                // which left the link off-screen for any form narrower than ~1500. Switch to manual
-                // right-edge positioning so the link sits at a predictable offset regardless of
-                // the form's actual width.
-                Location = new Point(0, 10),
+                Location = new Point(0, 6),
                 Width = 220,
                 Height = 18,
-                ForeColor = Color.Gold,
-                LinkColor = Color.Gold,
-                ActiveLinkColor = Color.Goldenrod,
+                ForeColor = SupeyTheme.WarnText,
+                LinkColor = SupeyTheme.WarnText,
+                ActiveLinkColor = SupeyTheme.TextPrimary,
+                BackColor = SupeyTheme.SurfaceStatusBar,
                 LinkBehavior = LinkBehavior.HoverUnderline,
                 TextAlign = ContentAlignment.MiddleRight,
-                Font = new Font("Segoe UI", 9f),
+                Font = SupeyTheme.CaptionFont,
             };
             _supeyWarningsLink.Click += (s, e) => OnSupeyWarningsLinkClicked();
 
             _supeyStatusStrip.Controls.Add(_supeyProgressBar);
-            _supeyStatusStrip.Controls.Add(_supeyStatsLbl);
             _supeyStatusStrip.Controls.Add(_supeyWarningsLink);
 
-            // Manually pin the warnings link to the strip's right edge (12px gutter) on every
-            // resize. Anchoring proved unreliable here because the design-time location placed the
-            // link off-screen for narrower forms.
             void Reposition()
             {
                 if (_supeyWarningsLink == null || _supeyStatusStrip == null) return;
@@ -309,7 +410,7 @@ namespace Hiatme_Tool_Suite_v3
             _supeyMainHost = new Panel
             {
                 Dock = DockStyle.Fill,
-                BackColor = Color.FromArgb(33, 33, 33),
+                BackColor = SupeyTheme.SurfaceBase,
                 Padding = new Padding(0),
             };
 
@@ -317,48 +418,86 @@ namespace Hiatme_Tool_Suite_v3
             {
                 Dock = DockStyle.Fill,
                 Orientation = Orientation.Horizontal,
-                BackColor = Color.FromArgb(50, 50, 50),
+                BackColor = SupeyTheme.Divider,
                 Panel1MinSize = 120,
                 Panel2MinSize = 72,
-                SplitterWidth = 8,
+                SplitterWidth = 6,
                 FixedPanel = FixedPanel.None,
             };
-            _supeyMainSplit.Panel1.BackColor = Color.FromArgb(33, 33, 33);
-            _supeyMainSplit.Panel2.BackColor = Color.FromArgb(35, 35, 35);
+            _supeyMainSplit.Panel1.BackColor = SupeyTheme.SurfaceBase;
+            _supeyMainSplit.Panel2.BackColor = SupeyTheme.Surface;
             _supeyMainSplit.SizeChanged += (s, e) => EnsureSupeySplitDistance();
             _supeyMainSplit.SplitterMoved += (s, e) => { _supeySplitDistanceInitialized = true; };
 
             var workPanel = new Panel
             {
                 Dock = DockStyle.Fill,
-                BackColor = Color.FromArgb(33, 33, 33),
+                BackColor = SupeyTheme.SurfaceBase,
             };
 
             _supeyMap = new SupeyMapWorkspace { Dock = DockStyle.Fill };
             _supeyMap.SetSupeyStatusOnHost = msg => SetSupeyStatus(msg);
-            workPanel.Controls.Add(_supeyMap);
 
             _supeyDriversCollapsible = new SupeyCollapsiblePanel
             {
                 Title = "Drivers",
                 Dock = DockStyle.Left,
                 ExpandedWidth = 300,
+                MinExpandedWidth = 220,
+                MaxExpandedWidth = 520,
             };
             BuildSupeyDriversPanel(_supeyDriversCollapsible.ContentPanel);
 
             BuildSupeyAiPanel();
+            // Pulled the AI panel's resize bounds out so users can collapse the AI a bit
+            // without losing the prompt and stretch it wider when transcripts get long.
+            if (_supeyAiCollapsible != null)
+            {
+                _supeyAiCollapsible.MinExpandedWidth = 260;
+                _supeyAiCollapsible.MaxExpandedWidth = 560;
+            }
 
             _supeyRightCollapsible = new SupeyCollapsiblePanel
             {
                 Title = "Info",
                 Dock = DockStyle.Right,
                 ExpandedWidth = 280,
+                MinExpandedWidth = 220,
+                MaxExpandedWidth = 520,
             };
             BuildSupeyRightPanel(_supeyRightCollapsible.ContentPanel);
 
-            workPanel.Controls.Add(_supeyAiCollapsible);
-            workPanel.Controls.Add(_supeyRightCollapsible);
+            // ── Workspace dock layout with draggable splitters ────────────────
+            // WinForms Dock semantics: when multiple controls share the same Dock side,
+            // the LAST one added sits closest to the outer edge. So to land on the
+            // intended layout
+            //
+            //   [Drivers | drvSplit | Map | aiSplit | AI | infoSplit | Info]
+            //
+            // we add (in order):
+            //   1. Map        (Fill)        — fills whatever's left
+            //   2. drvSplit   (Left)        — pushed inward by step 3
+            //   3. Drivers    (Left)        — leftmost
+            //   4. aiSplit    (Right)       — pushed inward by steps 5/6/7
+            //   5. AI         (Right)       — pushed inward by 6/7
+            //   6. infoSplit  (Right)       — pushed inward by 7
+            //   7. Info       (Right)       — rightmost
+            //
+            // Each Splitter is a thin draggable bar that resizes the docked control
+            // adjacent to it (the "outer" one on its dock side). MinExtra leaves a
+            // sensible amount of space for the Map (Fill) so users can't drag a side
+            // panel to swallow the whole workspace.
+            _supeyDriversSplitter = MakeDockSplitter(DockStyle.Left, _supeyDriversCollapsible);
+            _supeyAiSplitter = MakeDockSplitter(DockStyle.Right, _supeyAiCollapsible);
+            _supeyInfoSplitter = MakeDockSplitter(DockStyle.Right, _supeyRightCollapsible);
+
+            workPanel.Controls.Add(_supeyMap);
+            workPanel.Controls.Add(_supeyDriversSplitter);
             workPanel.Controls.Add(_supeyDriversCollapsible);
+            workPanel.Controls.Add(_supeyAiSplitter);
+            workPanel.Controls.Add(_supeyAiCollapsible);
+            workPanel.Controls.Add(_supeyInfoSplitter);
+            workPanel.Controls.Add(_supeyRightCollapsible);
             _supeyMainSplit.Panel1.Controls.Add(workPanel);
 
             _supeyTripsCollapsible = new SupeyCollapsiblePanel
@@ -370,6 +509,50 @@ namespace Hiatme_Tool_Suite_v3
             _supeyMainSplit.Panel2.Controls.Add(_supeyTripsCollapsible);
 
             _supeyMainHost.Controls.Add(_supeyMainSplit);
+        }
+
+        /// <summary>
+        /// Builds a styled <see cref="Splitter"/> that sits next to a docked
+        /// <see cref="SupeyCollapsiblePanel"/> and lets the user drag-resize it.
+        /// The splitter:
+        ///   • is hidden while the panel is collapsed (a 34px-tall slice is useless to drag);
+        ///   • clamps the panel's expanded size to the panel's MinExpandedWidth/MaxExpandedWidth;
+        ///   • leaves a sensible MinExtra so the central Map (Fill) can't be squished to nothing.
+        /// </summary>
+        private Splitter MakeDockSplitter(DockStyle dock, SupeyCollapsiblePanel target)
+        {
+            var s = new Splitter
+            {
+                Dock = dock,
+                Width = 4,
+                Height = 4,
+                BackColor = SupeyTheme.Divider,
+                MinSize = target?.MinExpandedWidth > 0 ? target.MinExpandedWidth : 180,
+                MinExtra = 320,
+                Cursor = (dock == DockStyle.Left || dock == DockStyle.Right) ? Cursors.VSplit : Cursors.HSplit,
+                Visible = target?.Expanded ?? true,
+            };
+            // Subtle hover affordance — bar lightens so users notice it's draggable.
+            s.MouseEnter += (sender, e) => { s.BackColor = SupeyTheme.BorderSubtle; };
+            s.MouseLeave += (sender, e) => { s.BackColor = SupeyTheme.Divider; };
+
+            if (target != null)
+            {
+                target.ExpandedChanged += (sender, e) => { s.Visible = target.Expanded; };
+
+                // Enforce the panel's MaxExpandedWidth on splitter drag — WinForms only
+                // honors MinExtra/MinSize directly, so we clamp on SplitterMoved.
+                s.SplitterMoved += (sender, e) =>
+                {
+                    if (target.MaxExpandedWidth > 0 &&
+                        (dock == DockStyle.Left || dock == DockStyle.Right) &&
+                        target.Width > target.MaxExpandedWidth)
+                    {
+                        target.Width = target.MaxExpandedWidth;
+                    }
+                };
+            }
+            return s;
         }
 
         /// <summary>Default trip list to ~38% of workspace height; user drags the split bar after that.</summary>
@@ -391,116 +574,197 @@ namespace Hiatme_Tool_Suite_v3
 
         private void BuildSupeyRightPanel(Panel host)
         {
-            host.Padding = new Padding(4);
-            var warnHeader = new Label
-            {
-                Dock = DockStyle.Top,
-                Height = 24,
-                Text = "Warnings",
-                ForeColor = Color.Gainsboro,
-                Font = new Font("Segoe UI Semibold", 9f),
-            };
-            var warnLink = new LinkLabel
-            {
-                Dock = DockStyle.Top,
-                Height = 22,
-                Text = "View warnings…",
-                LinkColor = Color.LightSkyBlue,
-                ActiveLinkColor = Color.White,
-                VisitedLinkColor = Color.LightSkyBlue,
-            };
-            warnLink.Click += (s, e) => ShowSupeyWarningsModal();
+            host.Padding = new Padding(10, 8, 10, 10);
+            host.BackColor = SupeyTheme.Surface;
 
+            // Two stacked card sections: Warnings (top), Past Weekdays (fill). Each has a
+            // small section header inside the card, NOT a separate label outside, which
+            // gives the panel a proper "documented sections" feel instead of stacked
+            // floating labels.
+            var pastCard = MakeInfoCard(out Label pastTitle, out Panel pastBody);
+            pastCard.Dock = DockStyle.Fill;
+            pastCard.Margin = new Padding(0, 8, 0, 0);
+            pastTitle.Text = "Past weekdays · reference";
+
+            // Use a slightly tighter caption font so the body text doesn't have to
+            // shatter into 3-4-line fragments inside this narrow column.
             _supeyTemplateCompareLbl = new MaterialLabel
             {
                 Dock = DockStyle.Fill,
-                Text = "After BUILD, optional comparison to saved weekday CSVs (reference only — AI uses its own memory).",
-                ForeColor = Color.Silver,
+                Text = "An optional after-BUILD diff against saved weekday CSVs. Reference only — the AI uses its own memory.",
+                ForeColor = SupeyTheme.TextSecondary,
+                BackColor = SupeyTheme.SurfaceElevated,
                 AutoSize = false,
-                Padding = new Padding(4, 12, 4, 4),
+                Font = SupeyTheme.CaptionFont,
+                Padding = new Padding(2, 4, 2, 2),
             };
+            pastBody.Controls.Add(_supeyTemplateCompareLbl);
 
-            var compareHeader = new Label
+            var warnCard = MakeInfoCard(out Label warnTitle, out Panel warnBody);
+            warnCard.Dock = DockStyle.Top;
+            warnCard.Height = 78;
+            warnTitle.Text = "Warnings";
+
+            var warnLink = new LinkLabel
+            {
+                Dock = DockStyle.Fill,
+                Text = "View warnings…",
+                LinkColor = SupeyTheme.TextLink,
+                ActiveLinkColor = SupeyTheme.TextPrimary,
+                VisitedLinkColor = SupeyTheme.TextLink,
+                BackColor = SupeyTheme.SurfaceElevated,
+                Font = SupeyTheme.BodyFont,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Padding = new Padding(2, 0, 0, 0),
+            };
+            warnLink.Click += (s, e) => ShowSupeyWarningsModal();
+            warnBody.Controls.Add(warnLink);
+
+            host.Controls.Add(pastCard);
+            host.Controls.Add(warnCard);
+        }
+
+        /// <summary>
+        /// Build one of the elevated card sections used inside the Info panel. Each card
+        /// has its own 22px title strip on top, a 1px divider, and a body region that the
+        /// caller can populate. Same chrome for every card → consistent reading rhythm.
+        /// </summary>
+        private static Panel MakeInfoCard(out Label title, out Panel body)
+        {
+            var card = new Panel
+            {
+                BackColor = SupeyTheme.SurfaceElevated,
+                Padding = new Padding(10, 6, 10, 10),
+                Margin = new Padding(0),
+            };
+            title = new Label
             {
                 Dock = DockStyle.Top,
-                Height = 24,
-                Text = "Past weekdays (reference)",
-                ForeColor = Color.Gainsboro,
-                Font = new Font("Segoe UI Semibold", 9f),
+                Height = 22,
+                Text = "",
+                ForeColor = SupeyTheme.TextPrimary,
+                BackColor = SupeyTheme.SurfaceElevated,
+                Font = SupeyTheme.SubHeaderFont,
+                TextAlign = ContentAlignment.MiddleLeft,
             };
-
-            host.Controls.Add(_supeyTemplateCompareLbl);
-            host.Controls.Add(compareHeader);
-            host.Controls.Add(warnLink);
-            host.Controls.Add(warnHeader);
-            _supeyTemplateCompareLbl.BringToFront();
+            var sep = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 1,
+                BackColor = SupeyTheme.Divider,
+            };
+            body = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = SupeyTheme.SurfaceElevated,
+                Padding = new Padding(0, 6, 0, 0),
+            };
+            card.Controls.Add(body);
+            card.Controls.Add(sep);
+            card.Controls.Add(title);
+            return card;
         }
 
         private void BuildSupeyDriversPanel(Panel host)
         {
-            var header = new Label
+            // SupeyCollapsiblePanel already paints the section header ("Drivers") at the top
+            // of the panel. We used to add a second redundant in-content "Drivers" label here
+            // which gave the left side that "Drivers / Drivers" double-header look — dropped.
+
+            // The button area is now a 3-row TableLayoutPanel instead of absolute pixel
+            // positioning. That solves a long-standing "buttons clip / overflow on resize"
+            // problem and gives consistent gutters between every cell. Top row = primary
+            // PULL action (full width), middle row = ADD / EDIT / REMOVE / SAVE (4 equal
+            // cells), bottom row = roster footer.
+            var btnRow = new TableLayoutPanel
             {
-                Dock = DockStyle.Top,
-                Height = 28,
-                Text = "Drivers",
-                ForeColor = Color.Gainsboro,
-                BackColor = Color.FromArgb(28, 28, 28),
-                Padding = new Padding(10, 0, 0, 0),
-                TextAlign = ContentAlignment.MiddleLeft,
-                Font = new Font("Segoe UI Semibold", 10f),
+                Dock = DockStyle.Bottom,
+                Height = 132,
+                BackColor = SupeyTheme.SurfaceHeader,
+                Padding = new Padding(10, 10, 10, 10),
+                ColumnCount = 4,
+                RowCount = 3,
             };
+            btnRow.ColumnStyles.Clear();
+            for (int i = 0; i < 4; i++)
+                btnRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25f));
+            btnRow.RowStyles.Clear();
+            btnRow.RowStyles.Add(new RowStyle(SizeType.Absolute, 40f));
+            btnRow.RowStyles.Add(new RowStyle(SizeType.Absolute, 36f));
+            btnRow.RowStyles.Add(new RowStyle(SizeType.Absolute, 24f));
 
-            // Three-row button area: PULL (primary) on top, the manual ADD / EDIT / REMOVE / SAVE
-            // controls on row 2, and the roster footer on row 3.
-            var btnRow = new Panel { Dock = DockStyle.Bottom, Height = 138, BackColor = Color.FromArgb(35, 35, 35), Padding = new Padding(8) };
-
-            _supeyDriverPullBtn = new DarkOnAccentMaterialButton
+            _supeyDriverPullBtn = new SupeyButton
             {
                 Text = "PULL FROM WELLRYDE",
-                Location = new Point(8, 8),
-                AutoSize = false,
-                Size = new Size(220, 36),
-                Type = MaterialButton.MaterialButtonType.Contained,
-                Density = MaterialButton.MaterialButtonDensity.Default,
-                UseAccentColor = true,
-                HighEmphasis = true,
+                Kind = SupeyButton.Variant.Primary,
+                Dock = DockStyle.Fill,
+                Margin = new Padding(0, 0, 0, 6),
             };
             _supeyDriverPullBtn.Click += async (s, e) => await OnSupeyPullFromWellRydeAsync();
+            btnRow.SetColumnSpan(_supeyDriverPullBtn, 4);
 
-            _supeyDriverAddBtn = MakeFlatButton("ADD", 8, 52, 76);
+            _supeyDriverAddBtn = new SupeyButton
+            {
+                Text = "ADD",
+                Kind = SupeyButton.Variant.Secondary,
+                Dock = DockStyle.Fill,
+                Margin = new Padding(0, 0, 4, 0),
+            };
             _supeyDriverAddBtn.Click += (s, e) => OnSupeyDriverAdd();
-            _supeyDriverEditBtn = MakeFlatButton("EDIT", 92, 52, 76);
+
+            _supeyDriverEditBtn = new SupeyButton
+            {
+                Text = "EDIT",
+                Kind = SupeyButton.Variant.Secondary,
+                Dock = DockStyle.Fill,
+                Margin = new Padding(0, 0, 4, 0),
+            };
             _supeyDriverEditBtn.Click += (s, e) => OnSupeyDriverEdit();
-            _supeyDriverRemoveBtn = MakeFlatButton("REMOVE", 176, 52, 96);
+
+            _supeyDriverRemoveBtn = new SupeyButton
+            {
+                Text = "REMOVE",
+                Kind = SupeyButton.Variant.Outlined,
+                Dock = DockStyle.Fill,
+                Margin = new Padding(0, 0, 4, 0),
+            };
             _supeyDriverRemoveBtn.Click += (s, e) => OnSupeyDriverRemove();
-            _supeyDriverRemoveBtn.Type = MaterialButton.MaterialButtonType.Outlined;
-            _supeyDriverRemoveBtn.UseAccentColor = false;
-            _supeyDriverRemoveBtn.NoAccentTextColor = Color.Gainsboro;
-            _supeyDriverSaveBtn = MakeFlatButton("SAVE ROSTER", 280, 52, 100);
+
+            _supeyDriverSaveBtn = new SupeyButton
+            {
+                Text = "SAVE",
+                Kind = SupeyButton.Variant.Secondary,
+                Dock = DockStyle.Fill,
+                Margin = new Padding(0),
+            };
             _supeyDriverSaveBtn.Click += (s, e) => SaveSupeyRosterToDisk(showOk: true);
 
-            _supeyRosterFooter = new MaterialLabel
+            _supeyRosterFooter = new Label
             {
                 Text = "0 drivers",
-                Location = new Point(8, 100),
                 AutoSize = false,
-                Width = 380,
-                Height = 22,
-                ForeColor = Color.Silver,
+                Dock = DockStyle.Fill,
+                ForeColor = SupeyTheme.TextMuted,
+                BackColor = SupeyTheme.SurfaceHeader,
+                Font = SupeyTheme.CaptionFont,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Margin = new Padding(0),
             };
-            btnRow.Controls.Add(_supeyDriverPullBtn);
-            btnRow.Controls.Add(_supeyDriverAddBtn);
-            btnRow.Controls.Add(_supeyDriverEditBtn);
-            btnRow.Controls.Add(_supeyDriverRemoveBtn);
-            btnRow.Controls.Add(_supeyDriverSaveBtn);
-            btnRow.Controls.Add(_supeyRosterFooter);
+
+            btnRow.Controls.Add(_supeyDriverPullBtn, 0, 0);
+            btnRow.Controls.Add(_supeyDriverAddBtn, 0, 1);
+            btnRow.Controls.Add(_supeyDriverEditBtn, 1, 1);
+            btnRow.Controls.Add(_supeyDriverRemoveBtn, 2, 1);
+            btnRow.Controls.Add(_supeyDriverSaveBtn, 3, 1);
+            btnRow.Controls.Add(_supeyRosterFooter, 0, 2);
+            btnRow.SetColumnSpan(_supeyRosterFooter, 4);
 
             _supeyDriversLv = new ListView
             {
                 Dock = DockStyle.Fill,
                 View = View.Details,
-                BackColor = SupeyLvBg,
-                ForeColor = Color.Gainsboro,
+                BackColor = SupeyTheme.ListBody,
+                ForeColor = SupeyTheme.ListText,
                 FullRowSelect = true,
                 // GridLines = true is purely declarative under owner-draw — the framework no
                 // longer paints them — but we set it for accessibility tools and for parity with
@@ -519,6 +783,7 @@ namespace Hiatme_Tool_Suite_v3
             _supeyDriversLv.DrawColumnHeader += SupeyDriversLv_DrawColumnHeader;
             _supeyDriversLv.DrawItem += SupeyDriversLv_DrawItem;
             _supeyDriversLv.DrawSubItem += SupeyDriversLv_DrawSubItem;
+            SupeyListViewHelpers.EnableDoubleBuffer(_supeyDriversLv);
             // CheckBoxes=true paints the box inside the first column; keep it narrow but with a
             // proper header so users see the on/off semantic.
             _supeyDriversColCheck = new ColumnHeader { Text = "Use", Width = 44 };
@@ -546,10 +811,10 @@ namespace Hiatme_Tool_Suite_v3
             _supeyDriversEmptyHint = new Label
             {
                 Dock = DockStyle.Fill,
-                Text = "No drivers yet.\nClick ADD to enter your first driver.",
+                Text = "No drivers in the roster\n\nADD a driver, or PULL FROM WELLRYDE",
                 TextAlign = ContentAlignment.MiddleCenter,
-                ForeColor = Color.Silver,
-                BackColor = Color.FromArgb(70, 70, 70),
+                ForeColor = SupeyTheme.TextSecondary,
+                BackColor = SupeyTheme.ListBody,
                 Font = new Font("Segoe UI", 10f),
                 Visible = true,
             };
@@ -557,7 +822,6 @@ namespace Hiatme_Tool_Suite_v3
             host.Controls.Add(_supeyDriversEmptyHint);
             host.Controls.Add(_supeyDriversLv);
             host.Controls.Add(btnRow);
-            host.Controls.Add(header);
             _supeyDriversEmptyHint.BringToFront();
 
             // Apply the standard custom-listview behaviors: click-to-sort, content-driven min
@@ -574,56 +838,104 @@ namespace Hiatme_Tool_Suite_v3
 
         private void BuildSupeyTripsPanel(Panel host)
         {
-            var topPanel = new Panel { Dock = DockStyle.Top, Height = 56, BackColor = Color.FromArgb(45, 45, 45), Padding = new Padding(8, 6, 8, 6) };
+            // Top toolbar of the Trips panel: Driver dropdown on the left, status +
+            // fleet totals stacked on the right. 56px tall now since the right side
+            // carries two lines of context — the per-build status note ("Updated 12:34
+            // · AI applied") on top and the fleet rollup ("Fleet 8h 30m · 145 mi ·
+            // earliest 14:30") below it. This is the natural home for fleet stats —
+            // they sit directly above the schedule they describe instead of being
+            // exiled to a tiny bottom strip the user can't even see when collapsed.
+            var topPanel = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 56,
+                BackColor = SupeyTheme.SurfaceHeader,
+                Padding = new Padding(0),
+            };
+            var topDivider = new Panel
+            {
+                Dock = DockStyle.Bottom,
+                Height = 1,
+                BackColor = SupeyTheme.Divider,
+            };
+
             var lbl = new Label
             {
-                Text = "Driver:",
-                Location = new Point(10, 10),
+                Text = "Driver",
+                Location = new Point(12, 20),
                 AutoSize = true,
-                ForeColor = Color.Gainsboro,
-                BackColor = Color.Transparent,
-                Font = new Font("Segoe UI", 9f),
+                ForeColor = SupeyTheme.TextSecondary,
+                BackColor = SupeyTheme.SurfaceHeader,
+                Font = SupeyTheme.CaptionFont,
             };
             _supeyPreviewDriverCb = new ComboBox
             {
-                Location = new Point(60, 8),
+                Location = new Point(56, 15),
                 Width = 360,
+                Height = 26,
                 DropDownStyle = ComboBoxStyle.DropDownList,
-                BackColor = Color.FromArgb(60, 60, 60),
-                ForeColor = Color.Gainsboro,
+                BackColor = SupeyTheme.SurfaceElevated,
+                ForeColor = SupeyTheme.TextPrimary,
                 FlatStyle = FlatStyle.Flat,
+                DrawMode = DrawMode.OwnerDrawFixed,
+                Font = SupeyTheme.BodyFont,
             };
+            _supeyPreviewDriverCb.DrawItem += SupeyDarkComboDrawItem;
             _supeyPreviewDriverCb.SelectedIndexChanged += (s, e) => OnSupeyPreviewDriverChanged();
+
+            // Right side: two stacked lines, both right-aligned, anchored Right so they
+            // glide as the panel resizes. Top line — schedule-applied status. Bottom
+            // line — fleet rollup. Bottom row is intentionally a hair brighter so the
+            // numerical info reads first.
             _supeyScheduleUpdatedLbl = new MaterialLabel
             {
                 Location = new Point(430, 8),
                 AutoSize = false,
-                Size = new Size(520, 36),
+                Size = new Size(520, 20),
                 Text = "No AI schedule on screen yet.",
-                ForeColor = Color.Gray,
-                Font = new Font("Segoe UI", 9f),
+                ForeColor = SupeyTheme.TextMuted,
+                BackColor = SupeyTheme.SurfaceHeader,
+                Font = SupeyTheme.CaptionFont,
+                TextAlign = ContentAlignment.MiddleRight,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+            };
+            _supeyStatsLbl = new MaterialLabel
+            {
+                Location = new Point(430, 28),
+                AutoSize = false,
+                Size = new Size(520, 22),
+                Text = "",
+                ForeColor = SupeyTheme.TextSecondary,
+                BackColor = SupeyTheme.SurfaceHeader,
+                Font = SupeyTheme.BodyFont,
+                TextAlign = ContentAlignment.MiddleRight,
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
             };
             topPanel.Controls.Add(lbl);
             topPanel.Controls.Add(_supeyPreviewDriverCb);
             topPanel.Controls.Add(_supeyScheduleUpdatedLbl);
+            topPanel.Controls.Add(_supeyStatsLbl);
+            topPanel.Controls.Add(topDivider);
 
             _supeyPreviewStatsLbl = new MaterialLabel
             {
                 Dock = DockStyle.Bottom,
                 Height = 28,
                 Text = "",
-                ForeColor = Color.Silver,
-                Padding = new Padding(10, 4, 10, 4),
-                BackColor = Color.FromArgb(35, 35, 35),
+                ForeColor = SupeyTheme.TextMuted,
+                Padding = new Padding(12, 4, 12, 4),
+                BackColor = SupeyTheme.SurfaceHeader,
+                Font = SupeyTheme.CaptionFont,
+                AutoSize = false,
+                TextAlign = ContentAlignment.MiddleLeft,
             };
 
             _supeyPreviewLv = new ListView
             {
                 Dock = DockStyle.Fill,
                 View = View.Details,
-                BackColor = Color.FromArgb(70, 70, 70),
-                ForeColor = Color.Gainsboro,
+                BackColor = SupeyTheme.ListBody,
+                ForeColor = SupeyTheme.ListText,
                 FullRowSelect = true,
                 GridLines = true,
                 HideSelection = false,
@@ -652,19 +964,28 @@ namespace Hiatme_Tool_Suite_v3
             _supeyPreviewLv.DrawColumnHeader += SupeyPreviewLv_DrawColumnHeader;
             _supeyPreviewLv.DrawItem += SupeyPreviewLv_DrawItem;
             _supeyPreviewLv.DrawSubItem += SupeyPreviewLv_DrawSubItem;
+            // Owner-drawn details listviews single-buffer by default — first selection paint
+            // after items load can flash gray-without-text. Double-buffering paints each row
+            // off-screen and commits atomically so the user never sees the half-painted state.
+            SupeyListViewHelpers.EnableDoubleBuffer(_supeyPreviewLv);
 
-            // Empty-state hint over the trips area until a build runs. We toggle Visible from
-            // RebuildPreviewDropdown / OnSupeyPreviewDriverChanged based on what's loaded.
+            // Empty-state hint over the trips area until a build runs. We toggle Visible
+            // from RebuildPreviewDropdown / OnSupeyPreviewDriverChanged based on what's
+            // loaded. Bg is the same (70,70,70) as the ListView so they read as one
+            // continuous surface (per request: don't disturb ListView colors). The hint
+            // is styled like a 3-step "getting started" callout instead of a wall of
+            // numbered text.
             _supeyPreviewEmptyHint = new Label
             {
                 Dock = DockStyle.Fill,
-                Text = "No trips loaded yet.\n\n1. LOAD TRIPS (Modivcare)\n" +
-                       "2. Add/check drivers\n" +
-                       "3. BUILD — AI schedule loads here automatically.\n\n" +
-                       "Use the AI panel to adjust anytime; each Send refreshes this list.",
+                Text = "No trips on screen yet\n\n"
+                       + "①  LOAD TRIPS — pulls Modivcare trips for the chosen date\n"
+                       + "②  Pick drivers in the roster on the left\n"
+                       + "③  BUILD — schedule appears here\n\n"
+                       + "Talk to the AI on the right to refine after build.",
                 TextAlign = ContentAlignment.MiddleCenter,
-                ForeColor = Color.Silver,
-                BackColor = Color.FromArgb(70, 70, 70),
+                ForeColor = SupeyTheme.TextSecondary,
+                BackColor = SupeyTheme.ListBody,
                 Font = new Font("Segoe UI", 10.5f),
                 Visible = true,
             };
@@ -1134,6 +1455,31 @@ namespace Hiatme_Tool_Suite_v3
             host.Controls.Add(_supeyMap);
         }
 
+        /// <summary>
+        /// Owner-draw handler that paints a ComboBox row in our dark palette. Hook this on
+        /// any ComboBox where we want it to actually look dark — DropDownList combos ignore
+        /// BackColor on modern Windows themes, so we have to paint the surface ourselves.
+        /// </summary>
+        private void SupeyDarkComboDrawItem(object sender, DrawItemEventArgs e)
+        {
+            if (!(sender is ComboBox cb)) return;
+            bool selected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
+            Color bg = selected ? Color.FromArgb(80, 100, 130) : Color.FromArgb(60, 60, 60);
+            Color fg = Color.Gainsboro;
+            using (var b = new SolidBrush(bg))
+                e.Graphics.FillRectangle(b, e.Bounds);
+
+            string text = "";
+            if (e.Index >= 0 && e.Index < cb.Items.Count)
+            {
+                text = cb.GetItemText(cb.Items[e.Index]) ?? "";
+            }
+            var bounds = new Rectangle(e.Bounds.Left + 4, e.Bounds.Top, e.Bounds.Width - 4, e.Bounds.Height);
+            TextRenderer.DrawText(
+                e.Graphics, text, cb.Font, bounds, fg,
+                TextFormatFlags.Left | TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter | TextFormatFlags.WordEllipsis);
+        }
+
         private static MaterialButton MakeFlatButton(string text, int x, int y, int width)
         {
             var b = new MaterialButton
@@ -1423,6 +1769,7 @@ namespace Hiatme_Tool_Suite_v3
                 ClearSupeyScheduleUpdatedLabel();
                 BindSupeyLoadedTripsList();
                 SetSupeyStatus(BuildPostLoadStatus(_supeyLoadedTrips.Count, date));
+                _ = ShowSupeyPreReviewWarningsAsync();
             }
             catch (ScheduleBuilderException ex)
             {
@@ -1470,25 +1817,58 @@ namespace Hiatme_Tool_Suite_v3
 
             try
             {
-                SetSupeyToolbarBusy(true, "Asking AIagent for schedule...");
-                AppendSupeyAiTranscriptIfPresent("AI Build · thinking", "…");
                 var date = _supeyDatePicker.Value;
+                SetSupeyToolbarBusy(true, "Building schedule (geocode + assign)…");
 
                 if (_supeyAiSettings == null)
                     _supeyAiSettings = HiatmeAiSettings.Load();
 
-                var ctx = HiatmeScheduleContextBuilder.Build(
-                    date, _supeyRoster, _supeyLoadedTrips, null, false, selected);
+                SupeyScheduleRules scheduleRules = null;
+                try
+                {
+                    var pre = await HiatmeAiClient.PreReviewAsync(_supeyAiSettings, token).ConfigureAwait(true);
+                    if (pre?.RulesContext != null)
+                        scheduleRules = SupeyScheduleRules.FromRulesContext(pre.RulesContext);
+                }
+                catch { /* BUILD proceeds without remote rules if panel is down */ }
 
-                var aiResp = await HiatmeAiClient.ScheduleBuildAsync(
-                    _supeyAiSettings, ctx, token).ConfigureAwait(true);
+                var hints = new SupeyTemplateHints(date.DayOfWeek.ToString());
+                var algo = new SupeyScheduleAlgorithm
+                {
+                    Hints = hints,
+                    UseTemplateHints = false,
+                    ScheduleRules = scheduleRules,
+                };
+                var startingLocks = _supeyResult?.Locks ?? new Dictionary<string, string>();
+                var progress = new Progress<string>(msg =>
+                {
+                    try
+                    {
+                        if (IsHandleCreated && !IsDisposed)
+                            BeginInvoke((Action)(() => SetSupeyToolbarBusy(true, msg)));
+                    }
+                    catch { }
+                });
 
-                if (aiResp?.Schedule == null)
-                    throw new InvalidOperationException("AI server returned no schedule.");
+                _supeyResult = await algo.BuildAsync(
+                    date, _supeyLoadedTrips, selected, startingLocks, progress, token).ConfigureAwait(true);
 
-                ApplySupeyAiSchedule(aiResp, "AI Build");
-                SetSupeyStatus("AI build complete. " + _supeyResult.DriverPlans.Count + " driver(s), " +
-                    _supeyResult.Reserves.Count + " reserve(s), " + _supeyResult.WarningCount + " warning(s).");
+                _supeyTripsPanelView = SupeyTripsPanelView.AiSchedule;
+                BindSupeyPreview();
+                _ = HydrateSupeyGeocodeForMapAsync();
+                _supeyLastTemplateCompare = SupeyTemplateCompare.Run(_supeyResult, hints);
+                if (_supeyTemplateCompareLbl != null)
+                    _supeyTemplateCompareLbl.Text = _supeyLastTemplateCompare.SummaryText;
+                SyncSupeyScheduleToServer("build");
+                MarkSupeyScheduleUpdated("BUILD");
+                SetSupeyAiLastAppliedLabel("BUILD");
+
+                int scheduled = HiatmeAiScheduleMapper.CountAssignedTrips(_supeyResult);
+                SetSupeyStatus("Build complete. " + _supeyResult.DriverPlans.Count + " driver(s), " +
+                    scheduled + " on screen, " + _supeyResult.Reserves.Count + " reserve(s), " +
+                    _supeyResult.WarningCount + " warning(s).");
+
+                _ = RequestAiBuildReviewAsync(date, selected, _supeyResult, _supeyAiSettings);
             }
             catch (OperationCanceledException)
             {
@@ -1496,9 +1876,9 @@ namespace Hiatme_Tool_Suite_v3
             }
             catch (Exception ex)
             {
-                MessageBox.Show(this, "AI build failed:\n\n" + ex.Message, "Supey Schedule",
+                MessageBox.Show(this, "Build failed:\n\n" + ex.Message, "Supey Schedule",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
-                SetSupeyStatus("AI build failed — fix server/Ollama and try again.");
+                SetSupeyStatus("Build failed — see message above.");
             }
             finally
             {
@@ -1581,7 +1961,7 @@ namespace Hiatme_Tool_Suite_v3
             if (_supeyResult == null)
             {
                 _supeyMap?.Clear();
-                _supeyStatsLbl.Text = "Fleet: -";
+                _supeyStatsLbl.Text = "";
                 _supeyWarningsLink.Text = "0 warnings";
                 if (_supeyTripsPanelView == SupeyTripsPanelView.LoadedPool
                     && (_supeyLoadedTrips?.Count ?? 0) > 0)
@@ -1626,10 +2006,19 @@ namespace Hiatme_Tool_Suite_v3
                     SupeyPreviewItem.ItemKind.Warnings,
                     "Warnings · " + _supeyResult.WarningCount));
 
-            string fleet = "Fleet: " + SupeyTripTimes.FormatHoursMinutesFromSeconds(_supeyResult.FleetActiveSeconds) +
-                " · " + SupeyTripTimes.FormatMiles(_supeyResult.FleetMeters) +
-                (_supeyResult.EarliestRelease.HasValue
-                    ? " · earliest release " + SupeyTripTimes.FormatTimeOfDay(_supeyResult.EarliestRelease.Value)
+            // Drop the "Fleet: " prefix — the label sits inside the Trips header now,
+            // directly above the schedule, so the context is unambiguous. We also fold
+            // in the driver count and total trip count up front so the user sees the
+            // scope of the build without having to expand the dropdown.
+            int driverCount = _supeyResult.DriverPlans?.Count ?? 0;
+            int tripCount = (_supeyResult.DriverPlans?.Sum(p => p?.Groups?.Sum(g => g?.Trips?.Count ?? 0) ?? 0) ?? 0)
+                            + (_supeyResult.Reserves?.Count ?? 0);
+            string fleet = driverCount + " driver" + (driverCount == 1 ? "" : "s")
+                + " · " + tripCount + " trip" + (tripCount == 1 ? "" : "s")
+                + " · " + SupeyTripTimes.FormatHoursMinutesFromSeconds(_supeyResult.FleetActiveSeconds) + " drive"
+                + " · " + SupeyTripTimes.FormatMiles(_supeyResult.FleetMeters)
+                + (_supeyResult.EarliestRelease.HasValue
+                    ? " · earliest " + SupeyTripTimes.FormatTimeOfDay(_supeyResult.EarliestRelease.Value)
                     : "");
             _supeyStatsLbl.Text = fleet;
             _supeyWarningsLink.Text = _supeyResult.WarningCount + " warning" + (_supeyResult.WarningCount == 1 ? "" : "s");
@@ -1886,26 +2275,33 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         // ---------- Owner-draw for the preview ListView ----------
+        //
+        // Aliases pulled from SupeyTheme so the listviews stay consistent with the
+        // rest of the dark palette. The previous flat #464646 read like a
+        // placeholder; theming through SupeyTheme.List* slots them into the same
+        // surface ladder as everything else and uses the muted blue selection
+        // color so green stays reserved for primary actions / "checked" state.
 
-        private static readonly Color SupeyLvBg = Color.FromArgb(70, 70, 70);
-        private static readonly Color SupeyLvSel = Color.RoyalBlue;
-        private static readonly Color SupeyLvText = Color.White;
-        // Owner-draw mode shortcuts the framework's GridLines rendering, so we paint them by
-        // hand. Slightly darker than the body so the boundary registers without competing with
-        // the row content. Matches the visual weight of the legacy ListViews on Form1 that have
-        // GridLines = true with the system default theme.
-        private static readonly Color SupeyLvGrid = Color.FromArgb(56, 56, 56);
+        private static Color SupeyLvBg => SupeyTheme.ListBody;
+        private static Color SupeyLvSel => SupeyTheme.ListSelected;
+        private static Color SupeyLvText => SupeyTheme.ListText;
+        private static Color SupeyLvSelText => SupeyTheme.ListSelectedText;
+        private static Color SupeyLvGrid => SupeyTheme.ListGrid;
+        private static Color SupeyLvHeader => SupeyTheme.ListHeader;
+        private static Color SupeyLvHeaderText => SupeyTheme.ListHeaderText;
 
         private void SupeyPreviewLv_DrawColumnHeader(object sender, DrawListViewColumnHeaderEventArgs e)
         {
-            // Mimic the existing trip listviews' header.
-            using (var brush = new SolidBrush(Color.FromArgb(51, 51, 51)))
+            using (var brush = new SolidBrush(SupeyLvHeader))
                 e.Graphics.FillRectangle(brush, e.Bounds);
-            using (var brush = new SolidBrush(Color.Gainsboro))
+            // 1px bottom hairline gives the header weight without us needing a
+            // gradient or 3D edge. Same divider color used elsewhere on the tab.
+            using (var pen = new Pen(SupeyTheme.Divider, 1f))
+                e.Graphics.DrawLine(pen, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
             using (var fnt = new Font("Archivo Medium", 11f))
             {
                 var rect = new Rectangle(e.Bounds.Left + 6, e.Bounds.Top, e.Bounds.Width - 6, e.Bounds.Height);
-                TextRenderer.DrawText(e.Graphics, e.Header.Text ?? "", fnt, rect, Color.Gainsboro,
+                TextRenderer.DrawText(e.Graphics, e.Header.Text ?? "", fnt, rect, SupeyLvHeaderText,
                     TextFormatFlags.Left | TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter);
             }
         }
@@ -1931,27 +2327,34 @@ namespace Hiatme_Tool_Suite_v3
                 e.Graphics.FillRectangle(bg, e.Bounds);
 
             var bounds = new Rectangle(e.Bounds.Left + 6, e.Bounds.Top, e.Bounds.Width - 6, e.Bounds.Height);
-            Color textColor = SupeyLvText;
-            if (e.ColumnIndex == SupeyPrevColGeoIndex && !sel && e.SubItem.ForeColor != Color.Empty)
-                textColor = e.SubItem.ForeColor;
-            else if (e.ColumnIndex == 0 && !sel && e.SubItem.ForeColor != Color.Empty)
-                textColor = e.SubItem.ForeColor;
+            Color textColor = sel ? SupeyLvSelText : SupeyLvText;
+            // Per-cell ForeColor overrides only apply when the row isn't selected;
+            // on selection we always want the readable contrast color.
+            if (!sel)
+            {
+                if (e.ColumnIndex == SupeyPrevColGeoIndex && e.SubItem.ForeColor != Color.Empty)
+                    textColor = e.SubItem.ForeColor;
+                else if (e.ColumnIndex == 0 && e.SubItem.ForeColor != Color.Empty)
+                    textColor = e.SubItem.ForeColor;
+            }
             TextRenderer.DrawText(e.Graphics, e.SubItem.Text ?? "", _supeyPreviewLv.Font, bounds, textColor,
                 TextFormatFlags.Left | TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter | TextFormatFlags.WordEllipsis | TextFormatFlags.GlyphOverhangPadding);
 
-            DrawSupeyGridLines(e.Graphics, e.Bounds);
+            SupeyListViewHelpers.DrawCellGridLines(e.Graphics, e.Bounds);
         }
 
         // ---------- Owner-draw for the roster ListView (mirrors preview's look) ----------
 
         private void SupeyDriversLv_DrawColumnHeader(object sender, DrawListViewColumnHeaderEventArgs e)
         {
-            using (var brush = new SolidBrush(Color.FromArgb(51, 51, 51)))
+            using (var brush = new SolidBrush(SupeyLvHeader))
                 e.Graphics.FillRectangle(brush, e.Bounds);
+            using (var pen = new Pen(SupeyTheme.Divider, 1f))
+                e.Graphics.DrawLine(pen, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
             using (var fnt = new Font("Archivo Medium", 11f))
             {
                 var rect = new Rectangle(e.Bounds.Left + 6, e.Bounds.Top, e.Bounds.Width - 6, e.Bounds.Height);
-                TextRenderer.DrawText(e.Graphics, e.Header.Text ?? "", fnt, rect, Color.Gainsboro,
+                TextRenderer.DrawText(e.Graphics, e.Header.Text ?? "", fnt, rect, SupeyLvHeaderText,
                     TextFormatFlags.Left | TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter);
             }
         }
@@ -1965,43 +2368,28 @@ namespace Hiatme_Tool_Suite_v3
 
         private void SupeyDriversLv_DrawSubItem(object sender, DrawListViewSubItemEventArgs e)
         {
-            // Column 0 is the checkbox column; let the system render the box, but background-fill
-            // it ourselves so selection highlight is consistent edge-to-edge.
+            // Column 0 is the checkbox column. We background-fill the cell ourselves
+            // so the selection highlight runs edge-to-edge, then paint a custom
+            // modern checkbox (square, accent-filled when checked) instead of the
+            // chunky grey Win32 default. Click-to-toggle is still handled by the
+            // ListView because CheckBoxes=true — we just override the visual.
             bool sel = e.Item != null && e.Item.Selected;
             using (var bg = new SolidBrush(sel ? SupeyLvSel : SupeyLvBg))
                 e.Graphics.FillRectangle(bg, e.Bounds);
 
             if (e.ColumnIndex == 0)
             {
-                // DrawDefault paints the standard checkbox glyph on top of our fill. We still get
-                // the gridline pass *after* the default — the framework runs DrawDefault inline.
-                e.DrawDefault = true;
-                DrawSupeyGridLines(e.Graphics, e.Bounds);
+                SupeyListViewHelpers.DrawModernCheckbox(e.Graphics, e.Bounds,
+                    e.Item != null && e.Item.Checked, sel);
+                SupeyListViewHelpers.DrawCellGridLines(e.Graphics, e.Bounds);
                 return;
             }
 
             var bounds = new Rectangle(e.Bounds.Left + 6, e.Bounds.Top, e.Bounds.Width - 6, e.Bounds.Height);
-            TextRenderer.DrawText(e.Graphics, e.SubItem.Text ?? "", _supeyDriversLv.Font, bounds, SupeyLvText,
+            TextRenderer.DrawText(e.Graphics, e.SubItem.Text ?? "", _supeyDriversLv.Font, bounds, sel ? SupeyLvSelText : SupeyLvText,
                 TextFormatFlags.Left | TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter | TextFormatFlags.WordEllipsis | TextFormatFlags.GlyphOverhangPadding);
 
-            DrawSupeyGridLines(e.Graphics, e.Bounds);
-        }
-
-        /// <summary>
-        /// Paints a 1px right + bottom border on a sub-item cell to emulate <c>GridLines = true</c>
-        /// when the ListView is in owner-draw mode. Single source of truth so the roster and the
-        /// trips preview always agree on grid color / weight.
-        /// </summary>
-        private static void DrawSupeyGridLines(System.Drawing.Graphics g, Rectangle bounds)
-        {
-            using (var pen = new Pen(SupeyLvGrid, 1f))
-            {
-                // Right border (cell separator); use Bottom-1 so the line sits inside the row
-                // rather than bleeding into the next.
-                g.DrawLine(pen, bounds.Right - 1, bounds.Top, bounds.Right - 1, bounds.Bottom - 1);
-                // Bottom border (row separator).
-                g.DrawLine(pen, bounds.Left, bounds.Bottom - 1, bounds.Right - 1, bounds.Bottom - 1);
-            }
+            SupeyListViewHelpers.DrawCellGridLines(e.Graphics, e.Bounds);
         }
 
         // ---------- Helpers ----------
@@ -2028,8 +2416,21 @@ namespace Hiatme_Tool_Suite_v3
             int loaded = _supeyLoadedTrips?.Count ?? 0;
             int checkedDrivers = GetCheckedSupeyDrivers().Count;
             bool buildOk = loaded > 0 && checkedDrivers > 0 && _supeyCts == null;
-            if (_supeyBuildBtn != null) _supeyBuildBtn.Enabled = buildOk;
-            if (_supeySaveBtn != null) _supeySaveBtn.Enabled = _supeyResult != null && _supeyCts == null;
+            // MaterialButton's disabled paint for the Contained type washes out to nearly-white
+            // against our dark toolbar (text becomes invisible). We instead hide the button
+            // when it can't be clicked — that way the toolbar shows only the actions that are
+            // currently meaningful, and the next-step hint goes through the status label and
+            // the BUILD tooltip below.
+            if (_supeyBuildBtn != null)
+            {
+                _supeyBuildBtn.Visible = loaded > 0 && _supeyCts == null;
+                _supeyBuildBtn.Enabled = buildOk;
+            }
+            if (_supeySaveBtn != null)
+            {
+                _supeySaveBtn.Visible = _supeyResult != null && _supeyCts == null;
+                _supeySaveBtn.Enabled = _supeyResult != null && _supeyCts == null;
+            }
 
             // Tooltip explains the disabled state — without this, the user just sees a greyed-out
             // button after Load Trips and has no idea what's missing.
@@ -2131,35 +2532,22 @@ namespace Hiatme_Tool_Suite_v3
 
             void Apply()
             {
-                if (_supeyOsrmStatusLbl == null || _supeyOsrmStatusLbl.IsDisposed) return;
+                if (_supeyOsrmStatusPill == null || _supeyOsrmStatusPill.IsDisposed) return;
+                // OSRM health badge — text on the pill, dot color carries the semantic.
+                string label;
+                Color dot;
                 if (HiatmeGeoSettings.UseServer && serverGeo != null)
                 {
-                    if (serverGeo.OsrmLocalOk)
-                    {
-                        _supeyOsrmStatusLbl.Text = "Geo: server OSRM OK";
-                        _supeyOsrmStatusLbl.ForeColor = Color.LightGreen;
-                    }
-                    else
-                    {
-                        _supeyOsrmStatusLbl.Text = "Geo: server OSRM public fallback";
-                        _supeyOsrmStatusLbl.ForeColor = Color.Orange;
-                    }
+                    if (serverGeo.OsrmLocalOk) { label = "OSRM · server"; dot = SupeyTheme.SuccessText; }
+                    else { label = "OSRM · server fallback"; dot = SupeyTheme.WarnText; }
                 }
-                else if (localOk)
-                {
-                    _supeyOsrmStatusLbl.Text = "OSRM: local OK";
-                    _supeyOsrmStatusLbl.ForeColor = Color.LightGreen;
-                }
-                else if (OsrmSettings.PreferLocal)
-                {
-                    _supeyOsrmStatusLbl.Text = "OSRM: offline (public fallback)";
-                    _supeyOsrmStatusLbl.ForeColor = Color.Orange;
-                }
-                else
-                {
-                    _supeyOsrmStatusLbl.Text = "OSRM: public demo";
-                    _supeyOsrmStatusLbl.ForeColor = Color.Gainsboro;
-                }
+                else if (localOk) { label = "OSRM · local"; dot = SupeyTheme.SuccessText; }
+                else if (OsrmSettings.PreferLocal) { label = "OSRM · offline"; dot = SupeyTheme.WarnText; }
+                else { label = "OSRM · public demo"; dot = SupeyTheme.TextMuted; }
+
+                _supeyOsrmStatusPill.DotColor = dot;
+                _supeyOsrmStatusPill.Label = label;
+                _supeyOsrmStatusPill.Parent?.PerformLayout();
             }
             if (InvokeRequired)
                 BeginInvoke((Action)Apply);

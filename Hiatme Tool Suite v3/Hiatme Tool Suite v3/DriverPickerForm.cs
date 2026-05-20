@@ -24,6 +24,15 @@ namespace Hiatme_Tool_Suite_v3
         public DriverPickerForm(IEnumerable<WRDrivers> drivers, string contextLine)
         {
             InitializeComponent();
+            // Owner-drawn ListViews single-buffer by default which causes a gray/no-text
+            // flash on first selection. Flip the buffering bit on every ListView under
+            // this dialog without disturbing any colors or owner-draw handlers.
+            SupeyListViewHelpers.EnableDoubleBufferRecursively(this);
+            SupeyDarkScrollBars.Apply(this);
+            // Override the designer-baked #464646 with the SupeyTheme list palette
+            // so this picker matches the Supey schedule listviews exactly.
+            _driverList.BackColor = SupeyTheme.ListBody;
+            _driverList.ForeColor = SupeyTheme.ListText;
 
             try
             {
@@ -179,12 +188,15 @@ namespace Hiatme_Tool_Suite_v3
             _okButton.Enabled = _driverList.Items.Count > 0;
         }
 
-        // Owner-draw plumbing — matches the main trip listviews: RGB(70,70,70) body, white text,
-        // RoyalBlue selection highlight (instead of the default white "selected" stripe).
+        // Owner-draw plumbing — pulls from SupeyTheme so this picker stays in
+        // lockstep with the Supey schedule listviews. Bright #464646 / RoyalBlue
+        // were replaced by the muted dark surface + tinted blue selection in the
+        // SupeyTheme.List* slots.
 
-        private static readonly Color ListBackground = Color.FromArgb(70, 70, 70);
-        private static readonly Color ListSelected = Color.RoyalBlue;
-        private static readonly Color ListText = Color.White;
+        private static Color ListBackground => SupeyTheme.ListBody;
+        private static Color ListSelected => SupeyTheme.ListSelected;
+        private static Color ListText => SupeyTheme.ListText;
+        private static Color ListSelectedText => SupeyTheme.ListSelectedText;
 
         private void OnDriverListDrawColumnHeader(object sender, DrawListViewColumnHeaderEventArgs e)
         {
@@ -222,7 +234,8 @@ namespace Hiatme_Tool_Suite_v3
             var bounds = new Rectangle(e.Bounds.Left + 8, e.Bounds.Top, e.Bounds.Width - 8, e.Bounds.Height);
             const TextFormatFlags flags = TextFormatFlags.Left | TextFormatFlags.SingleLine
                 | TextFormatFlags.VerticalCenter | TextFormatFlags.WordEllipsis | TextFormatFlags.GlyphOverhangPadding;
-            TextRenderer.DrawText(e.Graphics, e.SubItem.Text ?? "", _driverList.Font, bounds, ListText, flags);
+            TextRenderer.DrawText(e.Graphics, e.SubItem.Text ?? "", _driverList.Font, bounds,
+                selected ? ListSelectedText : ListText, flags);
         }
     }
 }

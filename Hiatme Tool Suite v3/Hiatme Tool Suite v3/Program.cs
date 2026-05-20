@@ -83,6 +83,13 @@ namespace Hiatme_Tool_Suite_v3
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 
+            // Opt the whole process into dark mode so SetWindowTheme(hwnd,
+            // "DarkMode_Explorer", null) — applied per-control by SupeyDarkScrollBars.Apply
+            // — actually flips scrollbars to the dark variant. Without this the theme
+            // service treats "DarkMode_*" classes as plain "Explorer" and we'd keep
+            // the bright-gray default scrollbars. Silent no-op on pre-Win10-1903.
+            SupeyDarkScrollBars.EnableForProcess();
+
             // Force TLS 1.2 (and 1.3 where available) for ALL outbound HTTPS in this process.
             // .NET Framework 4.8's default `SecurityProtocol` is the OS default, which on some
             // Windows configurations still negotiates TLS 1.0 — modern servers like

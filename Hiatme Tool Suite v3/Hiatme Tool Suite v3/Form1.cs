@@ -144,6 +144,16 @@ namespace Hiatme_Tool_Suite_v3
             RegisterRuntimeTabIcons();
             // Click-to-sort + smart cell typing on every custom-drawn listview. Default column resize already works.
             WireListViewSorters();
+            // Eliminate the first-highlight gray-without-text flash on every ListView in this
+            // form (designer-built and runtime-built alike). Touches only the protected
+            // DoubleBuffered bit — colors, fonts, owner-draw, and themes are untouched.
+            SupeyListViewHelpers.EnableDoubleBufferRecursively(this);
+            // Replace the bright-gray default Win32 scrollbars with the dark
+            // "DarkMode_Explorer" theme — square, flat, matches our SupeyTheme
+            // ladder. Walks the whole control tree and hooks ControlAdded so
+            // dynamically built panels (Supey tab, lazy tabs, dialogs) inherit
+            // automatically.
+            SupeyDarkScrollBars.Apply(this);
             BuildTimeCorrectionTripListContextMenu();
             // Trip Scout right-click menu inherits the listview's dark palette + gets generated person+badge icons.
             ApplyTripScoutContextMenuTheme();

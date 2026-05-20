@@ -79,6 +79,15 @@ namespace Hiatme_Tool_Suite_v3
 
             if (includeAssignment && result != null)
             {
+                ctx["geocode"] = new JObject
+                {
+                    ["cache_hits"] = AddressGeocoder.CacheHits,
+                    ["cache_misses_resolved_via_nominatim"] = AddressGeocoder.CacheMisses,
+                    ["cache_total_entries"] = AddressGeocoder.CacheCount,
+                    ["note"] = "Tool Suite already checks the local + AI server cache before " +
+                              "calling Nominatim; addresses unresolved after that show up under " +
+                              "warnings_text as 'MissingGeo' and were sent to reserves.",
+                };
                 var assign = new JArray();
                 foreach (var plan in result.DriverPlans)
                 {
