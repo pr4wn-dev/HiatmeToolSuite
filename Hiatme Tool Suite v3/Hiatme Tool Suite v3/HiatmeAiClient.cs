@@ -63,6 +63,14 @@ namespace Hiatme_Tool_Suite_v3
         public JObject RulesContext { get; set; }
     }
 
+    internal sealed class HiatmeAiRuleItem
+    {
+        public string Id { get; set; }
+        public string Title { get; set; }
+        public string Kind { get; set; }
+        public string Rationale { get; set; }
+    }
+
     /// <summary>Unified Send response — chat or schedule update.</summary>
     internal sealed class HiatmeAiMessageResponse
     {
@@ -191,6 +199,86 @@ namespace Hiatme_Tool_Suite_v3
             catch
             {
                 return null;
+            }
+        }
+
+        public static async Task<List<HiatmeAiRuleItem>> GetProposedRulesAsync(
+            HiatmeAiSettings settings,
+            CancellationToken cancellationToken = default)
+        {
+            var list = new List<HiatmeAiRuleItem>();
+            if (settings == null) return list;
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl)) return list;
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Get, baseUrl + "/api/hiatme/rules/proposed"))
+                {
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
+                    {
+                        if (!resp.IsSuccessStatusCode) return list;
+                        var root = JObject.Parse(await resp.Content.ReadAsStringAsync().ConfigureAwait(false));
+                        foreach (var item in root["items"] as JArray ?? new JArray())
+                        {
+                            list.Add(new HiatmeAiRuleItem
+                            {
+                                Id = item["id"]?.ToString(),
+                                Title = item["title"]?.ToString(),
+                                Kind = item["kind"]?.ToString(),
+                                Rationale = item["rationale"]?.ToString(),
+                            });
+                        }
+                    }
+                }
+            }
+            catch { /* optional */ }
+            return list;
+        }
+
+        public static async Task<bool> AcceptRuleAsync(
+            HiatmeAiSettings settings,
+            string ruleId,
+            CancellationToken cancellationToken = default)
+        {
+            return await PostRuleActionAsync(settings, ruleId, "accept", cancellationToken).ConfigureAwait(false);
+        }
+
+        public static async Task<bool> RejectRuleAsync(
+            HiatmeAiSettings settings,
+            string ruleId,
+            CancellationToken cancellationToken = default)
+        {
+            return await PostRuleActionAsync(settings, ruleId, "reject", cancellationToken).ConfigureAwait(false);
+        }
+
+        private static async Task<bool> PostRuleActionAsync(
+            HiatmeAiSettings settings,
+            string ruleId,
+            string action,
+            CancellationToken cancellationToken)
+        {
+            if (settings == null || string.IsNullOrWhiteSpace(ruleId)) return false;
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl)) return false;
+            var url = baseUrl + "/api/hiatme/rules/" + Uri.EscapeDataString(ruleId) + "/" + action;
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Post, url))
+                {
+                    req.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
+                        return resp.IsSuccessStatusCode;
+                }
+            }
+            catch
+            {
+                return false;
             }
         }
 

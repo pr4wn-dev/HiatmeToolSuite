@@ -23,6 +23,8 @@ namespace Hiatme_Tool_Suite_v3
         private Label _supeyAiLastAppliedLbl;
         private SupeyButton _supeyAiGoodBtn;
         private SupeyButton _supeyAiBadBtn;
+        private Panel _supeyAiRulesPanel;
+        private FlowLayoutPanel _supeyAiRulesFlow;
         private HiatmeAiSettings _supeyAiSettings;
         private string _supeyAiLastTraceId;
         private CancellationTokenSource _supeyAiCts;
@@ -158,6 +160,36 @@ namespace Hiatme_Tool_Suite_v3
                 Margin = new Padding(0, 6, 0, 0),
                 BackColor = SupeyTheme.Divider,
             };
+
+            _supeyAiRulesPanel = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 96,
+                BackColor = SupeyTheme.Surface,
+                Padding = new Padding(0, 6, 0, 4),
+                Visible = false,
+            };
+            _supeyAiRulesFlow.Dock = DockStyle.Fill;
+            var rulesHdr = new Label
+            {
+                Dock = DockStyle.Top,
+                Height = 18,
+                Text = "Proposed rules (Accept → enforced on BUILD)",
+                ForeColor = SupeyTheme.TextSecondary,
+                Font = SupeyTheme.CaptionFont,
+                BackColor = SupeyTheme.Surface,
+            };
+            _supeyAiRulesFlow = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                FlowDirection = FlowDirection.TopDown,
+                WrapContents = false,
+                AutoScroll = true,
+                BackColor = SupeyTheme.SurfaceBase,
+            };
+            _supeyAiRulesPanel.Controls.Add(_supeyAiRulesFlow);
+            _supeyAiRulesPanel.Controls.Add(rulesHdr);
+            rulesHdr.BringToFront();
 
             // ── Composer (bottom): prompt-card + action row ──────────────────
             // The composer is what the user sees when they want to talk to the AI. It
@@ -321,6 +353,7 @@ namespace Hiatme_Tool_Suite_v3
             // bottom.
             host.Controls.Add(transcriptCard);
             host.Controls.Add(composer);
+            host.Controls.Add(_supeyAiRulesPanel);
             host.Controls.Add(headerSep);
             host.Controls.Add(_supeyAiLastAppliedLbl);
             host.Controls.Add(_supeyAiUrlLbl);
@@ -355,7 +388,10 @@ namespace Hiatme_Tool_Suite_v3
 
             int notes = 0;
             if (ok)
+            {
                 notes = await HiatmeAiClient.GetMemoryCountAsync(_supeyAiSettings).ConfigureAwait(true);
+                _ = RefreshSupeyProposedRulesAsync();
+            }
 
             if (_supeyAiStatusPill != null)
             {
@@ -860,6 +896,106 @@ namespace Hiatme_Tool_Suite_v3
             catch
             {
                 /* panel optional */
+            }
+            await RefreshSupeyProposedRulesAsync().ConfigureAwait(true);
+        }
+
+        private async Task RefreshSupeyProposedRulesAsync()
+        {
+            if (_supeyAiRulesFlow == null || _supeyAiRulesPanel == null) return;
+            if (_supeyAiSettings == null)
+                _supeyAiSettings = HiatmeAiSettings.Load();
+            _supeyAiRulesFlow.SuspendLayout();
+            _supeyAiRulesFlow.Controls.Clear();
+            try
+            {
+                var rules = await HiatmeAiClient.GetProposedRulesAsync(_supeyAiSettings).ConfigureAwait(true);
+                if (rules == null || rules.Count == 0)
+                {
+                    _supeyAiRulesPanel.Visible = false;
+                    return;
+                }
+                _supeyAiRulesPanel.Visible = true;
+                foreach (var rule in rules)
+                {
+                    if (string.IsNullOrWhiteSpace(rule?.Id)) continue;
+                    var row = new Panel
+                    {
+                        Width = _supeyAiRulesFlow.ClientSize.Width > 80
+                            ? _supeyAiRulesFlow.ClientSize.Width - 24
+                            : 280,
+                        Height = 52,
+                        Margin = new Padding(0, 0, 0, 4),
+                        BackColor = SupeyTheme.SurfaceElevated,
+                    };
+                    var title = new Label
+                    {
+                        Dock = DockStyle.Top,
+                        Height = 18,
+                        Text = Trunc(rule.Title ?? rule.Kind ?? "Rule", 42),
+                        ForeColor = SupeyTheme.TextPrimary,
+                        Font = SupeyTheme.CaptionFont,
+                        BackColor = Color.Transparent,
+                    };
+                    var rationale = new Label
+                    {
+                        Dock = DockStyle.Top,
+                        Height = 16,
+                        Text = Trunc(rule.Rationale ?? "", 48),
+                        ForeColor = SupeyTheme.TextMuted,
+                        Font = SupeyTheme.CaptionFont,
+                        BackColor = Color.Transparent,
+                    };
+                    var actions = new FlowLayoutPanel
+                    {
+                        Dock = DockStyle.Bottom,
+                        Height = 28,
+                        FlowDirection = FlowDirection.LeftToRight,
+                        WrapContents = false,
+                        BackColor = Color.Transparent,
+                    };
+                    var acceptBtn = new SupeyButton
+                    {
+                        Text = "Accept",
+                        Kind = SupeyButton.Variant.Primary,
+                        Size = new Size(64, 24),
+                        Margin = new Padding(0, 0, 4, 0),
+                    };
+                    var rejectBtn = new SupeyButton
+                    {
+                        Text = "Reject",
+                        Kind = SupeyButton.Variant.Outlined,
+                        Size = new Size(64, 24),
+                    };
+                    var ruleId = rule.Id;
+                    acceptBtn.Click += async (s, e) =>
+                    {
+                        if (await HiatmeAiClient.AcceptRuleAsync(_supeyAiSettings, ruleId).ConfigureAwait(true))
+                        {
+                            AppendSupeyAiTranscript("System", "Accepted rule: " + (rule.Title ?? ruleId));
+                            await RefreshSupeyProposedRulesAsync().ConfigureAwait(true);
+                        }
+                    };
+                    rejectBtn.Click += async (s, e) =>
+                    {
+                        if (await HiatmeAiClient.RejectRuleAsync(_supeyAiSettings, ruleId).ConfigureAwait(true))
+                            await RefreshSupeyProposedRulesAsync().ConfigureAwait(true);
+                    };
+                    actions.Controls.Add(acceptBtn);
+                    actions.Controls.Add(rejectBtn);
+                    row.Controls.Add(actions);
+                    row.Controls.Add(rationale);
+                    row.Controls.Add(title);
+                    _supeyAiRulesFlow.Controls.Add(row);
+                }
+            }
+            catch
+            {
+                _supeyAiRulesPanel.Visible = false;
+            }
+            finally
+            {
+                _supeyAiRulesFlow.ResumeLayout(true);
             }
         }
 
