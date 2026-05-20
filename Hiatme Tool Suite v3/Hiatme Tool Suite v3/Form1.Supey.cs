@@ -1862,6 +1862,7 @@ namespace Hiatme_Tool_Suite_v3
                 SyncSupeyScheduleToServer("build");
                 MarkSupeyScheduleUpdated("BUILD");
                 SetSupeyAiLastAppliedLabel("BUILD");
+                _ = RefreshSupeyProposedRulesAsync();
 
                 int scheduled = HiatmeAiScheduleMapper.CountAssignedTrips(_supeyResult);
                 SetSupeyStatus("Build complete. " + _supeyResult.DriverPlans.Count + " driver(s), " +
