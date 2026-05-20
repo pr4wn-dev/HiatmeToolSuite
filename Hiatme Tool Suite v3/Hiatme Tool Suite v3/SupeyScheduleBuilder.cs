@@ -11,13 +11,11 @@ using Microsoft.Office.Interop.Excel;
 namespace Hiatme_Tool_Suite_v3
 {
     /// <summary>
-    /// Orchestration helpers for the Supey Schedule tab. Two responsibilities:
+    /// Supey file I/O only — <b>not</b> schedule building. Assignments come from the AI panel JSON;
+    /// this class downloads Modivcare trips and saves workbooks.
     /// <list type="number">
-    ///   <item>Downloading Modivcare trips for a service date — same flow as the legacy
-    ///   FullScheduleBuilder, just lifted into a reusable helper that doesn't own any UI.</item>
-    ///   <item>Emitting the result as a Modivcare-format Excel workbook (one tab per driver +
-    ///   Reserves) — same 14-column CSV intermediates the legacy builder uses, so downstream
-    ///   tools that ingest those workbooks keep working.</item>
+    ///   <item>Download trips for a service date (Load Trips).</item>
+    ///   <item>Save an AI-built <see cref="SupeyScheduleResult"/> to Excel (Save).</item>
     /// </list>
     /// </summary>
     /// <remarks>

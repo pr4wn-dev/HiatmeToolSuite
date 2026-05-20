@@ -237,6 +237,24 @@ namespace Hiatme_Tool_Suite_v3
             _legendHost.Visible = false;
         }
 
+        /// <summary>Fit map to one group's PU/DO pins (route header row selected).</summary>
+        public void FocusGroup(SupeyTripCluster group)
+        {
+            if (group == null) return;
+            var pts = new List<PointLatLng>();
+            foreach (var p in group.PickupPoints)
+                if (!(p.Lat == 0 && p.Lng == 0)) pts.Add(new PointLatLng(p.Lat, p.Lng));
+            foreach (var p in group.DropoffPoints)
+                if (!(p.Lat == 0 && p.Lng == 0)) pts.Add(new PointLatLng(p.Lat, p.Lng));
+            if (pts.Count == 0)
+            {
+                SetSupeyStatusOnHost?.Invoke("No map pins for group " + group.GroupNumber + ".");
+                return;
+            }
+            FitPoints(pts, zoomSingle: 13, zoomMulti: 11);
+            _map.Refresh();
+        }
+
         /// <summary>Center map on a trip's PU/DO pins (from list selection).</summary>
         public void FocusTrip(MCDownloadedTrip trip)
         {

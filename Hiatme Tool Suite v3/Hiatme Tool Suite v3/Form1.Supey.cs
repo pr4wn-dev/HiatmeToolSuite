@@ -40,6 +40,7 @@ namespace Hiatme_Tool_Suite_v3
         // would resize a sliver of the title strip and confuse users.
         private Splitter _supeyDriversSplitter;
         private Splitter _supeyAiSplitter;
+        private Splitter _supeyRulesSplitter;
         private Splitter _supeyInfoSplitter;
         private MaterialLabel _supeyTemplateCompareLbl;
 
@@ -80,11 +81,16 @@ namespace Hiatme_Tool_Suite_v3
         private ColumnHeader _supeyPrevColPUStreet;
         private ColumnHeader _supeyPrevColPUCity;
         private ColumnHeader _supeyPrevColDOTime;
-        private ColumnHeader _supeyPrevColDOStreet;
-        private ColumnHeader _supeyPrevColDOCity;
         private ColumnHeader _supeyPrevColMiles;
         private ColumnHeader _supeyPrevColGeo;
+        private ColumnHeader _supeyPrevColEstPu;
+        private ColumnHeader _supeyPrevColLate;
+        private Font _supeyPreviewRouteFont;
         private const int SupeyPrevColGeoIndex = 3;
+        private const int SupeyPrevColEstPuIndex = 5;
+        private const int SupeyPrevColPuAddrIndex = 6;
+        private const int SupeyPrevColDoAddrIndex = 7;
+        private const int SupeyPrevColLateIndex = 9;
         private MaterialLabel _supeyPreviewStatsLbl;
         private Label _supeyPreviewEmptyHint;
 
@@ -282,9 +288,10 @@ namespace Hiatme_Tool_Suite_v3
                 Height = 1,
                 Location = new Point(-100, -100),
             };
-            var osrmTip = "Local OSRM at " + OsrmSettings.LocalBaseUrl + "\r\n" +
-                "Start: tools\\osrm\\scripts\\start-osrm.ps1\r\n" +
-                "See: tools\\osrm\\README.md\r\nClick to refresh.";
+            var osrmTip = "Road miles use OSRM on the AI server (" +
+                (_supeyAiSettings?.BaseUrl ?? "see hiatme_ai.defaults.json") + ").\r\n" +
+                "OSRM must run on that host (Docker + start-osrm.ps1 there).\r\n" +
+                "Click to refresh status.";
             var osrmTipProvider = new ToolTip { AutoPopDelay = 12000, InitialDelay = 400 };
             osrmTipProvider.SetToolTip(_supeyOsrmStatusPill, osrmTip);
 
@@ -449,6 +456,7 @@ namespace Hiatme_Tool_Suite_v3
             BuildSupeyDriversPanel(_supeyDriversCollapsible.ContentPanel);
 
             BuildSupeyAiPanel();
+            BuildSupeyRulesPanel();
             // Pulled the AI panel's resize bounds out so users can collapse the AI a bit
             // without losing the prompt and stretch it wider when transcripts get long.
             if (_supeyAiCollapsible != null)
@@ -472,16 +480,18 @@ namespace Hiatme_Tool_Suite_v3
             // the LAST one added sits closest to the outer edge. So to land on the
             // intended layout
             //
-            //   [Drivers | drvSplit | Map | aiSplit | AI | infoSplit | Info]
+            //   [Drivers | drvSplit | Map | aiSplit | AI | rulesSplit | Rules | infoSplit | Info]
             //
             // we add (in order):
             //   1. Map        (Fill)        — fills whatever's left
             //   2. drvSplit   (Left)        — pushed inward by step 3
             //   3. Drivers    (Left)        — leftmost
             //   4. aiSplit    (Right)       — pushed inward by steps 5/6/7
-            //   5. AI         (Right)       — pushed inward by 6/7
-            //   6. infoSplit  (Right)       — pushed inward by 7
-            //   7. Info       (Right)       — rightmost
+            //   5. AI         (Right)
+            //   6. rulesSplit (Right)
+            //   7. Rules      (Right)
+            //   8. infoSplit  (Right)
+            //   9. Info       (Right)       — rightmost
             //
             // Each Splitter is a thin draggable bar that resizes the docked control
             // adjacent to it (the "outer" one on its dock side). MinExtra leaves a
@@ -489,6 +499,7 @@ namespace Hiatme_Tool_Suite_v3
             // panel to swallow the whole workspace.
             _supeyDriversSplitter = MakeDockSplitter(DockStyle.Left, _supeyDriversCollapsible);
             _supeyAiSplitter = MakeDockSplitter(DockStyle.Right, _supeyAiCollapsible);
+            _supeyRulesSplitter = MakeDockSplitter(DockStyle.Right, _supeyRulesCollapsible);
             _supeyInfoSplitter = MakeDockSplitter(DockStyle.Right, _supeyRightCollapsible);
 
             workPanel.Controls.Add(_supeyMap);
@@ -496,6 +507,8 @@ namespace Hiatme_Tool_Suite_v3
             workPanel.Controls.Add(_supeyDriversCollapsible);
             workPanel.Controls.Add(_supeyAiSplitter);
             workPanel.Controls.Add(_supeyAiCollapsible);
+            workPanel.Controls.Add(_supeyRulesSplitter);
+            workPanel.Controls.Add(_supeyRulesCollapsible);
             workPanel.Controls.Add(_supeyInfoSplitter);
             workPanel.Controls.Add(_supeyRightCollapsible);
             _supeyMainSplit.Panel1.Controls.Add(workPanel);
@@ -947,19 +960,19 @@ namespace Hiatme_Tool_Suite_v3
             _supeyPrevColGrp = new ColumnHeader { Text = "Grp", Width = 44 };
             _supeyPrevColTrip = new ColumnHeader { Text = "Trip #", Width = 88 };
             _supeyPrevColClient = new ColumnHeader { Text = "Client", Width = 140 };
-            _supeyPrevColPUTime = new ColumnHeader { Text = "PU", Width = 58 };
-            _supeyPrevColPUStreet = new ColumnHeader { Text = "Route", Width = -2 };
-            _supeyPrevColPUCity = new ColumnHeader { Text = "PU→DO detail", Width = 0 };
-            _supeyPrevColDOTime = new ColumnHeader { Text = "DO", Width = 58 };
-            _supeyPrevColDOStreet = new ColumnHeader { Text = "PU St", Width = 0 };
-            _supeyPrevColDOCity = new ColumnHeader { Text = "DO St", Width = 0 };
+            _supeyPrevColPUTime = new ColumnHeader { Text = "Sched PU", Width = 62 };
+            _supeyPrevColEstPu = new ColumnHeader { Text = "Est PU", Width = 62 };
+            _supeyPrevColPUStreet = new ColumnHeader { Text = "Pickup", Width = 200 };
+            _supeyPrevColPUCity = new ColumnHeader { Text = "Dropoff", Width = 200 };
+            _supeyPrevColDOTime = new ColumnHeader { Text = "Sched DO", Width = 62 };
+            _supeyPrevColLate = new ColumnHeader { Text = "Late", Width = 72 };
             _supeyPrevColMiles = new ColumnHeader { Text = "Mi", Width = 44 };
             _supeyPrevColGeo = new ColumnHeader { Text = "Geo", Width = 72 };
             _supeyPreviewLv.Columns.AddRange(new[]
             {
                 _supeyPrevColGrp, _supeyPrevColTrip, _supeyPrevColClient, _supeyPrevColGeo,
-                _supeyPrevColPUTime, _supeyPrevColPUStreet,
-                _supeyPrevColDOTime, _supeyPrevColMiles,
+                _supeyPrevColPUTime, _supeyPrevColEstPu, _supeyPrevColPUStreet, _supeyPrevColPUCity,
+                _supeyPrevColDOTime, _supeyPrevColLate, _supeyPrevColMiles,
             });
             _supeyPreviewLv.DrawColumnHeader += SupeyPreviewLv_DrawColumnHeader;
             _supeyPreviewLv.DrawItem += SupeyPreviewLv_DrawItem;
@@ -968,6 +981,7 @@ namespace Hiatme_Tool_Suite_v3
             // after items load can flash gray-without-text. Double-buffering paints each row
             // off-screen and commits atomically so the user never sees the half-painted state.
             SupeyListViewHelpers.EnableDoubleBuffer(_supeyPreviewLv);
+            _supeyPreviewRouteFont = new Font(_supeyPreviewLv.Font, FontStyle.Italic);
 
             // Empty-state hint over the trips area until a build runs. We toggle Visible
             // from RebuildPreviewDropdown / OnSupeyPreviewDriverChanged based on what's
@@ -1378,6 +1392,9 @@ namespace Hiatme_Tool_Suite_v3
             sb.AppendLine("Grp\tTrip #\tClient\tPU Time\tPU Street\tPU City\tDO Time\tDO Street\tDO City\tMiles");
             foreach (var g in plan.Groups)
             {
+                sb.Append(g.GroupNumber).Append("\tRoute\t")
+                  .Append(Sanitize(SupeyRouteNoteFormatter.Format(g)))
+                  .AppendLine();
                 foreach (var t in g.Trips)
                 {
                     sb.Append(g.GroupNumber).Append('\t')
@@ -1818,62 +1835,72 @@ namespace Hiatme_Tool_Suite_v3
             try
             {
                 var date = _supeyDatePicker.Value;
-                SetSupeyToolbarBusy(true, "Building schedule (geocode + assign)…");
+                SetSupeyToolbarBusy(true, "Checking server road routing…");
 
                 if (_supeyAiSettings == null)
                     _supeyAiSettings = HiatmeAiSettings.Load();
 
-                SupeyScheduleRules scheduleRules = null;
-                try
+                HiatmeGeoSettings.Refresh();
+                var (osrmOk, osrmDetail) = await ScheduleOsrmGate.CheckAsync(_supeyAiSettings, token)
+                    .ConfigureAwait(true);
+                if (!osrmOk)
                 {
-                    var pre = await HiatmeAiClient.PreReviewAsync(_supeyAiSettings, token).ConfigureAwait(true);
-                    if (pre?.RulesContext != null)
-                        scheduleRules = SupeyScheduleRules.FromRulesContext(pre.RulesContext);
+                    MessageBox.Show(this, osrmDetail, "Server routing required for BUILD",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    SetSupeyStatus("BUILD blocked — OSRM offline.");
+                    return;
                 }
-                catch { /* BUILD proceeds without remote rules if panel is down */ }
+
+                if (!await HiatmeAiClient.PingAsync(_supeyAiSettings, token).ConfigureAwait(true))
+                {
+                    MessageBox.Show(this,
+                        "The AI panel is not running. Start it (http://127.0.0.1:8787/) then BUILD again.\n\n"
+                        + "Supey does not build schedules locally — the AI on the panel does.",
+                        "AI required for BUILD",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    SetSupeyStatus("BUILD blocked — AI panel offline.");
+                    return;
+                }
+
+                SetSupeyToolbarBusy(true, "AI building schedule…");
+                AppendSupeyAiTranscriptIfPresent("BUILD", "Building schedule…");
+
+                var ctx = HiatmeScheduleContextBuilder.Build(
+                    date, _supeyRoster, _supeyLoadedTrips, null, false, selected);
+                ApplyWellRydeDispatcherToAiContext(ctx);
+                if (_supeyResult?.Locks != null && _supeyResult.Locks.Count > 0)
+                    ctx["locks"] = JObject.FromObject(_supeyResult.Locks);
+
+                var aiResp = await HiatmeAiClient.ScheduleBuildAsync(_supeyAiSettings, ctx, token)
+                    .ConfigureAwait(true);
+                if (aiResp?.Schedule == null)
+                    throw new InvalidOperationException("AI returned no schedule — check the panel and try again.");
+
+                ApplySupeyAiSchedule(aiResp, "BUILD");
 
                 var hints = new SupeyTemplateHints(date.DayOfWeek.ToString());
-                var algo = new SupeyScheduleAlgorithm
-                {
-                    Hints = hints,
-                    UseTemplateHints = false,
-                    ScheduleRules = scheduleRules,
-                };
-                var startingLocks = _supeyResult?.Locks ?? new Dictionary<string, string>();
-                var progress = new Progress<string>(msg =>
-                {
-                    try
-                    {
-                        if (IsHandleCreated && !IsDisposed)
-                            BeginInvoke((Action)(() => SetSupeyToolbarBusy(true, msg)));
-                    }
-                    catch { }
-                });
-
-                _supeyResult = await algo.BuildAsync(
-                    date, _supeyLoadedTrips, selected, startingLocks, progress, token).ConfigureAwait(true);
-
-                _supeyTripsPanelView = SupeyTripsPanelView.AiSchedule;
-                BindSupeyPreview();
-                _ = HydrateSupeyGeocodeForMapAsync();
                 _supeyLastTemplateCompare = SupeyTemplateCompare.Run(_supeyResult, hints);
                 if (_supeyTemplateCompareLbl != null)
                     _supeyTemplateCompareLbl.Text = _supeyLastTemplateCompare.SummaryText;
-                SyncSupeyScheduleToServer("build");
-                MarkSupeyScheduleUpdated("BUILD");
-                SetSupeyAiLastAppliedLabel("BUILD");
-                _ = RefreshSupeyProposedRulesAsync();
+                _ = RefreshSupeyRulesPanelAsync();
 
                 int scheduled = HiatmeAiScheduleMapper.CountAssignedTrips(_supeyResult);
-                SetSupeyStatus("Build complete. " + _supeyResult.DriverPlans.Count + " driver(s), " +
+                SetSupeyStatus("AI build complete. " + _supeyResult.DriverPlans.Count + " driver(s), " +
                     scheduled + " on screen, " + _supeyResult.Reserves.Count + " reserve(s), " +
                     _supeyResult.WarningCount + " warning(s).");
-
-                _ = RequestAiBuildReviewAsync(date, selected, _supeyResult, _supeyAiSettings);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                SetSupeyStatus("Build canceled.");
             }
             catch (OperationCanceledException)
             {
-                SetSupeyStatus("Build canceled.");
+                SetSupeyStatus("AI build timed out — panel/Ollama may still be running; try again.");
+                MessageBox.Show(this,
+                    "The AI build took too long or the connection was cut off.\n\n"
+                    + "Make sure the panel (http://127.0.0.1:8787/) and Ollama are running, then BUILD again.",
+                    "Supey Schedule",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
             catch (Exception ex)
             {
@@ -2061,6 +2088,7 @@ namespace Hiatme_Tool_Suite_v3
 
             if (item.Kind == SupeyPreviewItem.ItemKind.Warnings)
             {
+                RestoreSupeyPreviewListSorter();
                 BindWarningsPreview();
                 _supeyPreviewLv.EndUpdate();
                 ListViewMinWidthEnforcer.ScheduleRecompute(_supeyPreviewLv);
@@ -2069,6 +2097,7 @@ namespace Hiatme_Tool_Suite_v3
 
             if (item.Kind == SupeyPreviewItem.ItemKind.LoadedTrips)
             {
+                RestoreSupeyPreviewListSorter();
                 BindLoadedTripsPreview();
                 _supeyPreviewLv.EndUpdate();
                 ListViewMinWidthEnforcer.ScheduleRecompute(_supeyPreviewLv);
@@ -2077,14 +2106,26 @@ namespace Hiatme_Tool_Suite_v3
 
             if (item.Plan != null)
             {
+                _supeyPreviewLv.ListViewItemSorter = null;
+                _supeyPreviewLv.Sorting = SortOrder.None;
                 int rowIdx = 0;
                 foreach (var g in item.Plan.Groups)
                 {
+                    AddGroupRouteHeaderRow(g, item.Plan);
                     for (int ti = 0; ti < g.Trips.Count; ti++)
                     {
                         var t = g.Trips[ti];
-                        string route = ((t.PUCity ?? "").Trim() + " → " + (t.DOCITY ?? "").Trim()).Trim();
+                        string puAddr = SupeyTripTimes.FormatEndpoint(t.PUStreet, t.PUCity);
+                        string doAddr = SupeyTripTimes.FormatEndpoint(t.DOStreet, t.DOCITY);
                         string geo = SupeyTripGeocodeStatus.ForScheduledTrip(t, g, item.Plan, ti);
+                        SupeyTripProjectedTiming timing = null;
+                        string tn = (t.TripNumber ?? "").Trim();
+                        if (!string.IsNullOrEmpty(tn) && item.Plan.TripTimings != null)
+                            item.Plan.TripTimings.TryGetValue(tn, out timing);
+                        string estPu = timing?.EstPu.HasValue == true
+                            ? SupeyTripTimes.FormatTimeOfDay(timing.EstPu) : "—";
+                        string late = !string.IsNullOrWhiteSpace(timing?.LateLabel)
+                            ? timing.LateLabel : "—";
                         var lvi = new ListViewItem(new[]
                         {
                             g.GroupNumber.ToString(),
@@ -2092,8 +2133,11 @@ namespace Hiatme_Tool_Suite_v3
                             t.ClientFullName ?? "",
                             geo,
                             t.PUTime ?? "",
-                            route,
+                            estPu,
+                            puAddr,
+                            doAddr,
                             t.DOTime ?? "",
+                            late,
                             t.Miles ?? "",
                         });
                         lvi.UseItemStyleForSubItems = false;
@@ -2101,6 +2145,10 @@ namespace Hiatme_Tool_Suite_v3
                         lvi.SubItems[0].BackColor = g.GroupColor;
                         lvi.SubItems[0].ForeColor = Color.Black;
                         StyleGeoSubItem(lvi.SubItems[SupeyPrevColGeoIndex], geo);
+                        if (late != "—" && late.IndexOf('L') >= 0)
+                        {
+                            lvi.SubItems[SupeyPrevColLateIndex].ForeColor = Color.FromArgb(255, 120, 120);
+                        }
                         _supeyPreviewLv.Items.Add(lvi);
                         rowIdx++;
                     }
@@ -2116,10 +2164,12 @@ namespace Hiatme_Tool_Suite_v3
             }
             else
             {
+                RestoreSupeyPreviewListSorter();
                 // Reserves
                 foreach (var t in _supeyResult.Reserves)
                 {
-                    string route = ((t.PUCity ?? "").Trim() + " → " + (t.DOCITY ?? "").Trim()).Trim();
+                    string puAddr = SupeyTripTimes.FormatEndpoint(t.PUStreet, t.PUCity);
+                    string doAddr = SupeyTripTimes.FormatEndpoint(t.DOStreet, t.DOCITY);
                     var lvi = new ListViewItem(new[]
                     {
                         "—",
@@ -2127,8 +2177,11 @@ namespace Hiatme_Tool_Suite_v3
                         t.ClientFullName ?? "",
                         SupeyTripGeocodeStatus.CheckPin,
                         t.PUTime ?? "",
-                        route,
+                        "—",
+                        puAddr,
+                        doAddr,
                         t.DOTime ?? "",
+                        "—",
                         t.Miles ?? "",
                     });
                     lvi.UseItemStyleForSubItems = false;
@@ -2177,9 +2230,8 @@ namespace Hiatme_Tool_Suite_v3
             foreach (var t in sorted)
             {
                 if (t == null) continue;
-                string route = ((t.PUStreet ?? "").Trim() + ", " + (t.PUCity ?? "").Trim()).Trim(',', ' ');
-                if (!string.IsNullOrWhiteSpace(t.DOStreet) || !string.IsNullOrWhiteSpace(t.DOCITY))
-                    route += " → " + ((t.DOStreet ?? "").Trim() + ", " + (t.DOCITY ?? "").Trim()).Trim(',', ' ');
+                string puAddr = SupeyTripTimes.FormatEndpoint(t.PUStreet, t.PUCity);
+                string doAddr = SupeyTripTimes.FormatEndpoint(t.DOStreet, t.DOCITY);
                 var lvi = new ListViewItem(new[]
                 {
                     "—",
@@ -2187,8 +2239,11 @@ namespace Hiatme_Tool_Suite_v3
                     t.ClientFullName ?? "",
                     "",
                     t.PUTime ?? "",
-                    route,
+                    "—",
+                    puAddr,
+                    doAddr,
                     t.DOTime ?? t.SchedDOTime ?? "",
+                    "—",
                     t.Miles ?? "",
                 });
                 lvi.Tag = t;
@@ -2234,7 +2289,10 @@ namespace Hiatme_Tool_Suite_v3
                 driverName ?? "",
                 w.Kind == SupeyWarningKind.MissingGeo ? SupeyTripGeocodeStatus.CheckPin : "",
                 "",
+                "",
                 w.Detail ?? "",
+                "",
+                "",
                 "",
                 "",
             });
@@ -2254,6 +2312,7 @@ namespace Hiatme_Tool_Suite_v3
             switch (k)
             {
                 case SupeyWarningKind.MissingGeo: return "Geo";
+                case SupeyWarningKind.UnassignedToReserves: return "Reserve";
                 case SupeyWarningKind.LateArrival: return "Late DO";
                 case SupeyWarningKind.TightArrival: return "Tight";
                 case SupeyWarningKind.LateNextPickup: return "Late PU";
@@ -2267,6 +2326,7 @@ namespace Hiatme_Tool_Suite_v3
             switch (k)
             {
                 case SupeyWarningKind.MissingGeo: return Color.FromArgb(232, 168, 96);    // amber — data quality
+                case SupeyWarningKind.UnassignedToReserves: return Color.FromArgb(200, 140, 220); // purple — unassigned
                 case SupeyWarningKind.LateArrival: return Color.FromArgb(232, 96, 96);    // red   — hard miss
                 case SupeyWarningKind.LateNextPickup: return Color.FromArgb(232, 96, 96); // red
                 case SupeyWarningKind.TightArrival: return Color.FromArgb(232, 220, 96);  // yellow — within margin
@@ -2317,9 +2377,11 @@ namespace Hiatme_Tool_Suite_v3
         private void SupeyPreviewLv_DrawSubItem(object sender, DrawListViewSubItemEventArgs e)
         {
             bool sel = e.Item != null && e.Item.Selected;
-            // Group swatch column gets the cluster's color even on selection so legend / list correlate.
+            bool routeHeader = e.Item?.Tag is SupeyPreviewGroupHeaderTag;
             Color fill = sel ? SupeyLvSel : SupeyLvBg;
-            if (e.ColumnIndex == 0 && !sel && e.SubItem.BackColor != Color.Empty &&
+            if (routeHeader && !sel)
+                fill = SupeyRouteHeaderBackColor(((SupeyPreviewGroupHeaderTag)e.Item.Tag).Group.GroupColor);
+            else if (e.ColumnIndex == 0 && !sel && e.SubItem.BackColor != Color.Empty &&
                 e.SubItem.BackColor != SupeyLvBg)
             {
                 fill = e.SubItem.BackColor;
@@ -2329,16 +2391,20 @@ namespace Hiatme_Tool_Suite_v3
 
             var bounds = new Rectangle(e.Bounds.Left + 6, e.Bounds.Top, e.Bounds.Width - 6, e.Bounds.Height);
             Color textColor = sel ? SupeyLvSelText : SupeyLvText;
-            // Per-cell ForeColor overrides only apply when the row isn't selected;
-            // on selection we always want the readable contrast color.
             if (!sel)
             {
                 if (e.ColumnIndex == SupeyPrevColGeoIndex && e.SubItem.ForeColor != Color.Empty)
                     textColor = e.SubItem.ForeColor;
                 else if (e.ColumnIndex == 0 && e.SubItem.ForeColor != Color.Empty)
                     textColor = e.SubItem.ForeColor;
+                else if (routeHeader)
+                    textColor = Color.FromArgb(235, 235, 220);
             }
-            TextRenderer.DrawText(e.Graphics, e.SubItem.Text ?? "", _supeyPreviewLv.Font, bounds, textColor,
+
+            Font drawFont = routeHeader && e.ColumnIndex == 2 && _supeyPreviewRouteFont != null
+                ? _supeyPreviewRouteFont
+                : _supeyPreviewLv.Font;
+            TextRenderer.DrawText(e.Graphics, e.SubItem.Text ?? "", drawFont, bounds, textColor,
                 TextFormatFlags.Left | TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter | TextFormatFlags.WordEllipsis | TextFormatFlags.GlyphOverhangPadding);
 
             SupeyListViewHelpers.DrawCellGridLines(e.Graphics, e.Bounds);
@@ -2628,6 +2694,8 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (row?.Tag is SupeyPreviewRowTag tag && tag.Trip != null)
                 _supeyMap?.FocusTrip(tag.Trip);
+            else if (row?.Tag is SupeyPreviewGroupHeaderTag hdr)
+                _supeyMap?.FocusGroup(hdr.Group);
         }
 
         private void SupeyPreviewLv_DoubleClickTrip(object sender, EventArgs e)
@@ -2696,6 +2764,57 @@ namespace Hiatme_Tool_Suite_v3
                 row.SubItems[SupeyPrevColGeoIndex].Text = geo;
                 StyleGeoSubItem(row.SubItems[SupeyPrevColGeoIndex], geo);
                 break;
+            }
+        }
+
+        private void RestoreSupeyPreviewListSorter()
+        {
+            if (_supeyPreviewLv == null) return;
+            if (_supeyPreviewLv.ListViewItemSorter == null)
+                ListViewSorter.Attach(_supeyPreviewLv);
+        }
+
+        private void AddGroupRouteHeaderRow(SupeyTripCluster g, SupeyDriverPlan plan)
+        {
+            string note = SupeyRouteNoteFormatter.Format(g);
+            var lvi = new ListViewItem(new[]
+            {
+                g.GroupNumber.ToString(),
+                "Route",
+                note,
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+            });
+            lvi.UseItemStyleForSubItems = false;
+            lvi.Tag = new SupeyPreviewGroupHeaderTag(g, plan);
+            lvi.SubItems[0].BackColor = g.GroupColor;
+            lvi.SubItems[0].ForeColor = Color.Black;
+            lvi.ToolTipText = note;
+            _supeyPreviewLv.Items.Add(lvi);
+        }
+
+        private static Color SupeyRouteHeaderBackColor(Color groupColor)
+        {
+            int r = Math.Max(0, groupColor.R - 48);
+            int gr = Math.Max(0, groupColor.G - 48);
+            int b = Math.Max(0, groupColor.B - 48);
+            return Color.FromArgb(255, r, gr, b);
+        }
+
+        private sealed class SupeyPreviewGroupHeaderTag
+        {
+            public SupeyTripCluster Group { get; }
+            public SupeyDriverPlan Plan { get; }
+            public SupeyPreviewGroupHeaderTag(SupeyTripCluster g, SupeyDriverPlan p)
+            {
+                Group = g;
+                Plan = p;
             }
         }
 

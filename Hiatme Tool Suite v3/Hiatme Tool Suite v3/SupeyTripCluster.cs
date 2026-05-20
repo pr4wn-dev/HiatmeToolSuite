@@ -4,15 +4,9 @@ using System.Drawing;
 namespace Hiatme_Tool_Suite_v3
 {
     /// <summary>
-    /// One natural ride-share cluster: trips that pick up close together at close-enough times
-    /// and drop off close together. Built in algorithm phase 2 (clustering) and refined in phase
-    /// 3 (fingerprinting), then each cluster is scored as a unit against every driver.
+    /// One ride-share group on a driver's day (from the AI schedule or manual edits).
+    /// Used for map colors, group headers, and route notes — not built locally in Tool Suite.
     /// </summary>
-    /// <remarks>
-    /// Cluster size is capped at the largest rostered driver capacity (see
-    /// <c>ResolveCapacityFloor</c> in <see cref="SupeyScheduleAlgorithm"/>). A trip that
-    /// doesn't fit any cluster ends up in a singleton cluster of its own.
-    /// </remarks>
     internal sealed class SupeyTripCluster
     {
         /// <summary>1-based group number; matches the swatch color shown in the preview / map.</summary>
@@ -33,10 +27,8 @@ namespace Hiatme_Tool_Suite_v3
         public System.TimeSpan EarliestPickup { get; set; }
 
         /// <summary>
-        /// Latest scheduled PU time across the cluster. The driver almost always waits at this
-        /// PU's location until the rider's pickup window opens (or arrives 29 min into the
-        /// A-leg early-pickup window), so this — not <see cref="EarliestPickup"/> — is what
-        /// determines when the drop-off leg actually starts.
+        /// Latest scheduled PU time across the cluster. Used for clustering order; feasibility
+        /// steps each PU with boarding time and capped idle waits (see BUILD timing constants).
         /// </summary>
         public System.TimeSpan LatestPickup { get; set; }
 
@@ -85,11 +77,21 @@ namespace Hiatme_Tool_Suite_v3
         /// Per-leg drive seconds along the dropoff portion of the tour, aligned 1:1 with
         /// <see cref="DropoffOrder"/>. <c>DropoffLegSeconds[0]</c> = drive from the last PU
         /// to the first dropped rider; subsequent entries are drive between consecutive
-        /// dropoffs. Lets feasibility checks compute when each rider is actually dropped
-        /// off (instead of forcing the whole cluster to finish by the earliest deadline).
+        /// dropoffs. Feasibility applies early-drop (29 min before appt) and parking-lot caps
+        /// at PU and DO per desk timing rules.
         /// </summary>
         public System.Collections.Generic.List<double> DropoffLegSeconds { get; }
             = new System.Collections.Generic.List<double>();
+
+        /// <summary>
+        /// Drive seconds between consecutive pickups in <see cref="PickupOrder"/> (PU0→PU1, …).
+        /// <c>PickupLegSeconds.Count</c> is <c>max(0, RiderCount - 1)</c>.
+        /// </summary>
+        public System.Collections.Generic.List<double> PickupLegSeconds { get; }
+            = new System.Collections.Generic.List<double>();
+
+        /// <summary>2+ riders in-group — longer parking-lot wait while the next client comes out.</summary>
+        public bool AllowsPiggybackIdleWait => RiderCount >= 2;
 
         /// <summary>
         /// Earliest moment the cluster can effectively begin when the dispatcher uses the A-leg

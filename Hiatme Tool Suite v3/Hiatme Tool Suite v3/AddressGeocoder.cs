@@ -11,12 +11,10 @@ using Newtonsoft.Json.Linq;
 namespace Hiatme_Tool_Suite_v3
 {
     /// <summary>
-    /// Thin wrapper around the public Nominatim (OpenStreetMap) geocoding endpoint, used to turn
-    /// a free-form trip address ("123 Main St", "Dayton") into a <see cref="GeoPoint"/> we can
-    /// hand to the routing engine. Nominatim's usage policy is strict — 1 request/sec max and a
-    /// unique User-Agent — so this class enforces both with a process-wide semaphore plus a
-    /// session-level cache that also memoizes negative lookups (so a malformed address never
-    /// gets hit again during the same run).
+    /// Address → lat/lon for BUILD and routing. When <see cref="HiatmeGeoSettings.UseServer"/>
+    /// is on (default), all lookups go through the AIagent host cache/API — Supey does not call
+    /// Nominatim directly. OSRM on this PC (or via server) still needs those coordinates for
+    /// road miles; it does not geocode street text by itself.
     /// </summary>
     /// <remarks>
     /// The cache is persisted to <c>%AppData%/HiatmeToolSuite/geocode-cache.json</c> so re-runs
@@ -328,6 +326,80 @@ namespace Hiatme_Tool_Suite_v3
         /// result instantly — including cached <c>null</c>s for unparseable addresses, so we
         /// never hammer the API on a busted address.
         /// </summary>
+        /// <summary>Merge server batch-geocode results into the local write-through cache.</summary>
+        public static void SeedCacheEntry(
+            string street, string city, string state, string zip, string countryCode, GeoPoint? point)
+        {
+            string key = NormalizeKey(street, city, state, zip, countryCode);
+            if (string.IsNullOrEmpty(key)) return;
+            EnsureDiskCacheLoaded();
+            lock (_cache)
+            {
+                _cache[key] = point;
+            }
+            Interlocked.Increment(ref _dirtyEpoch);
+            ScheduleSave();
+        }
+
+        /// <summary>
+        /// When using server geo: one batch call to AIagent fills both server and local cache.
+        /// Returns how many addresses were submitted.
+        /// </summary>
+        public static async Task<int> PrefetchViaServerAsync(
+            IEnumerable<(string street, string city, string state, string zip)> addresses,
+            CancellationToken token = default)
+        {
+            if (!HiatmeGeoSettings.UseServer) return 0;
+            var ai = HiatmeAiSettings.Load();
+            var queries = new JArray();
+            foreach (var a in addresses)
+            {
+                if (string.IsNullOrWhiteSpace(a.street) && string.IsNullOrWhiteSpace(a.city))
+                    continue;
+                queries.Add(new JObject
+                {
+                    ["street"] = a.street ?? "",
+                    ["city"] = a.city ?? "",
+                    ["state"] = string.IsNullOrWhiteSpace(a.state) ? "ME" : a.state,
+                    ["zip"] = a.zip ?? "",
+                    ["country_code"] = "us",
+                });
+            }
+            if (queries.Count == 0) return 0;
+
+            int total = 0;
+            const int chunkSize = 200;
+            for (int offset = 0; offset < queries.Count; offset += chunkSize)
+            {
+                var chunk = new JArray();
+                for (int i = offset; i < Math.Min(queries.Count, offset + chunkSize); i++)
+                    chunk.Add(queries[i]);
+
+                var results = await HiatmeGeoClient.GeocodeBatchAsync(ai, chunk, token).ConfigureAwait(false);
+                if (results == null) continue;
+
+                int n = Math.Min(chunk.Count, results.Count);
+                for (int i = 0; i < n; i++)
+                {
+                    var q = chunk[i] as JObject;
+                    var row = results[i] as JObject;
+                    if (q == null) continue;
+                    GeoPoint? pt = null;
+                    if (row?["ok"]?.Value<bool>() == true)
+                        pt = new GeoPoint(row["lat"].Value<double>(), row["lon"].Value<double>());
+                    SeedCacheEntry(
+                        q["street"]?.ToString(),
+                        q["city"]?.ToString(),
+                        q["state"]?.ToString(),
+                        q["zip"]?.ToString(),
+                        "us",
+                        pt);
+                }
+                total += n;
+            }
+            return total;
+        }
+
         public static Task<GeoPoint?> ResolveAsync(string street, string city, CancellationToken token = default)
         {
             return ResolveAsync(street, city, null, null, null, token);
@@ -429,9 +501,13 @@ namespace Hiatme_Tool_Suite_v3
                 }
                 catch
                 {
-                    // fall through to local Nominatim
+                    Interlocked.Increment(ref _misses);
+                    return null;
                 }
             }
+
+            if (HiatmeGeoSettings.UseServer)
+                return null;
 
             await _gate.WaitAsync(token).ConfigureAwait(false);
             try

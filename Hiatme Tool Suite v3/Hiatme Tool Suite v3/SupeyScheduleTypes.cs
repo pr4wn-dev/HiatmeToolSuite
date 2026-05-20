@@ -14,6 +14,9 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>PU or DO address could not be geocoded. Trip routed to Reserves.</summary>
         MissingGeo,
 
+        /// <summary>No driver could take this group; cluster sent to Reserves (not a lateness miss).</summary>
+        UnassignedToReserves,
+
         /// <summary>The driver cannot reach the trip's DO before its scheduled appointment time.</summary>
         LateArrival,
 
@@ -41,6 +44,20 @@ namespace Hiatme_Tool_Suite_v3
     /// "not applicable". <see cref="Detail"/> is the human-readable explanation shown in the
     /// warnings modal and tooltips.
     /// </summary>
+    /// <summary>Projected driver PU/DO for one trip after sequencing (BUILD preview).</summary>
+    internal sealed class SupeyTripProjectedTiming
+    {
+        public TimeSpan? EstPu { get; set; }
+        public TimeSpan? EstDo { get; set; }
+        public double? PuMinutesLate { get; set; }
+        public double? DoMinutesLate { get; set; }
+        public bool PuStrictLate { get; set; }
+        public bool DoStrictLate { get; set; }
+
+        /// <summary>Short label for the Late column, e.g. "PU +14L" or "DO +3".</summary>
+        public string LateLabel { get; set; } = "";
+    }
+
     internal sealed class SupeyWarning
     {
         public SupeyWarningKind Kind { get; }
@@ -142,6 +159,47 @@ namespace Hiatme_Tool_Suite_v3
             // window still bounds when the day can run.
             if (candidate.HasValue && candidate.Value == TimeSpan.Zero) return null;
             return candidate;
+        }
+
+        /// <summary>
+        /// Earliest PU allowed by the A-leg scoreboard (sched PU − 29 min). Used for lateness
+        /// checks — not as “sit in the lot until this clock time.”
+        /// </summary>
+        public static TimeSpan? TryParseEarliestPickup(MCDownloadedTrip t)
+        {
+            if (t == null) return null;
+            var sched = TryParsePU(t);
+            if (!sched.HasValue) return null;
+            if (DetectLegSuffix(t.TripNumber) != 'A') return sched;
+            var early = sched.Value.Subtract(TimeSpan.FromMinutes(ALegEarlyDropMinutes));
+            return early < TimeSpan.Zero ? TimeSpan.Zero : early;
+        }
+
+        /// <summary>
+        /// Earliest drop allowed on A-legs (appt − 29 min) for scoreboard only. BUILD drops
+        /// when the driver arrives — it does not model waiting in the lot until this time.
+        /// </summary>
+        public static TimeSpan? TryParseEarliestDropoff(MCDownloadedTrip t)
+        {
+            if (t == null) return null;
+            if (DetectLegSuffix(t.TripNumber) != 'A') return null;
+            var appt = TryParseDO(t);
+            if (!appt.HasValue) return null;
+            var early = appt.Value.Subtract(TimeSpan.FromMinutes(ALegEarlyDropMinutes));
+            return early < TimeSpan.Zero ? TimeSpan.Zero : early;
+        }
+
+        /// <summary>Scoreboard early-drop allowance on A-legs (mirrors early PU).</summary>
+        public const double ALegEarlyDropMinutes = 29.0;
+
+        /// <summary>One-line street + city for Supey trip list columns.</summary>
+        public static string FormatEndpoint(string street, string city)
+        {
+            string s = (street ?? "").Trim();
+            string c = (city ?? "").Trim();
+            if (string.IsNullOrEmpty(s)) return c;
+            if (string.IsNullOrEmpty(c)) return s;
+            return s + ", " + c;
         }
 
         private static char DetectLegSuffix(string tripNumber)

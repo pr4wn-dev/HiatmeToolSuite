@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Configuration;
 using System.Globalization;
 using System.Net.Http;
@@ -140,12 +141,29 @@ namespace Hiatme_Tool_Suite_v3
         /// </summary>
         public static string BuildRouteRequestUrl(string coordinatePath, string queryOptions)
         {
+            return BuildRouteRequestUrl(CurrentRouteBaseUri, coordinatePath, queryOptions);
+        }
+
+        /// <summary>Build route URL against a specific OSRM base (local or public).</summary>
+        public static string BuildRouteRequestUrl(string routeBaseUri, string coordinatePath, string queryOptions)
+        {
             if (string.IsNullOrWhiteSpace(coordinatePath))
                 throw new ArgumentException("OSRM coordinate path is empty.", nameof(coordinatePath));
 
             coordinatePath = coordinatePath.Trim().TrimStart('/');
             string q = (queryOptions ?? "").Trim().TrimStart('?');
-            return CurrentRouteBaseUri + coordinatePath + "?" + q;
+            string baseUri = string.IsNullOrWhiteSpace(routeBaseUri)
+                ? CurrentRouteBaseUri
+                : NormalizeRouteBaseUrl(routeBaseUri);
+            return baseUri + coordinatePath + "?" + q;
+        }
+
+        /// <summary>Local first, then public demo — used before straight-line fallback.</summary>
+        public static IReadOnlyList<string> RouteEndpointsInOrder()
+        {
+            if (!PreferLocal)
+                return new[] { PublicFallbackUrl };
+            return new[] { LocalBaseUrl, PublicFallbackUrl };
         }
 
         private static string NormalizeRouteBaseUrl(string url)

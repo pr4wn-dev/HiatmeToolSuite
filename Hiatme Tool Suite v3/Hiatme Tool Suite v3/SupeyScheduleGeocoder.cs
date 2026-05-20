@@ -1,10 +1,14 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace Hiatme_Tool_Suite_v3
 {
-    /// <summary>Fill PU/DO coordinates on AI-built plans so the map and Geo column work.</summary>
+    /// <summary>
+    /// After AI JSON is applied: geocode PU/DO for map pins, then OSRM polylines for display
+    /// (trip order from the AI schedule — not a local build pass).
+    /// </summary>
     internal static class SupeyScheduleGeocoder
     {
         public static async Task HydrateResultAsync(SupeyScheduleResult result, CancellationToken token = default)
@@ -16,6 +20,7 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     if (plan == null) continue;
                     await HydratePlanAsync(plan, token).ConfigureAwait(false);
+                    await HydrateMapRoutesAsync(plan, token).ConfigureAwait(false);
                 }
             }
         }
@@ -55,6 +60,44 @@ namespace Hiatme_Tool_Suite_v3
                     g.DropoffPoints.Add(dof ?? new GeoPoint(0, 0));
                 }
             }
+        }
+
+        /// <summary>Draw group route lines on the map from AI trip order + geocoded pins.</summary>
+        public static async Task HydrateMapRoutesAsync(SupeyDriverPlan plan, CancellationToken token = default)
+        {
+            if (plan?.Groups == null) return;
+            foreach (var g in plan.Groups)
+            {
+                if (g == null) continue;
+                token.ThrowIfCancellationRequested();
+                g.RoutePolyline.Clear();
+                var waypoints = new List<GeoPoint>();
+                int n = Math.Min(g.Trips.Count, Math.Min(g.PickupPoints.Count, g.DropoffPoints.Count));
+                for (int i = 0; i < n; i++)
+                {
+                    AddWaypointIfValid(waypoints, g.PickupPoints[i]);
+                    AddWaypointIfValid(waypoints, g.DropoffPoints[i]);
+                }
+                if (waypoints.Count < 2) continue;
+
+                var route = await OsrmRouteResolver.RouteBestEffortAsync(waypoints, token).ConfigureAwait(false);
+                if (!route.Ok || route.Polyline == null) continue;
+                foreach (var p in route.Polyline)
+                    g.RoutePolyline.Add(p);
+                g.IsStraightLineFallback = route.IsStraightLineFallback;
+            }
+        }
+
+        private static void AddWaypointIfValid(List<GeoPoint> waypoints, GeoPoint p)
+        {
+            if (p.Lat == 0 && p.Lng == 0) return;
+            if (waypoints.Count > 0)
+            {
+                var last = waypoints[waypoints.Count - 1];
+                if (Math.Abs(last.Lat - p.Lat) < 1e-6 && Math.Abs(last.Lng - p.Lng) < 1e-6)
+                    return;
+            }
+            waypoints.Add(p);
         }
     }
 }

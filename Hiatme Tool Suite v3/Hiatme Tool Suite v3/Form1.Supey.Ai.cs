@@ -23,8 +23,6 @@ namespace Hiatme_Tool_Suite_v3
         private Label _supeyAiLastAppliedLbl;
         private SupeyButton _supeyAiGoodBtn;
         private SupeyButton _supeyAiBadBtn;
-        private Panel _supeyAiRulesPanel;
-        private FlowLayoutPanel _supeyAiRulesFlow;
         private HiatmeAiSettings _supeyAiSettings;
         private string _supeyAiLastTraceId;
         private CancellationTokenSource _supeyAiCts;
@@ -160,36 +158,6 @@ namespace Hiatme_Tool_Suite_v3
                 Margin = new Padding(0, 6, 0, 0),
                 BackColor = SupeyTheme.Divider,
             };
-
-            _supeyAiRulesPanel = new Panel
-            {
-                Dock = DockStyle.Top,
-                Height = 96,
-                BackColor = SupeyTheme.Surface,
-                Padding = new Padding(0, 6, 0, 4),
-                Visible = false,
-            };
-            _supeyAiRulesFlow.Dock = DockStyle.Fill;
-            var rulesHdr = new Label
-            {
-                Dock = DockStyle.Top,
-                Height = 18,
-                Text = "Proposed rules (Accept → enforced on BUILD)",
-                ForeColor = SupeyTheme.TextSecondary,
-                Font = SupeyTheme.CaptionFont,
-                BackColor = SupeyTheme.Surface,
-            };
-            _supeyAiRulesFlow = new FlowLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                FlowDirection = FlowDirection.TopDown,
-                WrapContents = false,
-                AutoScroll = true,
-                BackColor = SupeyTheme.SurfaceBase,
-            };
-            _supeyAiRulesPanel.Controls.Add(_supeyAiRulesFlow);
-            _supeyAiRulesPanel.Controls.Add(rulesHdr);
-            rulesHdr.BringToFront();
 
             // ── Composer (bottom): prompt-card + action row ──────────────────
             // The composer is what the user sees when they want to talk to the AI. It
@@ -353,7 +321,6 @@ namespace Hiatme_Tool_Suite_v3
             // bottom.
             host.Controls.Add(transcriptCard);
             host.Controls.Add(composer);
-            host.Controls.Add(_supeyAiRulesPanel);
             host.Controls.Add(headerSep);
             host.Controls.Add(_supeyAiLastAppliedLbl);
             host.Controls.Add(_supeyAiUrlLbl);
@@ -377,20 +344,17 @@ namespace Hiatme_Tool_Suite_v3
                 _supeyAiUrlLbl.Text = _supeyAiSettings.BaseUrl ?? "";
 
             bool ok = false;
+            string pingDetail = "";
             try
             {
                 ok = await HiatmeAiClient.PingAsync(_supeyAiSettings).ConfigureAwait(true);
+                if (!ok)
+                    pingDetail = "Panel not reachable at " + (_supeyAiSettings.BaseUrl ?? "");
             }
-            catch
+            catch (Exception ex)
             {
                 ok = false;
-            }
-
-            int notes = 0;
-            if (ok)
-            {
-                notes = await HiatmeAiClient.GetMemoryCountAsync(_supeyAiSettings).ConfigureAwait(true);
-                _ = RefreshSupeyProposedRulesAsync();
+                pingDetail = ex.Message;
             }
 
             if (_supeyAiStatusPill != null)
@@ -398,21 +362,39 @@ namespace Hiatme_Tool_Suite_v3
                 _supeyAiStatusPill.Label = ok ? "Connected" : "Offline";
                 _supeyAiStatusPill.DotColor = ok ? SupeyTheme.SuccessText : SupeyTheme.ErrorText;
                 _supeyAiStatusPill.ForeColor = SupeyTheme.TextPrimary;
+                _supeyAiStatusPill.Tag = pingDetail;
             }
-            if (_supeyAiLessonsPill != null)
+            if (_supeyAiLessonsPill != null && !ok)
+                _supeyAiLessonsPill.Visible = false;
+
+            if (ok)
             {
-                if (ok && notes > 0)
+                _ = RefreshSupeyRulesPanelAsync();
+                _ = RefreshSupeyAiLessonsCountAsync();
+            }
+            // Force the spacer to recompute now that pill widths may have changed.
+            _supeyAiStatusPill?.Parent?.PerformLayout();
+        }
+
+        private async Task RefreshSupeyAiLessonsCountAsync()
+        {
+            if (_supeyAiSettings == null || _supeyAiLessonsPill == null) return;
+            try
+            {
+                int notes = await HiatmeAiClient.GetMemoryCountAsync(_supeyAiSettings).ConfigureAwait(true);
+                if (notes > 0)
                 {
                     _supeyAiLessonsPill.Label = notes + " lesson" + (notes == 1 ? "" : "s");
                     _supeyAiLessonsPill.Visible = true;
                 }
                 else
-                {
                     _supeyAiLessonsPill.Visible = false;
-                }
+                _supeyAiLessonsPill.Parent?.PerformLayout();
             }
-            // Force the spacer to recompute now that pill widths may have changed.
-            _supeyAiStatusPill?.Parent?.PerformLayout();
+            catch
+            {
+                /* optional badge */
+            }
         }
 
         private async Task OnSupeyAiFeedbackAsync(int rating)
@@ -552,6 +534,10 @@ namespace Hiatme_Tool_Suite_v3
             ApplySupeyAiSchedule(schedule, message, null, transcriptRole);
         }
 
+        /// <summary>
+        /// AI panel → schedule JSON → trip list + map. Tool Suite does not assign trips here;
+        /// it only maps <c>trip_numbers</c> to loaded Modivcare rows and refreshes UI.
+        /// </summary>
         private void ApplySupeyAiSchedule(
             HiatmeAiScheduleBody schedule,
             string message,
@@ -570,7 +556,8 @@ namespace Hiatme_Tool_Suite_v3
             _supeyLastTemplateCompare = SupeyTemplateCompare.Run(_supeyResult, hints);
             if (_supeyTemplateCompareLbl != null)
                 _supeyTemplateCompareLbl.Text = _supeyLastTemplateCompare.SummaryText;
-            AppendSupeyAiReply(transcriptRole, thinking, message ?? "Done — check the trip list.");
+            // JSON is applied to the trip list only — do not dump it in the transcript.
+            AppendSupeyAiTranscript(transcriptRole, TranscriptForScheduleApplied(message, thinking));
             var syncSource = (transcriptRole ?? "").IndexOf("build", StringComparison.OrdinalIgnoreCase) >= 0
                 ? "build"
                 : "update";
@@ -586,6 +573,28 @@ namespace Hiatme_Tool_Suite_v3
         {
             return string.Equals(mode, "update", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(mode, "revise", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>Short dispatcher text only — never raw schedule JSON in the chat pane.</summary>
+        private static string TranscriptForScheduleApplied(string message, string thinking)
+        {
+            var m = (message ?? "").Trim();
+            if (!string.IsNullOrEmpty(m) && !LooksLikeScheduleJson(m) && m.Length <= 600)
+                return m;
+            if (!string.IsNullOrEmpty(m) && !LooksLikeScheduleJson(m))
+                return m.Substring(0, 600) + "…";
+            return "Schedule loaded on the trip list — edit or Save when ready.";
+        }
+
+        private static bool LooksLikeScheduleJson(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return false;
+            var s = text.Trim();
+            if (s.IndexOf('{') < 0) return false;
+            return s.IndexOf("\"drivers\"", StringComparison.OrdinalIgnoreCase) >= 0
+                || s.IndexOf("\"trip_numbers\"", StringComparison.OrdinalIgnoreCase) >= 0
+                || s.IndexOf("\"schedule\"", StringComparison.OrdinalIgnoreCase) >= 0
+                || s.IndexOf("\"reserves\"", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private void AppendSupeyAiServerWarnings(HiatmeAiMessageResponse resp)
@@ -762,6 +771,7 @@ namespace Hiatme_Tool_Suite_v3
                 }
                 _supeyAiPrompt.Clear();
                 _ = RefreshSupeyAiConnectionStatusAsync();
+                _ = RefreshSupeyRulesPanelAsync();
 
                 if (resp.ProposedAddressChange != null &&
                     string.Equals(resp.ProposedAddressChange.Kind, "queued", StringComparison.OrdinalIgnoreCase))
@@ -891,112 +901,13 @@ namespace Hiatme_Tool_Suite_v3
                 if (pre?.Warnings == null || pre.Warnings.Count == 0) return;
                 foreach (var w in pre.Warnings)
                     AppendSupeyAiTranscriptIfPresent("AI · rules", w);
-                SetSupeyStatus(pre.Warnings.Count + " standing rule reminder(s) — see AI panel.");
+                SetSupeyStatus(pre.Warnings.Count + " standing rule reminder(s) — see Rules panel.");
             }
             catch
             {
                 /* panel optional */
             }
-            await RefreshSupeyProposedRulesAsync().ConfigureAwait(true);
-        }
-
-        private async Task RefreshSupeyProposedRulesAsync()
-        {
-            if (_supeyAiRulesFlow == null || _supeyAiRulesPanel == null) return;
-            if (_supeyAiSettings == null)
-                _supeyAiSettings = HiatmeAiSettings.Load();
-            _supeyAiRulesFlow.SuspendLayout();
-            _supeyAiRulesFlow.Controls.Clear();
-            try
-            {
-                var rules = await HiatmeAiClient.GetProposedRulesAsync(_supeyAiSettings).ConfigureAwait(true);
-                if (rules == null || rules.Count == 0)
-                {
-                    _supeyAiRulesPanel.Visible = false;
-                    return;
-                }
-                _supeyAiRulesPanel.Visible = true;
-                foreach (var rule in rules)
-                {
-                    if (string.IsNullOrWhiteSpace(rule?.Id)) continue;
-                    var row = new Panel
-                    {
-                        Width = _supeyAiRulesFlow.ClientSize.Width > 80
-                            ? _supeyAiRulesFlow.ClientSize.Width - 24
-                            : 280,
-                        Height = 52,
-                        Margin = new Padding(0, 0, 0, 4),
-                        BackColor = SupeyTheme.SurfaceElevated,
-                    };
-                    var title = new Label
-                    {
-                        Dock = DockStyle.Top,
-                        Height = 18,
-                        Text = Trunc(rule.Title ?? rule.Kind ?? "Rule", 42),
-                        ForeColor = SupeyTheme.TextPrimary,
-                        Font = SupeyTheme.CaptionFont,
-                        BackColor = Color.Transparent,
-                    };
-                    var rationale = new Label
-                    {
-                        Dock = DockStyle.Top,
-                        Height = 16,
-                        Text = Trunc(rule.Rationale ?? "", 48),
-                        ForeColor = SupeyTheme.TextMuted,
-                        Font = SupeyTheme.CaptionFont,
-                        BackColor = Color.Transparent,
-                    };
-                    var actions = new FlowLayoutPanel
-                    {
-                        Dock = DockStyle.Bottom,
-                        Height = 28,
-                        FlowDirection = FlowDirection.LeftToRight,
-                        WrapContents = false,
-                        BackColor = Color.Transparent,
-                    };
-                    var acceptBtn = new SupeyButton
-                    {
-                        Text = "Accept",
-                        Kind = SupeyButton.Variant.Primary,
-                        Size = new Size(64, 24),
-                        Margin = new Padding(0, 0, 4, 0),
-                    };
-                    var rejectBtn = new SupeyButton
-                    {
-                        Text = "Reject",
-                        Kind = SupeyButton.Variant.Outlined,
-                        Size = new Size(64, 24),
-                    };
-                    var ruleId = rule.Id;
-                    acceptBtn.Click += async (s, e) =>
-                    {
-                        if (await HiatmeAiClient.AcceptRuleAsync(_supeyAiSettings, ruleId).ConfigureAwait(true))
-                        {
-                            AppendSupeyAiTranscript("System", "Accepted rule: " + (rule.Title ?? ruleId));
-                            await RefreshSupeyProposedRulesAsync().ConfigureAwait(true);
-                        }
-                    };
-                    rejectBtn.Click += async (s, e) =>
-                    {
-                        if (await HiatmeAiClient.RejectRuleAsync(_supeyAiSettings, ruleId).ConfigureAwait(true))
-                            await RefreshSupeyProposedRulesAsync().ConfigureAwait(true);
-                    };
-                    actions.Controls.Add(acceptBtn);
-                    actions.Controls.Add(rejectBtn);
-                    row.Controls.Add(actions);
-                    row.Controls.Add(rationale);
-                    row.Controls.Add(title);
-                    _supeyAiRulesFlow.Controls.Add(row);
-                }
-            }
-            catch
-            {
-                _supeyAiRulesPanel.Visible = false;
-            }
-            finally
-            {
-                _supeyAiRulesFlow.ResumeLayout(true);
-            }
+            await RefreshSupeyRulesPanelAsync().ConfigureAwait(true);
         }
 
     }

@@ -5,7 +5,12 @@ using System.Linq;
 
 namespace Hiatme_Tool_Suite_v3
 {
-    /// <summary>Turns AI schedule JSON into a <see cref="SupeyScheduleResult"/> for preview/save.</summary>
+    /// <summary>
+    /// Loads AI schedule JSON into Supey — no local assignment. Panel returns
+    /// <c>{ drivers: [{ driver_name, trip_numbers | groups }], reserves: [] }</c>;
+    /// trip numbers are matched to Modivcare rows from Load Trips; map pins and list UI
+    /// come from that result (geocode + OSRM display only).
+    /// </summary>
     internal static class HiatmeAiScheduleMapper
     {
         public static SupeyScheduleResult ToSupeyScheduleResult(
@@ -100,13 +105,25 @@ namespace Hiatme_Tool_Suite_v3
                     "AI schedule: matched " + resolved + " of " + requested
                     + " trip references to loaded Modivcare rows. Rebuild if the list looks empty."));
             }
-            if (scheduled == 0 && allTrips.Count > 0)
+            int onDriversOnly = 0;
+            if (result.DriverPlans != null)
+            {
+                foreach (var p in result.DriverPlans)
+                {
+                    if (p?.Groups == null) continue;
+                    foreach (var g in p.Groups)
+                        onDriversOnly += g?.Trips?.Count ?? 0;
+                }
+            }
+            if (onDriversOnly == 0 && allTrips.Count > 0)
             {
                 result.BuildWarnings.Add(new SupeyWarning(
-                    SupeyWarningKind.MissingGeo,
+                    SupeyWarningKind.UnassignedToReserves,
                     "",
                     "",
-                    "AI returned a schedule but no trips could be placed on drivers. Check driver names match the roster and trip numbers match LOAD TRIPS."));
+                    "AI BUILD: no trips on drivers — all " + allTrips.Count
+                    + " in reserves. Use exact roster names and trip numbers from LOAD TRIPS "
+                    + "(e.g. 1-38262-A). Rebuild or Send the AI to fix."));
             }
 
             return result;

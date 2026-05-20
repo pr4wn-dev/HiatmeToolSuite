@@ -164,9 +164,22 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     var via = await HiatmeGeoClient.GetCumulativeDurationsAsync(
                         HiatmeAiSettings.Load(), waypoints, token).ConfigureAwait(false);
-                    if (via != null) return via;
+                    if (via != null && via.Ok) return via;
                 }
-                catch { /* local OSRM below */ }
+                catch { /* try local below */ }
+            }
+
+            var poly = await OsrmRouteResolver.RouteBestEffortAsync(waypoints, token).ConfigureAwait(false);
+            if (poly.Ok && !poly.IsStraightLineFallback && poly.LegDurations != null)
+            {
+                var cumulative = new List<double>(poly.LegDurations.Count);
+                double running = 0;
+                foreach (double leg in poly.LegDurations)
+                {
+                    running += leg;
+                    cumulative.Add(running);
+                }
+                return RouteResult.Success(cumulative);
             }
 
             string coordPath;
@@ -234,201 +247,14 @@ namespace Hiatme_Tool_Suite_v3
                     if (osrm != null)
                     {
                         var parsed = TryParseOsrmPolyline(osrm, waypoints);
-                        if (parsed != null) return parsed;
+                        if (parsed != null && parsed.Ok && !parsed.IsStraightLineFallback)
+                            return parsed;
                     }
                 }
-                catch { /* local OSRM below */ }
+                catch { /* try local below */ }
             }
 
-            string coordPath;
-            string coordError;
-            if (!TryBuildCoordinatePath(waypoints, out coordPath, out coordError))
-                return RoutePolylineResult.Fail(coordError);
-
-            string requestUrl = OsrmSettings.BuildRouteRequestUrl(
-                coordPath,
-                "overview=full&geometries=geojson&alternatives=false&steps=false&annotations=distance,duration");
-
-            int totalLen = requestUrl.Length;
-
-            if (totalLen > MaxUrlLength)
-
-            {
-
-                return BuildStraightLineFallback(waypoints,
-
-                    "Too many stops in the chain (" + waypoints.Count + " waypoints, " +
-
-                    totalLen + " chars). Built a straight-line fallback for this leg.");
-
-            }
-
-
-
-            try
-
-            {
-
-                using (var resp = await FetchOsrmAsync(requestUrl, token).ConfigureAwait(false))
-
-                {
-
-                    if (!resp.IsSuccessStatusCode)
-
-                    {
-
-                        int code = (int)resp.StatusCode;
-
-                        return BuildStraightLineFallback(waypoints,
-
-                            "Routing service returned HTTP " + code + " " + (resp.ReasonPhrase ?? "") +
-
-                            HttpErrorSuggestion(code, forFallback: true));
-
-                    }
-
-
-
-                    string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
-
-                    var json = JObject.Parse(body);
-
-                    string osrmCode = (string)json["code"];
-
-                    if (!string.Equals(osrmCode, "Ok", StringComparison.Ordinal))
-
-                    {
-
-                        string osrmMsg = (string)json["message"];
-
-                        return BuildStraightLineFallback(waypoints,
-
-                            "Routing service: " + (osrmCode ?? "(no code)") +
-
-                            (string.IsNullOrEmpty(osrmMsg) ? "" : " — " + osrmMsg));
-
-                    }
-
-
-
-                    var routes = json["routes"] as JArray;
-
-                    if (routes == null || routes.Count == 0)
-
-                        return BuildStraightLineFallback(waypoints, "Routing service returned no routes.");
-
-
-
-                    var route = routes[0];
-
-                    double totalDuration = (double?)route["duration"] ?? 0d;
-
-                    double totalDistance = (double?)route["distance"] ?? 0d;
-
-
-
-                    var legs = route["legs"] as JArray;
-
-                    var legDurations = new List<double>();
-
-                    var legDistances = new List<double>();
-
-                    if (legs != null)
-
-                    {
-
-                        foreach (var leg in legs)
-
-                        {
-
-                            legDurations.Add((double?)leg["duration"] ?? 0d);
-
-                            legDistances.Add((double?)leg["distance"] ?? 0d);
-
-                        }
-
-                    }
-
-
-
-                    var coords = route["geometry"]?["coordinates"] as JArray;
-
-                    var polyline = new List<GeoPoint>(coords?.Count ?? 0);
-
-                    if (coords != null)
-
-                    {
-
-                        foreach (var pair in coords)
-
-                        {
-
-                            if (pair is JArray pa && pa.Count >= 2)
-
-                            {
-
-                                double lng = (double)pa[0];
-
-                                double lat = (double)pa[1];
-
-                                polyline.Add(new GeoPoint(lat, lng));
-
-                            }
-
-                        }
-
-                    }
-
-                    if (polyline.Count == 0)
-
-                        polyline.AddRange(waypoints);
-
-
-
-                    return RoutePolylineResult.Success(legDurations, legDistances, polyline,
-
-                        totalDuration, totalDistance);
-
-                }
-
-            }
-
-            catch (OperationCanceledException) when (token.IsCancellationRequested)
-
-            {
-
-                throw;
-
-            }
-
-            catch (OperationCanceledException)
-
-            {
-
-                return BuildStraightLineFallback(waypoints, "Routing service timed out.");
-
-            }
-
-            catch (HttpRequestException ex)
-
-            {
-
-                return BuildStraightLineFallback(waypoints, UnreachableMessage(ex));
-
-            }
-
-            catch (Exception ex)
-
-            {
-
-                return BuildStraightLineFallback(waypoints,
-
-                    "Routing service failed: " + ex.GetType().Name +
-
-                    (string.IsNullOrEmpty(ex.Message) ? "" : " — " + ex.Message));
-
-            }
-
+            return await OsrmRouteResolver.RouteBestEffortAsync(waypoints, token).ConfigureAwait(false);
         }
 
 
@@ -712,13 +538,13 @@ namespace Hiatme_Tool_Suite_v3
             if (!string.Equals(osrmCode, "Ok", StringComparison.Ordinal))
             {
                 string osrmMsg = (string)json["message"];
-                return BuildStraightLineFallback(waypoints,
+                return RoutePolylineResult.Fail(
                     "Routing service: " + (osrmCode ?? "(no code)") +
                     (string.IsNullOrEmpty(osrmMsg) ? "" : " — " + osrmMsg));
             }
             var routes = json["routes"] as JArray;
             if (routes == null || routes.Count == 0)
-                return BuildStraightLineFallback(waypoints, "Routing service returned no routes.");
+                return RoutePolylineResult.Fail("Routing service returned no routes.");
             var route = routes[0];
             double totalDuration = (double?)route["duration"] ?? 0d;
             double totalDistance = (double?)route["distance"] ?? 0d;
@@ -752,7 +578,7 @@ namespace Hiatme_Tool_Suite_v3
             return RoutePolylineResult.Success(legDurations, legDistances, polyline, totalDuration, totalDistance);
         }
 
-        private static RoutePolylineResult BuildStraightLineFallback(IList<GeoPoint> waypoints, string osrmError)
+        internal static RoutePolylineResult BuildStraightLineFallback(IList<GeoPoint> waypoints, string osrmError)
 
         {
 

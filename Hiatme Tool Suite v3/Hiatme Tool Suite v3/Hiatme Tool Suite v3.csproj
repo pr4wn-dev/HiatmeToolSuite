@@ -253,6 +253,8 @@
     <Compile Include="AddressGeocoder.cs" />
     <Compile Include="SupeyKnownFacilities.cs" />
     <Compile Include="OsrmSettings.cs" />
+    <Compile Include="OsrmRouteResolver.cs" />
+    <Compile Include="ScheduleOsrmGate.cs" />
     <Compile Include="RouteEstimator.cs" />
     <Compile Include="EtaPlanner.cs" />
     <Compile Include="SupeyDriverProfile.cs" />
@@ -261,11 +263,9 @@
     <Compile Include="SupeyTripCluster.cs" />
     <Compile Include="SupeyDriverPlan.cs" />
     <Compile Include="SupeyScheduleResult.cs" />
-    <Compile Include="SupeyRouteCache.cs" />
     <Compile Include="SupeyTemplateHints.cs" />
-    <Compile Include="SupeyScheduleAlgorithm.cs" />
     <Compile Include="SupeyScheduleRules.cs" />
-    <Compile Include="SupeyClusterRouting.cs" />
+    <Compile Include="SupeyRouteNoteFormatter.cs" />
     <Compile Include="SupeyCollapsiblePanel.cs">
       <SubType>Component</SubType>
     </Compile>
@@ -298,6 +298,10 @@
       <DependentUpon>Form1.cs</DependentUpon>
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="Form1.Supey.Rules.cs">
+      <DependentUpon>Form1.cs</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="HiatmeAiSettings.cs" />
     <Compile Include="HiatmeAiClient.cs" />
     <Compile Include="HiatmeSchedulePatch.cs" />
@@ -307,11 +311,17 @@
     <Compile Include="SupeyDraggableMarker.cs" />
     <Compile Include="SupeyListViewHelpers.cs" />
     <Compile Include="SupeyDarkScrollBars.cs" />
-    <Compile Include="SupeyButton.cs" />
+    <Compile Include="SupeyButton.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="SupeyMapMarkerDrag.cs" />
-    <Compile Include="SupeyStatusPill.cs" />
+    <Compile Include="SupeyStatusPill.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="SupeyTheme.cs" />
-    <Compile Include="SupeyGeocodeFixForm.cs" />
+    <Compile Include="SupeyGeocodeFixForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="SupeyTripGeocodeStatus.cs" />
     <Compile Include="SupeyScheduleGeocoder.cs" />
     <Compile Include="HiatmeSchedulePatchApplier.cs" />

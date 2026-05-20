@@ -56,6 +56,10 @@ namespace Hiatme_Tool_Suite_v3
 
         public List<SupeyWarning> Warnings { get; } = new List<SupeyWarning>();
 
+        /// <summary>Per-trip projected times after phase 8 (trip # → timing).</summary>
+        public Dictionary<string, SupeyTripProjectedTiming> TripTimings { get; } =
+            new Dictionary<string, SupeyTripProjectedTiming>(StringComparer.OrdinalIgnoreCase);
+
         public int RiderCount
         {
             get

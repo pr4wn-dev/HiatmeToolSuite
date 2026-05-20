@@ -69,6 +69,8 @@ namespace Hiatme_Tool_Suite_v3
         public string Title { get; set; }
         public string Kind { get; set; }
         public string Rationale { get; set; }
+        public bool Enabled { get; set; }
+        public string Source { get; set; }
     }
 
     /// <summary>Unified Send response — chat or schedule update.</summary>
@@ -131,6 +133,12 @@ namespace Hiatme_Tool_Suite_v3
         private static readonly HttpClient SharedHttp = new HttpClient
         {
             Timeout = TimeSpan.FromSeconds(130),
+        };
+
+        /// <summary>Long-running schedule-build/revise calls (panel Ollama can take several minutes).</summary>
+        private static readonly HttpClient ScheduleBuildHttp = new HttpClient
+        {
+            Timeout = TimeSpan.FromMinutes(15),
         };
 
         /// <summary>Quick health check — GET /api/status.</summary>
@@ -202,7 +210,7 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
-        public static async Task<List<HiatmeAiRuleItem>> GetProposedRulesAsync(
+        public static async Task<List<HiatmeAiRuleItem>> GetRulesAsync(
             HiatmeAiSettings settings,
             CancellationToken cancellationToken = default)
         {
@@ -212,7 +220,7 @@ namespace Hiatme_Tool_Suite_v3
             if (string.IsNullOrEmpty(baseUrl)) return list;
             try
             {
-                using (var req = new HttpRequestMessage(HttpMethod.Get, baseUrl + "/api/hiatme/rules/proposed"))
+                using (var req = new HttpRequestMessage(HttpMethod.Get, baseUrl + "/api/hiatme/rules"))
                 {
                     if (!string.IsNullOrWhiteSpace(settings.ApiToken))
                         req.Headers.Authorization = new AuthenticationHeaderValue(
@@ -223,13 +231,7 @@ namespace Hiatme_Tool_Suite_v3
                         var root = JObject.Parse(await resp.Content.ReadAsStringAsync().ConfigureAwait(false));
                         foreach (var item in root["items"] as JArray ?? new JArray())
                         {
-                            list.Add(new HiatmeAiRuleItem
-                            {
-                                Id = item["id"]?.ToString(),
-                                Title = item["title"]?.ToString(),
-                                Kind = item["kind"]?.ToString(),
-                                Rationale = item["rationale"]?.ToString(),
-                            });
+                            list.Add(ParseRuleItem(item));
                         }
                     }
                 }
@@ -238,20 +240,97 @@ namespace Hiatme_Tool_Suite_v3
             return list;
         }
 
-        public static async Task<bool> AcceptRuleAsync(
+        public static Task<List<HiatmeAiRuleItem>> GetProposedRulesAsync(
             HiatmeAiSettings settings,
-            string ruleId,
             CancellationToken cancellationToken = default)
         {
-            return await PostRuleActionAsync(settings, ruleId, "accept", cancellationToken).ConfigureAwait(false);
+            return GetRulesAsync(settings, cancellationToken);
         }
 
-        public static async Task<bool> RejectRuleAsync(
+        private static HiatmeAiRuleItem ParseRuleItem(JToken item)
+        {
+            return new HiatmeAiRuleItem
+            {
+                Id = item["id"]?.ToString(),
+                Title = item["title"]?.ToString(),
+                Kind = item["kind"]?.ToString(),
+                Rationale = item["rationale"]?.ToString(),
+                Enabled = item["enabled"]?.Value<bool>() ?? true,
+                Source = item["source"]?.ToString(),
+            };
+        }
+
+        public static async Task<bool> SetRuleEnabledAsync(
+            HiatmeAiSettings settings,
+            string ruleId,
+            bool enabled,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null || string.IsNullOrWhiteSpace(ruleId)) return false;
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl)) return false;
+            var url = baseUrl + "/api/hiatme/rules/" + Uri.EscapeDataString(ruleId);
+            try
+            {
+                using (var req = new HttpRequestMessage(new HttpMethod("PATCH"), url))
+                {
+                    req.Content = new StringContent(
+                        JsonConvert.SerializeObject(new { enabled }),
+                        Encoding.UTF8,
+                        "application/json");
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
+                        return resp.IsSuccessStatusCode;
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        public static async Task<bool> DeleteRuleAsync(
             HiatmeAiSettings settings,
             string ruleId,
             CancellationToken cancellationToken = default)
         {
-            return await PostRuleActionAsync(settings, ruleId, "reject", cancellationToken).ConfigureAwait(false);
+            if (settings == null || string.IsNullOrWhiteSpace(ruleId)) return false;
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl)) return false;
+            var url = baseUrl + "/api/hiatme/rules/" + Uri.EscapeDataString(ruleId);
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Delete, url))
+                {
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
+                        return resp.IsSuccessStatusCode;
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        public static Task<bool> AcceptRuleAsync(
+            HiatmeAiSettings settings,
+            string ruleId,
+            CancellationToken cancellationToken = default)
+        {
+            return SetRuleEnabledAsync(settings, ruleId, true, cancellationToken);
+        }
+
+        public static Task<bool> RejectRuleAsync(
+            HiatmeAiSettings settings,
+            string ruleId,
+            CancellationToken cancellationToken = default)
+        {
+            return DeleteRuleAsync(settings, ruleId, cancellationToken);
         }
 
         private static async Task<bool> PostRuleActionAsync(
@@ -406,6 +485,40 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        /// <summary>Permanent standing rules from server memory (timing, vans, home routing).</summary>
+        public static async Task<List<string>> GetStandingRulesAsync(
+            HiatmeAiSettings settings,
+            CancellationToken cancellationToken = default)
+        {
+            var list = new List<string>();
+            if (settings == null) return list;
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl)) return list;
+            try
+            {
+                using (var req = new HttpRequestMessage(
+                    HttpMethod.Get, baseUrl + "/api/hiatme/memory?limit=200"))
+                {
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
+                    {
+                        if (!resp.IsSuccessStatusCode) return list;
+                        var root = JObject.Parse(await resp.Content.ReadAsStringAsync().ConfigureAwait(false));
+                        foreach (var item in root["rules"] as JArray ?? new JArray())
+                        {
+                            var text = item["text"]?.ToString();
+                            if (!string.IsNullOrWhiteSpace(text))
+                                list.Add(text.Trim());
+                        }
+                    }
+                }
+            }
+            catch { /* optional */ }
+            return list;
+        }
+
         public static async Task<int> GetMemoryCountAsync(
             HiatmeAiSettings settings,
             CancellationToken cancellationToken = default)
@@ -416,7 +529,7 @@ namespace Hiatme_Tool_Suite_v3
             try
             {
                 using (var req = new HttpRequestMessage(
-                    HttpMethod.Get, baseUrl + "/api/hiatme/memory?limit=200"))
+                    HttpMethod.Get, baseUrl + "/api/hiatme/memory?limit=20"))
                 {
                     if (!string.IsNullOrWhiteSpace(settings.ApiToken))
                         req.Headers.Authorization = new AuthenticationHeaderValue(
@@ -699,7 +812,7 @@ namespace Hiatme_Tool_Suite_v3
                 if (!string.IsNullOrWhiteSpace(settings.ApiToken))
                     req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", settings.ApiToken.Trim());
 
-                using (var resp = await SharedHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
+                using (var resp = await ScheduleBuildHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
                 {
                     var text = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
                     if (!resp.IsSuccessStatusCode)
@@ -739,7 +852,7 @@ namespace Hiatme_Tool_Suite_v3
                 if (!string.IsNullOrWhiteSpace(settings.ApiToken))
                     req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", settings.ApiToken.Trim());
 
-                using (var resp = await SharedHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
+                using (var resp = await ScheduleBuildHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
                 {
                     var text = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
                     if (!resp.IsSuccessStatusCode)
@@ -761,6 +874,7 @@ namespace Hiatme_Tool_Suite_v3
                     return new HiatmeAiBuildResponse
                     {
                         Message = root["message"]?.ToString(),
+                        Thinking = root["thinking"]?.ToString(),
                         TraceId = root["trace_id"]?.ToString(),
                         Schedule = schedule,
                     };

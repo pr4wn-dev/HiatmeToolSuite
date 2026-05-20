@@ -201,6 +201,31 @@ namespace Hiatme_Tool_Suite_v3
             return RouteEstimator.RouteResult.Success(cumulative);
         }
 
+        /// <summary>Batch geocode on AIagent (shared cache). Supey uses this instead of local Nominatim.</summary>
+        public static async Task<JArray> GeocodeBatchAsync(
+            HiatmeAiSettings settings,
+            JArray queries,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null || queries == null || queries.Count == 0) return null;
+            string url = Base(settings) + "/api/hiatme/geocode";
+            var body = new JObject { ["queries"] = queries };
+            try
+            {
+                using (var req = BuildPost(settings, url, body))
+                using (var resp = await SharedHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
+                {
+                    if (!resp.IsSuccessStatusCode) return null;
+                    var json = JObject.Parse(await resp.Content.ReadAsStringAsync().ConfigureAwait(false));
+                    return json["results"] as JArray;
+                }
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
         private static string Base(HiatmeAiSettings settings) =>
             (settings.BaseUrl ?? "").Trim().TrimEnd('/');
 
