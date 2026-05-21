@@ -263,8 +263,11 @@
     <Compile Include="SupeyTripCluster.cs" />
     <Compile Include="SupeyDriverPlan.cs" />
     <Compile Include="SupeyScheduleResult.cs" />
+    <Compile Include="SupeyRouteCache.cs" />
     <Compile Include="SupeyTemplateHints.cs" />
+    <Compile Include="SupeyScheduleAlgorithm.cs" />
     <Compile Include="SupeyScheduleRules.cs" />
+    <Compile Include="SupeyClusterRouting.cs" />
     <Compile Include="SupeyRouteNoteFormatter.cs" />
     <Compile Include="SupeyCollapsiblePanel.cs">
       <SubType>Component</SubType>

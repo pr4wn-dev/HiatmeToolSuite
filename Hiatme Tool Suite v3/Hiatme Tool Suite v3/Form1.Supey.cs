@@ -1835,72 +1835,60 @@ namespace Hiatme_Tool_Suite_v3
             try
             {
                 var date = _supeyDatePicker.Value;
-                SetSupeyToolbarBusy(true, "Checking server road routing…");
+                SetSupeyToolbarBusy(true, "Building schedule (geocode + assign)…");
 
                 if (_supeyAiSettings == null)
                     _supeyAiSettings = HiatmeAiSettings.Load();
 
-                HiatmeGeoSettings.Refresh();
-                var (osrmOk, osrmDetail) = await ScheduleOsrmGate.CheckAsync(_supeyAiSettings, token)
-                    .ConfigureAwait(true);
-                if (!osrmOk)
+                SupeyScheduleRules scheduleRules = null;
+                try
                 {
-                    MessageBox.Show(this, osrmDetail, "Server routing required for BUILD",
-                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                    SetSupeyStatus("BUILD blocked — OSRM offline.");
-                    return;
+                    var pre = await HiatmeAiClient.PreReviewAsync(_supeyAiSettings, token).ConfigureAwait(true);
+                    if (pre?.RulesContext != null)
+                        scheduleRules = SupeyScheduleRules.FromRulesContext(pre.RulesContext);
                 }
-
-                if (!await HiatmeAiClient.PingAsync(_supeyAiSettings, token).ConfigureAwait(true))
-                {
-                    MessageBox.Show(this,
-                        "The AI panel is not running. Start it (http://127.0.0.1:8787/) then BUILD again.\n\n"
-                        + "Supey does not build schedules locally — the AI on the panel does.",
-                        "AI required for BUILD",
-                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                    SetSupeyStatus("BUILD blocked — AI panel offline.");
-                    return;
-                }
-
-                SetSupeyToolbarBusy(true, "AI building schedule…");
-                AppendSupeyAiTranscriptIfPresent("BUILD", "Building schedule…");
-
-                var ctx = HiatmeScheduleContextBuilder.Build(
-                    date, _supeyRoster, _supeyLoadedTrips, null, false, selected);
-                ApplyWellRydeDispatcherToAiContext(ctx);
-                if (_supeyResult?.Locks != null && _supeyResult.Locks.Count > 0)
-                    ctx["locks"] = JObject.FromObject(_supeyResult.Locks);
-
-                var aiResp = await HiatmeAiClient.ScheduleBuildAsync(_supeyAiSettings, ctx, token)
-                    .ConfigureAwait(true);
-                if (aiResp?.Schedule == null)
-                    throw new InvalidOperationException("AI returned no schedule — check the panel and try again.");
-
-                ApplySupeyAiSchedule(aiResp, "BUILD");
+                catch { /* BUILD proceeds without remote rules if panel is down */ }
 
                 var hints = new SupeyTemplateHints(date.DayOfWeek.ToString());
+                var algo = new SupeyScheduleAlgorithm
+                {
+                    Hints = hints,
+                    UseTemplateHints = false,
+                    ScheduleRules = scheduleRules,
+                };
+                var startingLocks = _supeyResult?.Locks ?? new Dictionary<string, string>();
+                var progress = new Progress<string>(msg =>
+                {
+                    try
+                    {
+                        if (IsHandleCreated && !IsDisposed)
+                            BeginInvoke((Action)(() => SetSupeyToolbarBusy(true, msg)));
+                    }
+                    catch { }
+                });
+
+                _supeyResult = await algo.BuildAsync(
+                    date, _supeyLoadedTrips, selected, startingLocks, progress, token).ConfigureAwait(true);
+
+                _supeyTripsPanelView = SupeyTripsPanelView.AiSchedule;
+                BindSupeyPreview();
+                _ = HydrateSupeyGeocodeForMapAsync();
                 _supeyLastTemplateCompare = SupeyTemplateCompare.Run(_supeyResult, hints);
                 if (_supeyTemplateCompareLbl != null)
                     _supeyTemplateCompareLbl.Text = _supeyLastTemplateCompare.SummaryText;
+                SyncSupeyScheduleToServer("build");
+                MarkSupeyScheduleUpdated("BUILD");
+                SetSupeyAiLastAppliedLabel("BUILD");
                 _ = RefreshSupeyRulesPanelAsync();
 
                 int scheduled = HiatmeAiScheduleMapper.CountAssignedTrips(_supeyResult);
-                SetSupeyStatus("AI build complete. " + _supeyResult.DriverPlans.Count + " driver(s), " +
+                SetSupeyStatus("Build complete. " + _supeyResult.DriverPlans.Count + " driver(s), " +
                     scheduled + " on screen, " + _supeyResult.Reserves.Count + " reserve(s), " +
                     _supeyResult.WarningCount + " warning(s).");
             }
-            catch (OperationCanceledException) when (token.IsCancellationRequested)
-            {
-                SetSupeyStatus("Build canceled.");
-            }
             catch (OperationCanceledException)
             {
-                SetSupeyStatus("AI build timed out — panel/Ollama may still be running; try again.");
-                MessageBox.Show(this,
-                    "The AI build took too long or the connection was cut off.\n\n"
-                    + "Make sure the panel (http://127.0.0.1:8787/) and Ollama are running, then BUILD again.",
-                    "Supey Schedule",
-                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                SetSupeyStatus("Build canceled.");
             }
             catch (Exception ex)
             {
