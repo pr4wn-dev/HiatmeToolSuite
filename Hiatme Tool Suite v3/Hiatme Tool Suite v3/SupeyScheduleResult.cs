@@ -28,6 +28,10 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>Build-level warnings that aren't tied to a specific driver (e.g. a roster home that won't geocode).</summary>
         public List<SupeyWarning> BuildWarnings { get; } = new List<SupeyWarning>();
 
+        /// <summary>Trip numbers that already received a reserve failure warning (dedupes Pass C re-cluster).</summary>
+        internal HashSet<string> ReserveWarnedTripNumbers { get; } =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         /// <summary>Manual locks honored by this build: trip number → driver name. Survives across rebuilds.</summary>
         public Dictionary<string, string> Locks { get; set; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 

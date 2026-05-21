@@ -9,6 +9,7 @@ namespace Hiatme_Tool_Suite_v3
     {
         public List<SupeyDriverAvoidance> HardAvoidances { get; } = new List<SupeyDriverAvoidance>();
         public List<SupeyPreferredPairing> PreferredPairings { get; } = new List<SupeyPreferredPairing>();
+        public List<SupeyDriverLoadPreference> LoadPreferences { get; } = new List<SupeyDriverLoadPreference>();
 
         public static SupeyScheduleRules FromRulesContext(JToken ctx)
         {
@@ -30,12 +31,26 @@ namespace Hiatme_Tool_Suite_v3
             {
                 var client = (p["client"] ?? "").ToString().Trim();
                 var driver = (p["driver"] ?? "").ToString().Trim();
-                if (string.IsNullOrEmpty(client) || string.IsNullOrEmpty(driver)) continue;
+                if (string.IsNullOrEmpty(driver)) continue;
                 rules.PreferredPairings.Add(new SupeyPreferredPairing
                 {
                     Client = client,
                     Driver = driver,
                     Reason = (p["reason"] ?? "").ToString().Trim(),
+                });
+            }
+            foreach (var lp in root["driver_load_preferences"] as JArray ?? new JArray())
+            {
+                var driver = (lp["driver"] ?? "").ToString().Trim();
+                if (string.IsNullOrEmpty(driver)) continue;
+                int maxRiders = 4;
+                if (lp["max_cluster_riders"] != null && int.TryParse(lp["max_cluster_riders"].ToString(), out int parsed))
+                    maxRiders = parsed;
+                rules.LoadPreferences.Add(new SupeyDriverLoadPreference
+                {
+                    Driver = driver,
+                    MaxClusterRiders = maxRiders,
+                    Reason = (lp["reason"] ?? "").ToString().Trim(),
                 });
             }
             return rules;
@@ -65,6 +80,11 @@ namespace Hiatme_Tool_Suite_v3
             foreach (var p in PreferredPairings)
             {
                 if (!NamesMatch(p.Driver, driverName)) continue;
+                if (IsDriverAnchorClient(p.Client))
+                {
+                    bonus += 300.0;
+                    break;
+                }
                 foreach (var t in cluster.Trips)
                 {
                     if (ClientMatchesTrip(p.Client, t))
@@ -76,6 +96,23 @@ namespace Hiatme_Tool_Suite_v3
             }
             return bonus;
         }
+
+        /// <summary>Soft penalty when cluster exceeds accepted max riders for this driver.</summary>
+        public double LoadPreferencePenaltySeconds(SupeyTripCluster cluster, string driverName)
+        {
+            if (cluster == null || string.IsNullOrWhiteSpace(driverName)) return 0;
+            foreach (var lp in LoadPreferences)
+            {
+                if (!NamesMatch(lp.Driver, driverName)) continue;
+                int over = cluster.RiderCount - lp.MaxClusterRiders;
+                if (over > 0)
+                    return over * 120.0;
+            }
+            return 0;
+        }
+
+        private static bool IsDriverAnchorClient(string client) =>
+            string.IsNullOrWhiteSpace(client) || client == "*";
 
         private static bool NamesMatch(string a, string b) =>
             string.Equals((a ?? "").Trim(), (b ?? "").Trim(), StringComparison.OrdinalIgnoreCase);
@@ -102,6 +139,13 @@ namespace Hiatme_Tool_Suite_v3
     {
         public string Client { get; set; }
         public string Driver { get; set; }
+        public string Reason { get; set; }
+    }
+
+    internal sealed class SupeyDriverLoadPreference
+    {
+        public string Driver { get; set; }
+        public int MaxClusterRiders { get; set; }
         public string Reason { get; set; }
     }
 }

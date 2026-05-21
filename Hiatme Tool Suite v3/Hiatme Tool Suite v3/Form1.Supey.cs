@@ -1185,6 +1185,8 @@ namespace Hiatme_Tool_Suite_v3
         private ToolStripMenuItem _supeyTripsCtxCopyAll;
         private ToolStripMenuItem _supeyTripsCtxCopyCompare;
         private SupeyTemplateCompare _supeyLastTemplateCompare;
+        private JObject _supeyLastRulesContext;
+        private ToolStripMenuItem _supeyTripsCtxCopyForReview;
 
         private void BuildSupeyTripsContextMenu()
         {
@@ -1216,6 +1218,14 @@ namespace Hiatme_Tool_Suite_v3
             };
             _supeyTripsCtxCopyAll.Click += (s, e) => CopyAllSchedulesToClipboard();
 
+            _supeyTripsCtxCopyForReview = new ToolStripMenuItem("Copy for AI review (roster + rules + coords)")
+            {
+                BackColor = DarkContextMenuRenderer.Background,
+                ForeColor = DarkContextMenuRenderer.ForeColor,
+                Image = MenuIconFactory.GetCopyAllIcon(),
+            };
+            _supeyTripsCtxCopyForReview.Click += (s, e) => CopyScheduleForAiReviewToClipboard();
+
             _supeyTripsCtxCopyCompare = new ToolStripMenuItem("Copy template compare (TSV)")
             {
                 BackColor = DarkContextMenuRenderer.Background,
@@ -1238,6 +1248,7 @@ namespace Hiatme_Tool_Suite_v3
 
             _supeyTripsCtxMenu.Items.Add(_supeyTripsCtxCopyThis);
             _supeyTripsCtxMenu.Items.Add(_supeyTripsCtxCopyAll);
+            _supeyTripsCtxMenu.Items.Add(_supeyTripsCtxCopyForReview);
             _supeyTripsCtxMenu.Items.Add(new ToolStripSeparator());
             _supeyTripsCtxMenu.Items.Add(_supeyTripsCtxCopyCompare);
         }
@@ -1263,6 +1274,7 @@ namespace Hiatme_Tool_Suite_v3
             }
             _supeyTripsCtxCopyAll.Enabled = _supeyResult.DriverPlans.Count > 0
                 || _supeyResult.Reserves.Count > 0;
+            _supeyTripsCtxCopyForReview.Enabled = _supeyTripsCtxCopyAll.Enabled;
             _supeyTripsCtxCopyCompare.Enabled = _supeyLastTemplateCompare != null && _supeyLastTemplateCompare.HadTemplates;
 
             _supeyTripsCtxMenu.Show(_supeyPreviewLv, location);
@@ -1317,6 +1329,29 @@ namespace Hiatme_Tool_Suite_v3
         /// into chat so we can compare the auto-built day against the historical 2026 schedules
         /// without making them flip through the dropdown.
         /// </summary>
+        /// <summary>
+        /// Full day dump for Cursor review: roster, accepted rules, warnings, group order, lat/lng.
+        /// </summary>
+        private void CopyScheduleForAiReviewToClipboard()
+        {
+            if (_supeyResult == null) return;
+            try
+            {
+                string text = SupeyScheduleReviewExport.Build(
+                    _supeyResult.ServiceDate,
+                    GetCheckedSupeyDrivers(),
+                    _supeyResult,
+                    _supeyLastRulesContext);
+                Clipboard.SetText(text);
+                SetSupeyStatus("Copied schedule for AI review (paste into Cursor chat).");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "Could not copy to clipboard:\n\n" + ex.Message, "Supey Schedule",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+
         private void CopyAllSchedulesToClipboard()
         {
             if (_supeyResult == null) return;
@@ -1845,7 +1880,10 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     var pre = await HiatmeAiClient.PreReviewAsync(_supeyAiSettings, token).ConfigureAwait(true);
                     if (pre?.RulesContext != null)
+                    {
+                        _supeyLastRulesContext = pre.RulesContext;
                         scheduleRules = SupeyScheduleRules.FromRulesContext(pre.RulesContext);
+                    }
                 }
                 catch { /* BUILD proceeds without remote rules if panel is down */ }
 
@@ -2591,14 +2629,21 @@ namespace Hiatme_Tool_Suite_v3
                 // OSRM health badge — text on the pill, dot color carries the semantic.
                 string label;
                 Color dot;
-                if (HiatmeGeoSettings.UseServer && serverGeo != null)
+                if (HiatmeGeoSettings.UseServer && serverGeo != null && serverGeo.OsrmLocalOk)
                 {
-                    if (serverGeo.OsrmLocalOk) { label = "OSRM · server"; dot = SupeyTheme.SuccessText; }
-                    else { label = "OSRM · server fallback"; dot = SupeyTheme.WarnText; }
+                    label = "OSRM · server";
+                    dot = SupeyTheme.SuccessText;
                 }
-                else if (localOk) { label = "OSRM · local"; dot = SupeyTheme.SuccessText; }
-                else if (OsrmSettings.PreferLocal) { label = "OSRM · offline"; dot = SupeyTheme.WarnText; }
-                else { label = "OSRM · public demo"; dot = SupeyTheme.TextMuted; }
+                else if (localOk)
+                {
+                    label = HiatmeGeoSettings.UseServer ? "OSRM · local (panel off)" : "OSRM · local";
+                    dot = SupeyTheme.SuccessText;
+                }
+                else
+                {
+                    label = "OSRM · public";
+                    dot = SupeyTheme.WarnText;
+                }
 
                 _supeyOsrmStatusPill.DotColor = dot;
                 _supeyOsrmStatusPill.Label = label;

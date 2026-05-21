@@ -25,8 +25,35 @@ namespace Hiatme_Tool_Suite_v3
         {
             char leg = SupeyScheduleAlgorithm.DetectLegPublic(t.TripNumber);
             if (leg == 'A')
-                return "A|" + FacilityKey(t.DOStreet, t.DOCITY);
+                return CanonicalMorningDropHubKey("A|" + FacilityKey(t.DOStreet, t.DOCITY));
             return "BC|" + FacilityKey(t.PUStreet, t.PUCity);
+        }
+
+        /// <summary>
+        /// Collapses clinic variants (589 vs 1512 Minot, etc.) so morning merges and hub waves
+        /// treat one dialysis stop as one hub.
+        /// </summary>
+        public static string CanonicalMorningDropHubKey(string facilityMergeKey)
+        {
+            if (string.IsNullOrWhiteSpace(facilityMergeKey)) return facilityMergeKey ?? "";
+            string u = facilityMergeKey.ToUpperInvariant();
+            if (u.IndexOf("MINOT", StringComparison.Ordinal) >= 0)
+                return "A|MINOT CLINIC|AUBURN";
+            if (u.IndexOf("23 CROSS", StringComparison.Ordinal) >= 0
+                || (u.IndexOf("CROSS ST", StringComparison.Ordinal) >= 0
+                    && u.IndexOf("AUBURN", StringComparison.Ordinal) >= 0))
+                return "A|23 CROSS ST|AUBURN";
+            if (u.IndexOf("646 MAIN", StringComparison.Ordinal) >= 0)
+                return "A|646 MAIN|LEWISTON";
+            if (u.IndexOf("618 MAIN", StringComparison.Ordinal) >= 0)
+                return "A|618 MAIN|LEWISTON";
+            if (u.IndexOf("FALCON", StringComparison.Ordinal) >= 0)
+                return "A|FALCON|LEWISTON";
+            if (u.IndexOf("MANLEY", StringComparison.Ordinal) >= 0)
+                return "A|MANLEY|AUBURN";
+            if (u.IndexOf("63 BROAD", StringComparison.Ordinal) >= 0)
+                return "A|63 BROAD|AUBURN";
+            return facilityMergeKey;
         }
 
         /// <summary>Normalized PU street+city — riders at the same home share this key.</summary>
@@ -116,59 +143,301 @@ namespace Hiatme_Tool_Suite_v3
                 target.HardestDropoff = source.HardestDropoff;
         }
 
+        private static readonly TimeSpan MorningManleyMergeStart = new TimeSpan(6, 30, 0);
+        private static readonly TimeSpan MorningManleyMergeEnd = new TimeSpan(9, 30, 0);
+
         /// <summary>
-        /// Sets <see cref="SupeyTripCluster.PickupOrder"/> and refines <see cref="SupeyTripCluster.DropoffOrder"/>
-        /// using nearest-neighbor from first PU, then deadline-feasible DO refinement.
+        /// Combines small morning A-leg clusters that share one clinic drop hub (Falcon, Manley, …)
+        /// so one van can carry 4–6 riders instead of many solo groups.
+        /// </summary>
+        public static List<SupeyTripCluster> MergeMorningHubClusters(
+            List<SupeyTripCluster> clusters,
+            int maxRidersPerCluster,
+            string hubToken)
+        {
+            if (clusters == null || clusters.Count <= 1 || string.IsNullOrWhiteSpace(hubToken))
+                return clusters;
+
+            var indices = new List<int>();
+            for (int i = 0; i < clusters.Count; i++)
+            {
+                var c = clusters[i];
+                if (c.Trips.Count == 0) continue;
+                if (c.EarliestPickup < MorningManleyMergeStart || c.EarliestPickup >= MorningManleyMergeEnd)
+                    continue;
+                if (SupeyScheduleAlgorithm.DetectLegPublic(c.Trips[0].TripNumber) != 'A') continue;
+                string hub = c.FacilityMergeKey ?? "";
+                if (hub.IndexOf(hubToken, StringComparison.OrdinalIgnoreCase) < 0) continue;
+                indices.Add(i);
+            }
+            if (indices.Count <= 1) return clusters;
+
+            indices.Sort((ia, ib) => clusters[ia].EarliestPickup.CompareTo(clusters[ib].EarliestPickup));
+
+            var remove = new HashSet<int>();
+            for (int mi = 0; mi < indices.Count; mi++)
+            {
+                int ti = indices[mi];
+                if (remove.Contains(ti)) continue;
+                var target = clusters[ti];
+                TimeSpan windowEnd = target.LatestPickup.Add(
+                    TimeSpan.FromMinutes(SupeyScheduleAlgorithm.ClusterTimeWindowMinutesPublic));
+
+                for (int mj = mi + 1; mj < indices.Count; mj++)
+                {
+                    int si = indices[mj];
+                    if (remove.Contains(si)) continue;
+                    var source = clusters[si];
+                    if (!string.Equals(
+                            CanonicalMorningDropHubKey(target.FacilityMergeKey ?? ""),
+                            CanonicalMorningDropHubKey(source.FacilityMergeKey ?? ""),
+                            StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    if (source.EarliestPickup > windowEnd) break;
+                    if (target.RiderCount + source.RiderCount > maxRidersPerCluster) continue;
+
+                    MergeClusterInto(target, source);
+                    if (source.LatestPickup > target.LatestPickup) target.LatestPickup = source.LatestPickup;
+                    remove.Add(si);
+                    windowEnd = target.LatestPickup.Add(
+                        TimeSpan.FromMinutes(SupeyScheduleAlgorithm.ClusterTimeWindowMinutesPublic));
+                }
+            }
+
+            if (remove.Count == 0) return clusters;
+            var result = new List<SupeyTripCluster>(clusters.Count - remove.Count);
+            for (int i = 0; i < clusters.Count; i++)
+                if (!remove.Contains(i)) result.Add(clusters[i]);
+            return result;
+        }
+
+        /// <summary>
+        /// Pickup/drop order inside one van load — geographic sweep, not zigzag by spreadsheet row index.
+        /// A-leg → clinic: PUs from outside-in toward the clinic; B-leg → home: clinic PU then
+        /// nearest-neighbor drops outward; mixed loads use deadline-feasible greedy drops.
         /// </summary>
         public static void OptimizeClusterTour(SupeyTripCluster c)
         {
             int n = c.Trips.Count;
             c.PickupOrder.Clear();
+            c.DropoffOrder.Clear();
             if (n == 0) return;
+            if (c.PickupPoints == null || c.PickupPoints.Count < n
+                || c.DropoffPoints == null || c.DropoffPoints.Count < n)
+            {
+                for (int i = 0; i < n; i++)
+                {
+                    c.PickupOrder.Add(i);
+                    c.DropoffOrder.Add(i);
+                }
+                return;
+            }
             if (n == 1)
             {
                 c.PickupOrder.Add(0);
-                if (c.DropoffOrder.Count == 0) c.DropoffOrder.Add(0);
+                c.DropoffOrder.Add(0);
                 return;
             }
 
-            // NN pickup order starting from geographically first scheduled PU (index 0 after sort).
+            const double hubRadiusMeters = 6500.0;
+            var dropHub = Centroid(c.DropoffPoints);
+            var puHub = Centroid(c.PickupPoints);
+            bool sameDropHub = AllPointsNear(dropHub, c.DropoffPoints, hubRadiusMeters);
+            bool samePuHub = AllPointsNear(puHub, c.PickupPoints, hubRadiusMeters);
+
+            if (c.IsAllALeg && sameDropHub)
+            {
+                // Morning dialysis: sweep pickups toward the clinic, then appt order at the door.
+                int startPu = IndexFarthestFrom(c.PickupPoints, dropHub);
+                BuildPickupOrderTowardHub(c, startPu, dropHub);
+                for (int i = 0; i < n; i++) c.DropoffOrder.Add(i);
+                c.DropoffOrder.Sort(CompareDropoffDeadlineIndex(c));
+                return;
+            }
+
+            if (samePuHub)
+            {
+                // Afternoon clinic release: one PU, chain DOs by road miles from the clinic.
+                for (int i = 0; i < n; i++) c.PickupOrder.Add(i);
+                BuildDropoffOrderFromHub(c, puHub);
+                return;
+            }
+
+            int start = IndexFarthestFrom(c.PickupPoints, dropHub);
+            BuildPickupOrderTowardHub(c, start, dropHub);
+            BuildDropoffOrderGreedy(c);
+            RefineDropoffOrderByDistance(c);
+        }
+
+        private static void BuildPickupOrderTowardHub(SupeyTripCluster c, int startIdx, GeoPoint hub)
+        {
+            int n = c.Trips.Count;
             var remaining = new List<int>(n);
             for (int i = 0; i < n; i++) remaining.Add(i);
-            int current = 0;
+            int current = remaining.Contains(startIdx) ? startIdx : remaining[0];
             c.PickupOrder.Add(current);
-            remaining.RemoveAt(0);
+            remaining.Remove(current);
             while (remaining.Count > 0)
             {
                 int best = remaining[0];
-                double bestDist = HaversineMeters(c.PickupPoints[current], c.PickupPoints[best]);
-                for (int i = 1; i < remaining.Count; i++)
+                double bestScore = double.MaxValue;
+                foreach (int cand in remaining)
                 {
-                    int cand = remaining[i];
-                    double d = HaversineMeters(c.PickupPoints[current], c.PickupPoints[cand]);
-                    if (d < bestDist) { bestDist = d; best = cand; }
+                    double leg = HaversineMeters(c.PickupPoints[current], c.PickupPoints[cand]);
+                    double toward = HaversineMeters(c.PickupPoints[cand], hub);
+                    double score = leg + toward * 0.35;
+                    if (score < bestScore)
+                    {
+                        bestScore = score;
+                        best = cand;
+                    }
                 }
                 c.PickupOrder.Add(best);
                 remaining.Remove(best);
                 current = best;
             }
+        }
 
-            // DO order: start from deadline sort already in DropoffOrder; try 2-opt to shorten tail
-            // while preserving per-rider deadline feasibility at average speed.
-            if (c.DropoffOrder.Count != n)
+        /// <summary>B-leg from clinic: nearest-neighbor drops; timed appts before open-ended returns.</summary>
+        private static void BuildDropoffOrderFromHub(SupeyTripCluster c, GeoPoint hub)
+        {
+            int n = c.Trips.Count;
+            var remaining = new List<int>(n);
+            for (int i = 0; i < n; i++) remaining.Add(i);
+
+            var timed = new List<int>();
+            var open = new List<int>();
+            foreach (int i in remaining)
             {
-                c.DropoffOrder.Clear();
-                for (int i = 0; i < n; i++) c.DropoffOrder.Add(i);
-                c.DropoffOrder.Sort((a, b) =>
-                {
-                    var da = SupeyTripTimes.TryParseDO(c.Trips[a]) ?? TimeSpan.MaxValue;
-                    var db = SupeyTripTimes.TryParseDO(c.Trips[b]) ?? TimeSpan.MaxValue;
-                    int cmp = da.CompareTo(db);
-                    return cmp != 0 ? cmp : a.CompareTo(b);
-                });
+                var d = SupeyTripTimes.TryParseDO(c.Trips[i]);
+                if (d.HasValue && d.Value > TimeSpan.Zero) timed.Add(i);
+                else open.Add(i);
+            }
+            timed.Sort(CompareDropoffDeadlineIndex(c));
+
+            if (c.PickupOrder.Count == 0)
+                for (int i = 0; i < n; i++) c.PickupOrder.Add(i);
+            int puIdx = c.PickupOrder[0];
+            if (puIdx < 0 || puIdx >= c.PickupPoints.Count) puIdx = 0;
+            var currentPt = c.PickupPoints[puIdx];
+
+            foreach (int t in timed)
+            {
+                c.DropoffOrder.Add(t);
+                remaining.Remove(t);
+                currentPt = c.DropoffPoints[t];
             }
 
-            RefineDropoffOrderByDistance(c);
+            var pool = open.Count > 0 ? open : new List<int>(remaining);
+            while (pool.Count > 0)
+            {
+                int best = pool[0];
+                double bestDist = HaversineMeters(currentPt, c.DropoffPoints[best]);
+                for (int i = 1; i < pool.Count; i++)
+                {
+                    int cand = pool[i];
+                    double d = HaversineMeters(currentPt, c.DropoffPoints[cand]);
+                    if (d < bestDist) { bestDist = d; best = cand; }
+                }
+                c.DropoffOrder.Add(best);
+                pool.Remove(best);
+                currentPt = c.DropoffPoints[best];
+            }
+        }
+
+        /// <summary>Mixed load: each next drop is closest feasible stop by road (desk mid-tour drops).</summary>
+        private static void BuildDropoffOrderGreedy(SupeyTripCluster c)
+        {
+            int n = c.Trips.Count;
+            var remaining = new List<int>(n);
+            for (int i = 0; i < n; i++) remaining.Add(i);
+
+            if (c.PickupOrder.Count == 0)
+                for (int i = 0; i < n; i++) c.PickupOrder.Add(i);
+            int lastPuIdx = c.PickupOrder[c.PickupOrder.Count - 1];
+            if (lastPuIdx < 0 || lastPuIdx >= c.PickupPoints.Count) lastPuIdx = 0;
+            var currentPt = c.PickupPoints[lastPuIdx];
+            var currentTime = c.EffectiveLatestPickup.Add(TimeSpan.FromSeconds(PickupChainSeconds(c)));
+
+            while (remaining.Count > 0)
+            {
+                int best = -1;
+                double bestDist = double.MaxValue;
+                foreach (int cand in remaining)
+                {
+                    double legSec = HaversineMeters(currentPt, c.DropoffPoints[cand]) / 13.4;
+                    var arrive = currentTime.Add(TimeSpan.FromSeconds(legSec));
+                    var deadline = SupeyTripTimes.TryParseDO(c.Trips[cand]);
+                    if (deadline.HasValue && deadline.Value > TimeSpan.Zero && arrive >= deadline.Value)
+                        continue;
+                    double d = HaversineMeters(currentPt, c.DropoffPoints[cand]);
+                    if (d < bestDist) { bestDist = d; best = cand; }
+                }
+                if (best < 0)
+                {
+                    best = remaining[0];
+                    for (int i = 1; i < remaining.Count; i++)
+                    {
+                        int cand = remaining[i];
+                        if (HaversineMeters(currentPt, c.DropoffPoints[cand])
+                            < HaversineMeters(currentPt, c.DropoffPoints[best]))
+                            best = cand;
+                    }
+                }
+                double hopSec = HaversineMeters(currentPt, c.DropoffPoints[best]) / 13.4;
+                currentTime = currentTime.Add(TimeSpan.FromSeconds(hopSec));
+                currentPt = c.DropoffPoints[best];
+                c.DropoffOrder.Add(best);
+                remaining.Remove(best);
+            }
+        }
+
+        private static double PickupChainSeconds(SupeyTripCluster c)
+        {
+            if (c.PickupOrder.Count <= 1) return 0;
+            double sec = 0;
+            for (int i = 1; i < c.PickupOrder.Count; i++)
+                sec += HaversineMeters(
+                    c.PickupPoints[c.PickupOrder[i - 1]],
+                    c.PickupPoints[c.PickupOrder[i]]) / 13.4;
+            return sec;
+        }
+
+        private static Comparison<int> CompareDropoffDeadlineIndex(SupeyTripCluster c) =>
+            (a, b) =>
+            {
+                var ta = c == null ? TimeSpan.MaxValue : SupeyTripTimes.TryParseDO(c.Trips[a]) ?? TimeSpan.MaxValue;
+                var tb = c == null ? TimeSpan.MaxValue : SupeyTripTimes.TryParseDO(c.Trips[b]) ?? TimeSpan.MaxValue;
+                int cmp = ta.CompareTo(tb);
+                return cmp != 0 ? cmp : a.CompareTo(b);
+            };
+
+        private static bool AllPointsNear(GeoPoint hub, List<GeoPoint> pts, double radiusMeters)
+        {
+            if (pts == null || pts.Count == 0) return false;
+            foreach (var p in pts)
+                if (HaversineMeters(hub, p) > radiusMeters) return false;
+            return true;
+        }
+
+        private static GeoPoint Centroid(List<GeoPoint> pts)
+        {
+            if (pts == null || pts.Count == 0) return new GeoPoint(0, 0);
+            double lat = 0, lng = 0;
+            foreach (var p in pts) { lat += p.Lat; lng += p.Lng; }
+            return new GeoPoint(lat / pts.Count, lng / pts.Count);
+        }
+
+        private static int IndexFarthestFrom(List<GeoPoint> pts, GeoPoint hub)
+        {
+            int best = 0;
+            double bestD = -1;
+            for (int i = 0; i < pts.Count; i++)
+            {
+                double d = HaversineMeters(pts[i], hub);
+                if (d > bestD) { bestD = d; best = i; }
+            }
+            return best;
         }
 
         private static void RefineDropoffOrderByDistance(SupeyTripCluster c)
@@ -415,14 +684,6 @@ namespace Hiatme_Tool_Suite_v3
                     result.Add(sub);
             }
             return result;
-        }
-
-        private static GeoPoint Centroid(List<GeoPoint> pts)
-        {
-            if (pts == null || pts.Count == 0) return new GeoPoint(0, 0);
-            double sLat = 0, sLng = 0;
-            foreach (var p in pts) { sLat += p.Lat; sLng += p.Lng; }
-            return new GeoPoint(sLat / pts.Count, sLng / pts.Count);
         }
 
         private static double HaversineMeters(GeoPoint a, GeoPoint b)

@@ -11,10 +11,8 @@ using Newtonsoft.Json.Linq;
 namespace Hiatme_Tool_Suite_v3
 {
     /// <summary>
-    /// Address → lat/lon for BUILD and routing. When <see cref="HiatmeGeoSettings.UseServer"/>
-    /// is on (default), all lookups go through the AIagent host cache/API — Supey does not call
-    /// Nominatim directly. OSRM on this PC (or via server) still needs those coordinates for
-    /// road miles; it does not geocode street text by itself.
+    /// Address → lat/lon for BUILD. Uses the AI panel cache when reachable; otherwise Nominatim
+    /// on this PC automatically. Routing miles use server OSRM, local Docker, or public OSRM.
     /// </summary>
     /// <remarks>
     /// The cache is persisted to <c>%AppData%/HiatmeToolSuite/geocode-cache.json</c> so re-runs
@@ -493,21 +491,19 @@ namespace Hiatme_Tool_Suite_v3
                     var ai = HiatmeAiSettings.Load();
                     var serverPt = await HiatmeGeoClient.ResolveAsync(
                         ai, street, city, state, zip, countryCode, token).ConfigureAwait(false);
-                    lock (_cache) { _cache[key] = serverPt; }
-                    ScheduleSave();
-                    if (serverPt.HasValue) Interlocked.Increment(ref _hits);
-                    else Interlocked.Increment(ref _misses);
-                    return serverPt;
+                    if (serverPt.HasValue)
+                    {
+                        lock (_cache) { _cache[key] = serverPt; }
+                        ScheduleSave();
+                        Interlocked.Increment(ref _hits);
+                        return serverPt;
+                    }
                 }
                 catch
                 {
-                    Interlocked.Increment(ref _misses);
-                    return null;
+                    /* panel down — fall through to local Nominatim */
                 }
             }
-
-            if (HiatmeGeoSettings.UseServer)
-                return null;
 
             await _gate.WaitAsync(token).ConfigureAwait(false);
             try
