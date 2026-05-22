@@ -27,7 +27,10 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>After SAVE workbook, store a short approval note for memory.</summary>
         public bool RememberOnSave { get; set; } = true;
 
-        /// <summary>Prefer server geocode/OSRM when the panel is reachable.</summary>
+        /// <summary>
+        /// When true (default), geocode and OSRM use only the office AI panel — no public/demo routing.
+        /// Set false only for local dev without the server.
+        /// </summary>
         public bool UseServerGeo { get; set; } = true;
 
         private static string BaseDir => AppDomain.CurrentDomain.BaseDirectory;

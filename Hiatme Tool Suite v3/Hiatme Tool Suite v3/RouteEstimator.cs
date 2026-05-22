@@ -158,15 +158,19 @@ namespace Hiatme_Tool_Suite_v3
 
                 return RouteResult.Fail("Not enough waypoints to route.");
 
-            if (HiatmeGeoSettings.UseServer)
+            if (HiatmeGeoSettings.ServerOnly || HiatmeGeoSettings.UseServer)
             {
+                if (!HiatmeGeoSettings.UseServer)
+                    return RouteResult.Fail(HiatmeGeoSettings.ServerRequiredMessage);
                 try
                 {
                     var via = await HiatmeGeoClient.GetCumulativeDurationsAsync(
                         HiatmeAiSettings.Load(), waypoints, token).ConfigureAwait(false);
                     if (via != null && via.Ok) return via;
                 }
-                catch { /* try local below */ }
+                catch { /* fall through */ }
+                if (HiatmeGeoSettings.ServerOnly)
+                    return RouteResult.Fail(HiatmeGeoSettings.ServerRequiredMessage);
             }
 
             var poly = await OsrmRouteResolver.RouteBestEffortAsync(waypoints, token).ConfigureAwait(false);
@@ -238,8 +242,10 @@ namespace Hiatme_Tool_Suite_v3
             if (waypoints == null || waypoints.Count < 2)
                 return RoutePolylineResult.Fail("Not enough waypoints to route.");
 
-            if (HiatmeGeoSettings.UseServer)
+            if (HiatmeGeoSettings.ServerOnly || HiatmeGeoSettings.UseServer)
             {
+                if (!HiatmeGeoSettings.UseServer)
+                    return RoutePolylineResult.Fail(HiatmeGeoSettings.ServerRequiredMessage);
                 try
                 {
                     var osrm = await HiatmeGeoClient.FetchOsrmJsonAsync(
@@ -251,7 +257,9 @@ namespace Hiatme_Tool_Suite_v3
                             return parsed;
                     }
                 }
-                catch { /* try local below */ }
+                catch { /* fall through */ }
+                if (HiatmeGeoSettings.ServerOnly)
+                    return RoutePolylineResult.Fail(HiatmeGeoSettings.ServerRequiredMessage);
             }
 
             return await OsrmRouteResolver.RouteBestEffortAsync(waypoints, token).ConfigureAwait(false);

@@ -288,8 +288,8 @@ namespace Hiatme_Tool_Suite_v3
                 Height = 1,
                 Location = new Point(-100, -100),
             };
-            var osrmTip = "Road miles are automatic: office server OSRM when reachable,\r\n" +
-                "otherwise public OSRM on this PC. No VPN or tunnel required.\r\n" +
+            var osrmTip = "Road miles and geocode use the office AI server (Maine OSRM).\r\n" +
+                "Panel + OSRM must be running on the server PC.\r\n" +
                 "Click to refresh.";
             var osrmTipProvider = new ToolTip { AutoPopDelay = 12000, InitialDelay = 400 };
             osrmTipProvider.SetToolTip(_supeyOsrmStatusPill, osrmTip);
@@ -1874,7 +1874,17 @@ namespace Hiatme_Tool_Suite_v3
                 if (_supeyAiSettings == null)
                     _supeyAiSettings = HiatmeAiSettings.Load();
 
-                // Rules ship in dispatch_rules/accepted.json — no panel or VPN required.
+                var (osrmOk, osrmDetail) = await ScheduleOsrmGate.CheckAsync(_supeyAiSettings, token)
+                    .ConfigureAwait(true);
+                if (!osrmOk)
+                {
+                    MessageBox.Show(this, osrmDetail, "Supey — server required",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    SetSupeyStatus("BUILD blocked — office server OSRM not available.");
+                    return;
+                }
+
+                // Rules ship in dispatch_rules/accepted.json; panel refreshes when reachable.
                 SupeyScheduleRules scheduleRules = SupeyDispatchRulesLoader.Load();
                 if (HiatmeGeoSettings.UseServer)
                 {
@@ -2623,14 +2633,9 @@ namespace Hiatme_Tool_Suite_v3
                 serverGeo = await HiatmeGeoClient.GetStatusAsync(_supeyAiSettings).ConfigureAwait(true);
             }
 
-            OsrmSettings.InvalidateHealthCache();
-            bool localOk = serverGeo?.OsrmLocalOk == true
-                || await Task.Run(() => OsrmSettings.TryHealthCheckAsync()).ConfigureAwait(true);
-
             void Apply()
             {
                 if (_supeyOsrmStatusPill == null || _supeyOsrmStatusPill.IsDisposed) return;
-                // OSRM health badge — text on the pill, dot color carries the semantic.
                 string label;
                 Color dot;
                 if (HiatmeGeoSettings.UseServer && serverGeo != null && serverGeo.OsrmLocalOk)
@@ -2638,15 +2643,20 @@ namespace Hiatme_Tool_Suite_v3
                     label = "OSRM · server";
                     dot = SupeyTheme.SuccessText;
                 }
-                else if (localOk)
+                else if (HiatmeGeoSettings.ServerOnly)
                 {
-                    label = HiatmeGeoSettings.UseServer ? "OSRM · local (panel off)" : "OSRM · local";
-                    dot = SupeyTheme.SuccessText;
+                    label = "OSRM · server required";
+                    dot = SupeyTheme.WarnText;
+                }
+                else if (serverGeo != null)
+                {
+                    label = "OSRM · server down";
+                    dot = SupeyTheme.WarnText;
                 }
                 else
                 {
-                    label = "OSRM · public";
-                    dot = SupeyTheme.WarnText;
+                    label = "OSRM · offline mode";
+                    dot = SupeyTheme.TextMuted;
                 }
 
                 _supeyOsrmStatusPill.DotColor = dot;

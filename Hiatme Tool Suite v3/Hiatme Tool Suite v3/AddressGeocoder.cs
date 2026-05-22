@@ -11,8 +11,8 @@ using Newtonsoft.Json.Linq;
 namespace Hiatme_Tool_Suite_v3
 {
     /// <summary>
-    /// Address → lat/lon for BUILD. Uses the AI panel cache when reachable; otherwise Nominatim
-    /// on this PC automatically. Routing miles use server OSRM, local Docker, or public OSRM.
+    /// Address → lat/lon for BUILD via the office AI panel (default). Local Nominatim only when
+    /// UseServerGeo=false in config.
     /// </summary>
     /// <remarks>
     /// The cache is persisted to <c>%AppData%/HiatmeToolSuite/geocode-cache.json</c> so re-runs
@@ -484,24 +484,25 @@ namespace Hiatme_Tool_Suite_v3
                 }
             }
 
-            if (HiatmeGeoSettings.UseServer)
+            if (HiatmeGeoSettings.ServerOnly || HiatmeGeoSettings.UseServer)
             {
+                if (!HiatmeGeoSettings.UseServer)
+                    return null;
                 try
                 {
                     var ai = HiatmeAiSettings.Load();
                     var serverPt = await HiatmeGeoClient.ResolveAsync(
                         ai, street, city, state, zip, countryCode, token).ConfigureAwait(false);
-                    if (serverPt.HasValue)
-                    {
-                        lock (_cache) { _cache[key] = serverPt; }
-                        ScheduleSave();
-                        Interlocked.Increment(ref _hits);
-                        return serverPt;
-                    }
+                    lock (_cache) { _cache[key] = serverPt; }
+                    ScheduleSave();
+                    if (serverPt.HasValue) Interlocked.Increment(ref _hits);
+                    else Interlocked.Increment(ref _misses);
+                    return serverPt;
                 }
                 catch
                 {
-                    /* panel down — fall through to local Nominatim */
+                    Interlocked.Increment(ref _misses);
+                    return null;
                 }
             }
 

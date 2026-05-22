@@ -3,10 +3,7 @@ using System.Threading.Tasks;
 
 namespace Hiatme_Tool_Suite_v3
 {
-    /// <summary>
-    /// BUILD always has a routing path: server OSRM when the panel is up, else local Docker,
-    /// else the built-in public OSRM endpoint — no extra software on the dispatcher PC.
-    /// </summary>
+    /// <summary>BUILD requires office server OSRM (Maine graph on the AI panel host).</summary>
     internal static class ScheduleOsrmGate
     {
         public static async Task<(bool Ok, string Detail)> CheckAsync(
@@ -16,19 +13,22 @@ namespace Hiatme_Tool_Suite_v3
             HiatmeGeoSettings.Refresh();
             aiSettings = aiSettings ?? HiatmeAiSettings.Load();
 
-            if (HiatmeGeoSettings.UseServer)
-            {
-                var server = await HiatmeGeoClient.GetStatusAsync(aiSettings, cancellationToken)
-                    .ConfigureAwait(false);
-                if (server != null && server.OsrmLocalOk)
-                    return (true, "Server OSRM (" + (server.OsrmActiveEndpoint ?? "local") + ")");
-            }
+            if (HiatmeGeoSettings.ServerOnly && !HiatmeGeoSettings.UseServer)
+                return (false, HiatmeGeoSettings.ServerRequiredMessage);
 
-            OsrmSettings.InvalidateHealthCache();
-            if (await OsrmSettings.TryHealthCheckAsync(cancellationToken).ConfigureAwait(false))
-                return (true, "Local OSRM on this PC");
+            if (!HiatmeGeoSettings.UseServer)
+                return (true, "Offline geocode/OSRM allowed (UseServerGeo=false in config).");
 
-            return (true, "Public OSRM (automatic fallback)");
+            var server = await HiatmeGeoClient.GetStatusAsync(aiSettings, cancellationToken)
+                .ConfigureAwait(false);
+            if (server != null && server.OsrmLocalOk)
+                return (true, "Server OSRM OK (" + (server.OsrmActiveEndpoint ?? "local") + ")");
+
+            return (false,
+                "Maine OSRM on the office AI server is not available.\r\n\r\n"
+                + "On the server PC: Docker running, then tools\\osrm\\scripts\\start-osrm.ps1 "
+                + "and scripts\\restart-panel.ps1 (AIagent repo).\r\n\r\n"
+                + "Panel: " + (HiatmeGeoSettings.ActivePanelUrl ?? aiSettings.BaseUrl ?? "(not set)"));
         }
     }
 }

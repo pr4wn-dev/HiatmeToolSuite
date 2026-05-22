@@ -80,7 +80,8 @@ namespace Hiatme_Tool_Suite_v3
                 }
                 if (waypoints.Count < 2) continue;
 
-                var route = await OsrmRouteResolver.RouteBestEffortAsync(waypoints, token).ConfigureAwait(false);
+                var route = await RouteEstimator.GetRouteWithGeometryAsync(waypoints, token)
+                    .ConfigureAwait(false);
                 if (!route.Ok || route.Polyline == null) continue;
                 foreach (var p in route.Polyline)
                     g.RoutePolyline.Add(p);
