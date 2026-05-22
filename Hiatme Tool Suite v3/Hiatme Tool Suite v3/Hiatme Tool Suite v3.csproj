@@ -270,6 +270,7 @@
     <Compile Include="SupeyScheduleAlgorithm.cs" />
     <Compile Include="SupeyCorridorRouting.cs" />
     <Compile Include="SupeyScheduleRules.cs" />
+    <Compile Include="SupeyDispatchRulesLoader.cs" />
     <Compile Include="SupeyClusterRouting.cs" />
     <Compile Include="SupeyRouteNoteFormatter.cs" />
     <Compile Include="SupeyCollapsiblePanel.cs">
@@ -360,6 +361,9 @@
       <DesignTime>True</DesignTime>
     </Compile>
     <!-- Local hiatme_ai.defaults.json (gitignored) copies to bin; else example without token. -->
+    <None Include="dispatch_rules\accepted.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Include="hiatme_ai.defaults.json" Condition="Exists('hiatme_ai.defaults.json')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

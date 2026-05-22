@@ -1,0 +1,259 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "id": "4c019aba1351",
+      "kind": "preferred_pairing",
+      "title": "Jeffrey J Brown is a reliable anchor — prefer when possible",
+      "rationale": "Jeffrey J Brown on-time 100% across 23 matched trips on 2026-05-22.",
+      "payload": {
+        "driver": "Jeffrey J Brown",
+        "client": "*"
+      },
+      "evidence": {
+        "service_date": "2026-05-22",
+        "driver_stats": {
+          "name": "Jeffrey J Brown",
+          "trips": 23,
+          "matched": 23,
+          "completed": 0,
+          "cancelled": 0,
+          "no_show": 0,
+          "on_time": 23,
+          "on_time_ratio": 1.0,
+          "pu_late_strict": 0,
+          "pu_lenient_violations": 0,
+          "do_strict_violations": 0,
+          "do_lenient_violations": 0,
+          "avg_pu_late_minutes": 0.0,
+          "avg_do_late_minutes": 0.0,
+          "worst_pu_late_minutes": 0.0,
+          "worst_do_late_minutes": 0.0,
+          "worst_trip_no": null,
+          "a_leg_count": 11
+        }
+      },
+      "service_dates": [
+        "2026-05-22"
+      ],
+      "source": "variance",
+      "fingerprint": "c5069ac1989e3ece",
+      "enabled": true,
+      "created_at": 1779287476.314923,
+      "accepted_at": 1779297451.4529505,
+      "accepted_by": ""
+    },
+    {
+      "id": "64f185bd4d77",
+      "kind": "preferred_pairing",
+      "title": "RICHARD  BROWN is a reliable anchor — prefer when possible",
+      "rationale": "RICHARD  BROWN on-time 100% across 30 matched trips on 2026-05-22.",
+      "payload": {
+        "driver": "RICHARD  BROWN",
+        "client": "*"
+      },
+      "evidence": {
+        "service_date": "2026-05-22",
+        "driver_stats": {
+          "name": "RICHARD  BROWN",
+          "trips": 30,
+          "matched": 30,
+          "completed": 0,
+          "cancelled": 0,
+          "no_show": 0,
+          "on_time": 30,
+          "on_time_ratio": 1.0,
+          "pu_late_strict": 0,
+          "pu_lenient_violations": 0,
+          "do_strict_violations": 0,
+          "do_lenient_violations": 0,
+          "avg_pu_late_minutes": 0.0,
+          "avg_do_late_minutes": 0.0,
+          "worst_pu_late_minutes": 0.0,
+          "worst_do_late_minutes": 0.0,
+          "worst_trip_no": null,
+          "a_leg_count": 14
+        }
+      },
+      "service_dates": [
+        "2026-05-22"
+      ],
+      "source": "variance",
+      "fingerprint": "9951beb277f635f2",
+      "enabled": true,
+      "created_at": 1779287476.3164024,
+      "accepted_at": 1779297449.4691014,
+      "accepted_by": ""
+    },
+    {
+      "id": "1924747e1dc3",
+      "kind": "preferred_pairing",
+      "title": "SHILOH  MCCAFFREY is a reliable anchor — prefer when possible",
+      "rationale": "SHILOH  MCCAFFREY on-time 100% across 26 matched trips on 2026-05-22.",
+      "payload": {
+        "driver": "SHILOH  MCCAFFREY",
+        "client": "*"
+      },
+      "evidence": {
+        "service_date": "2026-05-22",
+        "driver_stats": {
+          "name": "SHILOH  MCCAFFREY",
+          "trips": 26,
+          "matched": 26,
+          "completed": 0,
+          "cancelled": 0,
+          "no_show": 0,
+          "on_time": 26,
+          "on_time_ratio": 1.0,
+          "pu_late_strict": 0,
+          "pu_lenient_violations": 0,
+          "do_strict_violations": 0,
+          "do_lenient_violations": 0,
+          "avg_pu_late_minutes": 0.0,
+          "avg_do_late_minutes": 0.0,
+          "worst_pu_late_minutes": 0.0,
+          "worst_do_late_minutes": 0.0,
+          "worst_trip_no": null,
+          "a_leg_count": 9
+        }
+      },
+      "service_dates": [
+        "2026-05-22"
+      ],
+      "source": "variance",
+      "fingerprint": "e5ce76498587ad8e",
+      "enabled": true,
+      "created_at": 1779287476.3178408,
+      "accepted_at": 1779297448.364989,
+      "accepted_by": ""
+    },
+    {
+      "id": "6db2e3fd7c27",
+      "kind": "preferred_pairing",
+      "title": "Aaron N Cadwell is a reliable anchor — prefer when possible",
+      "rationale": "Aaron N Cadwell on-time 100% across 26 matched trips on 2026-05-22.",
+      "payload": {
+        "driver": "Aaron N Cadwell",
+        "client": "*"
+      },
+      "evidence": {
+        "service_date": "2026-05-22",
+        "driver_stats": {
+          "name": "Aaron N Cadwell",
+          "trips": 26,
+          "matched": 26,
+          "completed": 0,
+          "cancelled": 0,
+          "no_show": 0,
+          "on_time": 26,
+          "on_time_ratio": 1.0,
+          "pu_late_strict": 0,
+          "pu_lenient_violations": 0,
+          "do_strict_violations": 0,
+          "do_lenient_violations": 0,
+          "avg_pu_late_minutes": 0.0,
+          "avg_do_late_minutes": 0.0,
+          "worst_pu_late_minutes": 0.0,
+          "worst_do_late_minutes": 0.0,
+          "worst_trip_no": null,
+          "a_leg_count": 13
+        }
+      },
+      "service_dates": [
+        "2026-05-22"
+      ],
+      "source": "variance",
+      "fingerprint": "b5bd81638701a9fb",
+      "enabled": true,
+      "created_at": 1779287476.319291,
+      "accepted_at": 1779297446.3253143,
+      "accepted_by": ""
+    },
+    {
+      "id": "9e067cc8e189",
+      "kind": "preferred_pairing",
+      "title": "JAMIE  BROWN is a reliable anchor — prefer when possible",
+      "rationale": "JAMIE  BROWN on-time 100% across 27 matched trips on 2026-05-22.",
+      "payload": {
+        "driver": "JAMIE  BROWN",
+        "client": "*"
+      },
+      "evidence": {
+        "service_date": "2026-05-22",
+        "driver_stats": {
+          "name": "JAMIE  BROWN",
+          "trips": 27,
+          "matched": 27,
+          "completed": 0,
+          "cancelled": 0,
+          "no_show": 0,
+          "on_time": 27,
+          "on_time_ratio": 1.0,
+          "pu_late_strict": 0,
+          "pu_lenient_violations": 0,
+          "do_strict_violations": 0,
+          "do_lenient_violations": 0,
+          "avg_pu_late_minutes": 0.0,
+          "avg_do_late_minutes": 0.0,
+          "worst_pu_late_minutes": 0.0,
+          "worst_do_late_minutes": 0.0,
+          "worst_trip_no": null,
+          "a_leg_count": 16
+        }
+      },
+      "service_dates": [
+        "2026-05-22"
+      ],
+      "source": "variance",
+      "fingerprint": "8b670c5f679bea76",
+      "enabled": true,
+      "created_at": 1779287476.3223057,
+      "accepted_at": 1779297443.868799,
+      "accepted_by": ""
+    },
+    {
+      "id": "f02ad43f3067",
+      "kind": "driver_load_preference",
+      "title": "Prefer smaller clusters for DEAN  DAVIS (review before enabling)",
+      "rationale": "On 2026-05-20, DEAN  DAVIS was on-time for 35% of 17 scored trips (32 matched); 7 strict PU late violation(s); worst PU late 17 min. Suggest lighter clusters — not zero trips.",
+      "payload": {
+        "driver": "DEAN  DAVIS",
+        "max_cluster_riders": 4
+      },
+      "evidence": {
+        "service_date": "2026-05-20",
+        "driver_stats": {
+          "name": "DEAN  DAVIS",
+          "trips": 32,
+          "matched": 32,
+          "scored": 17,
+          "completed": 16,
+          "cancelled": 0,
+          "no_show": 0,
+          "on_time": 6,
+          "on_time_ratio": 0.353,
+          "pu_late_strict": 7,
+          "pu_lenient_violations": 5,
+          "do_strict_violations": 6,
+          "do_lenient_violations": 2,
+          "avg_pu_late_minutes": 6.1,
+          "avg_do_late_minutes": 8.1,
+          "worst_pu_late_minutes": 17.2,
+          "worst_do_late_minutes": 13.4,
+          "worst_trip_no": "1-9845-A",
+          "a_leg_count": 12
+        }
+      },
+      "service_dates": [
+        "2026-05-20"
+      ],
+      "source": "variance",
+      "fingerprint": "60a405435f5057dc",
+      "enabled": true,
+      "created_at": 1779297376.7106805,
+      "accepted_at": 1779297438.8614087,
+      "accepted_by": ""
+    }
+  ],
+  "updated_at": 1779372286.0373166
+}

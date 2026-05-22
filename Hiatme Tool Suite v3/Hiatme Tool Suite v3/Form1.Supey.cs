@@ -288,10 +288,9 @@ namespace Hiatme_Tool_Suite_v3
                 Height = 1,
                 Location = new Point(-100, -100),
             };
-            var osrmTip = "Road miles use OSRM on the AI server (" +
-                (_supeyAiSettings?.BaseUrl ?? "see hiatme_ai.defaults.json") + ").\r\n" +
-                "OSRM must run on that host (Docker + start-osrm.ps1 there).\r\n" +
-                "Click to refresh status.";
+            var osrmTip = "Road miles are automatic: office server OSRM when reachable,\r\n" +
+                "otherwise public OSRM on this PC. No VPN or tunnel required.\r\n" +
+                "Click to refresh.";
             var osrmTipProvider = new ToolTip { AutoPopDelay = 12000, InitialDelay = 400 };
             osrmTipProvider.SetToolTip(_supeyOsrmStatusPill, osrmTip);
 
@@ -1875,17 +1874,22 @@ namespace Hiatme_Tool_Suite_v3
                 if (_supeyAiSettings == null)
                     _supeyAiSettings = HiatmeAiSettings.Load();
 
-                SupeyScheduleRules scheduleRules = null;
-                try
+                // Rules ship in dispatch_rules/accepted.json — no panel or VPN required.
+                SupeyScheduleRules scheduleRules = SupeyDispatchRulesLoader.Load();
+                if (HiatmeGeoSettings.UseServer)
                 {
-                    var pre = await HiatmeAiClient.PreReviewAsync(_supeyAiSettings, token).ConfigureAwait(true);
-                    if (pre?.RulesContext != null)
+                    try
                     {
-                        _supeyLastRulesContext = pre.RulesContext;
-                        scheduleRules = SupeyScheduleRules.FromRulesContext(pre.RulesContext);
+                        var pre = await HiatmeAiClient.PreReviewAsync(_supeyAiSettings, token)
+                            .ConfigureAwait(true);
+                        if (pre?.RulesContext != null)
+                        {
+                            _supeyLastRulesContext = pre.RulesContext;
+                            scheduleRules = SupeyScheduleRules.FromRulesContext(pre.RulesContext);
+                        }
                     }
+                    catch { /* local rules already loaded */ }
                 }
-                catch { /* BUILD proceeds without remote rules if panel is down */ }
 
                 var hints = new SupeyTemplateHints(date.DayOfWeek.ToString());
                 var algo = new SupeyScheduleAlgorithm
