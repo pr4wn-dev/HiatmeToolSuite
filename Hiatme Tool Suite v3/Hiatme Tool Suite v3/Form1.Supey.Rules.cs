@@ -64,10 +64,13 @@ namespace Hiatme_Tool_Suite_v3
             };
             _supeyRulesTabStanding = MakeRulesTabButton("Standing", true);
             _supeyRulesTabDispatch = MakeRulesTabButton("Dispatch", false);
-            _supeyRulesTabStanding.Click += (s, e) => ShowSupeyRulesTab(standing: true);
-            _supeyRulesTabDispatch.Click += (s, e) => ShowSupeyRulesTab(standing: false);
+            _supeyRulesTabOutOfArea = MakeRulesTabButton("No-go", false);
+            _supeyRulesTabStanding.Click += (s, e) => ShowSupeyRulesTab(0);
+            _supeyRulesTabDispatch.Click += (s, e) => ShowSupeyRulesTab(1);
+            _supeyRulesTabOutOfArea.Click += (s, e) => ShowSupeyRulesTab(2);
             tabInner.Controls.Add(_supeyRulesTabStanding);
             tabInner.Controls.Add(_supeyRulesTabDispatch);
+            tabInner.Controls.Add(_supeyRulesTabOutOfArea);
             tabBar.Controls.Add(tabInner);
 
             var body = new Panel
@@ -88,10 +91,18 @@ namespace Hiatme_Tool_Suite_v3
                 Padding = new Padding(4),
                 Visible = false,
             };
+            _supeyOutOfAreaHost = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = SupeyTheme.SurfaceBase,
+                Visible = false,
+            };
             _supeyRulesStandingFlow = MakeRulesFlowPanel();
             _supeyRulesDispatchFlow = MakeRulesFlowPanel();
             _supeyRulesStandingHost.Controls.Add(_supeyRulesStandingFlow);
             _supeyRulesDispatchHost.Controls.Add(_supeyRulesDispatchFlow);
+            BuildSupeyOutOfAreaTab(_supeyOutOfAreaHost);
+            body.Controls.Add(_supeyOutOfAreaHost);
             body.Controls.Add(_supeyRulesDispatchHost);
             body.Controls.Add(_supeyRulesStandingHost);
 
@@ -144,22 +155,42 @@ namespace Hiatme_Tool_Suite_v3
             };
         }
 
-        private void ShowSupeyRulesTab(bool standing)
+        private void ShowSupeyRulesTab(int tabIndex)
         {
             if (_supeyRulesStandingHost != null)
-                _supeyRulesStandingHost.Visible = standing;
+                _supeyRulesStandingHost.Visible = tabIndex == 0;
             if (_supeyRulesDispatchHost != null)
-                _supeyRulesDispatchHost.Visible = !standing;
-            if (_supeyRulesTabStanding != null)
+                _supeyRulesDispatchHost.Visible = tabIndex == 1;
+            if (_supeyOutOfAreaHost != null)
             {
-                _supeyRulesTabStanding.ForeColor = standing ? SupeyTheme.TextPrimary : SupeyTheme.TextSecondary;
-                _supeyRulesTabStanding.BackColor = standing ? SupeyTheme.SurfaceElevated : SupeyTheme.SurfaceBase;
+                _supeyOutOfAreaHost.Visible = tabIndex == 2;
+                if (tabIndex == 2)
+                    _ = RefreshSupeyOutOfAreaListAsync();
             }
-            if (_supeyRulesTabDispatch != null)
+            StyleRulesTab(_supeyRulesTabStanding, tabIndex == 0);
+            StyleRulesTab(_supeyRulesTabDispatch, tabIndex == 1);
+            StyleRulesTab(_supeyRulesTabOutOfArea, tabIndex == 2);
+        }
+
+        private static void StyleRulesTab(Label tab, bool selected)
+        {
+            if (tab == null) return;
+            tab.ForeColor = selected ? SupeyTheme.TextPrimary : SupeyTheme.TextSecondary;
+            tab.BackColor = selected ? SupeyTheme.SurfaceElevated : SupeyTheme.SurfaceBase;
+        }
+
+        private static Button MakeRulesSmallButton(string text)
+        {
+            return new Button
             {
-                _supeyRulesTabDispatch.ForeColor = standing ? SupeyTheme.TextSecondary : SupeyTheme.TextPrimary;
-                _supeyRulesTabDispatch.BackColor = standing ? SupeyTheme.SurfaceBase : SupeyTheme.SurfaceElevated;
-            }
+                Text = text,
+                AutoSize = true,
+                Height = 28,
+                FlatStyle = FlatStyle.Flat,
+                BackColor = SupeyTheme.SurfaceElevated,
+                ForeColor = SupeyTheme.TextPrimary,
+                Margin = new Padding(0, 0, 6, 0),
+            };
         }
 
         internal async Task RefreshSupeyRulesPanelAsync()

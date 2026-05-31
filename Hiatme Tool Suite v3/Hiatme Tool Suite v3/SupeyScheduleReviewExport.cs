@@ -12,14 +12,16 @@ namespace Hiatme_Tool_Suite_v3
             DateTime serviceDate,
             IList<SupeyDriverProfile> roster,
             SupeyScheduleResult result,
-            JObject rulesContext)
+            JObject rulesContext,
+            string buildEngine = null)
         {
             if (result == null) return "";
             var sb = new StringBuilder();
             sb.AppendLine("# Hiatme schedule — paste into Cursor for review");
             sb.AppendLine("Service date: " + serviceDate.ToString("yyyy-MM-dd"));
+            sb.AppendLine(SupeyBuildEngineLabel.Describe(buildEngine));
             sb.AppendLine("Drivers with trips: " + CountDriversWithTrips(result)
-                + " · Reserves: " + result.Reserves.Count
+                + " · Reserves: " + result.TotalReserveCount
                 + " · Warnings: " + result.WarningCount);
             if (result.FleetActiveSeconds > 0)
             {

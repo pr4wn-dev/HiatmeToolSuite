@@ -33,10 +33,10 @@ namespace Hiatme_Tool_Suite_v3
             if (!string.IsNullOrWhiteSpace(aiMessage))
             {
                 result.BuildWarnings.Add(new SupeyWarning(
-                    SupeyWarningKind.MissingGeo,
+                    SupeyWarningKind.BuildDiagnostic,
                     "",
-                    "",
-                    "AI: " + aiMessage));
+                    "Build",
+                    aiMessage));
             }
 
             var assignedDrivers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -91,7 +91,22 @@ namespace Hiatme_Tool_Suite_v3
                     if (!HiatmeTripLookup.TryResolve(tn, tripByNumber, out var trip)) continue;
                     if (!assignedTripNumbers.Add(trip.TripNumber)) continue;
                     resolved++;
-                    result.Reserves.Add(trip);
+                    if (SupeyOutOfArea.MatchTrip(trip) != null)
+                        result.ReservesReroute.Add(trip);
+                    else
+                        result.Reserves.Add(trip);
+                }
+            }
+
+            if (schedule.RerouteReserves != null)
+            {
+                foreach (var tn in schedule.RerouteReserves)
+                {
+                    requested++;
+                    if (!HiatmeTripLookup.TryResolve(tn, tripByNumber, out var trip)) continue;
+                    if (!assignedTripNumbers.Add(trip.TripNumber)) continue;
+                    resolved++;
+                    result.ReservesReroute.Add(trip);
                 }
             }
 
@@ -129,10 +144,11 @@ namespace Hiatme_Tool_Suite_v3
             return result;
         }
 
+        /// <summary>Trips on driver plans only (excludes <see cref="SupeyScheduleResult.Reserves"/>).</summary>
         public static int CountAssignedTrips(SupeyScheduleResult result)
         {
             if (result == null) return 0;
-            int n = result.Reserves?.Count ?? 0;
+            int n = 0;
             if (result.DriverPlans != null)
             {
                 foreach (var p in result.DriverPlans)
@@ -143,6 +159,13 @@ namespace Hiatme_Tool_Suite_v3
                 }
             }
             return n;
+        }
+
+        /// <summary>Unique trips on drivers plus reserves (sanity check vs loaded pool).</summary>
+        public static int CountScheduledTrips(SupeyScheduleResult result)
+        {
+            if (result == null) return 0;
+            return CountAssignedTrips(result) + result.TotalReserveCount;
         }
 
         private static SupeyTripCluster NewCluster(int groupNumber)

@@ -30,6 +30,7 @@ namespace Hiatme_Tool_Suite_v3
                 ["trip_count"] = trips?.Count ?? 0,
                 ["roster"] = new JArray(),
                 ["trips"] = new JArray(),
+                ["out_of_area"] = new JArray(SupeyOutOfArea.CachedAreas),
             };
 
             if (roster != null)

@@ -255,6 +255,8 @@
     <Compile Include="OsrmSettings.cs" />
     <Compile Include="OsrmRouteResolver.cs" />
     <Compile Include="ScheduleOsrmGate.cs" />
+    <Compile Include="ScheduleBuildReadyGate.cs" />
+    <Compile Include="SupeyLoadGeocodePrefetch.cs" />
     <Compile Include="RouteEstimator.cs" />
     <Compile Include="EtaPlanner.cs" />
     <Compile Include="SupeyDriverProfile.cs" />
@@ -271,6 +273,8 @@
     <Compile Include="SupeyCorridorRouting.cs" />
     <Compile Include="SupeyScheduleRules.cs" />
     <Compile Include="SupeyDispatchRulesLoader.cs" />
+    <Compile Include="SupeyOutOfArea.cs" />
+    <Compile Include="SupeyBuildEngineLabel.cs" />
     <Compile Include="SupeyClusterRouting.cs" />
     <Compile Include="SupeyRouteNoteFormatter.cs" />
     <Compile Include="SupeyCollapsiblePanel.cs">
@@ -278,6 +282,7 @@
     </Compile>
     <Compile Include="SupeyTemplateCompare.cs" />
     <Compile Include="SupeyScheduleReviewExport.cs" />
+    <Compile Include="SupeyWarningsExport.cs" />
     <Compile Include="SupeyScheduleBuilder.cs" />
     <Compile Include="SupeyMapWorkspace.cs">
       <SubType>UserControl</SubType>
@@ -291,6 +296,10 @@
     <Compile Include="WellRydeUserSummary.cs" />
     <Compile Include="WellRydeUserDetail.cs" />
     <Compile Include="WellRydeUserParser.cs" />
+    <Compile Include="WellRydeNuUpdateFormBuilder.cs" />
+    <Compile Include="WellRydeUserEditContextParser.cs" />
+    <Compile Include="WellRydeUserProfileSync.cs" />
+    <Compile Include="WellRydeUserSecLookup.cs" />
     <Compile Include="WellRydeRosterImporter.cs" />
     <Compile Include="SupeyImportFromWellRydeForm.cs">
       <SubType>Form</SubType>
@@ -307,6 +316,10 @@
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="Form1.Supey.Rules.cs">
+      <DependentUpon>Form1.cs</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Form1.Supey.OutOfArea.cs">
       <DependentUpon>Form1.cs</DependentUpon>
       <SubType>Form</SubType>
     </Compile>
@@ -361,6 +374,9 @@
       <DesignTime>True</DesignTime>
     </Compile>
     <!-- Local hiatme_ai.defaults.json (gitignored) copies to bin; else example without token. -->
+    <None Include="hiatme_config\out_of_area.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Include="dispatch_rules\accepted.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

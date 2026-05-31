@@ -1567,7 +1567,10 @@ namespace Hiatme_Tool_Suite_v3
             WellRydePortalNuResult wrNu;
             try
             {
-                wrNu = await _wellRydeSession.GetPortalNuAsync();
+                if (!string.IsNullOrWhiteSpace(wrLogin.Location))
+                    wrNu = await _wellRydeSession.CompleteLoginNavigationAsync(wrLogin.Location);
+                else
+                    wrNu = await _wellRydeSession.GetPortalNuAsync();
             }
             catch (Exception ex)
             {
@@ -1583,6 +1586,16 @@ namespace Hiatme_Tool_Suite_v3
                     ? "HTTP " + (int)wrNu.StatusCode.Value + " — "
                     : "";
                 return nuPrefix + (wrNu.ErrorMessage ?? "Could not load /portal/nu.");
+            }
+
+            _wellRydeSession.SyncSnapshotCookiesIntoJar();
+            try
+            {
+                await _wellRydeSession.WarmPortalSessionCookiesAsync().ConfigureAwait(true);
+            }
+            catch
+            {
+                // JSESSIONID for user save is best-effort here; save will retry acquisition.
             }
             return null;
         }
@@ -1742,8 +1755,34 @@ namespace Hiatme_Tool_Suite_v3
             return (firstFd, aggregated, totalRecords);
         }
 
+        /// <summary>On-screen WR login fields when filled; otherwise remembered credentials from settings.</summary>
+        private bool TryGetWellRydeCredentials(out string companycode, out string username, out string password)
+        {
+            companycode = "";
+            username = "";
+            password = "";
+
+            if (loginCB.SelectedIndex == 0)
+            {
+                companycode = (loginCodeTB.Text ?? "").Trim();
+                username = (loginUserTB.Text ?? "").Trim();
+                password = loginPassTB.Text ?? "";
+            }
+
+            if (string.IsNullOrEmpty(companycode))
+                companycode = (Properties.Settings.Default.wrCompanyCode ?? "").Trim();
+            if (string.IsNullOrEmpty(username))
+                username = (Properties.Settings.Default.wrUserName ?? "").Trim();
+            if (string.IsNullOrEmpty(password))
+                password = Properties.Settings.Default.wrUserPass ?? "";
+
+            return !string.IsNullOrEmpty(companycode)
+                && !string.IsNullOrEmpty(username)
+                && !string.IsNullOrEmpty(password);
+        }
+
         /// <summary>For billing and tools: probe an existing session with /portal/nu; if stale, re-login then return. Uses saved or on-screen WellRyde credentials.</summary>
-        private async Task<bool> EnsureWellRydePortalSessionForBillingAsync()
+        private async Task<bool> EnsureWellRydePortalSessionForBillingAsync(bool showMessageIfNoCredentials = true)
         {
             if (_wellRydePanelSessionActive && _wellRydeSession != null)
             {
@@ -1751,7 +1790,7 @@ namespace Hiatme_Tool_Suite_v3
                 bool nuOk = false;
                 try
                 {
-                    var nu = await _wellRydeSession.GetPortalNuAsync();
+                    var nu = await _wellRydeSession.GetPortalNuAsync().ConfigureAwait(true);
                     nuOk = nu.IsSuccess;
                 }
                 catch
@@ -1766,25 +1805,14 @@ namespace Hiatme_Tool_Suite_v3
                 InvalidateWellRydePortalSession();
             }
 
-            string companycode;
-            string username;
-            string password;
-            if (loginCB.SelectedIndex == 0)
-            {
-                companycode = (loginCodeTB.Text ?? "").Trim();
-                username = (loginUserTB.Text ?? "").Trim();
-                password = loginPassTB.Text ?? "";
-            }
-            else
-            {
-                companycode = (Properties.Settings.Default.wrCompanyCode ?? "").Trim();
-                username = (Properties.Settings.Default.wrUserName ?? "").Trim();
-                password = Properties.Settings.Default.wrUserPass ?? "";
-            }
-            if (string.IsNullOrEmpty(companycode) || string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
+            if (!TryGetWellRydeCredentials(out string companycode, out string username, out string password))
             {
                 await SetLoadingGifLabel("Checking connections");
-                MessageBox.Show("Wellryde is not signed in. Use the Wellryde tab to sign in, or save credentials with Remember credentials.");
+                if (showMessageIfNoCredentials)
+                {
+                    MessageBox.Show(
+                        "WellRyde is not signed in. Use the Login bar (WellRyde), or save credentials with Remember credentials.");
+                }
                 return false;
             }
 
@@ -1796,6 +1824,81 @@ namespace Hiatme_Tool_Suite_v3
             }
             _wellRydePanelSessionActive = true;
             return true;
+        }
+
+        /// <summary>Supey driver save: auto-login when possible; otherwise prompt and switch to WellRyde login UI.</summary>
+        private async Task<bool> EnsureWellRydePortalSessionForSupeyAsync()
+        {
+            if (_wellRydePanelSessionActive && _wellRydeSession != null)
+            {
+                try
+                {
+                    var nu = await _wellRydeSession.GetPortalNuAsync().ConfigureAwait(true);
+                    if (nu.IsSuccess)
+                    {
+                        await _wellRydeSession.WarmPortalSessionCookiesAsync().ConfigureAwait(true);
+                        return true;
+                    }
+                }
+                catch
+                {
+                    // stale session — re-login below
+                }
+                InvalidateWellRydePortalSession();
+            }
+
+            if (TryGetWellRydeCredentials(out string cc, out string user, out string pass))
+            {
+                SetSupeyStatus("Signing in to WellRyde…");
+                string autoErr = await TryWellRydePortalHttpLoginAsync(cc, user, pass).ConfigureAwait(true);
+                if (autoErr == null)
+                {
+                    _wellRydePanelSessionActive = true;
+                    return true;
+                }
+                SetSupeyStatus("WellRyde auto sign-in failed — " + autoErr);
+            }
+
+            var dr = MessageBox.Show(this,
+                "Saving this driver's home to WellRyde requires a portal sign-in "
+                + "(so every dispatcher sees the same address on Pull from WellRyde).\r\n\r\n"
+                + "Sign in to WellRyde now?",
+                "Supey — WellRyde sign-in",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question,
+                MessageBoxDefaultButton.Button1);
+            if (dr != DialogResult.Yes)
+                return false;
+
+            EnableWRLogin();
+            LoadWRCredentials();
+
+            if (!TryGetWellRydeCredentials(out string companycode, out string username, out string password))
+            {
+                MessageBox.Show(this,
+                    "Use the Login bar at the top of the app:\r\n"
+                    + "1. Choose WellRyde\r\n"
+                    + "2. Enter company code, username, password\r\n"
+                    + "3. Check Remember credentials (recommended)\r\n"
+                    + "4. Click Login\r\n\r\n"
+                    + "Then edit the driver again and click Save.",
+                    "Supey — WellRyde",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+                return false;
+            }
+
+            SetSupeyStatus("Signing in to WellRyde…");
+            string err = await TryWellRydePortalHttpLoginAsync(companycode, username, password)
+                .ConfigureAwait(true);
+            if (err != null)
+            {
+                MessageBox.Show(this, err, "WellRyde sign-in failed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return false;
+            }
+
+            _wellRydePanelSessionActive = true;
+            return _wellRydeSession != null;
         }
 
         private void RevealPass_Click(object sender, EventArgs e)

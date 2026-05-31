@@ -37,6 +37,12 @@ namespace Hiatme_Tool_Suite_v3
 
         /// <summary>OSRM routing failed and we couldn't even fall back gracefully.</summary>
         RouteFailure,
+
+        /// <summary>PU or DO in a shared out-of-service area — reroute reserves, no auto-assign.</summary>
+        OutOfServiceArea,
+
+        /// <summary>Server/local BUILD summary, solver notes, reserve/geo counts (paste into Cursor).</summary>
+        BuildDiagnostic,
     }
 
     /// <summary>

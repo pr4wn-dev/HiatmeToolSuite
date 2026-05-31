@@ -50,6 +50,7 @@ namespace Hiatme_Tool_Suite_v3
         private SupeyButton _supeySaveBtn;
         private SupeyButton _supeyCancelBtn;
         private MaterialLabel _supeyScheduleUpdatedLbl;
+        private Label _supeyLastBuildLbl;
         private Label _supeyToolbarStatusLbl;
         private MaterialLabel _supeyOsrmStatusLbl;          // legacy alias — not visible
         private SupeyStatusPill _supeyOsrmStatusPill;       // the actual visible OSRM badge
@@ -338,7 +339,7 @@ namespace Hiatme_Tool_Suite_v3
             _supeyStatusStrip = new Panel
             {
                 Dock = DockStyle.Bottom,
-                Height = 28,
+                Height = 34,
                 BackColor = SupeyTheme.SurfaceStatusBar,
                 Padding = new Padding(12, 4, 12, 4),
             };
@@ -375,13 +376,37 @@ namespace Hiatme_Tool_Suite_v3
             };
             _supeyWarningsLink.Click += (s, e) => OnSupeyWarningsLinkClicked();
 
+            _supeyLastBuildLbl = new Label
+            {
+                Text = "",
+                AutoSize = false,
+                Height = 22,
+                ForeColor = SupeyTheme.TextSecondary,
+                BackColor = SupeyTheme.SurfaceStatusBar,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Font = SupeyTheme.BodyFont,
+                Visible = false,
+            };
+            EnsureSupeyToolTip();
+            _supeyToolTip.SetToolTip(_supeyLastBuildLbl,
+                "Last BUILD summary — solver, assigned vs loaded, reserves, and geocode gaps.");
+
             _supeyStatusStrip.Controls.Add(_supeyProgressBar);
+            _supeyStatusStrip.Controls.Add(_supeyLastBuildLbl);
             _supeyStatusStrip.Controls.Add(_supeyWarningsLink);
 
             void Reposition()
             {
                 if (_supeyWarningsLink == null || _supeyStatusStrip == null) return;
-                _supeyWarningsLink.Left = Math.Max(0, _supeyStatusStrip.ClientSize.Width - _supeyWarningsLink.Width - 12);
+                int pad = 12;
+                int w = _supeyStatusStrip.ClientSize.Width;
+                _supeyWarningsLink.Left = Math.Max(0, w - _supeyWarningsLink.Width - pad);
+                if (_supeyLastBuildLbl != null)
+                {
+                    int left = _supeyProgressBar.Visible ? _supeyProgressBar.Right + 10 : pad;
+                    int right = _supeyWarningsLink.Left - 8;
+                    _supeyLastBuildLbl.SetBounds(left, 6, Math.Max(80, right - left), 22);
+                }
             }
             _supeyStatusStrip.Resize += (s, e) => Reposition();
             _supeyStatusStrip.HandleCreated += (s, e) => Reposition();
@@ -1028,7 +1053,11 @@ namespace Hiatme_Tool_Suite_v3
         private ContextMenuStrip _supeyWarningsCtxMenu;
         private ToolStripMenuItem _supeyWarningsCtxCopySelected;
         private ToolStripMenuItem _supeyWarningsCtxCopyAll;
+        private ToolStripMenuItem _supeyWarningsCtxCopyForAi;
         private ToolStripMenuItem _supeyWarningsCtxClear;
+        private string _supeyLastBuildEngine;
+        private string _supeyLastServerSolveError;
+        private HiatmeBuildStats _supeyLastBuildStats;
 
         /// <summary>
         /// Builds the dark-themed context menu shown when the user right-clicks the preview
@@ -1066,6 +1095,14 @@ namespace Hiatme_Tool_Suite_v3
             };
             _supeyWarningsCtxCopyAll.Click += (s, e) => CopyWarningsToClipboard(selectedOnly: false);
 
+            _supeyWarningsCtxCopyForAi = new ToolStripMenuItem("Copy warnings for AI review (Cursor)")
+            {
+                BackColor = DarkContextMenuRenderer.Background,
+                ForeColor = DarkContextMenuRenderer.ForeColor,
+                Image = MenuIconFactory.GetCopyAllIcon(),
+            };
+            _supeyWarningsCtxCopyForAi.Click += (s, e) => CopyWarningsForAiReviewToClipboard();
+
             _supeyWarningsCtxClear = new ToolStripMenuItem("Clear all warnings")
             {
                 BackColor = DarkContextMenuRenderer.Background,
@@ -1076,6 +1113,7 @@ namespace Hiatme_Tool_Suite_v3
 
             _supeyWarningsCtxMenu.Items.Add(_supeyWarningsCtxCopySelected);
             _supeyWarningsCtxMenu.Items.Add(_supeyWarningsCtxCopyAll);
+            _supeyWarningsCtxMenu.Items.Add(_supeyWarningsCtxCopyForAi);
             _supeyWarningsCtxMenu.Items.Add(new ToolStripSeparator());
             _supeyWarningsCtxMenu.Items.Add(_supeyWarningsCtxClear);
 
@@ -1101,6 +1139,7 @@ namespace Hiatme_Tool_Suite_v3
                     ? "Copy " + selected + " selected warnings"
                     : "Copy selected warning";
                 _supeyWarningsCtxCopyAll.Enabled = _supeyPreviewLv.Items.Count > 0;
+                _supeyWarningsCtxCopyForAi.Enabled = _supeyResult != null;
                 _supeyWarningsCtxClear.Enabled = _supeyResult.WarningCount > 0;
                 _supeyWarningsCtxMenu.Show(_supeyPreviewLv, e.Location);
                 return;
@@ -1154,7 +1193,11 @@ namespace Hiatme_Tool_Suite_v3
             }
             try
             {
-                Clipboard.SetText(sb.ToString());
+                var full = new System.Text.StringBuilder();
+                if (!selectedOnly)
+                    AppendWarningsClipboardHeader(full);
+                full.Append(sb);
+                Clipboard.SetText(full.ToString());
                 int count = (rows is ICollection<ListViewItem> coll) ? coll.Count : 0;
                 if (count == 0) foreach (var _ in rows) count++;
                 SetSupeyStatus("Copied " + count + " warning" + (count == 1 ? "" : "s") + " to the clipboard.");
@@ -1170,6 +1213,91 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (string.IsNullOrEmpty(s)) return "";
             return s.Replace('\t', ' ').Replace('\r', ' ').Replace('\n', ' ');
+        }
+
+        /// <summary>Server BUILD lines + reserve summary as Build warnings (shows in Warnings list).</summary>
+        private void ApplySupeyBuildDiagnostics(HiatmeAiBuildResponse resp)
+        {
+            if (_supeyResult == null || resp == null) return;
+            SupeyBuildEngineLabel.SyncBuildWarning(_supeyResult, _supeyLastBuildEngine, null);
+            if (resp.Warnings != null)
+            {
+                foreach (var line in resp.Warnings)
+                {
+                    if (string.IsNullOrWhiteSpace(line)) continue;
+                    _supeyResult.BuildWarnings.Add(new SupeyWarning(
+                        SupeyWarningKind.BuildDiagnostic, "", "Build", line.Trim()));
+                }
+            }
+            if (resp.BuildStats != null)
+            {
+                var s = resp.BuildStats;
+                if (s.ReservesCount > 0)
+                {
+                    _supeyResult.BuildWarnings.Add(new SupeyWarning(
+                        SupeyWarningKind.UnassignedToReserves,
+                        "",
+                        "Build",
+                        s.ReservesCount + " trip(s) in Reserves — use Warnings → Copy for AI review for trip numbers."));
+                }
+                if (s.NoGeoCount > 0)
+                {
+                    _supeyResult.BuildWarnings.Add(new SupeyWarning(
+                        SupeyWarningKind.MissingGeo,
+                        "",
+                        "Build",
+                        s.NoGeoCount + " trip(s): address could not be found automatically (in reserves — "
+                        + "wait for LOAD cache or BUILD again; pin only if street/city are correct)."));
+                }
+                if (s.UnassignedGroupsCount > 0)
+                {
+                    _supeyResult.BuildWarnings.Add(new SupeyWarning(
+                        SupeyWarningKind.UnassignedToReserves,
+                        "",
+                        "Build",
+                        s.UnassignedGroupsCount + " ride-share group(s) had geocode but no driver fit (capacity/shift/rules)."));
+                }
+            }
+        }
+
+        private void AppendWarningsClipboardHeader(System.Text.StringBuilder sb)
+        {
+            if (_supeyResult == null) return;
+            string hdr = SupeyWarningsExport.Build(
+                _supeyDatePicker.Value,
+                _supeyResult,
+                _supeyLastBuildEngine,
+                _supeyLastBuildStats,
+                _supeyLoadedTrips?.Count ?? 0,
+                GetCheckedSupeyDrivers());
+            int cut = hdr.IndexOf("## Warnings", StringComparison.Ordinal);
+            if (cut > 0)
+                sb.Append(hdr.Substring(0, cut));
+            else
+                sb.Append(hdr);
+        }
+
+        /// <summary>Full warnings + build stats + reserve trip sample for pasting into Cursor.</summary>
+        private void CopyWarningsForAiReviewToClipboard()
+        {
+            if (_supeyResult == null) return;
+            try
+            {
+                string text = SupeyWarningsExport.Build(
+                    _supeyDatePicker.Value,
+                    _supeyResult,
+                    _supeyLastBuildEngine,
+                    _supeyLastBuildStats,
+                    _supeyLoadedTrips?.Count ?? 0,
+                    GetCheckedSupeyDrivers());
+                Clipboard.SetText(text);
+                SetSupeyStatus("Copied warnings for AI review — paste into Cursor chat.");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "Could not copy to clipboard:\n\n" + ex.Message, "Supey Schedule",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
         }
 
         // ----------------------------------------------------------------------
@@ -1340,7 +1468,8 @@ namespace Hiatme_Tool_Suite_v3
                     _supeyResult.ServiceDate,
                     GetCheckedSupeyDrivers(),
                     _supeyResult,
-                    _supeyLastRulesContext);
+                    _supeyLastRulesContext,
+                    _supeyLastBuildEngine);
                 Clipboard.SetText(text);
                 SetSupeyStatus("Copied schedule for AI review (paste into Cursor chat).");
             }
@@ -1638,7 +1767,74 @@ namespace Hiatme_Tool_Suite_v3
                 if (idx >= 0) _supeyRoster[idx] = ed.Result;
                 RebuildSupeyDriversList();
                 SaveSupeyRosterToDisk(showOk: false);
+                if (ed.SaveToWellRyde)
+                    _ = PushSupeyDriverToWellRydeAsync(ed.Result);
             }
+        }
+
+        private async Task PushSupeyDriverToWellRydeAsync(SupeyDriverProfile profile)
+        {
+            if (profile == null) return;
+            try
+            {
+                SetSupeyStatus("Saving driver home to WellRyde…");
+                if (!await EnsureWellRydePortalSessionForSupeyAsync().ConfigureAwait(true)
+                    || _wellRydeSession == null)
+                {
+                    SetSupeyStatus(
+                        "Roster saved on this PC — WellRyde not updated (sign-in cancelled or failed).");
+                    return;
+                }
+
+                var push = await WellRydeUserProfileSync.PushHomeAddressAsync(_wellRydeSession, profile)
+                    .ConfigureAwait(true);
+                if (!push.Ok && SupeyWellRydePushLooksLikeSessionFailure(push.Message))
+                {
+                    InvalidateWellRydePortalSession();
+                    SetSupeyStatus("WellRyde session expired — signing in again…");
+                    if (await EnsureWellRydePortalSessionForSupeyAsync().ConfigureAwait(true)
+                        && _wellRydeSession != null)
+                    {
+                        push = await WellRydeUserProfileSync.PushHomeAddressAsync(_wellRydeSession, profile)
+                            .ConfigureAwait(true);
+                    }
+                }
+                if (push.Ok)
+                {
+                    int idx = _supeyRoster.FindIndex(d =>
+                        d != null && string.Equals(d.Name, profile.Name, StringComparison.OrdinalIgnoreCase));
+                    if (idx >= 0)
+                        _supeyRoster[idx] = profile;
+                    SaveSupeyRosterToDisk(showOk: false);
+                    RebuildSupeyDriversList();
+                    SetSupeyStatus(push.Message);
+                }
+                else
+                {
+                    SetSupeyStatus(
+                        "Roster saved here — WellRyde update failed: " + (push.Message ?? "unknown error"));
+                    MessageBox.Show(this,
+                        "Your edit was saved in the local Supey roster on this PC, but WellRyde rejected the update:\r\n\r\n"
+                        + (push.Message ?? "Unknown error"),
+                        "Supey — WellRyde",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+                }
+            }
+            catch (Exception ex)
+            {
+                SetSupeyStatus("WellRyde save error: " + ex.Message);
+            }
+        }
+
+        private static bool SupeyWellRydePushLooksLikeSessionFailure(string message)
+        {
+            if (string.IsNullOrWhiteSpace(message))
+                return false;
+            var m = message.ToLowerInvariant();
+            return m.Contains("login") || m.Contains("session expired") || m.Contains("sign in")
+                || m.Contains("csrf") || m.Contains("html page instead of json")
+                || m.Contains("not valid json");
         }
 
         private void OnSupeyDriverRemove()
@@ -1821,6 +2017,7 @@ namespace Hiatme_Tool_Suite_v3
                 BindSupeyLoadedTripsList();
                 SetSupeyStatus(BuildPostLoadStatus(_supeyLoadedTrips.Count, date));
                 _ = ShowSupeyPreReviewWarningsAsync();
+                _ = PrefetchSupeyTripAddressesAfterLoadAsync();
             }
             catch (ScheduleBuilderException ex)
             {
@@ -1845,6 +2042,29 @@ namespace Hiatme_Tool_Suite_v3
                 try { _supeyCts?.Dispose(); } catch { }
                 _supeyCts = null;
                 SetSupeyToolbarBusy(false, null);
+            }
+        }
+
+        /// <summary>Background after LOAD TRIPS — warms office geocode cache before BUILD.</summary>
+        private async Task PrefetchSupeyTripAddressesAfterLoadAsync()
+        {
+            if (!HiatmeGeoSettings.UseServer || _supeyLoadedTrips == null || _supeyLoadedTrips.Count == 0)
+                return;
+            try
+            {
+                SetSupeyStatus("LOAD done — caching trip addresses on office server…");
+                var (submitted, already) = await SupeyLoadGeocodePrefetch.PrefetchTripsAsync(_supeyLoadedTrips)
+                    .ConfigureAwait(true);
+                int n = _supeyLoadedTrips.Count;
+                var date = _supeyDatePicker.Value;
+                string extra = submitted > 0
+                    ? " · " + submitted + " looked up, " + already + " already cached"
+                    : (already > 0 ? " · all " + already + " stops already cached" : "");
+                SetSupeyStatus(BuildPostLoadStatus(n, date) + extra);
+            }
+            catch
+            {
+                /* BUILD will retry geocoding; desk does not need to act */
             }
         }
 
@@ -1874,20 +2094,29 @@ namespace Hiatme_Tool_Suite_v3
                 if (_supeyAiSettings == null)
                     _supeyAiSettings = HiatmeAiSettings.Load();
 
-                var (osrmOk, osrmDetail) = await ScheduleOsrmGate.CheckAsync(_supeyAiSettings, token)
+                SetSupeyToolbarBusy(true, "Checking office server (panel + OSRM + solve)…");
+                var (readyOk, readyDetail) = await ScheduleBuildReadyGate.CheckAsync(
+                        _supeyAiSettings, token)
                     .ConfigureAwait(true);
-                if (!osrmOk)
+                if (!readyOk)
                 {
-                    MessageBox.Show(this, osrmDetail, "Supey — server required",
+                    MessageBox.Show(this, readyDetail, "Supey — server not ready",
                         MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                    SetSupeyStatus("BUILD blocked — office server OSRM not available.");
+                    SetSupeyStatus("BUILD blocked — office server not ready for BUILD.");
                     return;
                 }
 
-                // Rules ship in dispatch_rules/accepted.json; panel refreshes when reachable.
+                // Rules + no-go areas from office panel when reachable.
                 SupeyScheduleRules scheduleRules = SupeyDispatchRulesLoader.Load();
                 if (HiatmeGeoSettings.UseServer)
                 {
+                    try
+                    {
+                        await HiatmeAiClient.GetOutOfAreaAsync(_supeyAiSettings, token)
+                            .ConfigureAwait(true);
+                    }
+                    catch { SupeyOutOfArea.SetCachedAreas(SupeyOutOfArea.LoadLocalFallback()); }
+
                     try
                     {
                         var pre = await HiatmeAiClient.PreReviewAsync(_supeyAiSettings, token)
@@ -1902,41 +2131,132 @@ namespace Hiatme_Tool_Suite_v3
                 }
 
                 var hints = new SupeyTemplateHints(date.DayOfWeek.ToString());
-                var algo = new SupeyScheduleAlgorithm
-                {
-                    Hints = hints,
-                    UseTemplateHints = false,
-                    ScheduleRules = scheduleRules,
-                };
                 var startingLocks = _supeyResult?.Locks ?? new Dictionary<string, string>();
-                var progress = new Progress<string>(msg =>
+                bool builtOnServer = false;
+                bool serverSolveAttempted = false;
+
+                if (_supeyAiSettings.UseServerSolve && HiatmeGeoSettings.UseServer)
                 {
+                    serverSolveAttempted = true;
                     try
                     {
-                        if (IsHandleCreated && !IsDisposed)
-                            BeginInvoke((Action)(() => SetSupeyToolbarBusy(true, msg)));
+                        SetSupeyToolbarBusy(true, "Server solve (cluster + assign)…");
+                        var solveCtx = HiatmeScheduleContextBuilder.Build(
+                            date, _supeyRoster, _supeyLoadedTrips, null, false, selected);
+                        ApplyWellRydeDispatcherToAiContext(solveCtx);
+                        if (startingLocks.Count > 0)
+                            solveCtx["locks"] = JObject.FromObject(startingLocks);
+
+                        var solveResp = await HiatmeAiClient.ScheduleSolveAsync(
+                            _supeyAiSettings, solveCtx, token).ConfigureAwait(true);
+                        if (solveResp?.Schedule != null)
+                        {
+                            _supeyLastServerSolveError = null;
+                            ApplySupeyAiSchedule(solveResp, "BUILD");
+                            _supeyLastBuildEngine = "server " + (solveResp.Solver ?? "greedy");
+                            _supeyLastBuildStats = solveResp.BuildStats;
+                            ApplySupeyBuildDiagnostics(solveResp);
+                            BindSupeyPreview();
+                            builtOnServer = true;
+                            string solver = string.IsNullOrWhiteSpace(solveResp.Solver)
+                                ? "server"
+                                : solveResp.Solver;
+                            SetSupeyLastBuildSummary(_supeyLastBuildEngine, solveResp.BuildStats);
+                            int scheduled = HiatmeAiScheduleMapper.CountAssignedTrips(_supeyResult);
+                            SetSupeyStatus("Build complete (" + solver + "). " +
+                                _supeyResult.DriverPlans.Count + " driver(s), " +
+                                scheduled + " on screen, " + _supeyResult.Reserves.Count +
+                                " reserve(s), " + _supeyResult.WarningCount + " warning(s).");
+                        }
+                        else if (solveResp != null)
+                        {
+                            _supeyLastServerSolveError = "Server returned an empty schedule.";
+                        }
                     }
-                    catch { }
-                });
+                    catch (Exception ex) when (!(ex is OperationCanceledException))
+                    {
+                        _supeyLastServerSolveError = ex.Message;
+                        SetSupeyStatus("Server solve unavailable — using local builder… (" +
+                            ex.Message + ")");
+                    }
+                }
 
-                _supeyResult = await algo.BuildAsync(
-                    date, _supeyLoadedTrips, selected, startingLocks, progress, token).ConfigureAwait(true);
+                if (!builtOnServer)
+                {
+                    if (serverSolveAttempted && _supeyAiSettings != null
+                        && !_supeyAiSettings.AllowLocalSolveFallback)
+                    {
+                        string err = string.IsNullOrWhiteSpace(_supeyLastServerSolveError)
+                            ? "Office server solve did not return a schedule."
+                            : _supeyLastServerSolveError;
+                        MessageBox.Show(this,
+                            "BUILD requires the office AI server (POST /api/hiatme/solve).\n\n"
+                            + err + "\n\n"
+                            + "Fix the panel URL, token, and OSRM on the server PC, then try again.\n"
+                            + "Local desktop-only BUILD is disabled for dispatch desks "
+                            + "(dev: set AllowLocalSolveFallback in hiatme_ai.json or "
+                            + "HIATME_ALLOW_LOCAL_SOLVE_FALLBACK=1).",
+                            "Supey — server required",
+                            MessageBoxButtons.OK,
+                            MessageBoxIcon.Warning);
+                        SetSupeyStatus("BUILD stopped — server solve required (" + err + ").");
+                        return;
+                    }
 
-                _supeyTripsPanelView = SupeyTripsPanelView.AiSchedule;
-                BindSupeyPreview();
-                _ = HydrateSupeyGeocodeForMapAsync();
-                _supeyLastTemplateCompare = SupeyTemplateCompare.Run(_supeyResult, hints);
-                if (_supeyTemplateCompareLbl != null)
-                    _supeyTemplateCompareLbl.Text = _supeyLastTemplateCompare.SummaryText;
-                SyncSupeyScheduleToServer("build");
-                MarkSupeyScheduleUpdated("BUILD");
-                SetSupeyAiLastAppliedLabel("BUILD");
-                _ = RefreshSupeyRulesPanelAsync();
+                    var algo = new SupeyScheduleAlgorithm
+                    {
+                        Hints = hints,
+                        UseTemplateHints = false,
+                        ScheduleRules = scheduleRules,
+                    };
+                    var progress = new Progress<string>(msg =>
+                    {
+                        try
+                        {
+                            if (IsHandleCreated && !IsDisposed)
+                                BeginInvoke((Action)(() => SetSupeyToolbarBusy(true, msg)));
+                        }
+                        catch { }
+                    });
 
-                int scheduled = HiatmeAiScheduleMapper.CountAssignedTrips(_supeyResult);
-                SetSupeyStatus("Build complete. " + _supeyResult.DriverPlans.Count + " driver(s), " +
-                    scheduled + " on screen, " + _supeyResult.Reserves.Count + " reserve(s), " +
-                    _supeyResult.WarningCount + " warning(s).");
+                    _supeyResult = await algo.BuildAsync(
+                        date, _supeyLoadedTrips, selected, startingLocks, progress, token)
+                        .ConfigureAwait(true);
+
+                    _supeyTripsPanelView = SupeyTripsPanelView.AiSchedule;
+                    BindSupeyPreview();
+                    _ = HydrateSupeyGeocodeForMapAsync();
+                    _supeyLastTemplateCompare = SupeyTemplateCompare.Run(_supeyResult, hints);
+                    if (_supeyTemplateCompareLbl != null)
+                        _supeyTemplateCompareLbl.Text = _supeyLastTemplateCompare.SummaryText;
+                    SyncSupeyScheduleToServer("build");
+                    MarkSupeyScheduleUpdated("BUILD");
+                    SetSupeyAiLastAppliedLabel("BUILD");
+                    _ = RefreshSupeyRulesPanelAsync();
+
+                    _supeyLastBuildEngine = serverSolveAttempted
+                        ? "local C# (server failed, desktop fallback)"
+                        : "local C#";
+                    _supeyLastBuildStats = StatsFromSupeyResult(
+                        _supeyResult, _supeyLoadedTrips?.Count ?? 0);
+                    SupeyBuildEngineLabel.SyncBuildWarning(
+                        _supeyResult, _supeyLastBuildEngine, _supeyLastServerSolveError);
+                    SetSupeyLastBuildSummary(_supeyLastBuildEngine, _supeyLastBuildStats);
+                    if (_supeyLastBuildStats != null && _supeyLastBuildStats.ReservesCount > 0)
+                    {
+                        _supeyResult.BuildWarnings.Add(new SupeyWarning(
+                            SupeyWarningKind.UnassignedToReserves,
+                            "",
+                            "Build",
+                            _supeyLastBuildStats.ReservesCount +
+                            " trip(s) in Reserves — Warnings → Copy for AI review for trip numbers."));
+                    }
+                    int scheduled = HiatmeAiScheduleMapper.CountAssignedTrips(_supeyResult);
+                    SetSupeyStatus("Build complete (local). " + _supeyResult.DriverPlans.Count +
+                        " driver(s), " + scheduled + " on screen, " +
+                        _supeyResult.Reserves.Count + " reserve(s), " +
+                        _supeyResult.WarningCount + " warning(s).");
+                }
             }
             catch (OperationCanceledException)
             {
@@ -2067,8 +2387,13 @@ namespace Hiatme_Tool_Suite_v3
                     label += " · no trips";
                 _supeyPreviewDriverCb.Items.Add(new SupeyPreviewItem(plan, label));
             }
-            if (_supeyResult.Reserves.Count > 0)
-                _supeyPreviewDriverCb.Items.Add(new SupeyPreviewItem(null, "Reserves · " + _supeyResult.Reserves.Count + " trip(s)"));
+            if (_supeyResult.TotalReserveCount > 0)
+            {
+                string resLabel = "Reserves · " + _supeyResult.TotalReserveCount + " trip(s)";
+                if (_supeyResult.ReservesReroute.Count > 0)
+                    resLabel += " (" + _supeyResult.ReservesReroute.Count + " reroute)";
+                _supeyPreviewDriverCb.Items.Add(new SupeyPreviewItem(null, resLabel));
+            }
             if (_supeyResult.WarningCount > 0)
                 _supeyPreviewDriverCb.Items.Add(new SupeyPreviewItem(
                     SupeyPreviewItem.ItemKind.Warnings,
@@ -2080,7 +2405,7 @@ namespace Hiatme_Tool_Suite_v3
             // scope of the build without having to expand the dropdown.
             int driverCount = _supeyResult.DriverPlans?.Count ?? 0;
             int tripCount = (_supeyResult.DriverPlans?.Sum(p => p?.Groups?.Sum(g => g?.Trips?.Count ?? 0) ?? 0) ?? 0)
-                            + (_supeyResult.Reserves?.Count ?? 0);
+                            + _supeyResult.TotalReserveCount;
             string fleet = driverCount + " driver" + (driverCount == 1 ? "" : "s")
                 + " · " + tripCount + " trip" + (tripCount == 1 ? "" : "s")
                 + " · " + SupeyTripTimes.FormatHoursMinutesFromSeconds(_supeyResult.FleetActiveSeconds) + " drive"
@@ -2110,6 +2435,58 @@ namespace Hiatme_Tool_Suite_v3
                 }
             }
             _supeyPreviewDriverCb.SelectedIndex = pick;
+        }
+
+        private void BindReservesPreviewSections()
+        {
+            if (_supeyResult == null) return;
+            if (_supeyResult.Reserves.Count > 0)
+            {
+                AddReservesSectionHeader("Need driver (" + _supeyResult.Reserves.Count + ")");
+                foreach (var t in _supeyResult.Reserves)
+                    AddReservesTripRow(t, Color.DimGray);
+            }
+            if (_supeyResult.ReservesReroute.Count > 0)
+            {
+                AddReservesSectionHeader("Reroute to Modivcare (" + _supeyResult.ReservesReroute.Count + ")");
+                foreach (var t in _supeyResult.ReservesReroute)
+                    AddReservesTripRow(t, Color.FromArgb(140, 90, 40));
+            }
+        }
+
+        private void AddReservesSectionHeader(string title)
+        {
+            var hdr = new ListViewItem(new[] { "—", "", title, "", "", "", "", "", "", "", "" });
+            hdr.UseItemStyleForSubItems = false;
+            hdr.Font = new Font(_supeyPreviewLv.Font, FontStyle.Bold);
+            hdr.SubItems[2].ForeColor = SupeyTheme.TextPrimary;
+            hdr.SubItems[0].BackColor = SupeyTheme.SurfaceHeader;
+            _supeyPreviewLv.Items.Add(hdr);
+        }
+
+        private void AddReservesTripRow(MCDownloadedTrip t, Color bandColor)
+        {
+            string puAddr = SupeyTripTimes.FormatEndpoint(t.PUStreet, t.PUCity);
+            string doAddr = SupeyTripTimes.FormatEndpoint(t.DOStreet, t.DOCITY);
+            var lvi = new ListViewItem(new[]
+            {
+                "—",
+                t.TripNumber ?? "",
+                t.ClientFullName ?? "",
+                SupeyTripGeocodeStatus.CheckPin,
+                t.PUTime ?? "",
+                "—",
+                puAddr,
+                doAddr,
+                t.DOTime ?? "",
+                "—",
+                t.Miles ?? "",
+            });
+            lvi.UseItemStyleForSubItems = false;
+            lvi.SubItems[0].BackColor = bandColor;
+            lvi.SubItems[0].ForeColor = Color.White;
+            StyleGeoSubItem(lvi.SubItems[SupeyPrevColGeoIndex], SupeyTripGeocodeStatus.CheckPin);
+            _supeyPreviewLv.Items.Add(lvi);
         }
 
         private void OnSupeyPreviewDriverChanged()
@@ -2205,33 +2582,14 @@ namespace Hiatme_Tool_Suite_v3
             else
             {
                 RestoreSupeyPreviewListSorter();
-                // Reserves
-                foreach (var t in _supeyResult.Reserves)
-                {
-                    string puAddr = SupeyTripTimes.FormatEndpoint(t.PUStreet, t.PUCity);
-                    string doAddr = SupeyTripTimes.FormatEndpoint(t.DOStreet, t.DOCITY);
-                    var lvi = new ListViewItem(new[]
-                    {
-                        "—",
-                        t.TripNumber ?? "",
-                        t.ClientFullName ?? "",
-                        SupeyTripGeocodeStatus.CheckPin,
-                        t.PUTime ?? "",
-                        "—",
-                        puAddr,
-                        doAddr,
-                        t.DOTime ?? "",
-                        "—",
-                        t.Miles ?? "",
-                    });
-                    lvi.UseItemStyleForSubItems = false;
-                    lvi.SubItems[0].BackColor = Color.DimGray;
-                    lvi.SubItems[0].ForeColor = Color.White;
-                    StyleGeoSubItem(lvi.SubItems[SupeyPrevColGeoIndex], SupeyTripGeocodeStatus.CheckPin);
-                    _supeyPreviewLv.Items.Add(lvi);
-                }
+                BindReservesPreviewSections();
                 _supeyMap.Clear();
-                _supeyPreviewStatsLbl.Text = "Reserves: " + _supeyResult.Reserves.Count + " trip(s) — drag onto a driver above (manual reassign in a follow-up build).";
+                int need = _supeyResult.Reserves.Count;
+                int rer = _supeyResult.ReservesReroute.Count;
+                _supeyPreviewStatsLbl.Text = "Reserves: " + _supeyResult.TotalReserveCount
+                    + " — " + need + " need driver"
+                    + (rer > 0 ? ", " + rer + " reroute (no-go areas)" : "")
+                    + ". Reroute trips are not auto-assigned on BUILD.";
             }
 
             _supeyPreviewLv.EndUpdate();
@@ -2322,11 +2680,14 @@ namespace Hiatme_Tool_Suite_v3
         private void AddWarningRow(SupeyWarning w, string driverName)
         {
             string kindLabel = FormatWarningKind(w.Kind);
+            string scope = driverName ?? "";
+            if (scope == "Build" && !string.IsNullOrWhiteSpace(w.DriverName))
+                scope = w.DriverName;
             var lvi = new ListViewItem(new[]
             {
                 kindLabel,
                 string.IsNullOrEmpty(w.TripNumber) ? "—" : w.TripNumber,
-                driverName ?? "",
+                scope,
                 w.Kind == SupeyWarningKind.MissingGeo ? SupeyTripGeocodeStatus.CheckPin : "",
                 "",
                 "",
@@ -2353,10 +2714,12 @@ namespace Hiatme_Tool_Suite_v3
             {
                 case SupeyWarningKind.MissingGeo: return "Geo";
                 case SupeyWarningKind.UnassignedToReserves: return "Reserve";
+                case SupeyWarningKind.OutOfServiceArea: return "Reroute";
                 case SupeyWarningKind.LateArrival: return "Late DO";
                 case SupeyWarningKind.TightArrival: return "Tight";
                 case SupeyWarningKind.LateNextPickup: return "Late PU";
                 case SupeyWarningKind.StraightLineFallback: return "OSRM";
+                case SupeyWarningKind.BuildDiagnostic: return "Build";
                 default: return k.ToString();
             }
         }
@@ -2367,10 +2730,12 @@ namespace Hiatme_Tool_Suite_v3
             {
                 case SupeyWarningKind.MissingGeo: return Color.FromArgb(232, 168, 96);    // amber — data quality
                 case SupeyWarningKind.UnassignedToReserves: return Color.FromArgb(200, 140, 220); // purple — unassigned
+                case SupeyWarningKind.OutOfServiceArea: return Color.FromArgb(200, 140, 80);   // amber — reroute
                 case SupeyWarningKind.LateArrival: return Color.FromArgb(232, 96, 96);    // red   — hard miss
                 case SupeyWarningKind.LateNextPickup: return Color.FromArgb(232, 96, 96); // red
                 case SupeyWarningKind.TightArrival: return Color.FromArgb(232, 220, 96);  // yellow — within margin
                 case SupeyWarningKind.StraightLineFallback: return Color.FromArgb(160, 160, 160); // grey — informational
+                case SupeyWarningKind.BuildDiagnostic: return Color.FromArgb(120, 180, 220);   // blue — build log
                 default: return Color.FromArgb(200, 200, 200);
             }
         }
@@ -2600,6 +2965,83 @@ namespace Hiatme_Tool_Suite_v3
             if (_supeyScheduleUpdatedLbl == null) return;
             _supeyScheduleUpdatedLbl.Text = "No AI schedule on screen yet.";
             _supeyScheduleUpdatedLbl.ForeColor = Color.Gray;
+            if (_supeyLastBuildLbl != null)
+            {
+                _supeyLastBuildLbl.Text = "";
+                _supeyLastBuildLbl.Visible = false;
+            }
+        }
+
+        /// <summary>Persistent BUILD summary on the bottom status strip (always visible after BUILD).</summary>
+        private void SetSupeyLastBuildSummary(string engine, HiatmeBuildStats stats)
+        {
+            if (_supeyLastBuildLbl == null) return;
+            string when = DateTime.Now.ToString("h:mm tt");
+            string eng = string.IsNullOrWhiteSpace(engine) ? "?" : engine.Trim();
+            int total = stats?.TripsTotal ?? 0;
+            int assigned = stats?.TripsAssigned ?? 0;
+            int reserves = stats?.ReservesCount ?? 0;
+            int noGeo = stats?.NoGeoCount ?? 0;
+            int unplaced = stats?.UnassignedGroupsCount ?? 0;
+            int clusters = stats?.ClusterCount ?? 0;
+            int withCoords = stats?.TripsWithCoords ?? 0;
+
+            string line = "Last BUILD " + when + " · " + eng
+                + " · " + assigned + "/" + (total > 0 ? total.ToString() : "?") + " assigned"
+                + " · " + reserves + " reserves";
+            if (noGeo > 0)
+                line += " · " + noGeo + " no geocode";
+            if (unplaced > 0)
+                line += " · " + unplaced + " groups unplaced";
+            if (clusters > 0)
+                line += " · " + clusters + " groups";
+
+            string tip = line;
+            if (total > 0 && withCoords > 0 && withCoords < total)
+                tip += Environment.NewLine + withCoords + " of " + total +
+                    " trips had PU+DO coordinates for the solver.";
+            if (stats != null && stats.GeocodedNew > 0)
+                tip += Environment.NewLine + stats.GeocodedNew +
+                    " new address(es) geocoded this run (rest from cache).";
+
+            _supeyLastBuildLbl.Text = line;
+            _supeyLastBuildLbl.Visible = true;
+            EnsureSupeyToolTip();
+            _supeyToolTip.SetToolTip(_supeyLastBuildLbl, tip);
+
+            double assignFrac = total > 0 ? (double)assigned / total : 0;
+            if (assignFrac >= 0.85 && reserves < 15)
+                _supeyLastBuildLbl.ForeColor = Color.FromArgb(144, 238, 144);
+            else if (assignFrac >= 0.5)
+                _supeyLastBuildLbl.ForeColor = Color.FromArgb(255, 200, 100);
+            else
+                _supeyLastBuildLbl.ForeColor = Color.FromArgb(255, 140, 140);
+        }
+
+        private static HiatmeBuildStats StatsFromSupeyResult(
+            SupeyScheduleResult result, int tripsLoaded)
+        {
+            if (result == null) return null;
+            int assigned = HiatmeAiScheduleMapper.CountAssignedTrips(result);
+            int noGeo = 0;
+            if (result.BuildWarnings != null)
+            {
+                foreach (var w in result.BuildWarnings)
+                {
+                    if (w != null && w.Kind == SupeyWarningKind.MissingGeo)
+                        noGeo++;
+                }
+            }
+            int reserves = result.Reserves.Count;
+            return new HiatmeBuildStats
+            {
+                TripsTotal = tripsLoaded > 0 ? tripsLoaded : assigned + reserves,
+                TripsAssigned = assigned,
+                ReservesCount = reserves,
+                NoGeoCount = noGeo,
+                UnassignedGroupsCount = 0,
+                ClusterCount = result.DriverPlans.Sum(p => p.Groups.Count),
+            };
         }
 
         private void SetSupeyToolbarBusy(bool busy, string msg)

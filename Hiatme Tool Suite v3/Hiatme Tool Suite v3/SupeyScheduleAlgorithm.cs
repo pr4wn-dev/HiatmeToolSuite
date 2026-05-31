@@ -261,15 +261,34 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     result.BuildWarnings.Add(new SupeyWarning(SupeyWarningKind.DriverHomeUnresolvable,
                         "", d.Name,
-                        "Could not place driver home: " + (d.FormatHomeOneLine() ?? "(empty)") +
-                        ". Check the spelling (especially the city) and rebuild to include this driver."));
+                        "Driver excluded from BUILD — home address missing or will not geocode: "
+                        + (d.FormatHomeOneLine() ?? "(empty)") +
+                        ". Fill home in roster (or uncheck for this run) and rebuild."));
+                }
+            }
+
+            // Out-of-service-area → reroute reserves (shared list from office panel).
+            var routableTrips = new List<MCDownloadedTrip>(trips.Count);
+            foreach (var t in trips)
+            {
+                string ooa = SupeyOutOfArea.MatchTrip(t);
+                if (ooa != null)
+                {
+                    result.ReservesReroute.Add(t);
+                    result.BuildWarnings.Add(new SupeyWarning(
+                        SupeyWarningKind.OutOfServiceArea,
+                        t.TripNumber ?? "", "",
+                        "Trip " + (t.TripNumber ?? "") + " (" + (t.ClientFullName ?? "") +
+                        ") touches out-of-service area \"" + ooa +
+                        "\" — reroute to Modivcare (not auto-assigned)."));
+                    continue;
                 }
             }
 
             // Trips that didn't geocode go straight to Reserves with a warning.
-            var routableTrips = new List<MCDownloadedTrip>(trips.Count);
             foreach (var t in trips)
             {
+                if (result.ReservesReroute.Contains(t)) continue;
                 if (!tripGeo[t].Complete)
                 {
                     result.Reserves.Add(t);
@@ -914,12 +933,12 @@ namespace Hiatme_Tool_Suite_v3
             string breakdown = cluster.Rejections.FormatBreakdown();
             string baseMsg = "Group " + cluster.GroupNumber + " (" + cluster.RiderCount + " rider" +
                 (cluster.RiderCount == 1 ? "" : "s") + ", " + SupeyTripTimes.FormatTimeOfDay(cluster.EarliestPickup) +
-                " PU) had no feasible driver — sent to Reserves.";
+                " PU) — no driver could take it; sent to Reserves.";
             if (!string.IsNullOrEmpty(breakdown))
-                baseMsg += " Rejected: " + breakdown + ".";
+                baseMsg += " Why: " + breakdown + ".";
 
             string warnTrip = cluster.Trips.Count > 0 ? (cluster.Trips[0].TripNumber ?? "") : "";
-            result.BuildWarnings.Add(new SupeyWarning(SupeyWarningKind.LateArrival,
+            result.BuildWarnings.Add(new SupeyWarning(SupeyWarningKind.UnassignedToReserves,
                 warnTrip, "", baseMsg));
 
             foreach (var t in cluster.Trips)

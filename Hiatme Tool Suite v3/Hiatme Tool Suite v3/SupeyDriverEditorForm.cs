@@ -19,10 +19,16 @@ namespace Hiatme_Tool_Suite_v3
     /// </remarks>
     internal partial class SupeyDriverEditorForm : MaterialForm
     {
+        private readonly SupeyDriverProfile _existing;
+
         public SupeyDriverProfile Result { get; private set; }
+
+        /// <summary>When true and driver has a WellRyde SEC id, save also POSTs to nuUpdateUser.</summary>
+        public bool SaveToWellRyde { get; private set; }
 
         public SupeyDriverEditorForm(SupeyDriverProfile existing)
         {
+            _existing = existing;
             InitializeComponent();
 
             try
@@ -60,6 +66,8 @@ namespace Hiatme_Tool_Suite_v3
                 _vehicleTb.Text = existing.VehicleLabel ?? "";
                 _shiftStartTb.Text = existing.ShiftStart ?? "06:00";
                 _shiftEndTb.Text = existing.ShiftEnd ?? "18:00";
+                _helpLabel.Text =
+                    "Save updates home in WellRyde when signed in (matches portal by saved SEC id or driver name).";
             }
         }
 
@@ -97,6 +105,13 @@ namespace Hiatme_Tool_Suite_v3
                 ShiftStart = (_shiftStartTb.Text ?? "").Trim(),
                 ShiftEnd = (_shiftEndTb.Text ?? "").Trim(),
             };
+            if (_existing != null)
+            {
+                Result.WellRydeSecId = _existing.WellRydeSecId ?? "";
+                Result.WellRydeUsername = _existing.WellRydeUsername ?? "";
+                Result.WellRydeSyncedAtUtc = _existing.WellRydeSyncedAtUtc;
+                SaveToWellRyde = !string.IsNullOrWhiteSpace(_existing.Name);
+            }
             DialogResult = DialogResult.OK;
             Close();
         }

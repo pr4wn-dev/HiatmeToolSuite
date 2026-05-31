@@ -33,6 +33,17 @@ namespace Hiatme_Tool_Suite_v3
         /// </summary>
         public bool UseServerGeo { get; set; } = true;
 
+        /// <summary>
+        /// When true (default), Supey BUILD calls POST /api/hiatme/solve on the panel (VRP/greedy).
+        /// </summary>
+        public bool UseServerSolve { get; set; } = true;
+
+        /// <summary>
+        /// When false (default), server solve failure stops BUILD — no silent desktop fallback.
+        /// Set true (or HIATME_ALLOW_LOCAL_SOLVE_FALLBACK=1) only for dev without the office panel.
+        /// </summary>
+        public bool AllowLocalSolveFallback { get; set; } = false;
+
         private static string BaseDir => AppDomain.CurrentDomain.BaseDirectory;
         private static string PersonalConfigPath => Path.Combine(BaseDir, "hiatme_ai.json");
         private static string DefaultsConfigPath => Path.Combine(BaseDir, "hiatme_ai.defaults.json");
@@ -177,6 +188,8 @@ namespace Hiatme_Tool_Suite_v3
                     target.FallbackBaseUrls = part.FallbackBaseUrls;
                 target.RememberOnSave = part.RememberOnSave;
                 target.UseServerGeo = part.UseServerGeo;
+                target.UseServerSolve = part.UseServerSolve;
+                target.AllowLocalSolveFallback = part.AllowLocalSolveFallback;
             }
             catch { }
         }
@@ -199,6 +212,18 @@ namespace Hiatme_Tool_Suite_v3
             var tok = Environment.GetEnvironmentVariable("HIATME_AI_TOKEN");
             if (!string.IsNullOrWhiteSpace(tok))
                 s.ApiToken = tok.Trim();
+            var solve = Environment.GetEnvironmentVariable("HIATME_USE_SERVER_SOLVE");
+            if (!string.IsNullOrWhiteSpace(solve))
+            {
+                var v = solve.Trim().ToLowerInvariant();
+                s.UseServerSolve = v != "0" && v != "false" && v != "no" && v != "off";
+            }
+            var localFb = Environment.GetEnvironmentVariable("HIATME_ALLOW_LOCAL_SOLVE_FALLBACK");
+            if (!string.IsNullOrWhiteSpace(localFb))
+            {
+                var v = localFb.Trim().ToLowerInvariant();
+                s.AllowLocalSolveFallback = v == "1" || v == "true" || v == "yes" || v == "on";
+            }
         }
 
         public void Save()

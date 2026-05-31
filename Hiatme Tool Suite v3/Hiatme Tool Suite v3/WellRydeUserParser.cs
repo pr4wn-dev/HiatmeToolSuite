@@ -116,6 +116,7 @@ namespace Hiatme_Tool_Suite_v3
                 if (string.IsNullOrEmpty(summary.SecId))
                     summary.SecId = GetCellValue(row, "KeyColumn");
 
+                summary.SecId = WellRydePortalSession.NormalizeUserSecId(summary.SecId);
                 if (!string.IsNullOrEmpty(summary.SecId))
                     list.Add(summary);
             }

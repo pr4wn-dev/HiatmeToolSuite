@@ -18,6 +18,9 @@ namespace Hiatme_Tool_Suite_v3
 
         [JsonProperty("reserves")]
         public List<string> Reserves { get; set; } = new List<string>();
+
+        [JsonProperty("reroute_reserves")]
+        public List<string> RerouteReserves { get; set; } = new List<string>();
     }
 
     internal sealed class HiatmeAiDriverAssignment
@@ -49,6 +52,45 @@ namespace Hiatme_Tool_Suite_v3
 
         public HiatmeAiScheduleBody Schedule { get; set; }
         public string TraceId { get; set; }
+
+        /// <summary>Server solve engine: greedy, pyvrp+greedy, local, etc.</summary>
+        public string Solver { get; set; }
+
+        [JsonProperty("build_stats")]
+        public HiatmeBuildStats BuildStats { get; set; }
+
+        [JsonProperty("warnings")]
+        public List<string> Warnings { get; set; }
+    }
+
+    internal sealed class HiatmeBuildStats
+    {
+        [JsonProperty("trips_total")]
+        public int TripsTotal { get; set; }
+
+        [JsonProperty("trips_assigned")]
+        public int TripsAssigned { get; set; }
+
+        [JsonProperty("reserves_count")]
+        public int ReservesCount { get; set; }
+
+        [JsonProperty("no_geo_count")]
+        public int NoGeoCount { get; set; }
+
+        [JsonProperty("unassigned_groups_count")]
+        public int UnassignedGroupsCount { get; set; }
+
+        [JsonProperty("cluster_count")]
+        public int ClusterCount { get; set; }
+
+        [JsonProperty("trips_with_coords")]
+        public int TripsWithCoords { get; set; }
+
+        [JsonProperty("geocoded_new")]
+        public int GeocodedNew { get; set; }
+
+        [JsonProperty("reroute_count")]
+        public int RerouteCount { get; set; }
     }
 
     internal sealed class HiatmeAiChatResponse
@@ -140,6 +182,62 @@ namespace Hiatme_Tool_Suite_v3
         {
             Timeout = TimeSpan.FromMinutes(15),
         };
+
+        public sealed class BuildReadyStatus
+        {
+            public bool Ok { get; set; }
+            public bool OsrmOk { get; set; }
+            public bool SolveOk { get; set; }
+            public string Solver { get; set; }
+            public string OsrmActiveEndpoint { get; set; }
+            public List<string> Issues { get; set; }
+        }
+
+        /// <summary>Pre-BUILD: OSRM + solve smoke — GET /api/hiatme/ready.</summary>
+        public static async Task<BuildReadyStatus> BuildReadyAsync(
+            HiatmeAiSettings settings,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null) return null;
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl)) return null;
+
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Get, baseUrl + "/api/hiatme/ready"))
+                {
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken)
+                        .ConfigureAwait(false))
+                    {
+                        if (!resp.IsSuccessStatusCode) return null;
+                        var root = JObject.Parse(
+                            await resp.Content.ReadAsStringAsync().ConfigureAwait(false));
+                        var issues = new List<string>();
+                        foreach (var w in root["issues"] as JArray ?? new JArray())
+                        {
+                            var s = w?.ToString();
+                            if (!string.IsNullOrWhiteSpace(s)) issues.Add(s.Trim());
+                        }
+                        return new BuildReadyStatus
+                        {
+                            Ok = root["ok"]?.Value<bool>() == true,
+                            OsrmOk = root["osrm_ok"]?.Value<bool>() == true,
+                            SolveOk = root["solve_ok"]?.Value<bool>() == true,
+                            Solver = root["solver"]?.ToString() ?? "",
+                            OsrmActiveEndpoint = root["osrm_active_endpoint"]?.ToString() ?? "",
+                            Issues = issues,
+                        };
+                    }
+                }
+            }
+            catch
+            {
+                return null;
+            }
+        }
 
         /// <summary>Quick health check — GET /api/status.</summary>
         public static async Task<bool> PingAsync(
@@ -258,6 +356,81 @@ namespace Hiatme_Tool_Suite_v3
                 Enabled = item["enabled"]?.Value<bool>() ?? true,
                 Source = item["source"]?.ToString(),
             };
+        }
+
+        public static async Task<IList<string>> GetOutOfAreaAsync(
+            HiatmeAiSettings settings,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null) return SupeyOutOfArea.LoadLocalFallback();
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl))
+                return SupeyOutOfArea.LoadLocalFallback();
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Get, baseUrl + "/api/hiatme/out-of-area"))
+                {
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
+                    {
+                        if (!resp.IsSuccessStatusCode)
+                            return SupeyOutOfArea.LoadLocalFallback();
+                        var root = JObject.Parse(await resp.Content.ReadAsStringAsync().ConfigureAwait(false));
+                        var arr = root["areas"] as JArray ?? new JArray();
+                        var list = new List<string>();
+                        foreach (var t in arr)
+                        {
+                            var s = (t?.ToString() ?? "").Trim();
+                            if (s.Length > 0) list.Add(s);
+                        }
+                        var norm = SupeyOutOfArea.NormalizeAreas(list);
+                        SupeyOutOfArea.SetCachedAreas(norm);
+                        return norm;
+                    }
+                }
+            }
+            catch
+            {
+                return SupeyOutOfArea.LoadLocalFallback();
+            }
+        }
+
+        public static async Task<bool> SetOutOfAreaAsync(
+            HiatmeAiSettings settings,
+            IList<string> areas,
+            string updatedBy = "",
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null) return false;
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl)) return false;
+            var norm = SupeyOutOfArea.NormalizeAreas(areas);
+            if (norm.Count == 0) return false;
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Put, baseUrl + "/api/hiatme/out-of-area"))
+                {
+                    req.Content = new StringContent(
+                        JsonConvert.SerializeObject(new { areas = norm, updated_by = updatedBy ?? "" }),
+                        Encoding.UTF8,
+                        "application/json");
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
+                    {
+                        if (!resp.IsSuccessStatusCode) return false;
+                        SupeyOutOfArea.SetCachedAreas(norm);
+                        return true;
+                    }
+                }
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         public static async Task<bool> SetRuleEnabledAsync(
@@ -828,6 +1001,73 @@ namespace Hiatme_Tool_Suite_v3
                     };
                 }
             }
+        }
+
+        /// <summary>Deterministic VRP/greedy BUILD — preferred for Supey toolbar BUILD.</summary>
+        public static async Task<HiatmeAiBuildResponse> ScheduleSolveAsync(
+            HiatmeAiSettings settings,
+            JObject context,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null) throw new ArgumentNullException(nameof(settings));
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl))
+                throw new InvalidOperationException("AI server URL is not configured.");
+
+            var body = new JObject
+            {
+                ["client_id"] = settings.ResolvedClientId(),
+                ["context"] = context ?? new JObject(),
+            };
+
+            using (var req = new HttpRequestMessage(HttpMethod.Post, baseUrl + "/api/hiatme/solve"))
+            {
+                req.Content = new StringContent(body.ToString(Formatting.None), Encoding.UTF8, "application/json");
+                if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                    req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", settings.ApiToken.Trim());
+
+                using (var resp = await ScheduleBuildHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
+                {
+                    var text = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    if (!resp.IsSuccessStatusCode)
+                    {
+                        string detail = text;
+                        try
+                        {
+                            var err = JObject.Parse(text);
+                            detail = err["detail"]?.ToString() ?? text;
+                        }
+                        catch { }
+                        throw new InvalidOperationException(
+                            "Server solve failed " + (int)resp.StatusCode + ": " + detail);
+                    }
+
+                    var root = JObject.Parse(text);
+                    var schedTok = root["schedule"] as JObject;
+                    return new HiatmeAiBuildResponse
+                    {
+                        Message = root["message"]?.ToString(),
+                        TraceId = root["trace_id"]?.ToString(),
+                        Schedule = schedTok?.ToObject<HiatmeAiScheduleBody>(),
+                        Solver = root["solver"]?.ToString(),
+                        BuildStats = (root["build_stats"] as JObject)?.ToObject<HiatmeBuildStats>(),
+                        Warnings = ParseStringList(root),
+                    };
+                }
+            }
+        }
+
+        private static List<string> ParseStringList(JToken root, string key = "warnings")
+        {
+            var arr = root?[key] as JArray;
+            if (arr == null) return null;
+            var list = new List<string>();
+            foreach (var w in arr)
+            {
+                string s = (w ?? "").ToString().Trim();
+                if (!string.IsNullOrEmpty(s)) list.Add(s);
+            }
+            return list.Count > 0 ? list : null;
         }
 
         public static async Task<HiatmeAiBuildResponse> ScheduleBuildAsync(

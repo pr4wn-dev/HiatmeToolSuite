@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 
@@ -194,15 +195,22 @@ namespace Hiatme_Tool_Suite_v3
                     sb.Append(" (").Append(string.Join(", ", names)).Append(')');
                 }
             }
-            Append("capacity", Capacity);
-            Append("shift-start", ShiftStart);
-            Append("shift-end", ShiftEnd);
-            Append("PU late", PuLate);
-            Append("time-conflict", TimeConflict);
-            Append("DO infeasible", DoInfeasible);
-            Append("policy avoid", PolicyAvoid);
+            // Plain-English labels for Warnings log / paste-to-Cursor (not internal enum names).
+            Append("van full", Capacity);
+            Append("before shift start", ShiftStart);
+            Append("after shift end", ShiftEnd);
+            Append("PU too late (empty van)", PuLate);
+            Append("busy (cannot make PU on time)", TimeConflict);
+            Append("cannot make DO appt", DoInfeasible);
+            Append("rule blocked", PolicyAvoid);
             if (!string.IsNullOrEmpty(LateRiderNote))
                 sb.Append(" — ").Append(LateRiderNote);
+            if (TimeConflict.Count > 0 && ShiftEnd.Count == 0
+                && TimeConflict.Count >= Math.Max(1, TotalRejections - 1))
+            {
+                sb.Append(
+                    "; tip: extending PM shift does not help when all drivers are already booked");
+            }
             return sb.ToString();
         }
     }

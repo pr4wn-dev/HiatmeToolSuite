@@ -22,8 +22,14 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>Drivers actually selected for this build, in the order they were checked in the roster.</summary>
         public List<SupeyDriverPlan> DriverPlans { get; } = new List<SupeyDriverPlan>();
 
-        /// <summary>Trips that the algorithm couldn't place (missing geo, no feasible driver, etc).</summary>
+        /// <summary>Trips that need a driver (unassigned, missing geo on assignable legs, etc).</summary>
         public List<MCDownloadedTrip> Reserves { get; } = new List<MCDownloadedTrip>();
+
+        /// <summary>Out-of-service-area trips — reroute to Modivcare; not auto-assigned on BUILD.</summary>
+        public List<MCDownloadedTrip> ReservesReroute { get; } = new List<MCDownloadedTrip>();
+
+        /// <summary>All reserve buckets combined (for counts and clipboard).</summary>
+        public int TotalReserveCount => Reserves.Count + ReservesReroute.Count;
 
         /// <summary>Build-level warnings that aren't tied to a specific driver (e.g. a roster home that won't geocode).</summary>
         public List<SupeyWarning> BuildWarnings { get; } = new List<SupeyWarning>();
