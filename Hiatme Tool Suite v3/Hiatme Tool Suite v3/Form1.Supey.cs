@@ -31,7 +31,9 @@ namespace Hiatme_Tool_Suite_v3
         private Panel _supeyStatusStrip;
         private Panel _supeyMainHost;
         private SplitContainer _supeyMainSplit;
-        private bool _supeySplitDistanceInitialized;
+        private bool _supeyDefaultSplitApplied;
+        private bool _supeyUserAdjustedMainSplit;
+        private bool _applyingSupeyDefaultSplit;
         private SupeyCollapsiblePanel _supeyDriversCollapsible;
         private SupeyCollapsiblePanel _supeyTripsCollapsible;
         private SupeyCollapsiblePanel _supeyRightCollapsible;
@@ -128,6 +130,14 @@ namespace Hiatme_Tool_Suite_v3
             tabPageSupey.Controls.Add(_supeyMainHost);
             tabPageSupey.Controls.Add(_supeyStatusStrip);
             tabPageSupey.Controls.Add(_supeyToolbar);
+
+            // Apply 38% trips height after the tab has a real client size (split defaults to ~50px map otherwise).
+            tabPageSupey.VisibleChanged += (s, e) =>
+            {
+                if (tabPageSupey.Visible)
+                    EnsureSupeySplitDistance();
+            };
+            BeginInvoke(new Action(EnsureSupeySplitDistance));
 
             LoadSupeyRosterFromDisk();
             UpdateSupeyButtonStates();
@@ -458,7 +468,14 @@ namespace Hiatme_Tool_Suite_v3
             _supeyMainSplit.Panel1.BackColor = SupeyTheme.SurfaceBase;
             _supeyMainSplit.Panel2.BackColor = SupeyTheme.Surface;
             _supeyMainSplit.SizeChanged += (s, e) => EnsureSupeySplitDistance();
-            _supeyMainSplit.SplitterMoved += (s, e) => { _supeySplitDistanceInitialized = true; };
+            // WinForms fires SplitterMoved during initial layout (default ~50px map height),
+            // which used to block our 38% default and left the trips panel almost full-window.
+            _supeyMainSplit.SplitterMoved += (s, e) =>
+            {
+                if (_applyingSupeyDefaultSplit) return;
+                if (_supeyDefaultSplitApplied)
+                    _supeyUserAdjustedMainSplit = true;
+            };
 
             var workPanel = new Panel
             {
@@ -472,15 +489,17 @@ namespace Hiatme_Tool_Suite_v3
             _supeyDriversCollapsible = new SupeyCollapsiblePanel
             {
                 Title = "Drivers",
+                ExpandedWidth = 450,
+                MinExpandedWidth = 450,
+                MaxExpandedWidth = 800,
                 Dock = DockStyle.Left,
-                ExpandedWidth = 300,
-                MinExpandedWidth = 220,
-                MaxExpandedWidth = 520,
             };
             BuildSupeyDriversPanel(_supeyDriversCollapsible.ContentPanel);
 
             BuildSupeyAiPanel();
             BuildSupeyRulesPanel();
+            if (_supeyRulesCollapsible != null)
+                _supeyRulesCollapsible.Expanded = false;
             // Pulled the AI panel's resize bounds out so users can collapse the AI a bit
             // without losing the prompt and stretch it wider when transcripts get long.
             if (_supeyAiCollapsible != null)
@@ -498,6 +517,7 @@ namespace Hiatme_Tool_Suite_v3
                 MaxExpandedWidth = 520,
             };
             BuildSupeyRightPanel(_supeyRightCollapsible.ContentPanel);
+            _supeyRightCollapsible.Expanded = false;
 
             // ── Workspace dock layout with draggable splitters ────────────────
             // WinForms Dock semantics: when multiple controls share the same Dock side,
@@ -535,6 +555,7 @@ namespace Hiatme_Tool_Suite_v3
             workPanel.Controls.Add(_supeyRulesCollapsible);
             workPanel.Controls.Add(_supeyInfoSplitter);
             workPanel.Controls.Add(_supeyRightCollapsible);
+            _supeyDriversCollapsible.ApplyExpandedLayout();
             _supeyMainSplit.Panel1.Controls.Add(workPanel);
 
             _supeyTripsCollapsible = new SupeyCollapsiblePanel
@@ -581,21 +602,20 @@ namespace Hiatme_Tool_Suite_v3
                 // honors MinExtra/MinSize directly, so we clamp on SplitterMoved.
                 s.SplitterMoved += (sender, e) =>
                 {
-                    if (target.MaxExpandedWidth > 0 &&
-                        (dock == DockStyle.Left || dock == DockStyle.Right) &&
-                        target.Width > target.MaxExpandedWidth)
-                    {
+                    if (dock != DockStyle.Left && dock != DockStyle.Right) return;
+                    if (target.MinExpandedWidth > 0 && target.Width < target.MinExpandedWidth)
+                        target.Width = target.MinExpandedWidth;
+                    if (target.MaxExpandedWidth > 0 && target.Width > target.MaxExpandedWidth)
                         target.Width = target.MaxExpandedWidth;
-                    }
                 };
             }
             return s;
         }
 
-        /// <summary>Default trip list to ~38% of workspace height; user drags the split bar after that.</summary>
+        /// <summary>Default trip list to ~38% of workspace height (max 480px); user drag keeps their choice.</summary>
         private void EnsureSupeySplitDistance()
         {
-            if (_supeyMainSplit == null || _supeySplitDistanceInitialized) return;
+            if (_supeyMainSplit == null || _supeyUserAdjustedMainSplit || _supeyDefaultSplitApplied) return;
             int total = _supeyMainSplit.Height;
             if (total < 200) return;
 
@@ -605,8 +625,10 @@ namespace Hiatme_Tool_Suite_v3
             if (mapH < _supeyMainSplit.Panel1MinSize)
                 mapH = _supeyMainSplit.Panel1MinSize;
 
-            _supeyMainSplit.SplitterDistance = mapH;
-            _supeySplitDistanceInitialized = true;
+            _applyingSupeyDefaultSplit = true;
+            try { _supeyMainSplit.SplitterDistance = mapH; }
+            finally { _applyingSupeyDefaultSplit = false; }
+            _supeyDefaultSplitApplied = true;
         }
 
         private void BuildSupeyRightPanel(Panel host)
@@ -756,7 +778,7 @@ namespace Hiatme_Tool_Suite_v3
                 Dock = DockStyle.Fill,
                 Margin = new Padding(0, 0, 4, 0),
             };
-            _supeyDriverEditBtn.Click += (s, e) => OnSupeyDriverEdit();
+            _supeyDriverEditBtn.Click += async (s, e) => await OnSupeyDriverEditAsync();
 
             _supeyDriverRemoveBtn = new SupeyButton
             {
@@ -796,7 +818,7 @@ namespace Hiatme_Tool_Suite_v3
             btnRow.Controls.Add(_supeyRosterFooter, 0, 2);
             btnRow.SetColumnSpan(_supeyRosterFooter, 4);
 
-            _supeyDriversLv = new ListView
+            _supeyDriversLv = new SupeyListView
             {
                 Dock = DockStyle.Fill,
                 View = View.Details,
@@ -820,20 +842,19 @@ namespace Hiatme_Tool_Suite_v3
             _supeyDriversLv.DrawColumnHeader += SupeyDriversLv_DrawColumnHeader;
             _supeyDriversLv.DrawItem += SupeyDriversLv_DrawItem;
             _supeyDriversLv.DrawSubItem += SupeyDriversLv_DrawSubItem;
-            SupeyListViewHelpers.EnableDoubleBuffer(_supeyDriversLv);
             // CheckBoxes=true paints the box inside the first column; keep it narrow but with a
             // proper header so users see the on/off semantic.
             _supeyDriversColCheck = new ColumnHeader { Text = "Use", Width = 44 };
-            _supeyDriversColName = new ColumnHeader { Text = "Driver", Width = 130 };
-            _supeyDriversColCap = new ColumnHeader { Text = "Cap", Width = 44 };
-            _supeyDriversColShift = new ColumnHeader { Text = "Shift", Width = 86 };
-            _supeyDriversColRelease = new ColumnHeader { Text = "Release", Width = 76 };
+            _supeyDriversColName = new ColumnHeader { Text = "Driver", Width = 160 };
+            _supeyDriversColCap = new ColumnHeader { Text = "Cap", Width = 48 };
+            _supeyDriversColShift = new ColumnHeader { Text = "Shift", Width = 100 };
+            _supeyDriversColRelease = new ColumnHeader { Text = "Release", Width = 88 };
             _supeyDriversLv.Columns.AddRange(new[]
             {
                 _supeyDriversColCheck, _supeyDriversColName,
                 _supeyDriversColCap, _supeyDriversColShift, _supeyDriversColRelease
             });
-            _supeyDriversLv.DoubleClick += (s, e) => OnSupeyDriverEdit();
+            _supeyDriversLv.DoubleClick += async (s, e) => await OnSupeyDriverEditAsync();
             // ItemChecked fires per-item during bulk Add() — the rebuild path uses
             // _supeySuppressItemChecked to mute it so we don't recompute button states N times
             // while items are still being constructed.
@@ -967,7 +988,7 @@ namespace Hiatme_Tool_Suite_v3
                 TextAlign = ContentAlignment.MiddleLeft,
             };
 
-            _supeyPreviewLv = new ListView
+            _supeyPreviewLv = new SupeyListView
             {
                 Dock = DockStyle.Fill,
                 View = View.Details,
@@ -1001,10 +1022,6 @@ namespace Hiatme_Tool_Suite_v3
             _supeyPreviewLv.DrawColumnHeader += SupeyPreviewLv_DrawColumnHeader;
             _supeyPreviewLv.DrawItem += SupeyPreviewLv_DrawItem;
             _supeyPreviewLv.DrawSubItem += SupeyPreviewLv_DrawSubItem;
-            // Owner-drawn details listviews single-buffer by default — first selection paint
-            // after items load can flash gray-without-text. Double-buffering paints each row
-            // off-screen and commits atomically so the user never sees the half-painted state.
-            SupeyListViewHelpers.EnableDoubleBuffer(_supeyPreviewLv);
             _supeyPreviewRouteFont = new Font(_supeyPreviewLv.Font, FontStyle.Italic);
 
             // Empty-state hint over the trips area until a build runs. We toggle Visible
@@ -1734,7 +1751,7 @@ namespace Hiatme_Tool_Suite_v3
             }
             // Auto-fit each column to the widest header / cell after binding so long driver names
             // and shift strings aren't clipped. Same pattern used by every other listview on Form1.
-            ListViewMinWidthEnforcer.ScheduleRecompute(_supeyDriversLv);
+            ListViewMinWidthEnforcer.Recompute(_supeyDriversLv);
             _supeyRosterFooter.Text = _supeyRoster.Count + " drivers" +
                 (_supeyRosterLastSaved == DateTime.MinValue ? "" : " · saved " + _supeyRosterLastSaved.ToString("HH:mm"));
             if (_supeyDriversEmptyHint != null)
@@ -1753,12 +1770,38 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
-        private void OnSupeyDriverEdit()
+        private async Task OnSupeyDriverEditAsync()
         {
             if (_supeyDriversLv.SelectedItems.Count == 0) return;
             var item = _supeyDriversLv.SelectedItems[0];
             var existing = item.Tag as SupeyDriverProfile;
             if (existing == null) return;
+
+            if (!string.IsNullOrWhiteSpace(existing.WellRydeSecId))
+            {
+                SetSupeyStatus("Loading " + (existing.Name ?? "driver") + " from WellRyde…");
+                bool pulled = await TryRefreshSupeyDriverFromWellRydeAsync(existing).ConfigureAwait(true);
+                if (!pulled)
+                {
+                    var dr = MessageBox.Show(this,
+                        "Could not load the latest driver profile from WellRyde (sign-in or network).\r\n\r\n"
+                        + "Edit anyway using the last data saved on this PC?",
+                        "Supey — WellRyde",
+                        MessageBoxButtons.YesNo,
+                        MessageBoxIcon.Warning,
+                        MessageBoxDefaultButton.Button2);
+                    if (dr != DialogResult.Yes)
+                    {
+                        SetSupeyStatus("Edit canceled — WellRyde refresh failed.");
+                        return;
+                    }
+                }
+                else
+                {
+                    RebuildSupeyDriversList();
+                    SetSupeyStatus("Loaded from WellRyde — capacity and shift unchanged (local).");
+                }
+            }
 
             using (var ed = new SupeyDriverEditorForm(existing))
             {
@@ -1772,12 +1815,30 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        /// <summary>One driver: portal name/home/vehicle; keeps capacity and shift.</summary>
+        private async Task<bool> TryRefreshSupeyDriverFromWellRydeAsync(
+            SupeyDriverProfile profile,
+            CancellationToken cancellationToken = default)
+        {
+            if (profile == null)
+                return false;
+            if (string.IsNullOrWhiteSpace(profile.WellRydeSecId))
+                return true;
+
+            if (!await EnsureWellRydePortalSessionForSupeyAsync().ConfigureAwait(true)
+                || _wellRydeSession == null)
+                return false;
+
+            return await FetchWellRydeDetailIntoProfileAsync(profile, cancellationToken).ConfigureAwait(true);
+        }
+
         private async Task PushSupeyDriverToWellRydeAsync(SupeyDriverProfile profile)
         {
             if (profile == null) return;
             try
             {
                 SetSupeyStatus("Saving driver home to WellRyde…");
+                WellRydePortalLog.Info("SUPEY", "PushHomeAddress start driver=" + (profile.Name ?? ""));
                 if (!await EnsureWellRydePortalSessionForSupeyAsync().ConfigureAwait(true)
                     || _wellRydeSession == null)
                 {
@@ -1813,17 +1874,20 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     SetSupeyStatus(
                         "Roster saved here — WellRyde update failed: " + (push.Message ?? "unknown error"));
-                    MessageBox.Show(this,
-                        "Your edit was saved in the local Supey roster on this PC, but WellRyde rejected the update:\r\n\r\n"
-                        + (push.Message ?? "Unknown error"),
+                    WellRydePortalLog.ShowError(this,
                         "Supey — WellRyde",
-                        MessageBoxButtons.OK,
-                        MessageBoxIcon.Warning);
+                        "Your edit was saved in the local Supey roster on this PC, but WellRyde rejected the update:\r\n\r\n"
+                        + (push.Message ?? "Unknown error"));
                 }
             }
             catch (Exception ex)
             {
+                WellRydePortalLog.Error("SUPEY", "PushHomeAddress exception", ex);
                 SetSupeyStatus("WellRyde save error: " + ex.Message);
+                WellRydePortalLog.ShowError(this,
+                    "Supey — WellRyde",
+                    "WellRyde save failed:\r\n\r\n" + ex.Message,
+                    MessageBoxIcon.Warning);
             }
         }
 
@@ -1833,8 +1897,8 @@ namespace Hiatme_Tool_Suite_v3
                 return false;
             var m = message.ToLowerInvariant();
             return m.Contains("login") || m.Contains("session expired") || m.Contains("sign in")
-                || m.Contains("csrf") || m.Contains("html page instead of json")
-                || m.Contains("not valid json");
+                || m.Contains("jsessionid") || m.Contains("csrf")
+                || m.Contains("html page instead of json") || m.Contains("not valid json");
         }
 
         private void OnSupeyDriverRemove()
@@ -1879,11 +1943,13 @@ namespace Hiatme_Tool_Suite_v3
             catch (Exception ex)
             {
                 SetSupeyStatus("WellRyde sign-in failed: " + (ex.Message ?? "unknown error"));
+                WellRydePortalLog.CopyErrorReport("Pull from WellRyde — sign-in failed", ex);
                 return;
             }
             if (!ok || _wellRydeSession == null)
             {
                 SetSupeyStatus("WellRyde sign-in cancelled or failed.");
+                WellRydePortalLog.CopyErrorReport("Pull from WellRyde — sign-in cancelled or failed.");
                 return;
             }
 
@@ -1909,13 +1975,13 @@ namespace Hiatme_Tool_Suite_v3
                     var existing = FindRosterDriverBySecIdOrName(detail.SecId, detail.FullName);
                     if (existing != null)
                     {
-                        ApplyWellRydeDetailToProfile(detail, existing);
+                        SupeyWellRydeRosterMerge.ApplyPortalDetail(detail, existing, isNewDriver: false);
                         updated++;
                     }
                     else
                     {
                         var profile = new SupeyDriverProfile();
-                        ApplyWellRydeDetailToProfile(detail, profile);
+                        SupeyWellRydeRosterMerge.ApplyPortalDetail(detail, profile, isNewDriver: true);
                         _supeyRoster.Add(profile);
                         added++;
                     }
@@ -1925,7 +1991,7 @@ namespace Hiatme_Tool_Suite_v3
                 SaveSupeyRosterToDisk(showOk: false);
 
                 string msg = "Imported from WellRyde: " + added + " new" +
-                    (updated > 0 ? ", " + updated + " refreshed" : "") + ".";
+                    (updated > 0 ? ", " + updated + " updated (name/home from portal; capacity/shift kept)" : "") + ".";
                 SetSupeyStatus(msg);
             }
         }
@@ -1958,41 +2024,57 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         /// <summary>
-        /// Copies fields from a WellRyde <see cref="WellRydeUserDetail"/> into a roster profile.
-        /// Address / name / vehicle label come straight from WellRyde; capacity and shift are
-        /// preserved from the existing profile when re-syncing (or seeded with defaults on first
-        /// import) since WellRyde doesn't expose those.
+        /// Re-fetch portal user detail for checked drivers that have a WellRyde SEC id (homes for BUILD).
         /// </summary>
-        private static void ApplyWellRydeDetailToProfile(WellRydeUserDetail detail, SupeyDriverProfile profile)
+        private async Task<bool> FetchWellRydeDetailIntoProfileAsync(
+            SupeyDriverProfile profile,
+            CancellationToken cancellationToken)
         {
-            if (detail == null || profile == null) return;
+            if (profile == null || _wellRydeSession == null)
+                return false;
 
-            profile.WellRydeSecId = detail.SecId ?? "";
-            profile.WellRydeUsername = detail.Username ?? "";
-            profile.WellRydeSyncedAtUtc = DateTime.UtcNow;
-            profile.Name = !string.IsNullOrWhiteSpace(detail.FullName) ? detail.FullName.Trim() : profile.Name;
+            string sec = WellRydePortalSession.NormalizeUserSecId(profile.WellRydeSecId);
+            if (sec.Length == 0)
+                return true;
 
-            // Address: take WellRyde's value if present, otherwise leave the existing local value
-            // alone — protects manual edits the user made before the import.
-            string street = (detail.FullStreet ?? "").Trim();
-            if (street.Length > 0) profile.HomeStreet = street;
-            string city = (detail.City ?? "").Trim();
-            if (city.Length > 0) profile.HomeCity = city;
-            string state = (detail.State ?? "").Trim();
-            if (state.Length > 0) profile.HomeState = state;
-            string zip = (detail.Zip ?? "").Trim();
-            if (zip.Length > 0) profile.HomeZip = zip;
+            var res = await _wellRydeSession.GetUserDetailHtmlAsync(sec, cancellationToken)
+                .ConfigureAwait(true);
+            if (!res.IsSuccess || string.IsNullOrWhiteSpace(res.HtmlBody))
+                return false;
 
-            string vehicleLabel = (detail.VehicleLabel ?? "").Trim();
-            if (vehicleLabel.Length > 0 && string.IsNullOrWhiteSpace(profile.VehicleLabel))
-                profile.VehicleLabel = vehicleLabel;
+            var detail = WellRydeUserParser.ParseUserDetail(sec, res.HtmlBody);
+            SupeyWellRydeRosterMerge.ApplyPortalDetail(detail, profile, isNewDriver: false);
+            return true;
+        }
 
-            // Capacity and shift defaults only on first creation — the test for "is this a fresh
-            // profile" is that capacity is still the constructor default 0 (would be 4 from the
-            // SupeyDriverProfile default initializer if any other code touched it).
-            if (profile.CapacityPassengers <= 0) profile.CapacityPassengers = 4;
-            if (string.IsNullOrWhiteSpace(profile.ShiftStart)) profile.ShiftStart = "06:00";
-            if (string.IsNullOrWhiteSpace(profile.ShiftEnd)) profile.ShiftEnd = "18:00";
+        private async Task<int> RefreshSupeyDriversFromWellRydeAsync(
+            IList<SupeyDriverProfile> drivers,
+            CancellationToken cancellationToken)
+        {
+            if (drivers == null || drivers.Count == 0)
+                return 0;
+
+            if (!await EnsureWellRydePortalSessionForBillingAsync().ConfigureAwait(true)
+                || _wellRydeSession == null)
+                return 0;
+
+            int refreshed = 0;
+            foreach (var profile in drivers)
+            {
+                if (profile == null) continue;
+                cancellationToken.ThrowIfCancellationRequested();
+                if (await FetchWellRydeDetailIntoProfileAsync(profile, cancellationToken).ConfigureAwait(true)
+                    && !string.IsNullOrWhiteSpace(profile.WellRydeSecId))
+                    refreshed++;
+            }
+
+            if (refreshed > 0)
+            {
+                RebuildSupeyDriversList();
+                SaveSupeyRosterToDisk(showOk: false);
+            }
+
+            return refreshed;
         }
 
         // ---------- Load / Build / Save / Cancel ----------
@@ -2088,6 +2170,23 @@ namespace Hiatme_Tool_Suite_v3
 
             try
             {
+                int wrLinked = 0;
+                foreach (var d in selected)
+                {
+                    if (d != null && !string.IsNullOrWhiteSpace(d.WellRydeSecId))
+                        wrLinked++;
+                }
+                if (wrLinked > 0)
+                {
+                    SetSupeyToolbarBusy(true, "Refreshing " + wrLinked + " driver(s) from WellRyde…");
+                    int refreshed = await RefreshSupeyDriversFromWellRydeAsync(selected, token)
+                        .ConfigureAwait(true);
+                    if (refreshed < wrLinked)
+                        SetSupeyStatus(
+                            "WellRyde refresh partial (" + refreshed + "/" + wrLinked
+                            + ") — BUILD uses last portal data we could load.");
+                }
+
                 var date = _supeyDatePicker.Value;
                 SetSupeyToolbarBusy(true, "Building schedule (geocode + assign)…");
 
@@ -2508,7 +2607,7 @@ namespace Hiatme_Tool_Suite_v3
                 RestoreSupeyPreviewListSorter();
                 BindWarningsPreview();
                 _supeyPreviewLv.EndUpdate();
-                ListViewMinWidthEnforcer.ScheduleRecompute(_supeyPreviewLv);
+                ListViewMinWidthEnforcer.Recompute(_supeyPreviewLv);
                 return;
             }
 
@@ -2517,7 +2616,7 @@ namespace Hiatme_Tool_Suite_v3
                 RestoreSupeyPreviewListSorter();
                 BindLoadedTripsPreview();
                 _supeyPreviewLv.EndUpdate();
-                ListViewMinWidthEnforcer.ScheduleRecompute(_supeyPreviewLv);
+                ListViewMinWidthEnforcer.Recompute(_supeyPreviewLv);
                 return;
             }
 
@@ -2593,7 +2692,7 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             _supeyPreviewLv.EndUpdate();
-            ListViewMinWidthEnforcer.ScheduleRecompute(_supeyPreviewLv);
+            ListViewMinWidthEnforcer.Recompute(_supeyPreviewLv);
         }
 
         /// <summary>Raw Modivcare download (not the AI schedule) — only before BUILD.</summary>
@@ -2758,41 +2857,39 @@ namespace Hiatme_Tool_Suite_v3
 
         private void SupeyPreviewLv_DrawColumnHeader(object sender, DrawListViewColumnHeaderEventArgs e)
         {
-            using (var brush = new SolidBrush(SupeyLvHeader))
-                e.Graphics.FillRectangle(brush, e.Bounds);
-            // 1px bottom hairline gives the header weight without us needing a
-            // gradient or 3D edge. Same divider color used elsewhere on the tab.
-            using (var pen = new Pen(SupeyTheme.Divider, 1f))
-                e.Graphics.DrawLine(pen, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
-            using (var fnt = new Font("Archivo Medium", 11f))
-            {
-                var rect = new Rectangle(e.Bounds.Left + 6, e.Bounds.Top, e.Bounds.Width - 6, e.Bounds.Height);
-                TextRenderer.DrawText(e.Graphics, e.Header.Text ?? "", fnt, rect, SupeyLvHeaderText,
-                    TextFormatFlags.Left | TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter);
-            }
+            SupeyListViewHelpers.DrawColumnHeader(e);
+        }
+
+        private Color SupeyPreviewRowBackground(ListViewItem item, bool selected)
+        {
+            if (selected) return SupeyLvSel;
+            if (item?.Tag is SupeyPreviewGroupHeaderTag tag)
+                return SupeyRouteHeaderBackColor(tag.Group.GroupColor);
+            return SupeyLvBg;
+        }
+
+        private Color SupeyPreviewCellBackground(ListViewItem item, ListViewItem.ListViewSubItem subItem, int columnIndex, bool selected, Color rowBg)
+        {
+            if (selected) return SupeyLvSel;
+            if (item?.Tag is SupeyPreviewGroupHeaderTag)
+                return rowBg;
+            if (columnIndex == 0 && subItem != null && subItem.BackColor != Color.Empty && subItem.BackColor != SupeyLvBg)
+                return subItem.BackColor;
+            return rowBg;
         }
 
         private void SupeyPreviewLv_DrawItem(object sender, DrawListViewItemEventArgs e)
         {
-            bool sel = e.Item != null && e.Item.Selected;
-            using (var bg = new SolidBrush(sel ? SupeyLvSel : SupeyLvBg))
-                e.Graphics.FillRectangle(bg, e.Bounds);
+            SupeyListViewHelpers.SuppressDefaultDrawItem(e);
         }
 
         private void SupeyPreviewLv_DrawSubItem(object sender, DrawListViewSubItemEventArgs e)
         {
             bool sel = e.Item != null && e.Item.Selected;
             bool routeHeader = e.Item?.Tag is SupeyPreviewGroupHeaderTag;
-            Color fill = sel ? SupeyLvSel : SupeyLvBg;
-            if (routeHeader && !sel)
-                fill = SupeyRouteHeaderBackColor(((SupeyPreviewGroupHeaderTag)e.Item.Tag).Group.GroupColor);
-            else if (e.ColumnIndex == 0 && !sel && e.SubItem.BackColor != Color.Empty &&
-                e.SubItem.BackColor != SupeyLvBg)
-            {
-                fill = e.SubItem.BackColor;
-            }
-            using (var bg = new SolidBrush(fill))
-                e.Graphics.FillRectangle(bg, e.Bounds);
+            Color rowBg = SupeyPreviewRowBackground(e.Item, sel);
+            Color fill = SupeyPreviewCellBackground(e.Item, e.SubItem, e.ColumnIndex, sel, rowBg);
+            SupeyListViewHelpers.DrawSubItemCellBackground(e, fill);
 
             var bounds = new Rectangle(e.Bounds.Left + 6, e.Bounds.Top, e.Bounds.Width - 6, e.Bounds.Height);
             Color textColor = sel ? SupeyLvSelText : SupeyLvText;
@@ -2819,35 +2916,18 @@ namespace Hiatme_Tool_Suite_v3
 
         private void SupeyDriversLv_DrawColumnHeader(object sender, DrawListViewColumnHeaderEventArgs e)
         {
-            using (var brush = new SolidBrush(SupeyLvHeader))
-                e.Graphics.FillRectangle(brush, e.Bounds);
-            using (var pen = new Pen(SupeyTheme.Divider, 1f))
-                e.Graphics.DrawLine(pen, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
-            using (var fnt = new Font("Archivo Medium", 11f))
-            {
-                var rect = new Rectangle(e.Bounds.Left + 6, e.Bounds.Top, e.Bounds.Width - 6, e.Bounds.Height);
-                TextRenderer.DrawText(e.Graphics, e.Header.Text ?? "", fnt, rect, SupeyLvHeaderText,
-                    TextFormatFlags.Left | TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter);
-            }
+            SupeyListViewHelpers.DrawColumnHeader(e);
         }
 
         private void SupeyDriversLv_DrawItem(object sender, DrawListViewItemEventArgs e)
         {
-            bool sel = e.Item != null && e.Item.Selected;
-            using (var bg = new SolidBrush(sel ? SupeyLvSel : SupeyLvBg))
-                e.Graphics.FillRectangle(bg, e.Bounds);
+            SupeyListViewHelpers.SuppressDefaultDrawItem(e);
         }
 
         private void SupeyDriversLv_DrawSubItem(object sender, DrawListViewSubItemEventArgs e)
         {
-            // Column 0 is the checkbox column. We background-fill the cell ourselves
-            // so the selection highlight runs edge-to-edge, then paint a custom
-            // modern checkbox (square, accent-filled when checked) instead of the
-            // chunky grey Win32 default. Click-to-toggle is still handled by the
-            // ListView because CheckBoxes=true — we just override the visual.
             bool sel = e.Item != null && e.Item.Selected;
-            using (var bg = new SolidBrush(sel ? SupeyLvSel : SupeyLvBg))
-                e.Graphics.FillRectangle(bg, e.Bounds);
+            SupeyListViewHelpers.DrawSubItemCellBackground(e, sel ? SupeyLvSel : SupeyLvBg);
 
             if (e.ColumnIndex == 0)
             {

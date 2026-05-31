@@ -2,6 +2,7 @@ using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace Hiatme_Tool_Suite_v3
@@ -19,17 +20,25 @@ namespace Hiatme_Tool_Suite_v3
     /// gray with the text "missing" until the next mouse move forces another paint cycle.
     /// </para>
     /// <para>
-    /// <see cref="ListView.DoubleBuffered"/> is a protected property; we set it via
-    /// reflection so the framework allocates an off-screen buffer for each row, which
-    /// commits in one go and eliminates the half-painted flash.
+    /// <see cref="ListView.DoubleBuffered"/>, <c>LVS_EX_DOUBLEBUFFER</c>, and painting the
+    /// row background once in <c>DrawItem</c> (not again in every <c>DrawSubItem</c>) commit
+    /// each row in one pass and eliminate the half-painted flash.
     /// </para>
     /// </remarks>
     internal static class SupeyListViewHelpers
     {
+        private const int LvmFirst = 0x1000;
+        private const int LvmSetExtendedListViewStyle = LvmFirst + 54;
+        private const int LvmGetExtendedListViewStyle = LvmFirst + 55;
+        private const int LvsExDoubleBuffer = 0x00010000;
+        private const int WmSetRedraw = 0x000B;
+
         private static readonly PropertyInfo _doubleBufferedPi =
             typeof(ListView).GetProperty(
                 "DoubleBuffered",
                 BindingFlags.Instance | BindingFlags.NonPublic);
+
+        private static readonly Pen _gridPen = new Pen(SupeyTheme.ListGrid, 1f);
 
         /// <summary>
         /// Turn on double-buffered painting for an owner-drawn ListView. Safe to call before
@@ -51,6 +60,52 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        /// <summary>Double-buffer property + native <c>LVS_EX_DOUBLEBUFFER</c> extended style.</summary>
+        public static void ApplyNativeFlickerFixes(ListView listView)
+        {
+            if (listView == null) return;
+            EnableDoubleBuffer(listView);
+            if (listView.OwnerDraw)
+                ListViewHoverRepaintFix.Attach(listView);
+            if (listView.IsHandleCreated)
+                ApplyNativeExtendedStyles(listView);
+            else
+                listView.HandleCreated += OnHandleCreated_ApplyNativeStyles;
+        }
+
+        private static void OnHandleCreated_ApplyNativeStyles(object sender, EventArgs e)
+        {
+            if (sender is ListView lv)
+            {
+                lv.HandleCreated -= OnHandleCreated_ApplyNativeStyles;
+                ApplyNativeExtendedStyles(lv);
+            }
+        }
+
+        private static void ApplyNativeExtendedStyles(ListView listView)
+        {
+            if (!listView.IsHandleCreated) return;
+            try
+            {
+                IntPtr style = SendMessage(listView.Handle, LvmGetExtendedListViewStyle, IntPtr.Zero, IntPtr.Zero);
+                style = new IntPtr(style.ToInt64() | LvsExDoubleBuffer);
+                SendMessage(listView.Handle, LvmSetExtendedListViewStyle, new IntPtr(LvsExDoubleBuffer), style);
+            }
+            catch
+            {
+                // Best-effort; DoubleBuffered alone still helps.
+            }
+        }
+
+        /// <summary>Suppresses painting during bulk column-width or item updates.</summary>
+        public static void SetRedraw(ListView listView, bool enable, bool invalidate = false)
+        {
+            if (listView == null || !listView.IsHandleCreated) return;
+            SendMessage(listView.Handle, WmSetRedraw, enable ? (IntPtr)1 : IntPtr.Zero, IntPtr.Zero);
+            if (enable && invalidate)
+                listView.Invalidate(true);
+        }
+
         /// <summary>
         /// Walks <paramref name="root"/>'s control tree and double-buffers every
         /// <see cref="ListView"/> found, including ones nested in panels, splitters, tab
@@ -65,13 +120,10 @@ namespace Hiatme_Tool_Suite_v3
         public static void EnableDoubleBufferRecursively(Control root)
         {
             if (root == null) return;
-            if (root is ListView lv) EnableDoubleBuffer(lv);
+            if (root is ListView lv) ApplyNativeFlickerFixes(lv);
             foreach (Control child in root.Controls)
-            {
                 EnableDoubleBufferRecursively(child);
-            }
-            // Late-added ListViews (rare, but it happens for tabs that lazy-init) get the
-            // same treatment without us having to remember to call this again.
+
             root.ControlAdded -= OnControlAdded_PropagateBuffer;
             root.ControlAdded += OnControlAdded_PropagateBuffer;
         }
@@ -82,6 +134,40 @@ namespace Hiatme_Tool_Suite_v3
             EnableDoubleBufferRecursively(e.Control);
         }
 
+        /// <summary>Shared dark column header chrome for Supey owner-draw listviews.</summary>
+        public static void DrawColumnHeader(DrawListViewColumnHeaderEventArgs e)
+        {
+            if (e == null) return;
+            e.DrawDefault = false;
+            using (var brush = new SolidBrush(SupeyTheme.ListHeader))
+                e.Graphics.FillRectangle(brush, e.Bounds);
+            using (var pen = new Pen(SupeyTheme.Divider, 1f))
+                e.Graphics.DrawLine(pen, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
+            var rect = new Rectangle(e.Bounds.Left + 6, e.Bounds.Top, e.Bounds.Width - 6, e.Bounds.Height);
+            TextRenderer.DrawText(e.Graphics, e.Header?.Text ?? "", ListViewOwnerDrawFonts.Header, rect,
+                SupeyTheme.ListHeaderText,
+                TextFormatFlags.Left | TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter);
+        }
+
+        /// <summary>
+        /// Details view: do not paint in <c>DrawItem</c> — Win32 repaints column 0 on hover without
+        /// <c>DrawSubItem</c>, which wipes the row if the background is drawn here. Paint cells in
+        /// <see cref="DrawSubItemCellBackground"/> instead.
+        /// </summary>
+        public static void SuppressDefaultDrawItem(DrawListViewItemEventArgs e)
+        {
+            if (e != null) e.DrawDefault = false;
+        }
+
+        /// <summary>Fill one subitem cell (required for every column in Details owner-draw).</summary>
+        public static void DrawSubItemCellBackground(DrawListViewSubItemEventArgs e, Color background)
+        {
+            if (e == null) return;
+            e.DrawDefault = false;
+            using (var brush = new SolidBrush(background))
+                e.Graphics.FillRectangle(brush, e.Bounds);
+        }
+
         /// <summary>
         /// Paints a 1px right + bottom hairline on a sub-item cell to emulate
         /// <c>GridLines = true</c> in owner-draw mode. Single source of truth so
@@ -89,29 +175,14 @@ namespace Hiatme_Tool_Suite_v3
         /// </summary>
         public static void DrawCellGridLines(Graphics g, Rectangle bounds)
         {
-            using (var pen = new Pen(SupeyTheme.ListGrid, 1f))
-            {
-                // Right border (cell separator); Bottom-1 keeps the line inside
-                // the row instead of bleeding into the next.
-                g.DrawLine(pen, bounds.Right - 1, bounds.Top, bounds.Right - 1, bounds.Bottom - 1);
-                g.DrawLine(pen, bounds.Left, bounds.Bottom - 1, bounds.Right - 1, bounds.Bottom - 1);
-            }
+            g.DrawLine(_gridPen, bounds.Right - 1, bounds.Top, bounds.Right - 1, bounds.Bottom - 1);
+            g.DrawLine(_gridPen, bounds.Left, bounds.Bottom - 1, bounds.Right - 1, bounds.Bottom - 1);
         }
 
         /// <summary>
         /// Modern flat checkbox for a ListView's column-0 cell. Replaces the
         /// chunky beveled Win32 default with a square, anti-aliased two-state
-        /// glyph that fits the SupeyTheme palette:
-        /// <list type="bullet">
-        /// <item><b>Checked</b>   — filled with <see cref="SupeyTheme.AccentPrimary"/>,
-        /// dark check mark drawn on top.</item>
-        /// <item><b>Unchecked</b> — outlined square in <see cref="SupeyTheme.BorderSubtle"/>,
-        /// fill matches the elevated card surface so it reads as "clickable".</item>
-        /// </list>
-        /// Painted at the same 4–6 px-from-left offset the Win32 default uses, so
-        /// the framework's built-in click-to-toggle hit region (driven by
-        /// <c>CheckBoxes = true</c> + state image bounds) lines up exactly with
-        /// the visual.
+        /// glyph that fits the SupeyTheme palette.
         /// </summary>
         public static void DrawModernCheckbox(Graphics g, Rectangle cellBounds, bool isChecked, bool selectedRow)
         {
@@ -165,5 +236,8 @@ namespace Hiatme_Tool_Suite_v3
                 g.PixelOffsetMode = oldOffset;
             }
         }
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
     }
 }

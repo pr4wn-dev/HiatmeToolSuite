@@ -25,10 +25,10 @@ namespace Hiatme_Tool_Suite_v3
             _supeyRulesCollapsible = new SupeyCollapsiblePanel
             {
                 Title = "Rules",
-                Dock = DockStyle.Right,
                 ExpandedWidth = 320,
                 MinExpandedWidth = 260,
                 MaxExpandedWidth = 480,
+                Dock = DockStyle.Right,
             };
 
             var host = _supeyRulesCollapsible.ContentPanel;

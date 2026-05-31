@@ -217,6 +217,7 @@
     <Compile Include="WellRydeFilterDataParser.cs" />
     <Compile Include="WellRydeTripPriceCalculator.cs" />
     <Compile Include="WellRydePortalSession.cs" />
+    <Compile Include="WellRydePortalLog.cs" />
     <Compile Include="WRBillingTool.cs" />
     <Compile Include="WRCalculations.cs" />
     <Compile Include="WRDrivers.cs" />
@@ -260,6 +261,7 @@
     <Compile Include="RouteEstimator.cs" />
     <Compile Include="EtaPlanner.cs" />
     <Compile Include="SupeyDriverProfile.cs" />
+    <Compile Include="SupeyWellRydeRosterMerge.cs" />
     <Compile Include="SupeyDriverRosterStore.cs" />
     <Compile Include="SupeyScheduleTypes.cs" />
     <Compile Include="SupeyTripCluster.cs" />
@@ -298,6 +300,7 @@
     <Compile Include="WellRydeUserParser.cs" />
     <Compile Include="WellRydeNuUpdateFormBuilder.cs" />
     <Compile Include="WellRydeUserEditContextParser.cs" />
+    <Compile Include="WellRydeUserEditFormHtmlParser.cs" />
     <Compile Include="WellRydeUserProfileSync.cs" />
     <Compile Include="WellRydeUserSecLookup.cs" />
     <Compile Include="WellRydeRosterImporter.cs" />
@@ -330,6 +333,10 @@
     <Compile Include="WellRydeDispatcherIdentity.cs" />
     <Compile Include="SupeyMapMarkerInfo.cs" />
     <Compile Include="SupeyDraggableMarker.cs" />
+    <Compile Include="ListViewHoverRepaintFix.cs" />
+    <Compile Include="SupeyListView.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="SupeyListViewHelpers.cs" />
     <Compile Include="SupeyDarkScrollBars.cs" />
     <Compile Include="SupeyButton.cs">

@@ -172,7 +172,7 @@ namespace Hiatme_Tool_Suite_v3
             };
 
             // ---- ListView ----
-            _driverList = new ListView
+            _driverList = new SupeyListView
             {
                 Location = new Point(20, 200),
                 Size = new Size(920, 340),
@@ -437,7 +437,7 @@ namespace Hiatme_Tool_Suite_v3
                 _driverList.EndUpdate();
             }
             // Auto-fit columns to the widest cell + header so long names / addresses aren't clipped.
-            ListViewMinWidthEnforcer.ScheduleRecompute(_driverList);
+            ListViewMinWidthEnforcer.Recompute(_driverList);
         }
 
         private void SetAllChecked(bool value)
@@ -510,36 +510,19 @@ namespace Hiatme_Tool_Suite_v3
 
         private void OnDrawColumnHeader(object sender, DrawListViewColumnHeaderEventArgs e)
         {
-            // Match the Supey schedule ListView header chrome — pulls from the
-            // unified SupeyTheme.List* slots so the import dialog and the Supey
-            // tab read as one app.
-            using (var bg = new SolidBrush(SupeyTheme.ListHeader))
-            {
-                e.Graphics.FillRectangle(bg, e.Bounds);
-            }
-            using (var pen = new Pen(SupeyTheme.Divider, 1f))
-                e.Graphics.DrawLine(pen, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
-            using (var fnt = new Font("Archivo Medium", 11f))
-            {
-                var bounds = new Rectangle(e.Bounds.Left + 6, e.Bounds.Top, e.Bounds.Width - 6, e.Bounds.Height);
-                TextRenderer.DrawText(e.Graphics, e.Header.Text ?? "", fnt, bounds, SupeyTheme.ListHeaderText,
-                    TextFormatFlags.Left | TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter);
-            }
+            SupeyListViewHelpers.DrawColumnHeader(e);
+        }
+
+        private Color ImportRowBackground(ListViewItem item, bool selected)
+        {
+            if (selected) return ListSelected;
+            if (ItemIsAlreadyImported(item)) return ListAlreadyAdded;
+            return ListBg;
         }
 
         private void OnDrawItem(object sender, DrawListViewItemEventArgs e)
         {
-            // The owner-draw item handler covers the whole row background; per-subitem fills are
-            // handled in OnDrawSubItem so columns can override colors (e.g. the address column
-            // turns dim red when blank).
-            bool selected = e.Item != null && e.Item.Selected;
-            bool already = ItemIsAlreadyImported(e.Item);
-
-            Color bg = selected ? ListSelected : (already ? ListAlreadyAdded : ListBg);
-            using (var brush = new SolidBrush(bg))
-            {
-                e.Graphics.FillRectangle(brush, e.Bounds);
-            }
+            SupeyListViewHelpers.SuppressDefaultDrawItem(e);
         }
 
         private void OnDrawSubItem(object sender, DrawListViewSubItemEventArgs e)
@@ -547,12 +530,7 @@ namespace Hiatme_Tool_Suite_v3
             bool selected = e.Item != null && e.Item.Selected;
             bool already = ItemIsAlreadyImported(e.Item);
             bool noAddress = (e.SubItem == e.Item.SubItems[3]) && IsNoAddress(e.SubItem.Text);
-
-            Color bg = selected ? ListSelected : (already ? ListAlreadyAdded : ListBg);
-            using (var brush = new SolidBrush(bg))
-            {
-                e.Graphics.FillRectangle(brush, e.Bounds);
-            }
+            SupeyListViewHelpers.DrawSubItemCellBackground(e, ImportRowBackground(e.Item, selected));
 
             // Column 0 (Use) — paint the modern flat checkbox via the shared
             // SupeyListViewHelpers.DrawModernCheckbox helper so this dialog's

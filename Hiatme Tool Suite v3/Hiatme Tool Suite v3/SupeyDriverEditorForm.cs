@@ -47,6 +47,10 @@ namespace Hiatme_Tool_Suite_v3
             {
                 Text = "Add driver";
                 _headerLabel.Text = "Add a driver to the roster";
+                _portalSectionLabel.Text = "Driver info";
+                _localSectionLabel.Text = "Supey schedule";
+                _helpLabel.Text =
+                    "Add manually or use Pull from WellRyde to link a portal account. Times are 24-hour (06:00 / 18:00).";
                 _capacityTb.Text = "4";
                 _shiftStartTb.Text = "06:00";
                 _shiftEndTb.Text = "18:00";
@@ -66,8 +70,17 @@ namespace Hiatme_Tool_Suite_v3
                 _vehicleTb.Text = existing.VehicleLabel ?? "";
                 _shiftStartTb.Text = existing.ShiftStart ?? "06:00";
                 _shiftEndTb.Text = existing.ShiftEnd ?? "18:00";
-                _helpLabel.Text =
-                    "Save updates home in WellRyde when signed in (matches portal by saved SEC id or driver name).";
+                if (string.IsNullOrWhiteSpace(existing.WellRydeSecId))
+                {
+                    _portalSectionLabel.Text = "Driver info (local)";
+                    _helpLabel.Text =
+                        "Not linked to WellRyde — use Pull from WellRyde to sync name and home from the portal.";
+                }
+                else
+                {
+                    _helpLabel.Text =
+                        "Name and home were loaded from WellRyde. Capacity and shift stay on this PC. Save updates the portal.";
+                }
             }
         }
 

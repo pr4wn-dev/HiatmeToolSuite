@@ -54,10 +54,8 @@ namespace Hiatme_Tool_Suite_v3
                     return Fail("Could not load WellRyde portal — sign in from the Login bar.");
             }
 
-            string cookieErr = await session.EnsurePortalSessionCookiesForApiAsync(cancellationToken)
-                .ConfigureAwait(false);
-            if (cookieErr != null)
-                return Fail(cookieErr);
+            if (!session.HasPortalSessionCookie())
+                return Fail("WellRyde sign-in required — use Login → WellRyde.");
 
             var ctx = await session.LoadUserEditContextAsync(secId, cancellationToken).ConfigureAwait(false);
             if (!ctx.IsSuccess || string.IsNullOrWhiteSpace(ctx.FormJson))

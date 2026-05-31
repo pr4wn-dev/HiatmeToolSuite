@@ -13,7 +13,18 @@ namespace Hiatme_Tool_Suite_v3
 
         private void InitializeComponent()
         {
+            const int padX = 24;
+            const int contentW = 432;
+            const int labelH = 16;
+            const int labelToField = 6;
+            const int fieldH = 48;
+            const int rowGap = 14;
+            int rowStep = labelH + labelToField + fieldH + rowGap;
+
             this._headerLabel = new System.Windows.Forms.Label();
+            this._helpLabel = new System.Windows.Forms.Label();
+            this._portalSectionLabel = new System.Windows.Forms.Label();
+            this._localSectionLabel = new System.Windows.Forms.Label();
             this._nameLabel = new System.Windows.Forms.Label();
             this._streetLabel = new System.Windows.Forms.Label();
             this._cityLabel = new System.Windows.Forms.Label();
@@ -32,94 +43,71 @@ namespace Hiatme_Tool_Suite_v3
             this._vehicleTb = new MaterialSkin.Controls.MaterialTextBox2();
             this._shiftStartTb = new MaterialSkin.Controls.MaterialTextBox2();
             this._shiftEndTb = new MaterialSkin.Controls.MaterialTextBox2();
-            this._helpLabel = new System.Windows.Forms.Label();
             this._cancelButton = new MaterialSkin.Controls.MaterialButton();
             this._okButton = new Hiatme_Tool_Suite_v3.DarkOnAccentMaterialButton();
             this.SuspendLayout();
-            // 
-            // _headerLabel
-            // 
-            this._headerLabel.AutoSize = false;
-            this._headerLabel.ForeColor = System.Drawing.Color.Gainsboro;
-            this._headerLabel.Font = new System.Drawing.Font("Segoe UI Semibold", 12F);
-            this._headerLabel.Location = new System.Drawing.Point(20, 78);
-            this._headerLabel.Size = new System.Drawing.Size(440, 24);
-            this._headerLabel.Text = "Driver profile";
-            // 
-            // _helpLabel
-            // 
-            this._helpLabel.AutoSize = false;
-            this._helpLabel.ForeColor = System.Drawing.Color.Silver;
-            this._helpLabel.Font = new System.Drawing.Font("Segoe UI", 8.5F);
-            this._helpLabel.Location = new System.Drawing.Point(20, 104);
-            this._helpLabel.Size = new System.Drawing.Size(440, 18);
-            this._helpLabel.Text = "Times use 24-hour format (e.g. 06:00 / 18:00). Capacity is total seated riders.";
-            //
-            // labels - same style for all
-            //
-            ConfigLabel(this._nameLabel, "Driver name", 130);
-            ConfigLabel(this._streetLabel, "Home street", 178);
-            ConfigLabel(this._cityLabel, "City", 226);
-            ConfigLabel(this._stateLabel, "State", 226);
-            ConfigLabel(this._zipLabel, "ZIP", 226);
-            ConfigLabel(this._capacityLabel, "Capacity (passengers)", 274);
-            ConfigLabel(this._vehicleLabel, "Vehicle label (cosmetic)", 274);
-            ConfigLabel(this._shiftStartLabel, "Shift start (HH:mm)", 322);
-            ConfigLabel(this._shiftEndLabel, "Shift end (HH:mm)", 322);
-            this._cityLabel.Location = new System.Drawing.Point(20, 226);
-            this._cityLabel.Size = new System.Drawing.Size(180, 18);
-            this._stateLabel.Location = new System.Drawing.Point(220, 226);
-            this._stateLabel.Size = new System.Drawing.Size(80, 18);
-            this._zipLabel.Location = new System.Drawing.Point(320, 226);
-            this._zipLabel.Size = new System.Drawing.Size(140, 18);
-            this._vehicleLabel.Location = new System.Drawing.Point(240, 274);
-            this._vehicleLabel.Size = new System.Drawing.Size(220, 18);
-            this._capacityLabel.Size = new System.Drawing.Size(220, 18);
-            this._shiftEndLabel.Location = new System.Drawing.Point(240, 322);
-            this._shiftEndLabel.Size = new System.Drawing.Size(220, 18);
-            this._shiftStartLabel.Size = new System.Drawing.Size(220, 18);
-            //
-            // textboxes
-            //
-            ConfigTextBox(this._nameTb, "Driver name", 20, 148, 440);
-            ConfigTextBox(this._streetTb, "123 Main St", 20, 196, 440);
-            ConfigTextBox(this._cityTb, "City", 20, 244, 180);
-            ConfigTextBox(this._stateTb, "OH", 220, 244, 80);
-            ConfigTextBox(this._zipTb, "ZIP", 320, 244, 140);
-            ConfigTextBox(this._capacityTb, "4", 20, 292, 220);
-            ConfigTextBox(this._vehicleTb, "Sedan / Van #5", 240, 292, 220);
-            ConfigTextBox(this._shiftStartTb, "06:00", 20, 340, 220);
-            ConfigTextBox(this._shiftEndTb, "18:00", 240, 340, 220);
-            // 
-            // _cancelButton
-            // 
+
+            int y = 76;
+            ConfigHeader(this._headerLabel, "Driver profile", padX, y, contentW, 26);
+            y += 30;
+
+            ConfigHelp(this._helpLabel, padX, y, contentW, 34);
+            y += 40;
+
+            ConfigSection(this._portalSectionLabel, "From WellRyde", padX, y, contentW);
+            y += 22;
+
+            y = LayoutFieldRow(this._nameLabel, "Driver name", this._nameTb, "Driver name",
+                padX, y, contentW, labelH, labelToField, fieldH);
+            y += rowGap;
+
+            y = LayoutFieldRow(this._streetLabel, "Home street", this._streetTb, "123 Main St",
+                padX, y, contentW, labelH, labelToField, fieldH);
+            y += rowGap;
+
+            y = LayoutCityStateZipRow(padX, y, labelH, labelToField, fieldH);
+            y += rowGap + 6;
+
+            ConfigSection(this._localSectionLabel, "Supey schedule (saved on this PC)", padX, y, contentW);
+            y += 22;
+
+            y = LayoutSplitRow(
+                this._capacityLabel, "Capacity (passengers)", this._capacityTb, "4",
+                this._vehicleLabel, "Vehicle label", this._vehicleTb, "Sedan / Van #5",
+                padX, y, 200, 212, labelH, labelToField, fieldH, rowGap);
+            y += rowGap;
+
+            y = LayoutSplitRow(
+                this._shiftStartLabel, "Shift start (HH:mm)", this._shiftStartTb, "06:00",
+                this._shiftEndLabel, "Shift end (HH:mm)", this._shiftEndTb, "18:00",
+                padX, y, 200, 212, labelH, labelToField, fieldH, rowGap);
+            y += 28;
+
             this._cancelButton.AutoSize = false;
             this._cancelButton.Density = MaterialSkin.Controls.MaterialButton.MaterialButtonDensity.Default;
-            this._cancelButton.Location = new System.Drawing.Point(260, 396);
+            this._cancelButton.Location = new System.Drawing.Point(padX + contentW - 200, y);
             this._cancelButton.Size = new System.Drawing.Size(96, 36);
             this._cancelButton.Text = "CANCEL";
             this._cancelButton.Type = MaterialSkin.Controls.MaterialButton.MaterialButtonType.Text;
             this._cancelButton.UseAccentColor = false;
             this._cancelButton.NoAccentTextColor = System.Drawing.Color.Gainsboro;
             this._cancelButton.Click += new System.EventHandler(this.OnCancelClicked);
-            // 
-            // _okButton
-            // 
+
             this._okButton.AutoSize = false;
             this._okButton.Density = MaterialSkin.Controls.MaterialButton.MaterialButtonDensity.Default;
-            this._okButton.Location = new System.Drawing.Point(360, 396);
+            this._okButton.Location = new System.Drawing.Point(padX + contentW - 100, y);
             this._okButton.Size = new System.Drawing.Size(100, 36);
             this._okButton.Text = "SAVE";
             this._okButton.Type = MaterialSkin.Controls.MaterialButton.MaterialButtonType.Contained;
             this._okButton.UseAccentColor = true;
             this._okButton.Click += new System.EventHandler(this.OnOkClicked);
-            // 
-            // SupeyDriverEditorForm
-            // 
+
+            int formH = y + 52;
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.None;
-            this.ClientSize = new System.Drawing.Size(480, 450);
+            this.ClientSize = new System.Drawing.Size(480, formH);
             this.Controls.Add(this._headerLabel);
             this.Controls.Add(this._helpLabel);
+            this.Controls.Add(this._portalSectionLabel);
             this.Controls.Add(this._nameLabel);
             this.Controls.Add(this._nameTb);
             this.Controls.Add(this._streetLabel);
@@ -130,6 +118,7 @@ namespace Hiatme_Tool_Suite_v3
             this.Controls.Add(this._stateTb);
             this.Controls.Add(this._zipLabel);
             this.Controls.Add(this._zipTb);
+            this.Controls.Add(this._localSectionLabel);
             this.Controls.Add(this._capacityLabel);
             this.Controls.Add(this._capacityTb);
             this.Controls.Add(this._vehicleLabel);
@@ -143,6 +132,7 @@ namespace Hiatme_Tool_Suite_v3
             this.FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedDialog;
             this.MaximizeBox = false;
             this.MinimizeBox = false;
+            this.Padding = new System.Windows.Forms.Padding(0, 0, 0, 8);
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterParent;
             this.Name = "SupeyDriverEditorForm";
             this.Text = "Driver";
@@ -150,18 +140,95 @@ namespace Hiatme_Tool_Suite_v3
             this.PerformLayout();
         }
 
-        private static void ConfigLabel(System.Windows.Forms.Label l, string text, int y)
+        private static void ConfigHeader(System.Windows.Forms.Label l, string text, int x, int y, int w, int h)
+        {
+            l.AutoSize = false;
+            l.ForeColor = System.Drawing.Color.Gainsboro;
+            l.Font = new System.Drawing.Font("Segoe UI Semibold", 12F);
+            l.Location = new System.Drawing.Point(x, y);
+            l.Size = new System.Drawing.Size(w, h);
+            l.Text = text;
+        }
+
+        private static void ConfigHelp(System.Windows.Forms.Label l, int x, int y, int w, int h)
+        {
+            l.AutoSize = false;
+            l.ForeColor = System.Drawing.Color.DimGray;
+            l.Font = new System.Drawing.Font("Segoe UI", 8.75F);
+            l.Location = new System.Drawing.Point(x, y);
+            l.Size = new System.Drawing.Size(w, h);
+            l.Text = "Times use 24-hour format (e.g. 06:00 / 18:00). Capacity is total seated riders.";
+        }
+
+        private static void ConfigSection(System.Windows.Forms.Label l, string text, int x, int y, int w)
+        {
+            l.AutoSize = false;
+            l.ForeColor = System.Drawing.Color.FromArgb(140, 200, 120);
+            l.Font = new System.Drawing.Font("Segoe UI Semibold", 9F);
+            l.Location = new System.Drawing.Point(x, y);
+            l.Size = new System.Drawing.Size(w, 18);
+            l.Text = text;
+        }
+
+        private static int LayoutFieldRow(
+            System.Windows.Forms.Label label, string labelText,
+            MaterialSkin.Controls.MaterialTextBox2 field, string hint,
+            int x, int y, int width, int labelH, int labelToField, int fieldH)
+        {
+            ConfigLabel(label, labelText, x, y, width, labelH);
+            int fieldY = y + labelH + labelToField;
+            ConfigTextBox(field, hint, x, fieldY, width, fieldH);
+            return fieldY + fieldH;
+        }
+
+        private int LayoutCityStateZipRow(int x, int y, int labelH, int labelToField, int fieldH)
+        {
+            const int cityW = 188;
+            const int stateW = 72;
+            const int zipW = 148;
+            const int gap = 12;
+            int stateX = x + cityW + gap;
+            int zipX = stateX + stateW + gap;
+
+            ConfigLabel(this._cityLabel, "City", x, y, cityW, labelH);
+            ConfigLabel(this._stateLabel, "State", stateX, y, stateW, labelH);
+            ConfigLabel(this._zipLabel, "ZIP", zipX, y, zipW, labelH);
+
+            int fieldY = y + labelH + labelToField;
+            ConfigTextBox(this._cityTb, "City", x, fieldY, cityW, fieldH);
+            ConfigTextBox(this._stateTb, "State", stateX, fieldY, stateW, fieldH);
+            ConfigTextBox(this._zipTb, "ZIP", zipX, fieldY, zipW, fieldH);
+            return fieldY + fieldH;
+        }
+
+        private static int LayoutSplitRow(
+            System.Windows.Forms.Label leftLabel, string leftLabelText,
+            MaterialSkin.Controls.MaterialTextBox2 leftField, string leftHint,
+            System.Windows.Forms.Label rightLabel, string rightLabelText,
+            MaterialSkin.Controls.MaterialTextBox2 rightField, string rightHint,
+            int x, int y, int leftW, int rightW, int labelH, int labelToField, int fieldH, int gap)
+        {
+            int rightX = x + leftW + gap;
+            ConfigLabel(leftLabel, leftLabelText, x, y, leftW, labelH);
+            ConfigLabel(rightLabel, rightLabelText, rightX, y, rightW, labelH);
+            int fieldY = y + labelH + labelToField;
+            ConfigTextBox(leftField, leftHint, x, fieldY, leftW, fieldH);
+            ConfigTextBox(rightField, rightHint, rightX, fieldY, rightW, fieldH);
+            return fieldY + fieldH;
+        }
+
+        private static void ConfigLabel(System.Windows.Forms.Label l, string text, int x, int y, int w, int h)
         {
             l.AutoSize = false;
             l.ForeColor = System.Drawing.Color.Silver;
             l.Font = new System.Drawing.Font("Segoe UI", 9F);
-            l.Location = new System.Drawing.Point(20, y);
-            l.Size = new System.Drawing.Size(440, 18);
+            l.Location = new System.Drawing.Point(x, y);
+            l.Size = new System.Drawing.Size(w, h);
             l.Text = text;
         }
 
         private static void ConfigTextBox(MaterialSkin.Controls.MaterialTextBox2 tb,
-            string hint, int x, int y, int width)
+            string hint, int x, int y, int width, int height)
         {
             tb.AnimateReadOnly = false;
             tb.BackColor = System.Drawing.Color.White;
@@ -171,13 +238,15 @@ namespace Hiatme_Tool_Suite_v3
             tb.Location = new System.Drawing.Point(x, y);
             tb.MaxLength = 100;
             tb.MouseState = MaterialSkin.MouseState.OUT;
-            tb.Size = new System.Drawing.Size(width, 50);
+            tb.Size = new System.Drawing.Size(width, height);
             tb.UseAccent = false;
             tb.UseTallSize = false;
         }
 
         private System.Windows.Forms.Label _headerLabel;
         private System.Windows.Forms.Label _helpLabel;
+        private System.Windows.Forms.Label _portalSectionLabel;
+        private System.Windows.Forms.Label _localSectionLabel;
         private System.Windows.Forms.Label _nameLabel;
         private System.Windows.Forms.Label _streetLabel;
         private System.Windows.Forms.Label _cityLabel;

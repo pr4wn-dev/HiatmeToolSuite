@@ -42,20 +42,70 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
-        public int ExpandedWidth { get; set; } = 280;
-        public int ExpandedHeight { get; set; } = 220;
+        private int _expandedWidth = 280;
+        private int _expandedHeight = 220;
+        private int _minExpandedWidth = 180;
+        private int _maxExpandedWidth = 600;
+
+        /// <summary>Preferred width when expanded (Left/Right dock). Applied on dock and when this
+        /// value changes after <see cref="Dock"/> is already set — object initializers often set
+        /// <c>Dock</c> before width, which would otherwise leave the panel at the 280px default.</summary>
+        public int ExpandedWidth
+        {
+            get => _expandedWidth;
+            set
+            {
+                if (_expandedWidth == value) return;
+                _expandedWidth = value;
+                if (_expanded && IsHorizontalDock()) ApplyExpandedState();
+            }
+        }
+
+        public int ExpandedHeight
+        {
+            get => _expandedHeight;
+            set
+            {
+                if (_expandedHeight == value) return;
+                _expandedHeight = value;
+                if (_expanded && IsVerticalDock()) ApplyExpandedState();
+            }
+        }
+
         public int CollapsedThickness { get; set; } = HeaderHeight;
 
         /// <summary>Lower bound for splitter-driven resizes when docked Left/Right. The splitter's
         /// MinExtra also enforces this from the other side, but we double-up here so direct
         /// programmatic Width assignments can't accidentally squish the panel either.</summary>
-        public int MinExpandedWidth { get; set; } = 180;
+        public int MinExpandedWidth
+        {
+            get => _minExpandedWidth;
+            set
+            {
+                if (_minExpandedWidth == value) return;
+                _minExpandedWidth = value;
+                if (_expanded && IsHorizontalDock()) ApplyExpandedState();
+            }
+        }
 
         /// <summary>Upper bound (in pixels) so users can't drag a single side panel to consume
         /// more than its share of the workspace. 0 disables the cap.</summary>
-        public int MaxExpandedWidth { get; set; } = 600;
+        public int MaxExpandedWidth
+        {
+            get => _maxExpandedWidth;
+            set
+            {
+                if (_maxExpandedWidth == value) return;
+                _maxExpandedWidth = value;
+                if (_expanded && IsHorizontalDock()) ApplyExpandedState();
+            }
+        }
 
         public int MinExpandedHeight { get; set; } = 120;
+
+        /// <summary>Re-applies expanded/collapsed size from <see cref="ExpandedWidth"/> /
+        /// <see cref="MinExpandedWidth"/> after the panel is parented or layout properties change.</summary>
+        public void ApplyExpandedLayout() => ApplyExpandedState();
 
         public SupeyCollapsiblePanel()
         {
@@ -154,6 +204,24 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        private static bool IsHorizontalDock(DockStyle dock) =>
+            dock == DockStyle.Left || dock == DockStyle.Right;
+
+        private static bool IsVerticalDock(DockStyle dock) =>
+            dock == DockStyle.Top || dock == DockStyle.Bottom;
+
+        private bool IsHorizontalDock() => IsHorizontalDock(Dock);
+
+        private bool IsVerticalDock() => IsVerticalDock(Dock);
+
+        private int ResolveExpandedWidth()
+        {
+            int w = _expandedWidth;
+            if (_minExpandedWidth > 0 && w < _minExpandedWidth) w = _minExpandedWidth;
+            if (_maxExpandedWidth > 0 && w > _maxExpandedWidth) w = _maxExpandedWidth;
+            return w;
+        }
+
         private void ApplyExpandedState()
         {
             _applyingExpandedState = true;
@@ -162,14 +230,16 @@ namespace Hiatme_Tool_Suite_v3
                 ContentPanel.Visible = _expanded;
                 if (Dock == DockStyle.Left || Dock == DockStyle.Right)
                 {
-                    Width = _expanded ? ExpandedWidth : CollapsedThickness;
+                    Width = _expanded ? ResolveExpandedWidth() : CollapsedThickness;
                     _toggleBtn.Text = Dock == DockStyle.Left
                         ? (_expanded ? "◀" : "▶")
                         : (_expanded ? "▶" : "◀");
                 }
                 else if (Dock == DockStyle.Bottom || Dock == DockStyle.Top)
                 {
-                    Height = _expanded ? ExpandedHeight : CollapsedThickness;
+                    int h = _expandedHeight;
+                    if (MinExpandedHeight > 0 && h < MinExpandedHeight) h = MinExpandedHeight;
+                    Height = _expanded ? h : CollapsedThickness;
                     _toggleBtn.Text = _expanded ? "▼" : "▲";
                 }
                 else if (Dock == DockStyle.Fill)
@@ -205,6 +275,13 @@ namespace Hiatme_Tool_Suite_v3
         {
             base.OnDockChanged(e);
             ApplyExpandedState();
+        }
+
+        protected override void OnParentChanged(EventArgs e)
+        {
+            base.OnParentChanged(e);
+            if (Parent != null && _expanded)
+                ApplyExpandedState();
         }
     }
 }

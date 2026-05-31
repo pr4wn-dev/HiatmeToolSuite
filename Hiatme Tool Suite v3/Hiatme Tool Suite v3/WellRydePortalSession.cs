@@ -55,7 +55,11 @@ namespace Hiatme_Tool_Suite_v3
         private static readonly Regex UserSecIdRegex = new Regex(
             @"SEC-[A-Za-z0-9_\-]+",
             RegexOptions.Compiled | RegexOptions.CultureInvariant);
-        public const int DefaultUsersFilterMaxResult = 500;
+        private static readonly Regex JSessionIdInTextRegex = new Regex(
+            @"(?:;jsessionid=|(?:JSESSIONID|jsessionid)=)([A-F0-9]{32})",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        /// <summary>Browser users grid uses <c>maxResult=50</c> on first <c>filterdata</c> POST.</summary>
+        public const int DefaultUsersFilterMaxResult = 50;
 
         /// <summary>Trip list grid (PU/DO addresses, schedule times, miles) from browser capture; tenant-specific if portal differs.</summary>
         public const string DefaultTripFilterListDefId = "SEC-J0JwBzGuni0ZopMPBRCNuQ";
@@ -86,6 +90,13 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>HTML from the last successful <see cref="GetPortalNuAsync"/>; used for AJAX <c>_csrf</c>.</summary>
         private string _lastPortalNuHtml;
 
+        /// <summary>Last <c>JSESSIONID</c> from Set-Cookie (Tomcat often uses a narrow path until widened).</summary>
+        private string _pinnedJSessionId;
+
+        /// <summary>Authoritative outbound cookies (every Set-Cookie + jar sync) — matches browser <c>-b</c> header.</summary>
+        private readonly Dictionary<string, string> _portalCookieStore =
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
         /// <summary>JSON body from the last successful <see cref="PostTripFilterDataAsync"/>.</summary>
         public string LastTripFilterDataJson { get; private set; }
 
@@ -107,8 +118,7 @@ namespace Hiatme_Tool_Suite_v3
                 AllowAutoRedirect = false,
                 AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
                 CookieContainer = new CookieContainer(),
-                // Manual Cookie header only — avoids duplicate SESSION/JSESSIONID from jar + header.
-                UseCookies = false,
+                UseCookies = true,
             };
 
             _client = new HttpClient(_handler)
@@ -122,12 +132,14 @@ namespace Hiatme_Tool_Suite_v3
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36");
             _client.DefaultRequestHeaders.TryAddWithoutValidation("Accept-Language", "en-US,en;q=0.9");
             _client.DefaultRequestHeaders.TryAddWithoutValidation("Sec-CH-UA",
-                "\"Google Chrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"");
+                "\"Chromium\";v=\"148\", \"Google Chrome\";v=\"148\", \"Not/A)Brand\";v=\"99\"");
             _client.DefaultRequestHeaders.TryAddWithoutValidation("Sec-CH-UA-Mobile", "?0");
             _client.DefaultRequestHeaders.TryAddWithoutValidation("Sec-CH-UA-Platform", "\"Windows\"");
+
+            WellRydePortalLog.Info("SESSION", "WellRyde portal client started. Log file: " + WellRydePortalLog.LogFilePath);
         }
 
-        /// <summary>GET portal root; cookies accumulate in <see cref="CookieJar"/>. Does not follow redirects.</summary>
+        /// <summary>GET portal root once (no redirect chain). Cookies accumulate in <see cref="CookieJar"/>.</summary>
         public async Task<WellRydePortalBootstrapResult> BootstrapMainPageAsync(CancellationToken cancellationToken = default)
         {
             _lastBootstrapHtml = null;
@@ -169,20 +181,29 @@ namespace Hiatme_Tool_Suite_v3
                 return WellRydePortalBootstrapResult.Fail(code, ex.Message ?? "Failed to read response body.");
             }
 
-            LastRequestVerificationToken = ExtractRequestVerificationToken(html);
-
             var statusCode = response.StatusCode;
-            var responseUri = PortalRootUri;
             FinalizePortalResponse(response, PortalRootUri);
             response.Dispose();
             LastPortalCookies = SnapMergedPortalCookies();
+            CaptureJSessionIdFromMergedCookies();
+            SyncPortalCookieStoreFromJar();
+            WellRydePortalLog.CookieState("after bootstrap GET /", _portalCookieStore, "status=" + (int)statusCode);
 
             if ((int)statusCode < 200 || (int)statusCode >= 300)
                 return WellRydePortalBootstrapResult.Fail(statusCode,
-                    "HTTP " + (int)statusCode + " — unexpected status.", LastPortalCookies, LastRequestVerificationToken);
+                    "HTTP " + (int)statusCode + " from portal root.", LastPortalCookies, LastRequestVerificationToken);
+
+            LastRequestVerificationToken = ExtractRequestVerificationToken(html);
+            string csrf = ExtractHiddenInputValue(html, "_csrf");
+            string logincsrf = ExtractHiddenInputValue(html, "_logincsrf");
+            if (string.IsNullOrEmpty(csrf) || string.IsNullOrEmpty(logincsrf))
+                return WellRydePortalBootstrapResult.Fail(null,
+                    "Could not find _csrf or _logincsrf on the portal login page.",
+                    LastPortalCookies, LastRequestVerificationToken);
 
             _lastBootstrapHtml = html;
-            return WellRydePortalBootstrapResult.Ok(statusCode, responseUri, LastPortalCookies, LastRequestVerificationToken);
+            TryExtractJSessionIdFromText(html, "bootstrap /");
+            return WellRydePortalBootstrapResult.Ok(statusCode, PortalRootUri, LastPortalCookies, LastRequestVerificationToken);
         }
 
         /// <summary>
@@ -194,6 +215,8 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (string.IsNullOrEmpty(_lastBootstrapHtml))
                 return WellRydePortalLoginResult.Fail(null, "Load the portal page first (bootstrap).");
+
+            TryExtractJSessionIdFromText(_lastBootstrapHtml, "login form HTML");
 
             string csrf = ExtractHiddenInputValue(_lastBootstrapHtml, "_csrf");
             string logincsrf = ExtractHiddenInputValue(_lastBootstrapHtml, "_logincsrf");
@@ -221,6 +244,7 @@ namespace Hiatme_Tool_Suite_v3
                 using (var request = new HttpRequestMessage(HttpMethod.Post, SpringLoginUri))
                 {
                     request.Content = new FormUrlEncodedContent(pairs);
+                    SetDocumentNavigationHeaders(request);
                     request.Headers.TryAddWithoutValidation("Origin", PortalOrigin);
                     request.Headers.TryAddWithoutValidation("Referer", PortalRootUri.ToString());
                     request.Headers.TryAddWithoutValidation("Cache-Control", "max-age=0");
@@ -261,6 +285,11 @@ namespace Hiatme_Tool_Suite_v3
             var statusCode = response.StatusCode;
             FinalizePortalResponse(response, SpringLoginUri);
             response.Dispose();
+            SyncPortalCookieStoreFromJar();
+            TryExtractJSessionIdFromText(location, "login Location");
+            TryExtractJSessionIdFromText(html, "login response body");
+            WellRydePortalLog.CookieState("after login POST", _portalCookieStore,
+                "status=" + (int)statusCode + " location=" + (location ?? "(none)"));
             bool ok = InterpretSpringLoginResponse(statusCode, location, html);
             if (!ok)
             {
@@ -273,19 +302,18 @@ namespace Hiatme_Tool_Suite_v3
             return WellRydePortalLoginResult.Ok(statusCode, location, LastPortalCookies);
         }
 
-        /// <summary>
-        /// Browser sends both <c>SESSION</c> and <c>JSESSIONID</c> on user-admin XHR.
-        /// Login often stores <c>JSESSIONID</c> on a narrow path — widen it and warm the servlet session.
-        /// </summary>
-        public async Task<string> EnsurePortalSessionCookiesForApiAsync(
+        /// <summary>True when Spring <c>SESSION</c> cookie is present (required for portal APIs).</summary>
+        public bool HasPortalSessionCookie() => HasSessionCookie();
+
+        /// <summary>Legacy gate — only checks <c>SESSION</c>; save uses the edit-form chain, not cookie names.</summary>
+        public Task<string> EnsurePortalSessionCookiesForApiAsync(
             CancellationToken cancellationToken = default)
         {
-            await TryAcquireJSessionIdForUsersApiAsync(cancellationToken).ConfigureAwait(false);
-            MirrorAllPortalCookiesToStandardPaths();
-
             if (!HasSessionCookie())
-                return "WellRyde SESSION cookie is missing after sign-in.";
-            return null;
+                return Task.FromResult(
+                    "WellRyde SESSION cookie is missing after sign-in. Use Login → WellRyde, then save again."
+                    + WellRydePortalLog.UserHintSuffix());
+            return Task.FromResult<string>(null);
         }
 
         /// <summary>Best-effort JSESSIONID widen for driver save — never fails login.</summary>
@@ -307,25 +335,14 @@ namespace Hiatme_Tool_Suite_v3
         /// </summary>
         private async Task TryAcquireJSessionIdForUsersApiAsync(CancellationToken cancellationToken)
         {
+            TryExtractJSessionIdFromText(_lastBootstrapHtml, "cached bootstrap");
+            TryExtractJSessionIdFromText(_lastPortalNuHtml, "cached /portal/nu");
             PromoteJSessionCookieToPortalPaths();
             SyncSnapshotCookiesIntoJar();
-            if (CookieJarSendsJSessionIdTo(PortalUsersBaseUri))
-                return;
+            CaptureJSessionIdFromMergedCookies();
+            SyncPortalCookieStoreFromJar();
 
-            try
-            {
-                await GetPortalDocumentAsync(PortalShellUri, cancellationToken).ConfigureAwait(false);
-            }
-            catch
-            {
-                // ignore
-            }
-            PromoteJSessionCookieToPortalPaths();
-            SyncSnapshotCookiesIntoJar();
-            if (CookieJarSendsJSessionIdTo(PortalUsersBaseUri))
-                return;
-
-            if (string.IsNullOrEmpty(_lastPortalNuHtml))
+            if (string.IsNullOrEmpty(_lastPortalNuHtml) || !IsPortalNuPageAuthenticated())
             {
                 try
                 {
@@ -336,39 +353,86 @@ namespace Hiatme_Tool_Suite_v3
                     // ignore
                 }
             }
-            PromoteJSessionCookieToPortalPaths();
-            SyncSnapshotCookiesIntoJar();
-            if (CookieJarSendsJSessionIdTo(PortalUsersBaseUri))
-                return;
 
             if (!HasSessionCookie())
                 return;
 
-            // Same XHR as Pull from WellRyde — servlet session for user admin.
-            try
+            if (!HasJSessionIdForUsersApi())
+                await TryEstablishServletSessionAsync(cancellationToken).ConfigureAwait(false);
+
+            if (!HasJSessionIdForUsersApi())
+                await TryWarmUsersListFilterDefsAsync(cancellationToken).ConfigureAwait(false);
+
+            if (!HasJSessionIdForUsersApi())
             {
-                await PostUsersFilterDataAsync(page: 1, maxResults: 1, cancellationToken: cancellationToken)
-                    .ConfigureAwait(false);
+                try
+                {
+                    await PostUsersFilterDataAsync(
+                            page: 1,
+                            maxResults: DefaultUsersFilterMaxResult,
+                            cancellationToken: cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch
+                {
+                    // ignore
+                }
             }
-            catch
-            {
-                // ignore
-            }
+
+            if (!HasJSessionIdForUsersApi())
+                await TryEstablishServletSessionAsync(cancellationToken).ConfigureAwait(false);
+
             PromoteJSessionCookieToPortalPaths();
             SyncSnapshotCookiesIntoJar();
-            if (CookieJarSendsJSessionIdTo(PortalUsersBaseUri))
+            CaptureJSessionIdFromMergedCookies();
+            SyncPortalCookieStoreFromJar();
+            WellRydePortalLog.CookieState("after TryAcquireJSessionId", _portalCookieStore,
+                "hasJSESSION=" + (HasJSessionIdForUsersApi() ? "yes" : "no"));
+        }
+
+        /// <summary>One GET <c>/portal/</c> so Tomcat can issue <c>JSESSIONID</c> when <c>SESSION</c> exists (browser has both before filterdata).</summary>
+        private async Task TryEstablishServletSessionAsync(CancellationToken cancellationToken)
+        {
+            if (HasJSessionIdForUsersApi() || !HasSessionCookie())
                 return;
 
+            HttpResponseMessage response = null;
             try
             {
-                await GetPortalDocumentAsync(PortalUsersBaseUri, cancellationToken).ConfigureAwait(false);
+                using (var request = new HttpRequestMessage(HttpMethod.Get, PortalShellUri))
+                {
+                    SetDocumentNavigationHeaders(request);
+                    request.Headers.TryAddWithoutValidation("Referer", PortalNuUri.ToString());
+                    request.Headers.TryAddWithoutValidation("Sec-Fetch-Site", "same-origin");
+                    request.Headers.TryAddWithoutValidation("Sec-Fetch-Mode", "navigate");
+                    request.Headers.TryAddWithoutValidation("Sec-Fetch-Dest", "document");
+                    ApplyPortalCookieHeader(request);
+
+                    response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+
+                string shellHtml = null;
+                try
+                {
+                    shellHtml = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                }
+                catch
+                {
+                    // ignore body
+                }
+
+                FinalizePortalResponse(response, PortalShellUri);
+                TryExtractJSessionIdFromText(shellHtml, "GET /portal/");
             }
             catch
             {
                 // ignore
             }
-            PromoteJSessionCookieToPortalPaths();
-            SyncSnapshotCookiesIntoJar();
+            finally
+            {
+                response?.Dispose();
+            }
         }
 
         /// <summary>
@@ -452,9 +516,9 @@ namespace Hiatme_Tool_Suite_v3
             return WellRydePortalSessionProbeResult.Fail(detail);
         }
 
-        /// <summary>True when user-admin API requests should include servlet <c>JSESSIONID</c>.</summary>
+        /// <summary>True when signed in for user-admin APIs.</summary>
         public bool IsUsersApiSessionReady() =>
-            HasSessionCookie() && CookieJarSendsJSessionIdTo(PortalUsersBaseUri);
+            HasSessionCookie() && IsPortalNuPageAuthenticated();
 
         /// <summary>Alias for <see cref="IsPortalNuPageAuthenticated"/> — do not require JSESSIONID for trip billing.</summary>
         public bool IsPortalNuAuthenticated() => IsPortalNuPageAuthenticated();
@@ -471,106 +535,96 @@ namespace Hiatme_Tool_Suite_v3
                         nu.ErrorMessage ?? "Could not load /portal/nu.");
             }
 
-            var cookieErr = await EnsurePortalSessionCookiesForApiAsync(cancellationToken).ConfigureAwait(false);
-            if (cookieErr != null)
-                return WellRydePortalFilterDataResult.Fail(null, cookieErr);
+            if (!HasSessionCookie())
+                return WellRydePortalFilterDataResult.Fail(null,
+                    "WellRyde SESSION cookie is missing — use Login → WellRyde.");
 
             var probe = await PostUsersFilterDataAsync(page: 1, maxResults: 1, cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
             if (!probe.IsSuccess)
                 return probe;
-
             if (ResponseBodyLooksLikeHtml(probe.JsonBody))
-            {
-                await TryAcquireJSessionIdForUsersApiAsync(cancellationToken).ConfigureAwait(false);
-                MirrorAllPortalCookiesToStandardPaths();
-                probe = await PostUsersFilterDataAsync(page: 1, maxResults: 1, cancellationToken: cancellationToken)
-                    .ConfigureAwait(false);
-                if (!probe.IsSuccess)
-                    return probe;
-                if (ResponseBodyLooksLikeHtml(probe.JsonBody))
-                {
-                    return WellRydePortalFilterDataResult.Fail(null,
-                        "WellRyde users list returned HTML instead of JSON — use Login → WellRyde, then try again."
-                        + DescribePortalSessionCookies());
-                }
-            }
+                return WellRydePortalFilterDataResult.Fail(null,
+                    "WellRyde users list returned HTML/XML instead of JSON — sign in again from the Login bar."
+                    + DescribePortalSessionCookies());
 
             return probe;
         }
 
+        /// <summary>Single GET to the given URL — never follows <c>Location</c> (callers use login Location or <c>/portal/nu</c> explicitly).</summary>
         private async Task<WellRydePortalNuResult> GetPortalDocumentAsync(
             Uri uri,
             CancellationToken cancellationToken)
         {
             Uri current = uri ?? PortalNuUri;
-            for (int hop = 0; hop < 4; hop++)
+
+            HttpResponseMessage response = null;
+            try
             {
-                HttpResponseMessage response = null;
-                try
+                using (var request = new HttpRequestMessage(HttpMethod.Get, current))
                 {
-                    using (var request = new HttpRequestMessage(HttpMethod.Get, current))
-                    {
-                        SetDocumentNavigationHeaders(request);
-                        request.Headers.TryAddWithoutValidation("Referer", PortalRootUri.ToString());
-                        request.Headers.TryAddWithoutValidation("Cache-Control", "max-age=0");
-                        request.Headers.TryAddWithoutValidation("Sec-Fetch-Site", "same-origin");
-                        request.Headers.TryAddWithoutValidation("Sec-Fetch-Mode", "navigate");
-                        request.Headers.TryAddWithoutValidation("Sec-Fetch-User", "?1");
-                        request.Headers.TryAddWithoutValidation("Sec-Fetch-Dest", "document");
-                        request.Headers.TryAddWithoutValidation("Sec-CH-UA",
-                            "\"Google Chrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"");
-                        request.Headers.TryAddWithoutValidation("Sec-CH-UA-Mobile", "?0");
-                        request.Headers.TryAddWithoutValidation("Sec-CH-UA-Platform", "\"Windows\"");
-                        request.Headers.TryAddWithoutValidation("Priority", "u=0, i");
-                        ApplyPortalCookieHeader(request);
+                    SetDocumentNavigationHeaders(request);
+                    request.Headers.TryAddWithoutValidation("Referer", PortalRootUri.ToString());
+                    request.Headers.TryAddWithoutValidation("Cache-Control", "max-age=0");
+                    request.Headers.TryAddWithoutValidation("Sec-Fetch-Site", "same-origin");
+                    request.Headers.TryAddWithoutValidation("Sec-Fetch-Mode", "navigate");
+                    request.Headers.TryAddWithoutValidation("Sec-Fetch-User", "?1");
+                    request.Headers.TryAddWithoutValidation("Sec-Fetch-Dest", "document");
+                    request.Headers.TryAddWithoutValidation("Sec-CH-UA",
+                        "\"Chromium\";v=\"148\", \"Google Chrome\";v=\"148\", \"Not/A)Brand\";v=\"99\"");
+                    request.Headers.TryAddWithoutValidation("Sec-CH-UA-Mobile", "?0");
+                    request.Headers.TryAddWithoutValidation("Sec-CH-UA-Platform", "\"Windows\"");
+                    request.Headers.TryAddWithoutValidation("Priority", "u=0, i");
+                    ApplyPortalCookieHeader(request);
 
-                        response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
-                            .ConfigureAwait(false);
-                    }
+                    response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                        .ConfigureAwait(false);
                 }
-                catch (Exception ex)
-                {
-                    return WellRydePortalNuResult.Fail(null, ex.Message ?? "GET portal document failed.");
-                }
-
-                string html;
-                try
-                {
-                    html = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    var code = response.StatusCode;
-                    response.Dispose();
-                    return WellRydePortalNuResult.Fail(code, ex.Message ?? "Failed to read portal document body.");
-                }
-
-                var statusCode = response.StatusCode;
-                string location = null;
-                if (response.Headers.Location != null)
-                {
-                    location = response.Headers.Location.IsAbsoluteUri
-                        ? response.Headers.Location.ToString()
-                        : new Uri(current, response.Headers.Location).ToString();
-                }
-                FinalizePortalResponse(response, current);
-                response.Dispose();
-
-                if ((int)statusCode >= 300 && (int)statusCode < 400 && !string.IsNullOrEmpty(location))
-                {
-                    current = ResolvePortalUri(location);
-                    continue;
-                }
-
-                if ((int)statusCode < 200 || (int)statusCode >= 300)
-                    return WellRydePortalNuResult.Fail(statusCode, "HTTP " + (int)statusCode + " from " + current);
-
-                _lastPortalNuHtml = html;
-                return WellRydePortalNuResult.Ok(statusCode);
+            }
+            catch (Exception ex)
+            {
+                return WellRydePortalNuResult.Fail(null, ex.Message ?? "GET portal document failed.");
             }
 
-            return WellRydePortalNuResult.Fail(null, "Too many redirects loading WellRyde portal.");
+            string html;
+            try
+            {
+                html = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                var code = response.StatusCode;
+                response.Dispose();
+                return WellRydePortalNuResult.Fail(code, ex.Message ?? "Failed to read portal document body.");
+            }
+
+            var statusCode = response.StatusCode;
+            FinalizePortalResponse(response, current);
+            response.Dispose();
+            CaptureJSessionIdFromMergedCookies();
+
+            if ((int)statusCode >= 300 && (int)statusCode < 400)
+            {
+                return WellRydePortalNuResult.Fail(statusCode,
+                    "HTTP redirect from " + current.AbsolutePath
+                    + " (not followed — GET /portal/nu or the login Location URL explicitly).");
+            }
+
+            if ((int)statusCode < 200 || (int)statusCode >= 300)
+                return WellRydePortalNuResult.Fail(statusCode, "HTTP " + (int)statusCode + " from " + current);
+
+            if (IsPortalNuShellUri(current))
+            {
+                _lastPortalNuHtml = html;
+                SyncPortalCookieStoreFromJar();
+                TryExtractJSessionIdFromText(html, "/portal/nu");
+                WellRydePortalLog.Info("NU",
+                    "/portal/nu loaded csrfLen=" + (ResolveAjaxCsrfToken()?.Length ?? 0)
+                    + " auth=" + (IsPortalNuPageAuthenticated() ? "yes" : "no")
+                    + " jsession=" + (HasJSessionIdForUsersApi() ? "yes" : "no"));
+            }
+
+            return WellRydePortalNuResult.Ok(statusCode);
         }
 
         private static Uri ResolvePortalUri(string locationOrPath)
@@ -578,8 +632,67 @@ namespace Hiatme_Tool_Suite_v3
             if (string.IsNullOrWhiteSpace(locationOrPath))
                 return PortalNuUri;
             if (Uri.TryCreate(locationOrPath, UriKind.Absolute, out var abs))
+            {
+                if (!string.IsNullOrEmpty(abs.Fragment))
+                    abs = new Uri(abs.GetLeftPart(UriPartial.Path) + abs.Query);
                 return abs;
+            }
             return new Uri(PortalRootUri, locationOrPath.TrimStart('/'));
+        }
+
+        /// <summary>Tomcat often embeds <c>;jsessionid=</c> in HTML/redirects instead of Set-Cookie (HttpClient never saw JSESSIONID in logs).</summary>
+        private void TryExtractJSessionIdFromText(string text, string source)
+        {
+            if (string.IsNullOrWhiteSpace(text) || HasJSessionIdForUsersApi())
+                return;
+            Match m = JSessionIdInTextRegex.Match(text);
+            if (!m.Success || m.Groups.Count < 2)
+                return;
+            PinJSessionId(m.Groups[1].Value);
+            WellRydePortalLog.Info("SESSION", "JSESSIONID scraped from " + (source ?? "text"));
+        }
+
+        private async Task TryWarmUsersListFilterDefsAsync(CancellationToken cancellationToken)
+        {
+            if (HasJSessionIdForUsersApi())
+                return;
+
+            var uri = new Uri(PortalOrigin + "/portal/listFilterDefsJson?listDefId=" + SupeyUsersListDefId);
+            HttpResponseMessage response = null;
+            try
+            {
+                using (var request = new HttpRequestMessage(HttpMethod.Get, uri))
+                {
+                    SetRequestAccept(request, "application/json, text/javascript, */*; q=0.01");
+                    request.Headers.TryAddWithoutValidation("X-Requested-With", "XMLHttpRequest");
+                    request.Headers.TryAddWithoutValidation("Referer", PortalNuUri.ToString());
+                    request.Headers.TryAddWithoutValidation("Sec-Fetch-Site", "same-origin");
+                    request.Headers.TryAddWithoutValidation("Sec-Fetch-Mode", "cors");
+                    request.Headers.TryAddWithoutValidation("Sec-Fetch-Dest", "empty");
+                    ApplyPortalApiCookieHeader(request);
+                    response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+
+                string body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                FinalizePortalResponse(response, uri);
+                TryExtractJSessionIdFromText(body, "listFilterDefsJson");
+            }
+            catch
+            {
+                // ignore
+            }
+            finally
+            {
+                response?.Dispose();
+            }
+        }
+
+        private static bool IsPortalNuShellUri(Uri uri)
+        {
+            if (uri == null) return false;
+            string path = uri.AbsolutePath.TrimEnd('/');
+            return string.Equals(path, "/portal/nu", StringComparison.OrdinalIgnoreCase);
         }
 
         private bool HasSessionCookie() =>
@@ -642,33 +755,101 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
-        /// <summary>Browser-style Cookie header so user-admin XHR always sends SESSION + JSESSIONID + ALB stickiness.</summary>
+        /// <summary>Document navigation (bootstrap, login, <c>/portal/nu</c>) — jar only; do not override with a manual <c>Cookie</c> header.</summary>
         private void ApplyPortalCookieHeader(HttpRequestMessage request)
         {
             if (request == null) return;
             MirrorAllPortalCookiesToStandardPaths();
+            CaptureJSessionIdFromMergedCookies();
+            string jarCookies = _handler.CookieContainer.GetCookieHeader(request.RequestUri ?? PortalRootUri);
+            WellRydePortalLog.HttpRequest(
+                request.Method.ToString(),
+                request.RequestUri?.ToString(),
+                jarCookies,
+                _portalCookieStore.Keys);
+        }
 
+        /// <summary>Portal XHR/API — send <see cref="_portalCookieStore"/> as the <c>Cookie</c> header (browser <c>-b</c>).</summary>
+        private void ApplyPortalApiCookieHeader(HttpRequestMessage request)
+        {
+            SyncPortalCookieStoreFromJar();
+            TryExtractJSessionIdFromText(_lastPortalNuHtml, "cached /portal/nu");
+            if (!string.IsNullOrWhiteSpace(_pinnedJSessionId))
+                RecordPortalCookie("JSESSIONID", _pinnedJSessionId);
+
+            string cookieHeader = BuildOutboundCookieHeader();
+            if (!string.IsNullOrEmpty(cookieHeader))
+                request.Headers.TryAddWithoutValidation("Cookie", cookieHeader);
+            WellRydePortalLog.HttpRequest(
+                request.Method.ToString(),
+                request.RequestUri?.ToString(),
+                cookieHeader,
+                _portalCookieStore.Keys);
+        }
+
+        private void RecordPortalCookie(string name, string value)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                return;
+            _portalCookieStore[name.Trim()] = value ?? "";
+            if (string.Equals(name, "JSESSIONID", StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(value))
+                _pinnedJSessionId = value.Trim();
+        }
+
+        private void IngestCookieHeaderString(string cookieHeader)
+        {
+            if (string.IsNullOrWhiteSpace(cookieHeader))
+                return;
+            foreach (string part in cookieHeader.Split(';'))
+            {
+                string piece = part.Trim();
+                int eq = piece.IndexOf('=');
+                if (eq <= 0) continue;
+                RecordPortalCookie(piece.Substring(0, eq).Trim(), piece.Substring(eq + 1).Trim());
+            }
+        }
+
+        private void SyncPortalCookieStoreFromJar()
+        {
+            MirrorAllPortalCookiesToStandardPaths();
+            foreach (var uri in PortalCookieMirrorUris)
+            {
+                IngestCookieHeaderString(_handler.CookieContainer.GetCookieHeader(uri));
+                foreach (Cookie c in _handler.CookieContainer.GetCookies(uri))
+                    RecordPortalCookie(c.Name, c.Value);
+            }
+        }
+
+        private string BuildOutboundCookieHeader()
+        {
             var parts = new List<string>();
-            var merged = SnapMergedPortalCookies();
             foreach (string name in PortalOutboundCookieNames)
             {
-                string val = null;
-                var stored = FindStoredCookie(name);
-                if (stored != null && !string.IsNullOrWhiteSpace(stored.Value))
-                    val = stored.Value;
-                else if (merged != null && merged.TryGetValue(name, out string snap)
-                    && !string.IsNullOrWhiteSpace(snap))
-                    val = snap;
-
-                if (!string.IsNullOrWhiteSpace(val))
+                if (_portalCookieStore.TryGetValue(name, out string val) && !string.IsNullOrWhiteSpace(val))
                     parts.Add(name + "=" + val);
             }
+            return parts.Count == 0 ? null : string.Join("; ", parts);
+        }
 
-            if (parts.Count == 0)
-                return;
+        /// <summary>Whether <c>JSESSIONID</c> is in the outbound cookie store (browser always sends it on user APIs).</summary>
+        private bool HasJSessionIdForUsersApi()
+        {
+            SyncPortalCookieStoreFromJar();
+            if (!string.IsNullOrWhiteSpace(_pinnedJSessionId))
+                return true;
+            return _portalCookieStore.TryGetValue("JSESSIONID", out string js) && !string.IsNullOrWhiteSpace(js);
+        }
 
-            request.Headers.Remove("Cookie");
-            request.Headers.TryAddWithoutValidation("Cookie", string.Join("; ", parts));
+        /// <summary>Quick check after sign-in: <c>SESSION</c> + loaded <c>/portal/nu</c>.</summary>
+        public Task<bool> PrepareForUsersApiAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(HasSessionCookie() && IsPortalNuPageAuthenticated());
+
+        private static bool CookieHeaderHasName(string cookieHeader, string cookieName)
+        {
+            if (string.IsNullOrEmpty(cookieHeader) || string.IsNullOrEmpty(cookieName))
+                return false;
+            return cookieHeader.IndexOf(cookieName + "=", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private bool CookieJarSendsJSessionIdTo(Uri requestUri)
@@ -712,28 +893,101 @@ namespace Hiatme_Tool_Suite_v3
         private void PromoteJSessionCookieToPortalPaths()
         {
             var js = FindStoredCookie("JSESSIONID");
-            if (js == null || string.IsNullOrWhiteSpace(js.Value))
-                return;
-            StampCookieOnPortalPaths("JSESSIONID", js.Value);
+            if (js != null && !string.IsNullOrWhiteSpace(js.Value))
+                PinJSessionId(js.Value);
+            else if (!string.IsNullOrWhiteSpace(_pinnedJSessionId))
+                StampCookieOnPortalPaths("JSESSIONID", _pinnedJSessionId);
+        }
+
+        private void PinJSessionId(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return;
+            _pinnedJSessionId = value.Trim();
+            RecordPortalCookie("JSESSIONID", _pinnedJSessionId);
+            StampCookieOnPortalPaths("JSESSIONID", _pinnedJSessionId);
+        }
+
+        private void CaptureJSessionIdFromMergedCookies()
+        {
+            var merged = SnapMergedPortalCookies();
+            if (merged.TryGetValue("JSESSIONID", out string js) && !string.IsNullOrWhiteSpace(js))
+                PinJSessionId(js);
         }
 
         private void FinalizePortalResponse(HttpResponseMessage response, Uri defaultUri)
         {
             if (response == null) return;
-            AbsorbSetCookieHeaders(response, defaultUri ?? PortalRootUri);
+            Uri uri = defaultUri ?? PortalRootUri;
+            AbsorbSetCookieHeaders(response, uri);
+            CaptureJSessionIdFromJar();
             LastPortalCookies = SnapMergedPortalCookies();
             MirrorAllPortalCookiesToStandardPaths();
+            CaptureJSessionIdFromMergedCookies();
+            SyncPortalCookieStoreFromJar();
+            WellRydePortalLog.HttpResponse(
+                uri.ToString(),
+                (int)response.StatusCode,
+                CollectSetCookieNames(response),
+                _portalCookieStore.Keys,
+                response.Headers.Location?.ToString());
+            WellRydePortalLog.CookieState("after " + uri.AbsolutePath, _portalCookieStore, null);
+        }
+
+        private static List<string> CollectSetCookieNames(HttpResponseMessage response)
+        {
+            var names = new List<string>();
+            if (response == null) return names;
+            void Scan(System.Net.Http.Headers.HttpHeaders headers)
+            {
+                if (headers == null || !headers.TryGetValues("Set-Cookie", out IEnumerable<string> values))
+                    return;
+                foreach (string header in values)
+                {
+                    int eq = header.IndexOf('=');
+                    if (eq > 0)
+                        names.Add(header.Substring(0, eq).Trim());
+                }
+            }
+            Scan(response.Headers);
+            if (response.Content != null)
+                Scan(response.Content.Headers);
+            return names;
+        }
+
+        private void CaptureJSessionIdFromJar()
+        {
+            foreach (var uri in PortalCookieMirrorUris)
+            {
+                foreach (Cookie c in _handler.CookieContainer.GetCookies(uri))
+                {
+                    if (string.Equals(c.Name, "JSESSIONID", StringComparison.OrdinalIgnoreCase)
+                        && !string.IsNullOrWhiteSpace(c.Value))
+                        PinJSessionId(c.Value);
+                }
+            }
         }
 
         private void AbsorbSetCookieHeaders(HttpResponseMessage response, Uri defaultUri)
         {
             if (response == null || defaultUri == null) return;
-            IEnumerable<string> setCookies = null;
-            if (response.Headers.TryGetValues("Set-Cookie", out setCookies))
+            int setCookieCount = AbsorbSetCookieFromHeaders(response.Headers, defaultUri);
+            if (response.Content != null)
+                setCookieCount += AbsorbSetCookieFromHeaders(response.Content.Headers, defaultUri);
+            if (setCookieCount > 0)
+                WellRydePortalLog.Info("SET-COOKIE", defaultUri.AbsolutePath + " absorbed " + setCookieCount + " header(s)");
+        }
+
+        private int AbsorbSetCookieFromHeaders(System.Net.Http.Headers.HttpHeaders headers, Uri defaultUri)
+        {
+            if (headers == null || !headers.TryGetValues("Set-Cookie", out IEnumerable<string> setCookies))
+                return 0;
+            int count = 0;
+            foreach (string header in setCookies)
             {
-                foreach (string header in setCookies)
-                    TryAddSetCookieHeader(header, defaultUri);
+                count++;
+                TryAddSetCookieHeader(header, defaultUri);
             }
+            return count;
         }
 
         private void TryAddSetCookieHeader(string setCookieHeader, Uri defaultUri)
@@ -741,9 +995,30 @@ namespace Hiatme_Tool_Suite_v3
             if (string.IsNullOrWhiteSpace(setCookieHeader)) return;
             try
             {
+                _handler.CookieContainer.SetCookies(defaultUri, setCookieHeader);
+            }
+            catch
+            {
+                // ignore — fall back to manual parse
+            }
+
+            try
+            {
                 var cookie = ParseSetCookieHeader(setCookieHeader, defaultUri);
                 if (cookie != null)
-                    _handler.CookieContainer.Add(defaultUri, cookie);
+                {
+                    RecordPortalCookie(cookie.Name, cookie.Value);
+                    try
+                    {
+                        _handler.CookieContainer.Add(defaultUri, cookie);
+                    }
+                    catch
+                    {
+                        // duplicate path — store still has the value
+                    }
+                    if (string.Equals(cookie.Name, "JSESSIONID", StringComparison.OrdinalIgnoreCase))
+                        PinJSessionId(cookie.Value);
+                }
             }
             catch
             {
@@ -893,7 +1168,8 @@ namespace Hiatme_Tool_Suite_v3
                     request.Headers.TryAddWithoutValidation("Sec-Fetch-Mode", "cors");
                     request.Headers.TryAddWithoutValidation("Sec-Fetch-Dest", "empty");
                     request.Headers.TryAddWithoutValidation("Priority", "u=1, i");
-                    ApplyPortalCookieHeader(request);
+                    ApplyAjaxCsrfHeaders(request, csrf);
+                    ApplyPortalApiCookieHeader(request);
 
                     response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
                         .ConfigureAwait(false);
@@ -923,6 +1199,9 @@ namespace Hiatme_Tool_Suite_v3
             if ((int)statusCode < 200 || (int)statusCode >= 300)
                 return WellRydePortalFilterDataResult.Fail(statusCode, "HTTP " + (int)statusCode + " from filterdata.", body);
 
+            if (ResponseBodyLooksLikeHtml(body))
+                return FailHtmlInsteadOfJson(statusCode, FilterDataUri.ToString(), body);
+
             LastTripFilterDataJson = body;
             return WellRydePortalFilterDataResult.Ok(statusCode, body);
         }
@@ -949,15 +1228,13 @@ namespace Hiatme_Tool_Suite_v3
             string maxResultsStr = maxResults.ToString(CultureInfo.InvariantCulture);
             string pageStr = page.ToString(CultureInfo.InvariantCulture);
 
-            if (string.IsNullOrEmpty(_lastPortalNuHtml))
-            {
-                var nu = await GetPortalNuAsync(cancellationToken).ConfigureAwait(false);
-                if (!nu.IsSuccess)
-                    return WellRydePortalFilterDataResult.Fail(nu.StatusCode,
-                        nu.ErrorMessage ?? "GET /portal/nu required before filterdata.");
-            }
+            var nu = await GetPortalNuAsync(cancellationToken).ConfigureAwait(false);
+            if (!nu.IsSuccess)
+                return WellRydePortalFilterDataResult.Fail(nu.StatusCode,
+                    nu.ErrorMessage ?? "GET /portal/nu required before filterdata.");
 
             string csrf = ResolveAjaxCsrfToken();
+            WellRydePortalLog.Info("FILTERDATA", "users filterdata POST csrfLen=" + (csrf?.Length ?? 0));
             if (string.IsNullOrEmpty(csrf))
                 return WellRydePortalFilterDataResult.Fail(null,
                     "Could not find _csrf for users filterdata. Sign in and load /portal/nu again.");
@@ -1004,7 +1281,8 @@ namespace Hiatme_Tool_Suite_v3
                     request.Headers.TryAddWithoutValidation("Sec-Fetch-Mode", "cors");
                     request.Headers.TryAddWithoutValidation("Sec-Fetch-Dest", "empty");
                     request.Headers.TryAddWithoutValidation("Priority", "u=1, i");
-                    ApplyPortalCookieHeader(request);
+                    ApplyAjaxCsrfHeaders(request, csrf);
+                    ApplyPortalApiCookieHeader(request);
 
                     response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
                         .ConfigureAwait(false);
@@ -1030,16 +1308,30 @@ namespace Hiatme_Tool_Suite_v3
             var statusCode = response.StatusCode;
             FinalizePortalResponse(response, FilterDataUri);
             response.Dispose();
+            string bodyPrefix = string.IsNullOrEmpty(body) ? "" : body.TrimStart().Substring(0, Math.Min(40, body.TrimStart().Length));
+            WellRydePortalLog.Info("FILTERDATA",
+                "users filterdata -> " + (int)statusCode + " html=" + (ResponseBodyLooksLikeHtml(body) ? "yes" : "no")
+                + " body=" + bodyPrefix);
 
             if ((int)statusCode < 200 || (int)statusCode >= 300)
                 return WellRydePortalFilterDataResult.Fail(statusCode,
                     "HTTP " + (int)statusCode + " from users filterdata.", body);
 
+            if (ResponseBodyLooksLikeHtml(body))
+                return FailHtmlInsteadOfJson(statusCode, FilterDataUri.ToString(), body);
+
             return WellRydePortalFilterDataResult.Ok(statusCode, body);
         }
 
-        /// <summary>
-        /// GET <c>/portal/users/{secId}</c> (HTML detail page for one user). Caller hands the body
+        private List<string> CookieNamesForLog()
+        {
+            var names = new List<string>();
+            foreach (var kv in SnapMergedPortalCookies())
+                names.Add(kv.Key);
+            return names;
+        }
+
+        /// <summary>GET <c>/portal/users/{secId}</c> (HTML detail page for one user). Caller hands the body
         /// to <see cref="WellRydeUserParser.ParseUserDetail"/>. We surface the raw HTML rather
         /// than parsing here so the network and parsing concerns stay separable / testable.
         /// </summary>
@@ -1071,7 +1363,7 @@ namespace Hiatme_Tool_Suite_v3
                     request.Headers.TryAddWithoutValidation("Sec-Fetch-Site", "same-origin");
                     request.Headers.TryAddWithoutValidation("Sec-Fetch-Mode", "cors");
                     request.Headers.TryAddWithoutValidation("Sec-Fetch-Dest", "empty");
-                    ApplyPortalCookieHeader(request);
+                    ApplyPortalApiCookieHeader(request);
 
                     response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
                         .ConfigureAwait(false);
@@ -1136,14 +1428,14 @@ namespace Hiatme_Tool_Suite_v3
             return c == '<';
         }
 
-        private string DescribePortalSessionCookies()
+        private string DescribePortalSessionCookies() =>
+            " (SESSION=" + (HasSessionCookie() ? "yes" : "no") + ")";
+
+        private static void ApplyAjaxCsrfHeaders(HttpRequestMessage request, string csrf)
         {
-            bool session = HasSessionCookie();
-            bool jsessionStored = FindStoredCookie("JSESSIONID") != null;
-            bool jsessionSent = CookieJarSendsJSessionIdTo(PortalUsersBaseUri);
-            return " (cookies: SESSION=" + (session ? "yes" : "no")
-                + ", JSESSIONID stored=" + (jsessionStored ? "yes" : "no")
-                + ", JSESSIONID sent to users API=" + (jsessionSent ? "yes" : "no") + ")";
+            if (request == null || string.IsNullOrEmpty(csrf))
+                return;
+            request.Headers.TryAddWithoutValidation("X-XSRF-TOKEN", csrf);
         }
 
         private static void SetRequestAccept(HttpRequestMessage request, string acceptHeaderValue)
@@ -1173,14 +1465,20 @@ namespace Hiatme_Tool_Suite_v3
             if (!string.IsNullOrWhiteSpace(body))
             {
                 var lower = body.ToLowerInvariant();
-                if (lower.Contains("j_spring_security_check") || lower.Contains("j_password"))
+                if (lower.StartsWith("<?xml", StringComparison.Ordinal))
+                    hint = "WellRyde rejected the API call (XML error — sign in again)";
+                else if (lower.Contains("j_spring_security_check") || lower.Contains("j_password"))
                     hint = "WellRyde session expired (login page)";
                 else if (lower.Contains("access denied") || lower.Contains("forbidden"))
                     hint = "WellRyde denied access to this user";
+                else if (lower.Contains("invalid csrf") || lower.Contains("csrf"))
+                    hint = "WellRyde CSRF token rejected — sign in again from the Login bar";
             }
+            WellRydePortalLog.Error("SAVE", hint + " for " + requestUrl + DescribePortalSessionCookies());
             return WellRydePortalFilterDataResult.Fail(statusCode,
-                hint + " for GET " + requestUrl + DescribePortalSessionCookies()
-                + ". Log out, use Login → WellRyde, then save again.",
+                hint + " for " + requestUrl + DescribePortalSessionCookies()
+                + ". Log out, use Login → WellRyde, then save again."
+                + WellRydePortalLog.UserHintSuffix(),
                 body);
         }
 
@@ -1194,7 +1492,7 @@ namespace Hiatme_Tool_Suite_v3
                 return WellRydePortalFilterDataResult.Fail(null, "A valid WellRyde SEC- id is required.");
 
             var form = await TryFetchUserEditFormJsonAsync(secId, cancellationToken).ConfigureAwait(false);
-            if (form.IsSuccess && !ResponseBodyLooksLikeHtml(form.JsonBody))
+            if (form.IsSuccess && HasUsableUserEditFormPayload(form.JsonBody))
                 return form;
 
             var warm = await EnsureUsersAdminSessionAsync(cancellationToken).ConfigureAwait(false);
@@ -1215,13 +1513,20 @@ namespace Hiatme_Tool_Suite_v3
             if (secId.Length == 0)
                 return WellRydeUserEditContextResult.Fail(null, "A valid WellRyde SEC- id is required.");
 
-            var cookieErr = await EnsurePortalSessionCookiesForApiAsync(cancellationToken).ConfigureAwait(false);
-            if (cookieErr != null)
-                return WellRydeUserEditContextResult.Fail(null, cookieErr);
+            if (!HasSessionCookie())
+                return WellRydeUserEditContextResult.Fail(null,
+                    "WellRyde sign-in required — use Login → WellRyde.");
 
-            // Browser opens the users grid (filterdata) before loading ?form.
-            await PostUsersFilterDataAsync(page: 1, maxResults: 1, cancellationToken: cancellationToken)
-                .ConfigureAwait(false);
+            if (string.IsNullOrEmpty(_lastPortalNuHtml) || !IsPortalNuPageAuthenticated())
+            {
+                var nu = await GetPortalNuAsync(cancellationToken).ConfigureAwait(false);
+                if (!nu.IsSuccess)
+                    return WellRydeUserEditContextResult.Fail(nu.StatusCode,
+                        nu.ErrorMessage ?? "Could not load /portal/nu.");
+            }
+
+            // Browser edit flow: GET user page, ?form, roles/companies — not the users-grid filterdata POST.
+            await PrimeUserEditSessionAsync(secId, cancellationToken).ConfigureAwait(false);
 
             var form = await GetUserEditFormJsonAsync(secId, cancellationToken).ConfigureAwait(false);
             if (!form.IsSuccess || string.IsNullOrWhiteSpace(form.JsonBody))
@@ -1267,7 +1572,7 @@ namespace Hiatme_Tool_Suite_v3
                     request.Headers.TryAddWithoutValidation("Sec-Fetch-Mode", "cors");
                     request.Headers.TryAddWithoutValidation("Sec-Fetch-Dest", "empty");
                     request.Headers.TryAddWithoutValidation("Priority", "u=1, i");
-                    ApplyPortalCookieHeader(request);
+                    ApplyPortalApiCookieHeader(request);
 
                     response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
                         .ConfigureAwait(false);
@@ -1310,15 +1615,15 @@ namespace Hiatme_Tool_Suite_v3
         {
             var withForm = await FetchUserEditFormJsonOnceAsync(secId, withFormQuery: true, cancellationToken)
                 .ConfigureAwait(false);
-            if (withForm.IsSuccess && !ResponseBodyLooksLikeHtml(withForm.JsonBody))
+            if (withForm.IsSuccess && HasUsableUserEditFormPayload(withForm.JsonBody))
                 return withForm;
 
             var plain = await FetchUserEditFormJsonOnceAsync(secId, withFormQuery: false, cancellationToken)
                 .ConfigureAwait(false);
-            if (plain.IsSuccess && !ResponseBodyLooksLikeHtml(plain.JsonBody))
+            if (plain.IsSuccess && HasUsableUserEditFormPayload(plain.JsonBody))
                 return plain;
 
-            return ResponseBodyLooksLikeHtml(withForm.JsonBody) ? withForm : plain;
+            return withForm.IsSuccess ? withForm : plain;
         }
 
         private async Task<WellRydePortalFilterDataResult> FetchUserEditFormJsonOnceAsync(
@@ -1336,23 +1641,20 @@ namespace Hiatme_Tool_Suite_v3
                         nu.ErrorMessage ?? "GET /portal/nu required before user edit form.");
             }
 
-            var sessionErr = await EnsurePortalSessionCookiesForApiAsync(cancellationToken).ConfigureAwait(false);
-            if (sessionErr != null)
-                return WellRydePortalFilterDataResult.Fail(null, sessionErr);
+            PromoteJSessionCookieToPortalPaths();
+            MirrorAllPortalCookiesToStandardPaths();
 
             var first = await FetchUserEditFormJsonHttpAsync(uri, cancellationToken).ConfigureAwait(false);
-            if (first.IsSuccess && !ResponseBodyLooksLikeHtml(first.JsonBody))
+            if (first.IsSuccess && HasUsableUserEditFormPayload(first.JsonBody))
                 return first;
 
-            if (ResponseBodyLooksLikeHtml(first.JsonBody))
+            if (first.IsSuccess && ResponseBodyLooksLikeHtml(first.JsonBody)
+                && !WellRydeUserEditFormHtmlParser.IsUserEditFormHtml(first.JsonBody))
             {
-                await TryAcquireJSessionIdForUsersApiAsync(cancellationToken).ConfigureAwait(false);
-                MirrorAllPortalCookiesToStandardPaths();
+                await GetPortalNuAsync(cancellationToken).ConfigureAwait(false);
                 var retry = await FetchUserEditFormJsonHttpAsync(uri, cancellationToken).ConfigureAwait(false);
-                if (retry.IsSuccess && !ResponseBodyLooksLikeHtml(retry.JsonBody))
+                if (retry.IsSuccess && HasUsableUserEditFormPayload(retry.JsonBody))
                     return retry;
-                if (ResponseBodyLooksLikeHtml(retry.JsonBody))
-                    return FailHtmlInsteadOfJson(retry.StatusCode, uri.ToString(), retry.JsonBody);
                 return retry;
             }
 
@@ -1374,7 +1676,7 @@ namespace Hiatme_Tool_Suite_v3
                     request.Headers.TryAddWithoutValidation("Sec-Fetch-Mode", "cors");
                     request.Headers.TryAddWithoutValidation("Sec-Fetch-Dest", "empty");
                     request.Headers.TryAddWithoutValidation("Priority", "u=1, i");
-                    ApplyPortalCookieHeader(request);
+                    ApplyPortalApiCookieHeader(request);
 
                     response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
                         .ConfigureAwait(false);
@@ -1401,14 +1703,79 @@ namespace Hiatme_Tool_Suite_v3
             FinalizePortalResponse(response, uri);
             response.Dispose();
 
+            WellRydePortalLog.Info("USER-FORM",
+                uri.AbsolutePath + " -> " + (int)statusCode
+                + " html=" + (ResponseBodyLooksLikeHtml(body) ? "yes" : "no")
+                + " editForm=" + (WellRydeUserEditFormHtmlParser.IsUserEditFormHtml(body) ? "yes" : "no"));
+
             if ((int)statusCode < 200 || (int)statusCode >= 300)
                 return WellRydePortalFilterDataResult.Fail(statusCode,
                     "HTTP " + (int)statusCode + " from user edit form.", body);
 
+            return NormalizeUserEditFormBody(statusCode, uri.ToString(), body);
+        }
+
+        /// <summary>Browser <c>?form</c> returns HTML with <c>form#user</c>; convert to JSON for the save pipeline.</summary>
+        private WellRydePortalFilterDataResult NormalizeUserEditFormBody(
+            HttpStatusCode statusCode,
+            string requestUrl,
+            string body)
+        {
+            if (WellRydeUserEditFormHtmlParser.IsUserEditFormHtml(body))
+            {
+                string json = WellRydeUserEditFormHtmlParser.ToFormJson(body);
+                if (!string.IsNullOrWhiteSpace(json) && json.StartsWith("{"))
+                    return WellRydePortalFilterDataResult.Ok(statusCode, json);
+            }
+
             if (ResponseBodyLooksLikeHtml(body))
-                return FailHtmlInsteadOfJson(statusCode, uri.ToString(), body);
+                return FailHtmlInsteadOfJson(statusCode, requestUrl, body);
 
             return WellRydePortalFilterDataResult.Ok(statusCode, body);
+        }
+
+        private static bool HasUsableUserEditFormPayload(string body) =>
+            !string.IsNullOrWhiteSpace(body)
+            && !PortalHtmlIndicatesLoginPage(body)
+            && (!ResponseBodyLooksLikeHtml(body) || WellRydeUserEditFormHtmlParser.IsUserEditFormHtml(body));
+
+        /// <summary>Browser GET <c>/portal/users/{sec}</c> (no ?form) before opening the edit form.</summary>
+        private async Task PrimeUserEditSessionAsync(string secId, CancellationToken cancellationToken)
+        {
+            var summaryUri = BuildUserDetailUri(secId);
+            HttpResponseMessage response = null;
+            try
+            {
+                using (var request = new HttpRequestMessage(HttpMethod.Get, summaryUri))
+                {
+                    SetRequestAccept(request, "application/json, text/plain, */*");
+                    request.Headers.TryAddWithoutValidation("Referer", PortalNuUri.ToString());
+                    request.Headers.TryAddWithoutValidation("Sec-Fetch-Site", "same-origin");
+                    request.Headers.TryAddWithoutValidation("Sec-Fetch-Mode", "cors");
+                    request.Headers.TryAddWithoutValidation("Sec-Fetch-Dest", "empty");
+                    request.Headers.TryAddWithoutValidation("Priority", "u=1, i");
+                    ApplyPortalApiCookieHeader(request);
+
+                    response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+            }
+            catch
+            {
+                return;
+            }
+
+            try
+            {
+                await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            }
+            catch
+            {
+                // ignore
+            }
+
+            FinalizePortalResponse(response, summaryUri);
+            response.Dispose();
         }
 
         /// <summary>POST <c>/portal/users/nuUpdateUser</c> (multipart) — Supey driver home address sync.</summary>
@@ -1438,7 +1805,8 @@ namespace Hiatme_Tool_Suite_v3
                     multipart.Add(new StringContent(kv.Value ?? ""), kv.Key);
                 }
 
-                multipart.Add(new ByteArrayContent(Array.Empty<byte>()), "userProfilePicture", "");
+                // Browser sends an empty file part; .NET requires a non-empty fileName.
+                multipart.Add(new ByteArrayContent(Array.Empty<byte>()), "userProfilePicture", "profile.png");
 
                 HttpResponseMessage response = null;
                 try
@@ -1453,7 +1821,7 @@ namespace Hiatme_Tool_Suite_v3
                         request.Headers.TryAddWithoutValidation("Sec-Fetch-Site", "same-origin");
                         request.Headers.TryAddWithoutValidation("Sec-Fetch-Mode", "cors");
                         request.Headers.TryAddWithoutValidation("Sec-Fetch-Dest", "empty");
-                        ApplyPortalCookieHeader(request);
+                        ApplyPortalApiCookieHeader(request);
 
                         response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
                             .ConfigureAwait(false);
@@ -1479,6 +1847,11 @@ namespace Hiatme_Tool_Suite_v3
                 var statusCode = response.StatusCode;
                 FinalizePortalResponse(response, NuUpdateUserUri);
                 response.Dispose();
+
+                string bodyNote = string.IsNullOrEmpty(body) ? "" : body.Trim();
+                if (bodyNote.Length > 120)
+                    bodyNote = bodyNote.Substring(0, 120) + "…";
+                WellRydePortalLog.Info("NUUPDATE", "nuUpdateUser -> " + (int)statusCode + " body=" + bodyNote);
 
                 if ((int)statusCode < 200 || (int)statusCode >= 300)
                     return WellRydePortalSaveBillResult.Fail(statusCode,
@@ -1530,7 +1903,7 @@ namespace Hiatme_Tool_Suite_v3
                     request.Headers.TryAddWithoutValidation("Sec-Fetch-Mode", "cors");
                     request.Headers.TryAddWithoutValidation("Sec-Fetch-Dest", "empty");
                     request.Headers.TryAddWithoutValidation("Priority", "u=0, i");
-                    ApplyPortalCookieHeader(request);
+                    ApplyPortalApiCookieHeader(request);
 
                     response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
                         .ConfigureAwait(false);
@@ -1585,7 +1958,7 @@ namespace Hiatme_Tool_Suite_v3
                     request.Headers.TryAddWithoutValidation("Sec-Fetch-Site", "same-origin");
                     request.Headers.TryAddWithoutValidation("Sec-Fetch-Mode", "cors");
                     request.Headers.TryAddWithoutValidation("Sec-Fetch-Dest", "empty");
-                    ApplyPortalCookieHeader(request);
+                    ApplyPortalApiCookieHeader(request);
 
                     response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
                         .ConfigureAwait(false);
@@ -1736,7 +2109,7 @@ namespace Hiatme_Tool_Suite_v3
                     request.Headers.TryAddWithoutValidation("Sec-Fetch-Site", "same-origin");
                     request.Headers.TryAddWithoutValidation("Sec-Fetch-Mode", "cors");
                     request.Headers.TryAddWithoutValidation("Sec-Fetch-Dest", "empty");
-                    ApplyPortalCookieHeader(request);
+                    ApplyPortalApiCookieHeader(request);
 
                     response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
                         .ConfigureAwait(false);
@@ -1810,7 +2183,7 @@ namespace Hiatme_Tool_Suite_v3
                     request.Headers.TryAddWithoutValidation("Sec-Fetch-Mode", "cors");
                     request.Headers.TryAddWithoutValidation("Sec-Fetch-Dest", "empty");
                     request.Headers.TryAddWithoutValidation("Priority", "u=1, i");
-                    ApplyPortalCookieHeader(request);
+                    ApplyPortalApiCookieHeader(request);
 
                     response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
                         .ConfigureAwait(false);
@@ -2026,6 +2399,8 @@ namespace Hiatme_Tool_Suite_v3
             _disposed = true;
             _lastBootstrapHtml = null;
             _lastPortalNuHtml = null;
+            _pinnedJSessionId = null;
+            _portalCookieStore.Clear();
             LastTripFilterDataJson = null;
             _client.Dispose();
             _handler.Dispose();

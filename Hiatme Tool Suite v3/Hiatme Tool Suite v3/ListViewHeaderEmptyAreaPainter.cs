@@ -63,12 +63,10 @@ namespace Hiatme_Tool_Suite_v3
         {
             base.WndProc(ref m);
             if (m.Msg == WM_PAINT)
-            {
-                PaintEmptyArea();
-            }
+                PaintEmptyAreaBuffered();
         }
 
-        private void PaintEmptyArea()
+        private void PaintEmptyAreaBuffered()
         {
             try
             {
@@ -77,22 +75,22 @@ namespace Hiatme_Tool_Suite_v3
 
                 int totalColumns = 0;
                 foreach (ColumnHeader col in _lv.Columns)
-                {
                     totalColumns += col.Width;
-                }
 
                 int clientWidth = clientRect.right - clientRect.left;
                 if (totalColumns >= clientWidth) return;
 
-                using (Graphics g = Graphics.FromHwnd(Handle))
+                int emptyW = clientWidth - totalColumns;
+                int emptyH = clientRect.bottom - clientRect.top;
+                if (emptyW <= 0 || emptyH <= 0) return;
+
+                using (var bmp = new Bitmap(emptyW, emptyH))
+                using (var mem = Graphics.FromImage(bmp))
                 using (var brush = new SolidBrush(HeaderBackground))
+                using (var screen = Graphics.FromHwnd(Handle))
                 {
-                    var empty = new Rectangle(
-                        totalColumns,
-                        clientRect.top,
-                        clientWidth - totalColumns,
-                        clientRect.bottom - clientRect.top);
-                    g.FillRectangle(brush, empty);
+                    mem.FillRectangle(brush, 0, 0, emptyW, emptyH);
+                    screen.DrawImage(bmp, totalColumns, clientRect.top);
                 }
             }
             catch

@@ -45,16 +45,16 @@ namespace Hiatme_Tool_Suite_v3
         /// </summary>
         public DateTime? WellRydeSyncedAtUtc { get; set; }
 
-        /// <summary>Hard passenger ceiling at any moment in the day (sedan ~4, van ~6–8).</summary>
+        /// <summary>Local Supey only — not on WellRyde user profile. Never overwritten by Pull/BUILD refresh.</summary>
         public int CapacityPassengers { get; set; } = 4;
 
-        /// <summary>Cosmetic — display only. Empty is fine.</summary>
+        /// <summary>From WellRyde on pull/refresh; manual drivers may type in the editor.</summary>
         public string VehicleLabel { get; set; } = "";
 
-        /// <summary>"HH:mm" 24-hour. Empty means "no shift start floor".</summary>
+        /// <summary>Local Supey only — working window for the solver. Not from WellRyde.</summary>
         public string ShiftStart { get; set; } = "06:00";
 
-        /// <summary>"HH:mm" 24-hour. Empty means "no shift end ceiling".</summary>
+        /// <summary>Local Supey only — working window for the solver. Not from WellRyde.</summary>
         public string ShiftEnd { get; set; } = "18:00";
 
         /// <summary>One-line "123 Main St, Dayton OH 45402" used for display + geocode lookups.</summary>

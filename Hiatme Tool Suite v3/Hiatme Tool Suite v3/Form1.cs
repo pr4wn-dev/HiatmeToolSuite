@@ -1522,6 +1522,7 @@ namespace Hiatme_Tool_Suite_v3
         /// <returns><c>null</c> on success; otherwise an error message for the user.</returns>
         private async Task<string> TryWellRydePortalHttpLoginAsync(string companycode, string username, string password)
         {
+            WellRydePortalLog.Info("LOGIN", "TryWellRydePortalHttpLoginAsync start (company=" + (companycode ?? "") + ")");
             await SetLoadingGifLabel("Checking connections");
             _wellRydeSession?.Dispose();
             _wellRydeSession = new WellRydePortalSession();
@@ -1534,7 +1535,8 @@ namespace Hiatme_Tool_Suite_v3
             {
                 _wellRydeSession.Dispose();
                 _wellRydeSession = null;
-                return "WellRyde portal request failed: " + ex.Message;
+                WellRydePortalLog.Error("LOGIN", "bootstrap failed", ex);
+                return "WellRyde portal request failed: " + ex.Message + WellRydePortalLog.UserHintSuffix();
             }
             if (!wrBoot.IsSuccess)
             {
@@ -1543,7 +1545,8 @@ namespace Hiatme_Tool_Suite_v3
                 var prefix = wrBoot.StatusCode.HasValue
                     ? "HTTP " + (int)wrBoot.StatusCode.Value + " — "
                     : "";
-                return prefix + (wrBoot.ErrorMessage ?? "Could not load portal.");
+                WellRydePortalLog.Error("LOGIN", "bootstrap HTTP failed: " + (wrBoot.ErrorMessage ?? ""));
+                return prefix + (wrBoot.ErrorMessage ?? "Could not load portal.") + WellRydePortalLog.UserHintSuffix();
             }
             await SetLoadingGifLabel("Signing in to WellRyde");
             WellRydePortalLoginResult wrLogin;
@@ -1589,14 +1592,7 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             _wellRydeSession.SyncSnapshotCookiesIntoJar();
-            try
-            {
-                await _wellRydeSession.WarmPortalSessionCookiesAsync().ConfigureAwait(true);
-            }
-            catch
-            {
-                // JSESSIONID for user save is best-effort here; save will retry acquisition.
-            }
+            WellRydePortalLog.Info("LOGIN", "TryWellRydePortalHttpLoginAsync OK");
             return null;
         }
 
@@ -1791,7 +1787,7 @@ namespace Hiatme_Tool_Suite_v3
                 try
                 {
                     var nu = await _wellRydeSession.GetPortalNuAsync().ConfigureAwait(true);
-                    nuOk = nu.IsSuccess;
+                    nuOk = nu.IsSuccess && _wellRydeSession.IsPortalNuPageAuthenticated();
                 }
                 catch
                 {
@@ -1834,11 +1830,10 @@ namespace Hiatme_Tool_Suite_v3
                 try
                 {
                     var nu = await _wellRydeSession.GetPortalNuAsync().ConfigureAwait(true);
-                    if (nu.IsSuccess)
-                    {
-                        await _wellRydeSession.WarmPortalSessionCookiesAsync().ConfigureAwait(true);
+                    if (nu.IsSuccess && _wellRydeSession.IsPortalNuPageAuthenticated()
+                        && _wellRydeSession.HasPortalSessionCookie())
                         return true;
-                    }
+                    InvalidateWellRydePortalSession();
                 }
                 catch
                 {
@@ -1851,12 +1846,20 @@ namespace Hiatme_Tool_Suite_v3
             {
                 SetSupeyStatus("Signing in to WellRyde…");
                 string autoErr = await TryWellRydePortalHttpLoginAsync(cc, user, pass).ConfigureAwait(true);
-                if (autoErr == null)
+                if (autoErr == null && _wellRydeSession != null
+                    && _wellRydeSession.HasPortalSessionCookie()
+                    && _wellRydeSession.IsPortalNuPageAuthenticated())
+                {
+                    _wellRydePanelSessionActive = true;
+                    return true;
+                }
+                else if (autoErr == null)
                 {
                     _wellRydePanelSessionActive = true;
                     return true;
                 }
                 SetSupeyStatus("WellRyde auto sign-in failed — " + autoErr);
+                WellRydePortalLog.CopyErrorReport("WellRyde auto sign-in failed: " + autoErr);
             }
 
             var dr = MessageBox.Show(this,
@@ -1893,7 +1896,7 @@ namespace Hiatme_Tool_Suite_v3
                 .ConfigureAwait(true);
             if (err != null)
             {
-                MessageBox.Show(this, err, "WellRyde sign-in failed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                WellRydePortalLog.ShowError(this, "WellRyde sign-in failed", err);
                 return false;
             }
 

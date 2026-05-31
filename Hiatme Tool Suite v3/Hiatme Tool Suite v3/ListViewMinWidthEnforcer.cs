@@ -30,6 +30,8 @@ namespace Hiatme_Tool_Suite_v3
         private static readonly Dictionary<ListView, Dictionary<int, int>> _columnCeilings
             = new Dictionary<ListView, Dictionary<int, int>>();
 
+        private static readonly HashSet<ListView> _applyingColumnWidths = new HashSet<ListView>();
+
         private static EventHandler _idleHandler;
         private static bool _idleRegistered;
         private static DateTime _lastIdlePassUtc = DateTime.MinValue;
@@ -40,6 +42,10 @@ namespace Hiatme_Tool_Suite_v3
         private bool _contentAutoFit = true;
         private int _contentSignature;
         private Timer _debounceTimer;
+
+        /// <summary>True while auto-fit is assigning every column width in one batch (suppress per-column repaints).</summary>
+        internal static bool IsApplyingColumnWidths(ListView lv) =>
+            lv != null && _applyingColumnWidths.Contains(lv);
 
         private ListViewMinWidthEnforcer(ListView lv)
         {
@@ -237,20 +243,29 @@ namespace Hiatme_Tool_Suite_v3
                 _contentSignature = ComputeContentSignature();
 
                 _isRecomputing = true;
+                _applyingColumnWidths.Add(_lv);
+                SupeyListViewHelpers.SetRedraw(_lv, false);
                 _lv.BeginUpdate();
                 try
                 {
                     for (int i = 0; i < colCount && i < _lv.Columns.Count; i++)
-                        _lv.Columns[i].Width = widths[i];
+                    {
+                        if (_lv.Columns[i].Width != widths[i])
+                            _lv.Columns[i].Width = widths[i];
+                    }
                 }
                 finally
                 {
                     _lv.EndUpdate();
+                    _applyingColumnWidths.Remove(_lv);
+                    SupeyListViewHelpers.SetRedraw(_lv, true, invalidate: true);
                     _isRecomputing = false;
                 }
             }
             catch
             {
+                _applyingColumnWidths.Remove(_lv);
+                SupeyListViewHelpers.SetRedraw(_lv, true, invalidate: true);
                 _isRecomputing = false;
             }
         }
