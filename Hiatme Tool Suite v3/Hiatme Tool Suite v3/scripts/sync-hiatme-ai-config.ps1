@@ -1,7 +1,7 @@
 # Writes hiatme_ai.defaults.json (+ optional hiatme_ai.json) from AIagent .env token.
 # Run after pull or when HIATME_API_TOKEN changes. Safe to re-run.
 param(
-    [string]$OfficePanelUrl = $(if ($env:HIATME_OFFICE_PANEL_URL) { $env:HIATME_OFFICE_PANEL_URL } else { "http://192.168.1.50:8787" }),
+    [string]$OfficePanelUrl = $(if ($env:HIATME_OFFICE_PANEL_URL) { $env:HIATME_OFFICE_PANEL_URL } else { "http://192.168.1.23:8787" }),
     [string]$LocalPanelUrl = "http://127.0.0.1:8787",
     [switch]$SkipPersonal
 )

@@ -39,6 +39,18 @@ namespace Hiatme_Tool_Suite_v3
         public List<SupeyTemplateSlot> TemplateDisplaySlots { get; set; }
 
         /// <summary>
+        /// When true, trip list / map use <see cref="Groups"/> in chronological order after post-build,
+        /// not raw CSV <see cref="TemplateDisplaySlots"/> walk order (which scrambles server-finished groups).
+        /// </summary>
+        public bool PreferChronologicalGroupPreview { get; set; } = true;
+
+        /// <summary>
+        /// Leading groups built from weekday CSV slots (slot order). Post-build keeps these fixed;
+        /// only groups after this index are reordered from driver home / corridor.
+        /// </summary>
+        public int TemplateSeedGroupCount { get; set; }
+
+        /// <summary>
         /// Connectors before / between / after groups. Always one more than <c>Groups.Count</c>
         /// when populated: <c>Home→g[0]</c>, <c>g[i].end→g[i+1].start</c> for each pair, and
         /// <c>g[last].end→Home</c>. Empty when no groups are assigned.

@@ -524,14 +524,14 @@ namespace Hiatme_Tool_Suite_v3
             AppendSupeyAiTranscript(role + " · thinking", "…");
         }
 
-        private void ApplySupeyAiSchedule(HiatmeAiBuildResponse aiResp, string transcriptRole)
+        private void ApplySupeyAiSchedule(HiatmeAiBuildResponse aiResp, string transcriptRole, bool hydrateMap = true)
         {
-            ApplySupeyAiSchedule(aiResp?.Schedule, aiResp?.Message, aiResp?.Thinking, transcriptRole);
+            ApplySupeyAiSchedule(aiResp?.Schedule, aiResp?.Message, aiResp?.Thinking, transcriptRole, hydrateMap);
         }
 
-        private void ApplySupeyAiSchedule(HiatmeAiScheduleBody schedule, string message, string transcriptRole)
+        private void ApplySupeyAiSchedule(HiatmeAiScheduleBody schedule, string message, string transcriptRole, bool hydrateMap = true)
         {
-            ApplySupeyAiSchedule(schedule, message, null, transcriptRole);
+            ApplySupeyAiSchedule(schedule, message, null, transcriptRole, hydrateMap);
         }
 
         /// <summary>
@@ -542,7 +542,8 @@ namespace Hiatme_Tool_Suite_v3
             HiatmeAiScheduleBody schedule,
             string message,
             string thinking,
-            string transcriptRole)
+            string transcriptRole,
+            bool hydrateMap = true)
         {
             var selected = GetCheckedSupeyDrivers();
             var date = _supeyDatePicker.Value;
@@ -551,7 +552,8 @@ namespace Hiatme_Tool_Suite_v3
                 schedule, date, selected, _supeyLoadedTrips, message);
             int scheduled = HiatmeAiScheduleMapper.CountAssignedTrips(_supeyResult);
             BindSupeyPreview();
-            _ = HydrateSupeyGeocodeForMapAsync();
+            if (hydrateMap)
+                _ = HydrateSupeyGeocodeForMapAsync();
             var hints = new SupeyTemplateHints(date.DayOfWeek.ToString());
             _supeyLastTemplateCompare = SupeyTemplateCompare.Run(_supeyResult, hints);
             if (_supeyTemplateCompareLbl != null)
@@ -629,14 +631,24 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         /// <summary>WellRyde login name so the server AI knows who is at the desk.</summary>
-        private async Task HydrateSupeyGeocodeForMapAsync()
+        private async Task HydrateSupeyGeocodeForMapAsync(bool refreshMapPolylines = true)
         {
             if (_supeyResult == null) return;
             try
             {
-                SetSupeyStatus("Geocoding trips for map…");
-                await SupeyScheduleGeocoder.HydrateResultAsync(
-                    _supeyResult, _supeyAiCts?.Token ?? default).ConfigureAwait(true);
+                SetSupeyStatus(refreshMapPolylines
+                    ? "Geocoding trips for map…"
+                    : "Refreshing map pins…");
+                if (refreshMapPolylines)
+                {
+                    await SupeyScheduleGeocoder.HydrateResultAsync(
+                        _supeyResult, _supeyAiCts?.Token ?? default).ConfigureAwait(true);
+                }
+                else
+                {
+                    await SupeyScheduleGeocoder.HydratePlansOnlyAsync(
+                        _supeyResult, _supeyAiCts?.Token ?? default).ConfigureAwait(true);
+                }
                 BindSupeyPreview();
                 SetSupeyStatus("Map pins ready · click a trip to focus PU/DO.");
             }

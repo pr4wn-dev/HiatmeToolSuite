@@ -22,14 +22,23 @@ namespace Hiatme_Tool_Suite_v3
             sb.AppendLine("Service date: " + serviceDate.ToString("yyyy-MM-dd"));
             sb.AppendLine(SupeyBuildEngineLabel.Describe(buildEngine));
             AppendBuildOptions(sb, result);
+            int onScreen = HiatmeAiScheduleMapper.CountAssignedTrips(result);
+            int reserves = result.TotalReserveCount;
+            int loaded = tripsLoaded > 0 ? tripsLoaded : onScreen + reserves;
+
             if (stats != null)
             {
                 sb.AppendLine("Trips loaded: " + (tripsLoaded > 0 ? tripsLoaded.ToString() : "?"));
-                sb.AppendLine("On drivers: " + stats.TripsAssigned + " / " + stats.TripsTotal);
-                sb.AppendLine("In reserves: " + stats.ReservesCount);
-                int accounted = stats.TripsAssigned + stats.ReservesCount;
-                if (stats.TripsTotal > 0 && accounted != stats.TripsTotal)
-                    sb.AppendLine("Not on screen (geo/other): " + Math.Max(0, stats.TripsTotal - accounted));
+                sb.AppendLine("On drivers (screen): " + onScreen + " / " + loaded);
+                if (stats.TripsAssigned > 0 && stats.TripsAssigned != onScreen)
+                {
+                    sb.AppendLine("Server remainder placed: " + stats.TripsAssigned + " / "
+                        + stats.TripsTotal + " (template locks merged after)");
+                }
+                sb.AppendLine("In reserves: " + reserves);
+                int accounted = onScreen + reserves;
+                if (loaded > 0 && accounted != loaded)
+                    sb.AppendLine("Not on screen (geo/other): " + Math.Max(0, loaded - accounted));
                 sb.AppendLine("Missing PU+DO geocode: " + stats.NoGeoCount);
                 sb.AppendLine("Groups unplaced (had geo): " + stats.UnassignedGroupsCount);
                 sb.AppendLine("Ride-share groups formed: " + stats.ClusterCount);
@@ -106,6 +115,18 @@ namespace Hiatme_Tool_Suite_v3
             }
             if (seen.Count == 0)
                 sb.AppendLine("(no drivers in roster)");
+            int noRoad = 0;
+            if (result?.DriverPlans != null)
+            {
+                foreach (var p in result.DriverPlans)
+                {
+                    if (p?.Groups == null || p.Groups.Count == 0) continue;
+                    if (p.TotalDriveSeconds <= 0 || p.TotalMeters < 500) noRoad++;
+                }
+            }
+            if (noRoad > 0)
+                sb.AppendLine("Drivers without post-build road miles: " + noRoad
+                    + " (release/drive column —) — see Post-build warnings.");
             sb.AppendLine();
         }
 
@@ -240,9 +261,11 @@ namespace Hiatme_Tool_Suite_v3
         private static List<WarningEntry> CollectWarnings(SupeyScheduleResult result)
         {
             var list = new List<WarningEntry>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var w in result.BuildWarnings)
             {
                 if (w == null) continue;
+                if (!seen.Add(WarningDedupeKey(w))) continue;
                 string scope = string.IsNullOrWhiteSpace(w.DriverName) ? "Build" : w.DriverName;
                 list.Add(new WarningEntry(w, scope));
             }
@@ -252,11 +275,16 @@ namespace Hiatme_Tool_Suite_v3
                 if (p.Warnings == null) continue;
                 foreach (var w in p.Warnings)
                 {
-                    if (w != null) list.Add(new WarningEntry(w, name));
+                    if (w == null) continue;
+                    if (!seen.Add(WarningDedupeKey(w))) continue;
+                    list.Add(new WarningEntry(w, name));
                 }
             }
             return list;
         }
+
+        private static string WarningDedupeKey(SupeyWarning w) =>
+            SupeyWarningsUtil.DedupeKey(w);
 
         private static string FormatKind(SupeyWarningKind k)
         {

@@ -114,7 +114,16 @@ namespace Hiatme_Tool_Suite_v3
         {
             string fullPath = Path.Combine(GetTempDirectory(), fileBase + ".csv");
             var csv = new StringBuilder();
-            if (plan?.TemplateDisplaySlots != null && plan.TemplateDisplaySlots.Count > 0)
+            if (plan?.Groups != null && plan.Groups.Count > 0)
+            {
+                foreach (var g in plan.Groups)
+                {
+                    if (g?.Trips == null) continue;
+                    foreach (var t in g.Trips)
+                        csv.AppendLine(FormatTripCsvLine(t));
+                }
+            }
+            else if (plan?.TemplateDisplaySlots != null)
             {
                 foreach (var slot in plan.TemplateDisplaySlots)
                 {
@@ -125,15 +134,6 @@ namespace Hiatme_Tool_Suite_v3
                     }
                     if (slot.MatchedLiveTrip != null)
                         csv.AppendLine(FormatTripCsvLine(slot.MatchedLiveTrip));
-                }
-            }
-            else if (plan?.Groups != null)
-            {
-                foreach (var g in plan.Groups)
-                {
-                    if (g?.Trips == null) continue;
-                    foreach (var t in g.Trips)
-                        csv.AppendLine(FormatTripCsvLine(t));
                 }
             }
             File.WriteAllText(fullPath, csv.ToString());

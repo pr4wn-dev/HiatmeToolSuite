@@ -330,6 +330,10 @@ namespace Hiatme_Tool_Suite_v3
         /// </summary>
         public void ShowDriverPlan(SupeyDriverPlan plan)
         {
+            // Post-build may reorder plan.Groups on another thread; snapshot before draw.
+            var groups = plan?.Groups != null ? new List<SupeyTripCluster>(plan.Groups) : new List<SupeyTripCluster>();
+            var deadHeads = plan?.DeadHeads != null ? new List<SupeyDeadHeadSegment>(plan.DeadHeads) : new List<SupeyDeadHeadSegment>();
+
             var legendSnap = CaptureLegendVisibility();
             _currentPlan = plan;
             _map.Overlays.Clear();
@@ -346,7 +350,7 @@ namespace Hiatme_Tool_Suite_v3
                 _legendHost.Visible = false;
                 return;
             }
-            if (plan.Groups.Count == 0 && plan.HomeGeo.HasValue)
+            if (groups.Count == 0 && plan.HomeGeo.HasValue)
             {
                 _emptyLabel.Text = (plan.Driver?.Name ?? "Driver") + " has no assigned groups.";
                 _emptyLabel.Visible = true;
@@ -374,7 +378,7 @@ namespace Hiatme_Tool_Suite_v3
 
             // Dead-head overlay — drawn first (under groups).
             _deadheadOverlay = new GMapOverlay("deadhead");
-            foreach (var seg in plan.DeadHeads)
+            foreach (var seg in deadHeads)
             {
                 var pts = new List<PointLatLng>(seg.Polyline.Count);
                 foreach (var p in seg.Polyline) pts.Add(new PointLatLng(p.Lat, p.Lng));
@@ -392,7 +396,7 @@ namespace Hiatme_Tool_Suite_v3
             _map.Overlays.Add(_deadheadOverlay);
 
             // Per-group overlays.
-            foreach (var g in plan.Groups)
+            foreach (var g in groups)
             {
                 var overlay = new GMapOverlay("group-" + g.GroupNumber);
                 var pts = new List<PointLatLng>(g.RoutePolyline.Count);

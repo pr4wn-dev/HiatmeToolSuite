@@ -61,6 +61,9 @@ namespace Hiatme_Tool_Suite_v3
 
         [JsonProperty("warnings")]
         public List<string> Warnings { get; set; }
+
+        [JsonProperty("build_log_lines")]
+        public List<string> BuildLogLines { get; set; }
     }
 
     internal sealed class HiatmeBuildStats
@@ -91,6 +94,30 @@ namespace Hiatme_Tool_Suite_v3
 
         [JsonProperty("reroute_count")]
         public int RerouteCount { get; set; }
+
+        [JsonProperty("osrm_route_http")]
+        public int OsrmRouteHttp { get; set; }
+
+        [JsonProperty("osrm_route_cache_hits")]
+        public int OsrmRouteCacheHits { get; set; }
+
+        [JsonProperty("osrm_table_calls")]
+        public int OsrmTableCalls { get; set; }
+
+        [JsonProperty("osrm_pair_ram_hits")]
+        public int OsrmPairRamHits { get; set; }
+
+        [JsonProperty("trips_clustered")]
+        public int TripsClustered { get; set; }
+
+        [JsonProperty("trips_locked_skipped_cluster")]
+        public int TripsLockedSkippedCluster { get; set; }
+
+        [JsonProperty("solve_elapsed_ms")]
+        public int SolveElapsedMs { get; set; }
+
+        [JsonProperty("build_elapsed_ms")]
+        public int BuildElapsedMs { get; set; }
     }
 
     internal sealed class HiatmeAiChatResponse
@@ -180,7 +207,7 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>Long-running schedule-build/revise calls (panel Ollama can take several minutes).</summary>
         private static readonly HttpClient ScheduleBuildHttp = new HttpClient
         {
-            Timeout = TimeSpan.FromMinutes(15),
+            Timeout = TimeSpan.FromMinutes(60),
         };
 
         public sealed class BuildReadyStatus
@@ -203,6 +230,9 @@ namespace Hiatme_Tool_Suite_v3
             public int Total { get; set; }
             public string Detail { get; set; }
             public int? EtaSeconds { get; set; }
+
+            [JsonProperty("log_lines")]
+            public List<string> LogLines { get; set; }
         }
 
         public static async Task<BuildProgressStatus> GetBuildProgressAsync(
@@ -241,6 +271,7 @@ namespace Hiatme_Tool_Suite_v3
                             EtaSeconds = root["eta_seconds"]?.Type == JTokenType.Null
                                 ? (int?)null
                                 : root["eta_seconds"]?.Value<int>(),
+                            LogLines = root["log_lines"]?.ToObject<List<string>>(),
                         };
                     }
                 }
@@ -1120,6 +1151,15 @@ namespace Hiatme_Tool_Suite_v3
                 using (var resp = await ScheduleBuildHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
                 {
                     var text = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    if ((int)resp.StatusCode == 202)
+                    {
+                        var accepted = JObject.Parse(text);
+                        string jobId = accepted["job_id"]?.ToString();
+                        if (string.IsNullOrWhiteSpace(jobId))
+                            throw new InvalidOperationException("Server returned 202 without job_id.");
+                        return await PollSolveJobAsync(settings, jobId, cancellationToken)
+                            .ConfigureAwait(false);
+                    }
                     if (!resp.IsSuccessStatusCode)
                     {
                         string detail = text;
@@ -1133,19 +1173,60 @@ namespace Hiatme_Tool_Suite_v3
                             "Server solve failed " + (int)resp.StatusCode + ": " + detail);
                     }
 
-                    var root = JObject.Parse(text);
-                    var schedTok = root["schedule"] as JObject;
-                    return new HiatmeAiBuildResponse
-                    {
-                        Message = root["message"]?.ToString(),
-                        TraceId = root["trace_id"]?.ToString(),
-                        Schedule = schedTok?.ToObject<HiatmeAiScheduleBody>(),
-                        Solver = root["solver"]?.ToString(),
-                        BuildStats = (root["build_stats"] as JObject)?.ToObject<HiatmeBuildStats>(),
-                        Warnings = ParseStringList(root),
-                    };
+                    return ParseSolveResponse(JObject.Parse(text));
                 }
             }
+        }
+
+        private static HiatmeAiBuildResponse ParseSolveResponse(JObject root)
+        {
+            var schedTok = root["schedule"] as JObject;
+            return new HiatmeAiBuildResponse
+            {
+                Message = root["message"]?.ToString(),
+                TraceId = root["trace_id"]?.ToString(),
+                Schedule = schedTok?.ToObject<HiatmeAiScheduleBody>(),
+                Solver = root["solver"]?.ToString(),
+                BuildStats = (root["build_stats"] as JObject)?.ToObject<HiatmeBuildStats>(),
+                Warnings = ParseStringList(root),
+                BuildLogLines = ParseStringList(root, "build_log_lines"),
+            };
+        }
+
+        private static async Task<HiatmeAiBuildResponse> PollSolveJobAsync(
+            HiatmeAiSettings settings,
+            string jobId,
+            CancellationToken cancellationToken)
+        {
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            string url = baseUrl + "/api/hiatme/solve-job/" + Uri.EscapeDataString(jobId);
+            for (int i = 0; i < 2400; i++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                using (var req = new HttpRequestMessage(HttpMethod.Get, url))
+                {
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await ScheduleBuildHttp.SendAsync(req, cancellationToken)
+                        .ConfigureAwait(false))
+                    {
+                        var text = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        if (!resp.IsSuccessStatusCode)
+                            throw new InvalidOperationException(
+                                "Solve job poll failed " + (int)resp.StatusCode + ": " + text);
+                        var root = JObject.Parse(text);
+                        string status = root["status"]?.ToString() ?? "";
+                        if (string.Equals(status, "done", StringComparison.OrdinalIgnoreCase))
+                            return ParseSolveResponse(root);
+                        if (string.Equals(status, "failed", StringComparison.OrdinalIgnoreCase))
+                            throw new InvalidOperationException(
+                                root["error"]?.ToString() ?? "Server BUILD job failed.");
+                    }
+                }
+                await Task.Delay(1500, cancellationToken).ConfigureAwait(false);
+            }
+            throw new InvalidOperationException("Server BUILD job did not finish in time.");
         }
 
         private static List<string> ParseStringList(JToken root, string key = "warnings")

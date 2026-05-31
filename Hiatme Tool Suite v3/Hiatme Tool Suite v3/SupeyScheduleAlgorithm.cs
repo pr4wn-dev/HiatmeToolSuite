@@ -695,10 +695,15 @@ namespace Hiatme_Tool_Suite_v3
             for (int i = 0; i < c.Trips.Count; i++) c.PickupOrder.Add(i);
         }
 
+        /// <summary>First PU on the road tour when routed; else earliest scheduled PU before routing.</summary>
         private static int FirstPickupIndex(SupeyTripCluster c)
         {
-            if (c.PickupOrder != null && c.PickupOrder.Count > 0) return c.PickupOrder[0];
-            return 0;
+            if (c == null || c.Trips.Count == 0) return 0;
+            if (c.Trips.Count == 1) return 0;
+            if (SupeyClusterRouting.IsValidVisitOrder(c.PickupOrder, c.Trips.Count))
+                return c.PickupOrder[0];
+            var puByTime = SupeyClusterRouting.BuildPickupOrderByPuTimePublic(c);
+            return puByTime != null && puByTime.Count > 0 ? puByTime[0] : 0;
         }
 
         private static GeoPoint LastDropoffPoint(SupeyTripCluster c)
@@ -2216,20 +2221,20 @@ namespace Hiatme_Tool_Suite_v3
             // Drive PU1 → ... → PUn. For singletons (or when fingerprinting hasn't computed
             // a tail) treat the whole intra drive as tail with head = 0; a singleton has no
             // inter-PU wait so the math reduces to "arrive + drive to drop".
-            double headSeconds = c.IntraClusterDriveSeconds - c.TailDriveSeconds;
-            if (headSeconds < 0) headSeconds = 0;
+            double headSeconds = SupeyDeskScheduleTiming.HeadPickupSecondsForFeasibility(c);
             var arrivalAtLastPU = startAtFirstPU.Add(TimeSpan.FromSeconds(headSeconds));
 
-            // Wait-or-go-now at the last PU.
-            var startAtLastPU = arrivalAtLastPU > c.EffectiveLatestPickup
-                ? arrivalAtLastPU : c.EffectiveLatestPickup;
+            // Wait-or-go-now at the last PU before the drop run (not afternoon B-leg PU).
+            var latestPuForDrops = SupeyDeskScheduleTiming.EffectiveLatestPickupForFeasibility(c);
+            var startAtLastPU = arrivalAtLastPU > latestPuForDrops
+                ? arrivalAtLastPU : latestPuForDrops;
 
             // Walk through the drop sequence (deadline-ordered) accumulating the per-leg
             // drive time. Each rider's deadline is checked at the moment we drop them.
             var current = startAtLastPU;
             bool feasible = true;
-            int worstTrip = -1;
-            double worstMinutes = 0;
+            int worstLateTrip = -1;
+            double worstLateMinutes = 0;
             for (int i = 0; i < c.DropoffOrder.Count; i++)
             {
                 double legSec = i < c.DropoffLegSeconds.Count ? c.DropoffLegSeconds[i] : 0;
@@ -2244,27 +2249,23 @@ namespace Hiatme_Tool_Suite_v3
                 double tripDoCap = SupeyTripTimingPolicy.DoLateCapMinutes(trip);
 
                 if (earliestDrop.HasValue && current < earliestDrop.Value)
-                {
-                    double earlyMin = (earliestDrop.Value - current).TotalMinutes;
-                    if (earlyMin > worstMinutes) { worstMinutes = earlyMin; worstTrip = tripIdx; }
                     feasible = false;
-                }
 
                 if (!deadline.HasValue) continue;
 
                 if (current >= deadline.Value.Add(TimeSpan.FromMinutes(tripDoCap)))
                 {
                     double overrunMinutes = (current - deadline.Value).TotalMinutes;
-                    if (overrunMinutes > worstMinutes)
+                    if (overrunMinutes > worstLateMinutes)
                     {
-                        worstMinutes = overrunMinutes;
-                        worstTrip = tripIdx;
+                        worstLateMinutes = overrunMinutes;
+                        worstLateTrip = tripIdx;
                     }
                     feasible = false;
                 }
             }
 
-            return (feasible, current, worstTrip, worstMinutes);
+            return (feasible, current, worstLateTrip, worstLateMinutes);
         }
 
         /// <summary>
@@ -2288,11 +2289,11 @@ namespace Hiatme_Tool_Suite_v3
         {
             var startAtFirstPU = arrivalAtFirstPU > c.EffectiveEarliestPickup
                 ? arrivalAtFirstPU : c.EffectiveEarliestPickup;
-            double headSeconds = c.IntraClusterDriveSeconds - c.TailDriveSeconds;
-            if (headSeconds < 0) headSeconds = 0;
+            double headSeconds = SupeyDeskScheduleTiming.HeadPickupSecondsForFeasibility(c);
             var arrivalAtLastPU = startAtFirstPU.Add(TimeSpan.FromSeconds(headSeconds));
-            return arrivalAtLastPU > c.EffectiveLatestPickup
-                ? arrivalAtLastPU : c.EffectiveLatestPickup;
+            var latestPuForDrops = SupeyDeskScheduleTiming.EffectiveLatestPickupForFeasibility(c);
+            return arrivalAtLastPU > latestPuForDrops
+                ? arrivalAtLastPU : latestPuForDrops;
         }
 
         // ----- Phase 6 -----
@@ -2365,7 +2366,7 @@ namespace Hiatme_Tool_Suite_v3
                 current = ProjectClusterEnd(plan.Groups[i], arrival);
             }
 
-            plan.FirstPickup = plan.Groups[0].EarliestPickup;
+            plan.FirstPickup = SupeyClusterTimeSplit.MinPickupTime(plan.Groups[0]);
             plan.LastDropoff = current; // actual end of the last cluster, not its appointment time
             if (hasHome && plan.DeadHeads.Count > 0)
             {
@@ -2525,13 +2526,17 @@ namespace Hiatme_Tool_Suite_v3
                 if (i == 0)
                 {
                     double puCap = LegPuLateCapMinutes(g);
-                    if (arrivalAtFirstPU > g.EarliestPickup.Add(TimeSpan.FromMinutes(puCap)))
+                    var scheduledFirstPu = SupeyClusterTimeSplit.MinPickupTime(g);
+                    if (arrivalAtFirstPU > scheduledFirstPu.Add(TimeSpan.FromMinutes(puCap)))
                     {
+                        int firstIdx = FirstPickupIndex(g);
+                        string firstTn = firstIdx >= 0 && firstIdx < g.Trips.Count
+                            ? g.Trips[firstIdx].TripNumber : "";
                         plan.Warnings.Add(new SupeyWarning(SupeyWarningKind.LateArrival,
-                            g.Trips.Count > 0 ? g.Trips[0].TripNumber : "", plan.Driver.Name,
+                            firstTn ?? "", plan.Driver.Name,
                             "Driver may arrive at first PU around " +
                             SupeyTripTimes.FormatTimeOfDay(arrivalAtFirstPU) + " (scheduled " +
-                            SupeyTripTimes.FormatTimeOfDay(g.EarliestPickup) + ")."));
+                            SupeyTripTimes.FormatTimeOfDay(scheduledFirstPu) + ")."));
                     }
                 }
 
@@ -2547,16 +2552,21 @@ namespace Hiatme_Tool_Suite_v3
                 // on which appointment is the problem instead of guessing across 4 riders.
                 var (feas, groupEnd, worstTripIdx, worstMinutes) =
                     ProjectClusterFeasibility(g, arrivalAtFirstPU);
-                if (!feas && worstTripIdx >= 0 && worstTripIdx < g.Trips.Count)
+                if (!feas && worstTripIdx >= 0 && worstTripIdx < g.Trips.Count && worstMinutes > 0)
                 {
                     var worstTrip = g.Trips[worstTripIdx];
-                    string detail = "Group " + g.GroupNumber + " — " +
-                        (worstTrip.ClientFullName ?? worstTrip.TripNumber ?? "rider") +
-                        " may miss DO appt by " + worstMinutes.ToString("0") + " min.";
-                    plan.Warnings.Add(new SupeyWarning(SupeyWarningKind.LateArrival,
-                        worstTrip.TripNumber ?? "", plan.Driver.Name, detail));
+                    double capped = SupeyTripTimingPolicy.DoLateCapMinutes(worstTrip);
+                    double displayMin = Math.Max(0, worstMinutes - capped);
+                    if (displayMin > 0)
+                    {
+                        string detail = "Group " + g.GroupNumber + " — " +
+                            (worstTrip.ClientFullName ?? worstTrip.TripNumber ?? "rider") +
+                            " may miss DO appt by " + displayMin.ToString("0") + " min.";
+                        plan.Warnings.Add(new SupeyWarning(SupeyWarningKind.LateArrival,
+                            worstTrip.TripNumber ?? "", plan.Driver.Name, detail));
+                    }
                 }
-                else
+                else if (feas)
                 {
                     // Even when nobody's late, surface the tightest single rider so the
                     // dispatcher can see which appointment is closest to the wire.
@@ -2582,11 +2592,16 @@ namespace Hiatme_Tool_Suite_v3
                         var t = g.Trips[tightestIdx];
                         if (tightestMinutes < 0)
                         {
-                            plan.Warnings.Add(new SupeyWarning(SupeyWarningKind.LateArrival,
-                                t.TripNumber ?? "", plan.Driver.Name,
-                                "Group " + g.GroupNumber + " — " +
-                                (t.ClientFullName ?? t.TripNumber ?? "rider") +
-                                " may miss DO appt by " + (-tightestMinutes).ToString("0") + " min."));
+                            double cap = SupeyTripTimingPolicy.DoLateCapMinutes(t);
+                            double lateMin = -tightestMinutes - cap;
+                            if (lateMin > 0)
+                            {
+                                plan.Warnings.Add(new SupeyWarning(SupeyWarningKind.LateArrival,
+                                    t.TripNumber ?? "", plan.Driver.Name,
+                                    "Group " + g.GroupNumber + " — " +
+                                    (t.ClientFullName ?? t.TripNumber ?? "rider") +
+                                    " may miss DO appt by " + lateMin.ToString("0") + " min."));
+                            }
                         }
                         else if (tightestMinutes < TightArrivalSlackMinutes)
                         {

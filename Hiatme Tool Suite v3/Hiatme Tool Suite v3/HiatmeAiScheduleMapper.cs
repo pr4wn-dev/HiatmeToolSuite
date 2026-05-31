@@ -196,6 +196,7 @@ namespace Hiatme_Tool_Suite_v3
             tripList.Sort(CompareTripsByPickup);
             foreach (var t in tripList)
                 cluster.Trips.Add(t);
+            // Pickup/drop visit order is set in post-build OSRM routing, not desk sort.
         }
 
         private static int CompareTripsByPickup(MCDownloadedTrip a, MCDownloadedTrip b)

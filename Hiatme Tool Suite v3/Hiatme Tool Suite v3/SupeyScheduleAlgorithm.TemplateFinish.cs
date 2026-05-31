@@ -117,6 +117,7 @@ namespace Hiatme_Tool_Suite_v3
                     }
 
                     FlushCluster();
+                    plan.TemplateSeedGroupCount = plan.Groups.Count;
 
                     for (int gi = 0; gi < plan.Groups.Count; gi++)
                     {
@@ -134,14 +135,25 @@ namespace Hiatme_Tool_Suite_v3
             await AssignRemainingTripsForFinishAsync(
                 result, trips, tripGeo, assigned, progress, token).ConfigureAwait(false);
 
+            SupeyPartnerLegHarmonizer.HarmonizeSchedule(result);
+            foreach (var plan in result.DriverPlans)
+            {
+                if (plan?.Groups != null && plan.Groups.Count > 0)
+                {
+                    SupeyClusterTimeSplit.NormalizeDayGroupOrder(plan);
+                    SupeyScheduleDeskOrder.ApplyToPlan(plan);
+                    plan.PreferChronologicalGroupPreview = true;
+                }
+            }
+
             progress?.Report("Template + finish: sequencing all drivers…");
             int seqDone = 0;
             foreach (var plan in result.DriverPlans)
             {
                 token.ThrowIfCancellationRequested();
                 if (plan.Groups.Count == 0) continue;
+                plan.Warnings.Clear();
                 await SequenceDriverAsync(plan, token).ConfigureAwait(false);
-                EvaluateWarnings(plan);
                 seqDone++;
                 progress?.Report("Sequenced " + seqDone + " driver(s) with trips…");
             }
@@ -251,6 +263,16 @@ namespace Hiatme_Tool_Suite_v3
             await ImproveCoverageAsync(result, driverPlans, tripGeo, capacityFloor, hintsForCluster, progress, token)
                 .ConfigureAwait(false);
             await ConsolidateAsync(driverPlans, token).ConfigureAwait(false);
+
+            foreach (var plan in driverPlans)
+            {
+                if (plan?.Groups != null && plan.Groups.Count > 0)
+                {
+                    SupeyClusterTimeSplit.NormalizeDayGroupOrder(plan);
+                    SupeyScheduleDeskOrder.ApplyToPlan(plan);
+                    plan.PreferChronologicalGroupPreview = true;
+                }
+            }
 
             foreach (var plan in driverPlans)
             {

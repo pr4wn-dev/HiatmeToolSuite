@@ -128,6 +128,9 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>True when OSRM failed and we built the polyline by drawing straight lines.</summary>
         public bool IsStraightLineFallback { get; set; }
 
+        /// <summary>True after <see cref="SupeyClusterRouting.OptimizeClusterTourAsync"/> succeeds for this group.</summary>
+        public bool RoadTourOptimized { get; set; }
+
         /// <summary>Number of riders in the cluster (= <see cref="Trips"/>.Count). Used by capacity scoring.</summary>
         public int RiderCount => Trips.Count;
 

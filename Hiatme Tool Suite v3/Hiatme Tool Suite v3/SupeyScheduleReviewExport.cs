@@ -144,11 +144,13 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (result.WarningCount == 0) return;
             sb.AppendLine("## Warnings");
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (result.BuildWarnings != null)
             {
                 foreach (var w in result.BuildWarnings)
                 {
                     if (w == null) continue;
+                    if (!seen.Add(WarningDedupeKey(w))) continue;
                     sb.Append("- [build] ").AppendLine(Sanitize(w.Detail ?? ""));
                 }
             }
@@ -158,12 +160,16 @@ namespace Hiatme_Tool_Suite_v3
                 foreach (var w in plan.Warnings)
                 {
                     if (w == null) continue;
+                    if (!seen.Add(WarningDedupeKey(w))) continue;
                     sb.Append("- ").Append(Sanitize(plan.Driver?.Name ?? "driver"))
                       .Append(": ").AppendLine(Sanitize(w.Detail ?? ""));
                 }
             }
             sb.AppendLine();
         }
+
+        private static string WarningDedupeKey(SupeyWarning w) =>
+            SupeyWarningsUtil.DedupeKey(w);
 
         private static void AppendDriver(StringBuilder sb, SupeyDriverPlan plan, bool includeCoords)
         {
@@ -218,7 +224,7 @@ namespace Hiatme_Tool_Suite_v3
                 sb.Append(g.GroupNumber).Append("\tRoute\t")
                   .Append(Sanitize(SupeyRouteNoteFormatter.Format(g)))
                   .AppendLine();
-                for (int ti = 0; ti < g.Trips.Count; ti++)
+                foreach (int ti in SupeyClusterDisplayOrder.PickupVisitIndices(g))
                 {
                     var t = g.Trips[ti];
                     sb.Append(g.GroupNumber).Append('\t')

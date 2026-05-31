@@ -1,0 +1,473 @@
+{
+  "files": 99,
+  "trips": 8636,
+  "client_early_pu_allowance_p75": [
+    [
+      "DIONNE, BENJAMIN R",
+      96,
+      105
+    ],
+    [
+      "JOLICOEUR, JEFFREY",
+      89,
+      105
+    ],
+    [
+      "SWAN, SHERI S",
+      47,
+      100
+    ],
+    [
+      "TRASK, ADELMA GLADYS",
+      80,
+      90
+    ],
+    [
+      "YEATON, MARY",
+      39,
+      90
+    ],
+    [
+      "DESROCHERS, DAVID P",
+      67,
+      75
+    ],
+    [
+      "PHILLIPS, MICAH J",
+      57,
+      75
+    ],
+    [
+      "SCHWARTZ, RYAN B",
+      87,
+      65
+    ],
+    [
+      "EDDY, ALYSSA A",
+      83,
+      65
+    ],
+    [
+      "NOWLAND, FREYJHA V",
+      81,
+      65
+    ],
+    [
+      "BRYANT, LOGAN T",
+      74,
+      65
+    ],
+    [
+      "HOLT, CARMAN G",
+      60,
+      65
+    ],
+    [
+      "HEINO, STASHA B",
+      60,
+      65
+    ],
+    [
+      "HOWARD, DONNA M",
+      55,
+      65
+    ],
+    [
+      "LAGASSE, JILL LEE",
+      50,
+      65
+    ],
+    [
+      "BURKHARDT, JOEL DAVID",
+      36,
+      65
+    ],
+    [
+      "CUTLER, JESSICA",
+      33,
+      65
+    ],
+    [
+      "GRAHAM, JASON PAUL",
+      26,
+      65
+    ],
+    [
+      "LIZOTTE, TAMMY M",
+      90,
+      60
+    ],
+    [
+      "GILMORE, ABRAHAM L",
+      42,
+      60
+    ],
+    [
+      "THEBERGE, STACY L",
+      96,
+      50
+    ],
+    [
+      "QUADROS, LAURA L",
+      95,
+      50
+    ],
+    [
+      "BRYANT, MICHAEL DENNIS",
+      87,
+      50
+    ],
+    [
+      "MORIN, TODD J",
+      86,
+      50
+    ],
+    [
+      "DELMISSIER, PATRICK",
+      76,
+      50
+    ],
+    [
+      "RING, ARNOLD",
+      74,
+      50
+    ],
+    [
+      "EINSMANN, MARK ROBERT",
+      72,
+      50
+    ],
+    [
+      "RIDLON, BENJAMIN",
+      62,
+      50
+    ],
+    [
+      "LABRECQUE, DYLAN M",
+      58,
+      50
+    ],
+    [
+      "DRAPER, KEITH R",
+      58,
+      50
+    ],
+    [
+      "BOOKER, MEGAN M",
+      56,
+      50
+    ],
+    [
+      "CATIVERA, JENNIFER E",
+      53,
+      50
+    ],
+    [
+      "MILLER, MARIA",
+      52,
+      50
+    ],
+    [
+      "YEATON, DEVIN M",
+      51,
+      50
+    ],
+    [
+      "TAYLOR, FREDERICK R",
+      44,
+      50
+    ],
+    [
+      "ST HILAIRE, TRINA L",
+      43,
+      50
+    ],
+    [
+      "LOZIER, SUSAN A.",
+      42,
+      50
+    ],
+    [
+      "ORMON, JONATHAN",
+      41,
+      50
+    ],
+    [
+      "MAUNG, VICTOR K",
+      36,
+      50
+    ],
+    [
+      "FARAH, IDRISS B",
+      34,
+      50
+    ],
+    [
+      "EMERY, KALA S",
+      33,
+      50
+    ],
+    [
+      "MYER, JEREMY DEAN",
+      33,
+      50
+    ],
+    [
+      "BELIVEAU, JUSTIN T",
+      32,
+      50
+    ],
+    [
+      "SEGER, NICOLE J",
+      30,
+      50
+    ],
+    [
+      "LOUGH, JOHN PROULX",
+      26,
+      50
+    ],
+    [
+      "HUCKABEY, ALAN",
+      89,
+      45
+    ],
+    [
+      "OUELLETTE, PAULA ANNE",
+      87,
+      45
+    ],
+    [
+      "BOISVERT, GAIL P",
+      79,
+      45
+    ],
+    [
+      "LEVASSEUR, LORI C",
+      55,
+      45
+    ],
+    [
+      "THUOTTE, RICHARD J",
+      37,
+      45
+    ]
+  ],
+  "client_tight_pu_window_p75": [
+    [
+      "KING, MELISSA",
+      76,
+      20
+    ],
+    [
+      "BECK-POLAND, JACOB I",
+      50,
+      20
+    ],
+    [
+      "HUTCHINSON, TODD",
+      35,
+      20
+    ],
+    [
+      "GAGNE, JEANPAUL R",
+      27,
+      20
+    ],
+    [
+      "BEAUPRE, CALEB J",
+      98,
+      25
+    ],
+    [
+      "CARLMARK, ZOEY LAUREN",
+      97,
+      25
+    ],
+    [
+      "DRINKWATER, SCOTT",
+      95,
+      25
+    ],
+    [
+      "MASON, PHILLIP E",
+      95,
+      25
+    ],
+    [
+      "PEPIN, CULLEN R",
+      93,
+      25
+    ],
+    [
+      "SOPER, DONALD K",
+      93,
+      25
+    ],
+    [
+      "DUFRESNE, JACLYN N",
+      91,
+      25
+    ],
+    [
+      "MARQUIS, LIANNE",
+      77,
+      25
+    ],
+    [
+      "LEDDY, AMANDA",
+      74,
+      25
+    ],
+    [
+      "RIOUX, MATTHEW J",
+      68,
+      25
+    ],
+    [
+      "GRIBBIN, JR, DANIEL M",
+      66,
+      25
+    ],
+    [
+      "JAMES, LAMAR N",
+      64,
+      25
+    ],
+    [
+      "REED, KEVIN",
+      62,
+      25
+    ],
+    [
+      "ROUSSEAU, HAILEY J",
+      60,
+      25
+    ],
+    [
+      "WALL, CHRISTOPHER M",
+      59,
+      25
+    ],
+    [
+      "WALL, BRANDON B",
+      59,
+      25
+    ],
+    [
+      "HOWE, NANCY E",
+      58,
+      25
+    ],
+    [
+      "HILTON, JR, CHARLES H",
+      55,
+      25
+    ],
+    [
+      "MAKER, JOSHUA",
+      52,
+      25
+    ],
+    [
+      "DEROSIER, DENNIS",
+      50,
+      25
+    ],
+    [
+      "MOREAU, JAMES PHILIPPE",
+      46,
+      25
+    ],
+    [
+      "OUELLET, STEPHANE",
+      46,
+      25
+    ],
+    [
+      "HARDY, II, RICHARD L",
+      45,
+      25
+    ],
+    [
+      "KIESMAN, RODNEY E",
+      38,
+      25
+    ],
+    [
+      "CHAREST, ROSE-MARIE I",
+      37,
+      25
+    ],
+    [
+      "SEBASTIAN, TIFFANI",
+      37,
+      25
+    ]
+  ],
+  "client_no_early_pu": [
+    [
+      "BROWN, JOSHUA M",
+      59
+    ],
+    [
+      "TUTTLE, SIERRA B",
+      29
+    ]
+  ],
+  "do_hub_pu_do_gap_p75": {
+    "FALCON": {
+      "n": 889,
+      "p75": 50
+    },
+    "MINOT": {
+      "n": 1309,
+      "p75": 65
+    },
+    "23_CROSS": {
+      "n": 739,
+      "p75": 50
+    },
+    "646_MAIN": {
+      "n": 740,
+      "p75": 40
+    },
+    "20_EAST": {
+      "n": 541,
+      "p75": 40
+    },
+    "63_BROAD": {
+      "n": 266,
+      "p75": 50
+    },
+    "618_MAIN": {
+      "n": 553,
+      "p75": 35
+    },
+    "MANLEY": {
+      "n": 927,
+      "p75": 65
+    }
+  },
+  "pu_hub_pu_do_gap_p75": {
+    "PU_23_CROSS": {
+      "n": 42,
+      "p75": 60
+    },
+    "PU_646_MAIN": {
+      "n": 105,
+      "p75": 25
+    },
+    "PU_MINOT_AUBURN": {
+      "n": 102,
+      "p75": 25
+    },
+    "PU_MANLEY": {
+      "n": 57,
+      "p75": 90
+    }
+  },
+  "cannot_drop_notes_by_hub": {
+    "MINOT": 134
+  }
+}

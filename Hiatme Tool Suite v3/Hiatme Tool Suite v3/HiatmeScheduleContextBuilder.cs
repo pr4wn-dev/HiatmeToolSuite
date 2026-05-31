@@ -190,6 +190,24 @@ namespace Hiatme_Tool_Suite_v3
             return ctx;
         }
 
+        /// <summary>
+        /// Server BUILD payload: optional trip filter (e.g. unlocked remainder only) with desk coords.
+        /// </summary>
+        public static JObject BuildForServerSolve(
+            DateTime serviceDate,
+            IList<SupeyDriverProfile> roster,
+            IList<MCDownloadedTrip> trips,
+            IList<SupeyDriverProfile> selectedDrivers,
+            Func<MCDownloadedTrip, bool> tripFilter = null)
+        {
+            IList<MCDownloadedTrip> subset = trips;
+            if (tripFilter != null && trips != null)
+            {
+                subset = trips.Where(t => t != null && tripFilter(t)).ToList();
+            }
+            return Build(serviceDate, roster, subset, null, false, selectedDrivers);
+        }
+
         private static void AttachCachedCoords(
             JObject row, string street, string city, string state, string zip, string prefix)
         {

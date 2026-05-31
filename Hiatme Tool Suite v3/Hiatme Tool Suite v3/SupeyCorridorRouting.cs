@@ -61,7 +61,7 @@ namespace Hiatme_Tool_Suite_v3
                         - CorridorZoneBonusSeconds * CorridorZoneFraction(c)
                         - await HomeTowardCorridorCreditAsync(plan.HomeGeo, loc, c, token).ConfigureAwait(false);
 
-                    score += c.EarliestPickup.TotalMinutes * 0.05;
+                    score += SupeyClusterTimeSplit.MinPickupTime(c).TotalMinutes * 0.05;
                     if (score < bestScore)
                     {
                         bestScore = score;
@@ -71,7 +71,8 @@ namespace Hiatme_Tool_Suite_v3
 
                 if (best == null)
                 {
-                    pool.Sort((a, b) => a.EarliestPickup.CompareTo(b.EarliestPickup));
+                    pool.Sort((a, b) => SupeyClusterTimeSplit.MinPickupTime(a)
+                        .CompareTo(SupeyClusterTimeSplit.MinPickupTime(b)));
                     foreach (var c in pool)
                     {
                         var trial = new List<SupeyTripCluster>(ordered) { c };
@@ -195,7 +196,8 @@ namespace Hiatme_Tool_Suite_v3
 
                 var arrival = current.Add(TimeSpan.FromSeconds(leg.Seconds));
                 double puCap = LegPuLateCapMinutes(c);
-                if (arrival > c.EarliestPickup.Add(TimeSpan.FromMinutes(puCap))) return false;
+                if (arrival > SupeyClusterTimeSplit.MinPickupTime(c).Add(TimeSpan.FromMinutes(puCap)))
+                    return false;
                 var (ok, end, _, _) = ProjectClusterFeasibility(c, arrival);
                 if (!ok) return false;
                 current = end;
@@ -207,7 +209,8 @@ namespace Hiatme_Tool_Suite_v3
         private static async Task ReorderDriverGroupsAsync(SupeyDriverPlan plan, CancellationToken token)
         {
             if (plan.Groups.Count <= 2) return;
-            plan.Groups.Sort((a, b) => a.EarliestPickup.CompareTo(b.EarliestPickup));
+            plan.Groups.Sort((a, b) => SupeyClusterTimeSplit.MinPickupTime(a)
+                .CompareTo(SupeyClusterTimeSplit.MinPickupTime(b)));
             bool improved = true;
             int safety = plan.Groups.Count * 2;
             var shiftStart = plan.Driver.ParseShiftStart() ?? TimeSpan.Zero;
@@ -224,7 +227,8 @@ namespace Hiatme_Tool_Suite_v3
                         .ConfigureAwait(false);
                     if (!keepLeg.Ok || !swapLeg.Ok) continue;
                     if (swapLeg.Meters + 200 >= keepLeg.Meters) continue;
-                    if (a.EarliestPickup > b.EarliestPickup) continue;
+                    if (SupeyClusterTimeSplit.MinPickupTime(a) > SupeyClusterTimeSplit.MinPickupTime(b))
+                        continue;
                     var trial = new List<SupeyTripCluster>(plan.Groups);
                     trial[i] = b;
                     trial[i + 1] = a;
@@ -235,7 +239,8 @@ namespace Hiatme_Tool_Suite_v3
                     plan.Groups[i + 1] = a;
                     improved = true;
                 }
-                plan.Groups.Sort((x, y) => x.EarliestPickup.CompareTo(y.EarliestPickup));
+                plan.Groups.Sort((x, y) => SupeyClusterTimeSplit.MinPickupTime(x)
+                    .CompareTo(SupeyClusterTimeSplit.MinPickupTime(y)));
             }
         }
 
@@ -265,5 +270,6 @@ namespace Hiatme_Tool_Suite_v3
             }
             return (current, loc);
         }
+
     }
 }

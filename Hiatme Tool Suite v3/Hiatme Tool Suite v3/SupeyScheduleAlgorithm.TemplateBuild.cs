@@ -105,12 +105,12 @@ namespace Hiatme_Tool_Suite_v3
                 }
 
                 FlushCluster();
+                plan.TemplateSeedGroupCount = plan.Groups.Count;
 
                 for (int gi = 0; gi < plan.Groups.Count; gi++)
                 {
                     var cluster = plan.Groups[gi];
                     SyncClusterMetadataFromTrips(cluster);
-                    SupeyClusterRouting.ApplyTemplateDeskTour(cluster);
                     await PopulateClusterPolylineAsync(cluster, token).ConfigureAwait(false);
                 }
 

@@ -68,24 +68,25 @@ namespace Hiatme_Tool_Suite_v3
                 var arrivalAtFirstPU = current.Add(TimeSpan.FromSeconds(dhSec));
                 var startAtLastPU = ComputeStartAtLastPU(g, arrivalAtFirstPU);
 
-                for (int j = 0; j < g.Trips.Count; j++)
+                var visit = SupeyClusterDisplayOrder.PickupVisitIndices(g);
+                var atFirstPu = arrivalAtFirstPU > g.EffectiveEarliestPickup
+                    ? arrivalAtFirstPU : g.EffectiveEarliestPickup;
+                var currentPu = atFirstPu;
+                for (int step = 0; step < visit.Count; step++)
                 {
-                    string tn = (g.Trips[j].TripNumber ?? "").Trim();
+                    int tripIdx = visit[step];
+                    if (tripIdx < 0 || tripIdx >= g.Trips.Count) continue;
+                    string tn = (g.Trips[tripIdx].TripNumber ?? "").Trim();
                     if (tn.Length == 0) continue;
 
-                    var timing = new SupeyTripProjectedTiming();
-                    int puIdx = g.PickupOrder.Count > j ? g.PickupOrder[j] : j;
-                    if (puIdx == 0)
-                        timing.EstPu = arrivalAtFirstPU > g.EffectiveEarliestPickup
-                            ? arrivalAtFirstPU : g.EffectiveEarliestPickup;
-                    else if (puIdx > 0 && puIdx < g.PickupOrder.Count)
-                    {
-                        double leg = puIdx - 1 < g.PickupLegSeconds.Count
-                            ? g.PickupLegSeconds[puIdx - 1] : 0;
-                        timing.EstPu = arrivalAtFirstPU.Add(TimeSpan.FromSeconds(leg));
-                    }
-
+                    var timing = new SupeyTripProjectedTiming { EstPu = currentPu };
                     plan.TripTimings[tn] = timing;
+
+                    if (step + 1 < visit.Count && step < g.PickupLegSeconds.Count)
+                    {
+                        double leg = g.PickupLegSeconds[step];
+                        currentPu = currentPu.Add(TimeSpan.FromSeconds(leg));
+                    }
                 }
 
                 var (_, groupEnd, _, _) = ProjectClusterFeasibility(g, arrivalAtFirstPU);

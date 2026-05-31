@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -11,12 +12,23 @@ namespace Hiatme_Tool_Suite_v3
     /// </summary>
     internal static class SupeyScheduleGeocoder
     {
+        /// <summary>PU/DO coords only — no map polylines (post-build owns routing).</summary>
+        public static async Task HydratePlansOnlyAsync(SupeyScheduleResult result, CancellationToken token = default)
+        {
+            if (result?.DriverPlans == null) return;
+            foreach (var plan in result.DriverPlans.ToList())
+            {
+                if (plan == null) continue;
+                await HydratePlanAsync(plan, token).ConfigureAwait(false);
+            }
+        }
+
         public static async Task HydrateResultAsync(SupeyScheduleResult result, CancellationToken token = default)
         {
             if (result == null) return;
             if (result.DriverPlans != null)
             {
-                foreach (var plan in result.DriverPlans)
+                foreach (var plan in result.DriverPlans.ToList())
                 {
                     if (plan == null) continue;
                     await HydratePlanAsync(plan, token).ConfigureAwait(false);
@@ -43,12 +55,12 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             if (plan.Groups == null) return;
-            foreach (var g in plan.Groups)
+            foreach (var g in plan.Groups.ToList())
             {
                 if (g == null) continue;
                 g.PickupPoints.Clear();
                 g.DropoffPoints.Clear();
-                foreach (var t in g.Trips)
+                foreach (var t in g.Trips.ToList())
                 {
                     token.ThrowIfCancellationRequested();
                     if (t == null) continue;
@@ -66,17 +78,33 @@ namespace Hiatme_Tool_Suite_v3
         public static async Task HydrateMapRoutesAsync(SupeyDriverPlan plan, CancellationToken token = default)
         {
             if (plan?.Groups == null) return;
-            foreach (var g in plan.Groups)
+            foreach (var g in plan.Groups.ToList())
             {
                 if (g == null) continue;
                 token.ThrowIfCancellationRequested();
                 g.RoutePolyline.Clear();
                 var waypoints = new List<GeoPoint>();
-                int n = Math.Min(g.Trips.Count, Math.Min(g.PickupPoints.Count, g.DropoffPoints.Count));
-                for (int i = 0; i < n; i++)
+                int nPu = g.PickupOrder.Count > 0 ? g.PickupOrder.Count : g.Trips.Count;
+                for (int step = 0; step < nPu; step++)
                 {
-                    AddWaypointIfValid(waypoints, g.PickupPoints[i]);
-                    AddWaypointIfValid(waypoints, g.DropoffPoints[i]);
+                    int idx = g.PickupOrder.Count > step ? g.PickupOrder[step] : step;
+                    if (idx >= 0 && idx < g.PickupPoints.Count)
+                        AddWaypointIfValid(waypoints, g.PickupPoints[idx]);
+                }
+                for (int step = 0; step < g.DropoffOrder.Count; step++)
+                {
+                    int idx = g.DropoffOrder[step];
+                    if (idx >= 0 && idx < g.DropoffPoints.Count)
+                        AddWaypointIfValid(waypoints, g.DropoffPoints[idx]);
+                }
+                if (waypoints.Count < 2)
+                {
+                    int n = Math.Min(g.Trips.Count, Math.Min(g.PickupPoints.Count, g.DropoffPoints.Count));
+                    for (int i = 0; i < n; i++)
+                    {
+                        AddWaypointIfValid(waypoints, g.PickupPoints[i]);
+                        AddWaypointIfValid(waypoints, g.DropoffPoints[i]);
+                    }
                 }
                 if (waypoints.Count < 2) continue;
 

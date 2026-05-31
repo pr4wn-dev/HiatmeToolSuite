@@ -166,6 +166,10 @@ namespace Hiatme_Tool_Suite_v3
                     return json["osrm"] as JObject;
                 }
             }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
             catch
             {
                 return null;
@@ -199,6 +203,74 @@ namespace Hiatme_Tool_Suite_v3
                 cumulative.Add(running);
             }
             return RouteEstimator.RouteResult.Success(cumulative);
+        }
+
+        /// <summary>OSRM distance/duration matrix for group tour optimization (one call per group).</summary>
+        public static async Task<(double?[,] meters, double?[,] seconds)?> FetchOsrmTableAsync(
+            HiatmeAiSettings settings,
+            IList<GeoPoint> points,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null || points == null || points.Count < 2) return null;
+            string url = Base(settings) + "/api/hiatme/osrm-table";
+            var pts = new JArray();
+            foreach (var p in points)
+                pts.Add(new JObject { ["lat"] = p.Lat, ["lon"] = p.Lng });
+            var body = new JObject { ["points"] = pts };
+            try
+            {
+                using (var req = BuildPost(settings, url, body))
+                using (var resp = await SharedHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
+                {
+                    if (!resp.IsSuccessStatusCode) return null;
+                    var json = JObject.Parse(await resp.Content.ReadAsStringAsync().ConfigureAwait(false));
+                    if (json["ok"]?.Value<bool>() != true) return null;
+                    int n = points.Count;
+                    return ParseTableMatrix(json["distances_m"] as JArray, json["durations_s"] as JArray, n);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static (double?[,] meters, double?[,] seconds)? ParseTableMatrix(
+            JArray distRaw, JArray durRaw, int n)
+        {
+            if (distRaw == null || durRaw == null) return null;
+            var meters = new double?[n, n];
+            var seconds = new double?[n, n];
+            for (int i = 0; i < n && i < distRaw.Count; i++)
+            {
+                var rowD = distRaw[i] as JArray;
+                var rowT = durRaw[i] as JArray;
+                if (rowD == null || rowT == null) continue;
+                for (int j = 0; j < n && j < rowD.Count && j < rowT.Count; j++)
+                {
+                    meters[i, j] = TablePositiveOrNull(rowD[j]);
+                    seconds[i, j] = TablePositiveOrNull(rowT[j]);
+                }
+            }
+            return (meters, seconds);
+        }
+
+        private static double? TablePositiveOrNull(JToken tok)
+        {
+            if (tok == null || tok.Type == JTokenType.Null) return null;
+            try
+            {
+                double v = (double)tok;
+                return v >= 0 ? v : (double?)null;
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         /// <summary>Batch geocode on AIagent (shared cache). Supey uses this instead of local Nominatim.</summary>

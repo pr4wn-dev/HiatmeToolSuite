@@ -147,17 +147,14 @@ namespace Hiatme_Tool_Suite_v3
         internal static void SyncDriverWarningsToResult(SupeyScheduleResult result)
         {
             if (result == null) return;
-            result.BuildWarnings.RemoveAll(w =>
-                w.Kind == SupeyWarningKind.LateArrival
-                || w.Kind == SupeyWarningKind.TightArrival
-                || w.Kind == SupeyWarningKind.StraightLineFallback);
+            SupeyWarningsUtil.StripTimingFromBuild(result);
 
             var algo = new SupeyScheduleAlgorithm();
             foreach (var plan in result.DriverPlans)
             {
+                if (plan?.Groups == null || plan.Groups.Count == 0) continue;
+                SupeyClusterTimeSplit.NormalizeDayGroupOrder(plan);
                 algo.EvaluateWarningsAndTimingsPublic(plan);
-                if (plan.Warnings != null && plan.Warnings.Count > 0)
-                    result.BuildWarnings.AddRange(plan.Warnings);
             }
         }
 

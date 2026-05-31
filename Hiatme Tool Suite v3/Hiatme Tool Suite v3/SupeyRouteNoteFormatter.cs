@@ -46,26 +46,44 @@ namespace Hiatme_Tool_Suite_v3
         private static List<string> DescribePickupStops(SupeyTripCluster g)
         {
             var list = new List<string>();
-            int n = g.PickupOrder.Count > 0 ? g.PickupOrder.Count : g.Trips.Count;
-            for (int step = 0; step < n; step++)
+            int n = g.Trips.Count;
+            if (SupeyClusterRouting.IsValidVisitOrder(g.PickupOrder, n))
             {
-                int idx = g.PickupOrder.Count > step ? g.PickupOrder[step] : step;
-                list.Add(DescribePickup(g.Trips[idx]));
+                foreach (int idx in g.PickupOrder)
+                    list.Add(DescribePickup(g.Trips[idx]));
+                return list;
             }
+            for (int i = 0; i < n; i++)
+                list.Add(DescribePickup(g.Trips[i]));
             return list;
         }
 
         private static List<string> DescribeDropoffStops(SupeyTripCluster g)
         {
             var list = new List<string>();
-            for (int step = 0; step < g.DropoffOrder.Count; step++)
-            {
-                int idx = g.DropoffOrder[step];
+            int n = g.Trips.Count;
+            IReadOnlyList<int> order = SharesSingleDropAddress(g)
+                ? SupeyClusterRouting.BuildDeadlineDropoffOrderPublic(g)
+                : UniqueVisitIndices(g.DropoffOrder, n);
+            if (order.Count < n)
+                order = SupeyClusterRouting.BuildDeadlineDropoffOrderPublic(g);
+            foreach (int idx in order)
                 list.Add(DescribeDropoff(g.Trips[idx]));
-            }
-            if (list.Count == 0 && g.Trips.Count == 1)
-                list.Add(DescribeDropoff(g.Trips[0]));
             return list;
+        }
+
+        private static List<int> UniqueVisitIndices(List<int> order, int n)
+        {
+            var seen = new bool[n];
+            var result = new List<int>(n);
+            if (order == null) return result;
+            foreach (int idx in order)
+            {
+                if (idx < 0 || idx >= n || seen[idx]) continue;
+                seen[idx] = true;
+                result.Add(idx);
+            }
+            return result;
         }
 
         private static string DescribePickup(MCDownloadedTrip t)
@@ -110,6 +128,26 @@ namespace Hiatme_Tool_Suite_v3
             string s = (street ?? "").Trim();
             if (s.Length > 28) s = s.Substring(0, 28) + "…";
             return s;
+        }
+
+        private static bool SharesSingleDropAddress(SupeyTripCluster g)
+        {
+            if (g == null || g.Trips.Count <= 1) return true;
+            string key = DropoffAddressKey(g.Trips[0]);
+            for (int i = 1; i < g.Trips.Count; i++)
+            {
+                if (!string.Equals(key, DropoffAddressKey(g.Trips[i]), StringComparison.OrdinalIgnoreCase))
+                    return false;
+            }
+            return true;
+        }
+
+        private static string DropoffAddressKey(MCDownloadedTrip t)
+        {
+            var s = (t?.DOStreet ?? "").Trim().ToUpperInvariant();
+            var c = (t?.DOCITY ?? "").Trim().ToUpperInvariant();
+            if (s.Length > 30) s = s.Substring(0, 30);
+            return s + "|" + c;
         }
 
         private static bool SharesSinglePickupAddress(SupeyTripCluster g)

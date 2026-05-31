@@ -71,15 +71,7 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
-        public int WarningCount
-        {
-            get
-            {
-                int n = BuildWarnings.Count;
-                foreach (var p in DriverPlans) n += p.Warnings.Count;
-                return n;
-            }
-        }
+        public int WarningCount => SupeyWarningsUtil.CountUnique(this);
 
         /// <summary>Earliest <see cref="SupeyDriverPlan.ReleaseTimeOfDay"/> across the fleet (null if none).</summary>
         public TimeSpan? EarliestRelease

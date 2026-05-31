@@ -238,7 +238,13 @@ namespace Hiatme_Tool_Suite_v3
             ApplyOrders(c, IdentityOrder(n), BuildDeadlineDropoffOrder(c));
         }
 
-        /// <summary>Template BUILD: keep dispatcher row order for PU and DO (no mileage reorder).</summary>
+        /// <summary>Desk tour without OSRM: PU by scheduled time, DO by appointment deadline.</summary>
+        public static void ApplyOrdersForSingleTrip(SupeyTripCluster c)
+        {
+            if (c == null || c.Trips.Count != 1) return;
+            ApplyOrders(c, IdentityOrder(1), IdentityOrder(1));
+        }
+
         public static void ApplyTemplateDeskTour(SupeyTripCluster c)
         {
             if (c == null) return;
@@ -249,12 +255,22 @@ namespace Hiatme_Tool_Suite_v3
                 c.DropoffOrder.Clear();
                 return;
             }
-            var row = IdentityOrder(n);
-            ApplyOrders(c, row, new List<int>(row));
+            if (n == 1)
+            {
+                ApplyOrders(c, IdentityOrder(1), IdentityOrder(1));
+                return;
+            }
+            ApplyOrders(c, IdentityOrder(n), BuildDeadlineDropoffOrder(c));
         }
 
-        /// <summary>Pick PU/DO visit order by OSRM tour length; refine and deadlines use OSRM legs.</summary>
-        public static async Task OptimizeClusterTourAsync(SupeyTripCluster c, CancellationToken token)
+        /// <summary>Post-build: same best-feasible OSRM tour as BUILD (table-backed when bound).</summary>
+        public static Task OptimizeClusterTourPostBuildAsync(
+            SupeyTripCluster c, CancellationToken token, GeoPoint? routeStart = null) =>
+            OptimizeClusterTourBestAsync(c, token, routeStart);
+
+        /// <summary>City-block pickups (all PUs per town, then next town) + OSRM drop chain.</summary>
+        internal static async Task OptimizeClusterTourBestAsync(
+            SupeyTripCluster c, CancellationToken token, GeoPoint? routeStart)
         {
             if (c == null) return;
             int n = c.Trips.Count;
@@ -262,62 +278,37 @@ namespace Hiatme_Tool_Suite_v3
             {
                 c.PickupOrder.Clear();
                 c.DropoffOrder.Clear();
+                c.RoadTourOptimized = false;
                 return;
             }
-
             if (n == 1
                 || c.PickupPoints == null || c.PickupPoints.Count < n
                 || c.DropoffPoints == null || c.DropoffPoints.Count < n)
             {
-                ApplyOrders(c, IdentityOrder(n), IdentityOrder(n));
+                ApplyOrdersForSingleTrip(c);
+                c.RoadTourOptimized = n == 1;
                 return;
             }
 
-            var candidates = new List<(List<int> pu, List<int> doOrd)>();
-
-            var rowPu = IdentityOrder(n);
-            candidates.Add((new List<int>(rowPu), BuildDeadlineDropoffOrder(c)));
-            candidates.Add((new List<int>(rowPu), new List<int>(rowPu)));
-
-            var timePu = BuildPickupOrderByPuTime(c);
-            candidates.Add((timePu, BuildDeadlineDropoffOrder(c)));
-
-            var puGeo = new List<int>();
-            var doGeo = new List<int>();
-            await BuildGeographicTourAsync(c, puGeo, doGeo, token).ConfigureAwait(false);
-            if (puGeo.Count == n && doGeo.Count == n)
-                candidates.Add((puGeo, doGeo));
-
-            List<int> bestPu = null;
-            List<int> bestDo = null;
-            double bestMeters = double.MaxValue;
-
-            foreach (var cand in candidates)
-            {
-                var refined = await RefineTourCopyAsync(c, cand.pu, cand.doOrd, token).ConfigureAwait(false);
-                if (!await DropoffOrderMeetsDeadlinesAsync(c, refined.pu, refined.doOrd, token)
-                    .ConfigureAwait(false))
-                    continue;
-
-                var metrics = await SupeyOsrmLegs.TourMetricsAsync(c, refined.pu, refined.doOrd, token)
-                    .ConfigureAwait(false);
-                if (!metrics.meters.HasValue)
-                    continue;
-
-                double m = metrics.meters.Value;
-                if (m < bestMeters)
-                {
-                    bestMeters = m;
-                    bestPu = refined.pu;
-                    bestDo = refined.doOrd;
-                }
-            }
-
-            if (bestPu == null)
-                ApplyOrders(c, rowPu, BuildDeadlineDropoffOrder(c));
-            else
-                ApplyOrders(c, bestPu, bestDo);
+            token.ThrowIfCancellationRequested();
+            var puCity = await BuildPickupOrderByCityBlocksAsync(c, routeStart, token).ConfigureAwait(false);
+            await ApplyGroupTourFromPickupOrderAsync(c, puCity, routeStart, token, requireFeasible: false)
+                .ConfigureAwait(false);
         }
+
+        /// <summary>Post-build uses the same city-block group tour as BUILD.</summary>
+        public static Task OptimizeClusterTourForPostBuildAsync(
+            SupeyTripCluster c, CancellationToken token, GeoPoint? routeStart = null) =>
+            OptimizeClusterTourBestAsync(c, token, routeStart);
+
+        /// <summary>Pick PU/DO visit order by OSRM tour length; refine and deadlines use OSRM legs.</summary>
+        public static Task OptimizeClusterTourAsync(SupeyTripCluster c, CancellationToken token) =>
+            OptimizeClusterTourAsync(c, token, null);
+
+        /// <param name="routeStart">Van position before this group (home or last DO); improves first PU choice.</param>
+        public static Task OptimizeClusterTourAsync(
+            SupeyTripCluster c, CancellationToken token, GeoPoint? routeStart) =>
+            OptimizeClusterTourBestAsync(c, token, routeStart);
 
         private static List<int> IdentityOrder(int n)
         {
@@ -349,12 +340,81 @@ namespace Hiatme_Tool_Suite_v3
         internal static List<int> BuildPickupOrderByPuTimePublic(SupeyTripCluster c) =>
             BuildPickupOrderByPuTime(c);
 
+        internal static List<int> BuildDeadlineDropoffOrderPublic(SupeyTripCluster c) =>
+            BuildDeadlineDropoffOrder(c);
+
+        internal static void ApplyOrdersPublic(SupeyTripCluster c, List<int> puOrder, List<int> doOrder) =>
+            ApplyOrders(c, puOrder, doOrder);
+
         private static void ApplyOrders(SupeyTripCluster c, List<int> puOrder, List<int> doOrder)
         {
             c.PickupOrder.Clear();
             c.PickupOrder.AddRange(puOrder);
             c.DropoffOrder.Clear();
             c.DropoffOrder.AddRange(doOrder);
+            NormalizeVisitOrders(c);
+        }
+
+        /// <summary>DropoffOrder/PickupOrder must be one permutation — no doubled entries from tour rebuild.</summary>
+        internal static void NormalizeVisitOrders(SupeyTripCluster c)
+        {
+            if (c == null) return;
+            int n = c.Trips.Count;
+            if (n == 0)
+            {
+                c.PickupOrder.Clear();
+                c.DropoffOrder.Clear();
+                return;
+            }
+            var oldPu = new List<int>(c.PickupOrder);
+            var oldDo = new List<int>(c.DropoffOrder);
+            c.PickupOrder.Clear();
+            c.PickupOrder.AddRange(CompletePermutation(oldPu, n));
+            c.DropoffOrder.Clear();
+            c.DropoffOrder.AddRange(CompletePermutation(oldDo, n, BuildDeadlineDropoffOrder(c)));
+        }
+
+        internal static bool IsValidVisitOrder(IList<int> order, int tripCount)
+        {
+            if (order == null || order.Count != tripCount || tripCount <= 0) return false;
+            var seen = new bool[tripCount];
+            foreach (int idx in order)
+            {
+                if (idx < 0 || idx >= tripCount || seen[idx]) return false;
+                seen[idx] = true;
+            }
+            return true;
+        }
+
+        /// <summary>Keep visit order; append missing indices in row order — never substitute clock PU order.</summary>
+        private static List<int> CompletePermutation(List<int> order, int n, List<int> fillMissingFrom = null)
+        {
+            var seen = new bool[n];
+            var result = new List<int>(n);
+            if (order != null)
+            {
+                foreach (int idx in order)
+                {
+                    if (idx < 0 || idx >= n || seen[idx]) continue;
+                    seen[idx] = true;
+                    result.Add(idx);
+                }
+            }
+            if (fillMissingFrom != null)
+            {
+                foreach (int idx in fillMissingFrom)
+                {
+                    if (idx < 0 || idx >= n || seen[idx]) continue;
+                    seen[idx] = true;
+                    result.Add(idx);
+                }
+            }
+            for (int i = 0; i < n; i++)
+            {
+                if (!seen[i])
+                    result.Add(i);
+            }
+            return result;
         }
 
         private static void CopyTourContext(SupeyTripCluster from, SupeyTripCluster to)
