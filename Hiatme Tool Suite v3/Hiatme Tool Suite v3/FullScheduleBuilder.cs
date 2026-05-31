@@ -153,11 +153,12 @@ namespace Hiatme_Tool_Suite_v3
                         new InvalidOperationException(
                             "No Modivcare trips matched your template rows for " + NameOfDay + ".\n\n" +
                             "Common causes:\n" +
-                            "• Service date on the schedule builder does not match the date embedded in template trips.\n" +
-                            "• Client name, PU/DO street or city, or PU/DO times differ slightly between template and download.\n" +
-                            "• Template is for a different weekday than the trips you downloaded.\n\n" +
+                            "• Wrong weekday folder (templates must be under the same day name as the service date, e.g. Friday).\n" +
+                            "• Client name, PU/DO street or city, or PU/DO times differ between template CSV and today's download.\n" +
+                            "• Template CSV was built from a different route pattern than today's trips.\n\n" +
+                            "Calendar month/year in the template date column is ignored.\n" +
                             "Template folder used:\n" + dayDir),
-                        "Match uses: client name, PU street & city, DO street & city, PU time, DO time (leading zeros ignored).");
+                        "Match uses: client name, PU street & city, DO street & city, PU time, DO time (not trip #).");
                 }
 
                 await CreateWorkbookAsync();
@@ -280,12 +281,7 @@ namespace Hiatme_Tool_Suite_v3
                         {
                             foreach (MCDownloadedTrip mcdownloadedtrip in MCTripList)
                             {
-                                string puTimeT = (templatetrip.PUTime ?? "").TrimStart(new char[] { '0' });
-                                string puTimeD = (mcdownloadedtrip.PUTime ?? "").TrimStart(new char[] { '0' });
-                                string doTimeT = (templatetrip.DOTime ?? "").TrimStart(new char[] { '0' });
-                                string doTimeD = (mcdownloadedtrip.DOTime ?? "").TrimStart(new char[] { '0' });
-                                if ((mcdownloadedtrip.ClientFullName == templatetrip.ClientFullName) && (mcdownloadedtrip.PUStreet == templatetrip.PUStreet) && (mcdownloadedtrip.PUCity == templatetrip.PUCity) && (puTimeD == puTimeT)
-                                     && (mcdownloadedtrip.DOStreet == templatetrip.DOStreet) && (mcdownloadedtrip.DOCITY == templatetrip.DOCITY) && (doTimeD == doTimeT))
+                                if (TemplateTripMatchRules.TripsMatch(templatetrip, mcdownloadedtrip))
                                 {
                                     confirmedtrips.Add(mcdownloadedtrip);
                                     TripsFound.Add(mcdownloadedtrip);
@@ -501,7 +497,7 @@ namespace Hiatme_Tool_Suite_v3
                     if (TripTemplateCsvValidator.IsLikelyHeaderRow(rowForValidate))
                         continue;
 
-                    if (rowValues[0] == string.Empty)
+                    if (TripTemplateCsvValidator.IsPlaceholderTripNumber(rowValues[0]))
                         continue;
 
                     tripNumberForError = rowValues[0].Replace("\"", string.Empty);

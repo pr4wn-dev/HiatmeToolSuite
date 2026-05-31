@@ -4939,6 +4939,12 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     foreach (KeyValuePair<string, string[]> trip in drivertriplist.Value)
                     {
+                        if (trip.Value != null && TripTemplateCsvValidator.IsTemplateGapRow(trip.Value))
+                        {
+                            templatelv.Items.Add(new ListViewItem(new[] { "", "", "", "", "", "", "", "", "", "", "", "", "", "" }));
+                            continue;
+                        }
+
                         ListViewItem lvi = new ListViewItem();
                         lvi.Text = trip.Value[0];
                         lvi.SubItems.Add(trip.Value[1]);

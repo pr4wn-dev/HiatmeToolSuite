@@ -91,10 +91,7 @@ namespace Hiatme_Tool_Suite_v3
                     if (!HiatmeTripLookup.TryResolve(tn, tripByNumber, out var trip)) continue;
                     if (!assignedTripNumbers.Add(trip.TripNumber)) continue;
                     resolved++;
-                    if (SupeyOutOfArea.MatchTrip(trip) != null)
-                        result.ReservesReroute.Add(trip);
-                    else
-                        result.Reserves.Add(trip);
+                    SupeyReserveBuckets.AddToReserves(result, trip);
                 }
             }
 
@@ -106,7 +103,7 @@ namespace Hiatme_Tool_Suite_v3
                     if (!HiatmeTripLookup.TryResolve(tn, tripByNumber, out var trip)) continue;
                     if (!assignedTripNumbers.Add(trip.TripNumber)) continue;
                     resolved++;
-                    result.ReservesReroute.Add(trip);
+                    SupeyReserveBuckets.AddToReserves(result, trip);
                 }
             }
 

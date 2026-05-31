@@ -283,6 +283,17 @@
       <SubType>Component</SubType>
     </Compile>
     <Compile Include="SupeyTemplateCompare.cs" />
+    <Compile Include="SupeyReserveBuckets.cs" />
+    <Compile Include="SupeyTemplateBuildMeta.cs" />
+    <Compile Include="SupeyBuildOptionsSnapshot.cs" />
+    <Compile Include="SupeyTemplateDriverNames.cs" />
+    <Compile Include="SupeyTemplateMatchResult.cs" />
+    <Compile Include="SupeyTemplateTripMatcher.cs" />
+    <Compile Include="TemplateTripMatchRules.cs" />
+    <Compile Include="TemplateTripRowParser.cs" />
+    <Compile Include="SupeyTemplateSlot.cs" />
+    <Compile Include="SupeyTemplateCsvLoader.cs" />
+    <Compile Include="SupeyScheduleAlgorithm.TemplateBuild.cs" />
     <Compile Include="SupeyScheduleReviewExport.cs" />
     <Compile Include="SupeyWarningsExport.cs" />
     <Compile Include="SupeyScheduleBuilder.cs" />

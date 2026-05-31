@@ -35,6 +35,9 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>Clusters in pickup order. May be empty (driver got nothing this build).</summary>
         public List<SupeyTripCluster> Groups { get; } = new List<SupeyTripCluster>();
 
+        /// <summary>Template file order for preview (gaps + matched/unmatched slots). Null when not a template build.</summary>
+        public List<SupeyTemplateSlot> TemplateDisplaySlots { get; set; }
+
         /// <summary>
         /// Connectors before / between / after groups. Always one more than <c>Groups.Count</c>
         /// when populated: <c>Home→g[0]</c>, <c>g[i].end→g[i+1].start</c> for each pair, and

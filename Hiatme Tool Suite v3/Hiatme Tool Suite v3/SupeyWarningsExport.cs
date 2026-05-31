@@ -21,6 +21,7 @@ namespace Hiatme_Tool_Suite_v3
             sb.AppendLine("# Hiatme schedule warnings — paste into Cursor");
             sb.AppendLine("Service date: " + serviceDate.ToString("yyyy-MM-dd"));
             sb.AppendLine(SupeyBuildEngineLabel.Describe(buildEngine));
+            AppendBuildOptions(sb, result);
             if (stats != null)
             {
                 sb.AppendLine("Trips loaded: " + (tripsLoaded > 0 ? tripsLoaded.ToString() : "?"));
@@ -51,6 +52,18 @@ namespace Hiatme_Tool_Suite_v3
             AppendWarningsByKind(sb, result);
             AppendReserveSample(sb, result);
             return sb.ToString();
+        }
+
+        private static void AppendBuildOptions(StringBuilder sb, SupeyScheduleResult result)
+        {
+            if (result?.BuildOptions != null)
+                result.BuildOptions.AppendTo(sb);
+            else
+            {
+                sb.AppendLine("## BUILD options (enabled for this build)");
+                sb.AppendLine("(not recorded — run BUILD again, then copy warnings)");
+                sb.AppendLine();
+            }
         }
 
         /// <summary>Drivers checked for BUILD (from Supey roster) plus what the build assigned.</summary>

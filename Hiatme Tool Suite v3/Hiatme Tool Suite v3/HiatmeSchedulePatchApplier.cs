@@ -140,7 +140,7 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     RemoveTripFromResult(result, tn);
                     if (!result.Reserves.Any(t => TripEquals(t?.TripNumber, tn)))
-                        result.Reserves.Add(trip);
+                        SupeyReserveBuckets.AddToReserves(result, trip);
                     continue;
                 }
 

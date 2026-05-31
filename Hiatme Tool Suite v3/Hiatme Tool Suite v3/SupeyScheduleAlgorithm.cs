@@ -274,7 +274,7 @@ namespace Hiatme_Tool_Suite_v3
                 string ooa = SupeyOutOfArea.MatchTrip(t);
                 if (ooa != null)
                 {
-                    result.ReservesReroute.Add(t);
+                    SupeyReserveBuckets.AddToReserves(result, t);
                     result.BuildWarnings.Add(new SupeyWarning(
                         SupeyWarningKind.OutOfServiceArea,
                         t.TripNumber ?? "", "",
@@ -291,7 +291,7 @@ namespace Hiatme_Tool_Suite_v3
                 if (result.ReservesReroute.Contains(t)) continue;
                 if (!tripGeo[t].Complete)
                 {
-                    result.Reserves.Add(t);
+                    SupeyReserveBuckets.AddToReserves(result, t);
                     result.BuildWarnings.Add(new SupeyWarning(SupeyWarningKind.MissingGeo,
                         t.TripNumber ?? "", "",
                         "Could not place " + (tripGeo[t].MissingPickup ? "PU" : "") +
@@ -303,7 +303,7 @@ namespace Hiatme_Tool_Suite_v3
                 if (!SupeyTripTimes.TryParsePU(t).HasValue)
                 {
                     // No PU time — can't sequence; treat as Reserves.
-                    result.Reserves.Add(t);
+                    SupeyReserveBuckets.AddToReserves(result, t);
                     continue;
                 }
                 routableTrips.Add(t);
@@ -915,7 +915,7 @@ namespace Hiatme_Tool_Suite_v3
             var warned = suppressWarningTripNumbers ?? result.ReserveWarnedTripNumbers;
 
             foreach (var t in cluster.Trips)
-                result.Reserves.Add(t);
+                SupeyReserveBuckets.AddToReserves(result, t);
 
             bool allTripsAlreadyWarned = true;
             foreach (var t in cluster.Trips)
@@ -1732,8 +1732,8 @@ namespace Hiatme_Tool_Suite_v3
             foreach (var t in orphans)
             {
                 token.ThrowIfCancellationRequested();
-                if (!tripGeo.TryGetValue(t, out var g) || !g.Complete) { result.Reserves.Add(t); continue; }
-                if (!SupeyTripTimes.TryParsePU(t).HasValue) { result.Reserves.Add(t); continue; }
+                if (!tripGeo.TryGetValue(t, out var g) || !g.Complete) { SupeyReserveBuckets.AddToReserves(result, t); continue; }
+                if (!SupeyTripTimes.TryParsePU(t).HasValue) { SupeyReserveBuckets.AddToReserves(result, t); continue; }
 
                 SupeyDriverPlan prefer = null;
                 string pb = TripPartnerBase(t.TripNumber ?? "");
@@ -1751,7 +1751,7 @@ namespace Hiatme_Tool_Suite_v3
                 }
 
                 var cluster = ClusterTrips(new List<MCDownloadedTrip> { t }, tripGeo, capacityFloor, token, null);
-                if (cluster.Count == 0) { result.Reserves.Add(t); continue; }
+                if (cluster.Count == 0) { SupeyReserveBuckets.AddToReserves(result, t); continue; }
 
                 FingerprintCluster(cluster[0]);
                 SupeyClusterRouting.OptimizeClusterTour(cluster[0]);
@@ -1767,7 +1767,7 @@ namespace Hiatme_Tool_Suite_v3
                     placed++;
                 }
                 else
-                    result.Reserves.Add(t);
+                    SupeyReserveBuckets.AddToReserves(result, t);
             }
 
             return placed;

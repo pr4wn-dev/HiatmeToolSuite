@@ -44,6 +44,12 @@ namespace Hiatme_Tool_Suite_v3
         /// </summary>
         public bool AllowLocalSolveFallback { get; set; } = false;
 
+        /// <summary>When true (default), Supey BUILD matches weekday template CSVs before assign.</summary>
+        public bool UseWeekdayTemplates { get; set; } = true;
+
+        /// <summary>When true (default), run Supey/server assign on trips not locked by templates.</summary>
+        public bool FinishRemainingAfterTemplates { get; set; } = true;
+
         private static string BaseDir => AppDomain.CurrentDomain.BaseDirectory;
         private static string PersonalConfigPath => Path.Combine(BaseDir, "hiatme_ai.json");
         private static string DefaultsConfigPath => Path.Combine(BaseDir, "hiatme_ai.defaults.json");
@@ -190,6 +196,8 @@ namespace Hiatme_Tool_Suite_v3
                 target.UseServerGeo = part.UseServerGeo;
                 target.UseServerSolve = part.UseServerSolve;
                 target.AllowLocalSolveFallback = part.AllowLocalSolveFallback;
+                target.UseWeekdayTemplates = part.UseWeekdayTemplates;
+                target.FinishRemainingAfterTemplates = part.FinishRemainingAfterTemplates;
             }
             catch { }
         }

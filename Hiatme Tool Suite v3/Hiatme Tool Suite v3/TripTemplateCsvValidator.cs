@@ -79,6 +79,48 @@ namespace Hiatme_Tool_Suite_v3
             return false;
         }
 
+        /// <summary>Intentional blank spacer row in a driver template (Excel empty line).</summary>
+        public static bool IsTemplateGapRow(string[] rowValues)
+        {
+            if (rowValues == null || rowValues.Length == 0)
+                return true;
+
+            string Cell(int i) => i < rowValues.Length ? (rowValues[i] ?? "").Replace("\"", "").Trim() : "";
+
+            if (!IsPlaceholderTripNumber(Cell(0)) && !string.IsNullOrEmpty(Cell(0)))
+                return false;
+
+            for (int i = 1; i < 14; i++)
+            {
+                string c = Cell(i);
+                if (string.IsNullOrEmpty(c))
+                    continue;
+                if (IsPlaceholderTripNumber(c) || c.Equals("NaT", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>Blank Excel export rows (NaT/nan) — not a real Modivcare trip.</summary>
+        public static bool IsPlaceholderTripNumber(string tripNumber)
+        {
+            if (string.IsNullOrWhiteSpace(tripNumber))
+                return true;
+            string t = tripNumber.Replace("\"", "").Trim();
+            if (t.Length == 0)
+                return true;
+            if (t.Equals("NaT", StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (t.Equals("nan", StringComparison.OrdinalIgnoreCase)
+                || t.Equals("none", StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (t.IndexOf("nan", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+            return false;
+        }
+
         /// <summary>Validate one 14-column trip row. Empty trip number → no checks (caller skips or treats as blank line).</summary>
         public static IReadOnlyList<CellIssue> ValidateTripRow(string[] rowValues)
         {

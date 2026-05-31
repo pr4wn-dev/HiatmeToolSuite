@@ -403,9 +403,31 @@ namespace Hiatme_Tool_Suite_v3
 
             for (int row = 0; row < rows.Length; row++)
             {
+                if (string.IsNullOrWhiteSpace(rows[row]))
+                {
+                    keyValuePairs.Add("gap_" + rowcounter, new string[14]);
+                    rowcounter++;
+                    continue;
+                }
+
                 string[] rowValues = csvParser.Split(rows[row]);
 
-                if (rowValues.Length == 0 || string.IsNullOrEmpty(rowValues[0]))
+                if (rowValues.Length == 0)
+                    continue;
+                for (int i = 0; i < rowValues.Length && i < 14; i++)
+                    rowValues[i] = rowValues[i].Replace("\"", string.Empty);
+
+                string[] rowForGap = rowValues.Length >= 14
+                    ? rowValues
+                    : rowValues.Concat(Enumerable.Repeat("", 14 - rowValues.Length)).Take(14).ToArray();
+                if (TripTemplateCsvValidator.IsTemplateGapRow(rowForGap))
+                {
+                    keyValuePairs.Add("gap_" + rowcounter, rowForGap);
+                    rowcounter++;
+                    continue;
+                }
+
+                if (TripTemplateCsvValidator.IsPlaceholderTripNumber(rowValues[0]))
                     continue;
 
                 if (recordLayoutDiagnostics && row > 0 && rowValues.Length < 14)
@@ -414,9 +436,6 @@ namespace Hiatme_Tool_Suite_v3
                         $"Tab \"{tabLabel}\", spreadsheet row {row + 1}: only {rowValues.Length} column(s) were read (need 14). " +
                         "Check for a missing comma, an extra line break inside quotes, or a blank row in the middle of the block.");
                 }
-
-                for (int i = 0; i < rowValues.Length && i < 14; i++)
-                    rowValues[i] = rowValues[i].Replace("\"", string.Empty);
 
                 if (recordLayoutDiagnostics && rowValues.Length >= 14)
                 {

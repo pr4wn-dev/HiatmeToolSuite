@@ -49,6 +49,8 @@ namespace Hiatme_Tool_Suite_v3
         private RJDatePicker _supeyDatePicker;
         private SupeyButton _supeyLoadBtn;
         private SupeyButton _supeyBuildBtn;
+        private CheckBox _supeyUseTemplatesCb;
+        private CheckBox _supeyFinishRemainingCb;
         private SupeyButton _supeySaveBtn;
         private SupeyButton _supeyCancelBtn;
         private MaterialLabel _supeyScheduleUpdatedLbl;
@@ -241,6 +243,36 @@ namespace Hiatme_Tool_Suite_v3
             };
             _supeyBuildBtn.Click += async (s, e) => await OnSupeyBuildClickedAsync();
 
+            var aiSettings = HiatmeAiSettings.Load();
+            _supeyUseTemplatesCb = new CheckBox
+            {
+                Text = "Templates",
+                Checked = aiSettings.UseWeekdayTemplates,
+                AutoSize = true,
+                ForeColor = SupeyTheme.TextSecondary,
+                BackColor = SupeyTheme.SurfaceHeader,
+                Margin = new Padding(0, 6, 8, 0),
+                Font = SupeyTheme.CaptionFont,
+            };
+            _supeyFinishRemainingCb = new CheckBox
+            {
+                Text = "Finish remaining",
+                Checked = aiSettings.FinishRemainingAfterTemplates,
+                AutoSize = true,
+                ForeColor = SupeyTheme.TextSecondary,
+                BackColor = SupeyTheme.SurfaceHeader,
+                Margin = new Padding(0, 6, 8, 0),
+                Font = SupeyTheme.CaptionFont,
+            };
+            _supeyUseTemplatesCb.CheckedChanged += (s, e) =>
+            {
+                if (_supeyFinishRemainingCb != null)
+                    _supeyFinishRemainingCb.Enabled = _supeyUseTemplatesCb.Checked;
+                UpdateSupeyTemplateBuildHint();
+            };
+            _supeyFinishRemainingCb.CheckedChanged += (s, e) => UpdateSupeyTemplateBuildHint();
+            _supeyFinishRemainingCb.Enabled = _supeyUseTemplatesCb.Checked;
+
             _supeySaveBtn = new SupeyButton
             {
                 Text = "SAVE WORKBOOK",
@@ -310,6 +342,8 @@ namespace Hiatme_Tool_Suite_v3
             leftFlow.Controls.Add(_supeyDatePicker);
             leftFlow.Controls.Add(sep1);
             leftFlow.Controls.Add(_supeyLoadBtn);
+            leftFlow.Controls.Add(_supeyUseTemplatesCb);
+            leftFlow.Controls.Add(_supeyFinishRemainingCb);
             leftFlow.Controls.Add(_supeyBuildBtn);
             leftFlow.Controls.Add(_supeySaveBtn);
             leftFlow.Controls.Add(_supeyCancelBtn);
@@ -1596,10 +1630,23 @@ namespace Hiatme_Tool_Suite_v3
         private void AppendReservesToClipboard(System.Text.StringBuilder sb)
         {
             sb.Append("=== RESERVES === (")
-              .Append(_supeyResult.Reserves.Count)
-              .Append(" trip").Append(_supeyResult.Reserves.Count == 1 ? "" : "s")
-              .AppendLine(" left unassigned)");
+              .Append(_supeyResult.TotalReserveCount)
+              .Append(" trip").Append(_supeyResult.TotalReserveCount == 1 ? "" : "s")
+              .AppendLine(")");
             sb.AppendLine("Trip #\tClient\tPU Time\tPU Street\tPU City\tDO Time\tDO Street\tDO City\tMiles");
+            foreach (var t in _supeyResult.ReservesWillCalls)
+            {
+                sb.Append(Sanitize(t.TripNumber)).Append('\t')
+                  .Append(Sanitize(t.ClientFullName)).Append('\t')
+                  .Append(Sanitize(t.PUTime)).Append('\t')
+                  .Append(Sanitize(t.PUStreet)).Append('\t')
+                  .Append(Sanitize(t.PUCity)).Append('\t')
+                  .Append(Sanitize(t.DOTime)).Append('\t')
+                  .Append(Sanitize(t.DOStreet)).Append('\t')
+                  .Append(Sanitize(t.DOCITY)).Append('\t')
+                  .Append(Sanitize(t.Miles))
+                  .AppendLine();
+            }
             foreach (var t in _supeyResult.Reserves)
             {
                 sb.Append(Sanitize(t.TripNumber)).Append('\t')
@@ -2230,7 +2277,58 @@ namespace Hiatme_Tool_Suite_v3
                 }
 
                 var hints = new SupeyTemplateHints(date.DayOfWeek.ToString());
-                var startingLocks = _supeyResult?.Locks ?? new Dictionary<string, string>();
+                var startingLocks = _supeyResult?.Locks != null
+                    ? new Dictionary<string, string>(_supeyResult.Locks, StringComparer.OrdinalIgnoreCase)
+                    : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+                bool useTemplates = _supeyUseTemplatesCb == null || _supeyUseTemplatesCb.Checked;
+                bool finishRemaining = _supeyFinishRemainingCb == null || _supeyFinishRemainingCb.Checked;
+                if (_supeyAiSettings != null)
+                {
+                    _supeyAiSettings.UseWeekdayTemplates = useTemplates;
+                    _supeyAiSettings.FinishRemainingAfterTemplates = finishRemaining;
+                    try { _supeyAiSettings.Save(); } catch { }
+                }
+
+                SupeyTemplateMatchResult templateMatch = null;
+                if (useTemplates)
+                {
+                    templateMatch = SupeyTemplateTripMatcher.Run(
+                        date.Date, _supeyLoadedTrips, selected);
+                    if (templateMatch?.Locks != null)
+                    {
+                        foreach (var kv in templateMatch.Locks)
+                        {
+                            if (string.IsNullOrWhiteSpace(kv.Key)) continue;
+                            if (!startingLocks.ContainsKey(kv.Key))
+                                startingLocks[kv.Key] = kv.Value;
+                        }
+                    }
+                }
+
+                if (useTemplates && !finishRemaining)
+                {
+                    var tplAlgo = new SupeyScheduleAlgorithm { ScheduleRules = scheduleRules };
+                    var tplProgress = new Progress<string>(msg =>
+                    {
+                        try
+                        {
+                            if (IsHandleCreated && !IsDisposed)
+                                BeginInvoke((Action)(() => SetSupeyToolbarBusy(true, msg)));
+                        }
+                        catch { }
+                    });
+                    _supeyResult = await tplAlgo.BuildFromTemplateLocksAsync(
+                        date, _supeyLoadedTrips, selected, templateMatch, startingLocks,
+                        tplProgress, token).ConfigureAwait(true);
+                    ApplySupeyTemplateBuildMeta(_supeyResult, templateMatch, useTemplates, finishRemaining);
+                    _supeyLastBuildEngine = "template locks";
+                    await CompleteSupeyBuildUiAsync(
+                        date, hints, scheduleRules, serverSolveAttempted: false,
+                        builtOnServer: false, templateMatch).ConfigureAwait(true);
+                    return;
+                }
+
                 bool builtOnServer = false;
                 bool serverSolveAttempted = false;
 
@@ -2252,19 +2350,25 @@ namespace Hiatme_Tool_Suite_v3
                         {
                             _supeyLastServerSolveError = null;
                             ApplySupeyAiSchedule(solveResp, "BUILD");
+                            ApplySupeyTemplateBuildMeta(_supeyResult, templateMatch, useTemplates, finishRemaining);
                             _supeyLastBuildEngine = "server " + (solveResp.Solver ?? "greedy");
                             _supeyLastBuildStats = solveResp.BuildStats;
                             ApplySupeyBuildDiagnostics(solveResp);
                             BindSupeyPreview();
+                            _ = HydrateSupeyGeocodeForMapAsync();
                             builtOnServer = true;
                             string solver = string.IsNullOrWhiteSpace(solveResp.Solver)
                                 ? "server"
                                 : solveResp.Solver;
                             SetSupeyLastBuildSummary(_supeyLastBuildEngine, solveResp.BuildStats);
                             int scheduled = HiatmeAiScheduleMapper.CountAssignedTrips(_supeyResult);
+                            _supeyLastTemplateCompare = SupeyTemplateCompare.Run(_supeyResult, hints);
+                            if (_supeyTemplateCompareLbl != null)
+                                _supeyTemplateCompareLbl.Text = FormatSupeyTemplateCompareText(
+                                    _supeyLastTemplateCompare, _supeyResult?.TemplateBuild);
                             SetSupeyStatus("Build complete (" + solver + "). " +
                                 _supeyResult.DriverPlans.Count + " driver(s), " +
-                                scheduled + " on screen, " + _supeyResult.Reserves.Count +
+                                scheduled + " on screen, " + _supeyResult.TotalReserveCount +
                                 " reserve(s), " + _supeyResult.WarningCount + " warning(s).");
                         }
                         else if (solveResp != null)
@@ -2305,7 +2409,7 @@ namespace Hiatme_Tool_Suite_v3
                     var algo = new SupeyScheduleAlgorithm
                     {
                         Hints = hints,
-                        UseTemplateHints = false,
+                        UseTemplateHints = useTemplates,
                         ScheduleRules = scheduleRules,
                     };
                     var progress = new Progress<string>(msg =>
@@ -2322,39 +2426,10 @@ namespace Hiatme_Tool_Suite_v3
                         date, _supeyLoadedTrips, selected, startingLocks, progress, token)
                         .ConfigureAwait(true);
 
-                    _supeyTripsPanelView = SupeyTripsPanelView.AiSchedule;
-                    BindSupeyPreview();
-                    _ = HydrateSupeyGeocodeForMapAsync();
-                    _supeyLastTemplateCompare = SupeyTemplateCompare.Run(_supeyResult, hints);
-                    if (_supeyTemplateCompareLbl != null)
-                        _supeyTemplateCompareLbl.Text = _supeyLastTemplateCompare.SummaryText;
-                    SyncSupeyScheduleToServer("build");
-                    MarkSupeyScheduleUpdated("BUILD");
-                    SetSupeyAiLastAppliedLabel("BUILD");
-                    _ = RefreshSupeyRulesPanelAsync();
-
-                    _supeyLastBuildEngine = serverSolveAttempted
-                        ? "local C# (server failed, desktop fallback)"
-                        : "local C#";
-                    _supeyLastBuildStats = StatsFromSupeyResult(
-                        _supeyResult, _supeyLoadedTrips?.Count ?? 0);
-                    SupeyBuildEngineLabel.SyncBuildWarning(
-                        _supeyResult, _supeyLastBuildEngine, _supeyLastServerSolveError);
-                    SetSupeyLastBuildSummary(_supeyLastBuildEngine, _supeyLastBuildStats);
-                    if (_supeyLastBuildStats != null && _supeyLastBuildStats.ReservesCount > 0)
-                    {
-                        _supeyResult.BuildWarnings.Add(new SupeyWarning(
-                            SupeyWarningKind.UnassignedToReserves,
-                            "",
-                            "Build",
-                            _supeyLastBuildStats.ReservesCount +
-                            " trip(s) in Reserves — Warnings → Copy for AI review for trip numbers."));
-                    }
-                    int scheduled = HiatmeAiScheduleMapper.CountAssignedTrips(_supeyResult);
-                    SetSupeyStatus("Build complete (local). " + _supeyResult.DriverPlans.Count +
-                        " driver(s), " + scheduled + " on screen, " +
-                        _supeyResult.Reserves.Count + " reserve(s), " +
-                        _supeyResult.WarningCount + " warning(s).");
+                    ApplySupeyTemplateBuildMeta(_supeyResult, templateMatch, useTemplates, finishRemaining);
+                    await CompleteSupeyBuildUiAsync(
+                        date, hints, scheduleRules, serverSolveAttempted,
+                        builtOnServer: false, templateMatch).ConfigureAwait(true);
                 }
             }
             catch (OperationCanceledException)
@@ -2539,18 +2614,32 @@ namespace Hiatme_Tool_Suite_v3
         private void BindReservesPreviewSections()
         {
             if (_supeyResult == null) return;
+            if (_supeyResult.ReservesWillCalls.Count > 0)
+            {
+                AddReservesSectionHeader("Will calls (" + _supeyResult.ReservesWillCalls.Count + ")");
+                foreach (var t in _supeyResult.ReservesWillCalls)
+                    AddReservesTripRow(t, Color.FromArgb(120, 120, 160));
+            }
             if (_supeyResult.Reserves.Count > 0)
             {
-                AddReservesSectionHeader("Need driver (" + _supeyResult.Reserves.Count + ")");
+                AddReservesSectionHeader("Reservers (" + _supeyResult.Reserves.Count + ")");
                 foreach (var t in _supeyResult.Reserves)
                     AddReservesTripRow(t, Color.DimGray);
             }
             if (_supeyResult.ReservesReroute.Count > 0)
             {
-                AddReservesSectionHeader("Reroute to Modivcare (" + _supeyResult.ReservesReroute.Count + ")");
+                AddReservesSectionHeader("Reroutes (" + _supeyResult.ReservesReroute.Count + ")");
                 foreach (var t in _supeyResult.ReservesReroute)
                     AddReservesTripRow(t, Color.FromArgb(140, 90, 40));
             }
+        }
+
+        private void AddSupeyPreviewGapRow()
+        {
+            var blank = new ListViewItem(new[] { "", "", "", "", "", "", "", "", "", "", "" });
+            blank.UseItemStyleForSubItems = false;
+            blank.SubItems[0].BackColor = SupeyTheme.SurfaceHeader;
+            _supeyPreviewLv.Items.Add(blank);
         }
 
         private void AddReservesSectionHeader(string title)
@@ -2625,7 +2714,85 @@ namespace Hiatme_Tool_Suite_v3
                 _supeyPreviewLv.ListViewItemSorter = null;
                 _supeyPreviewLv.Sorting = SortOrder.None;
                 int rowIdx = 0;
-                foreach (var g in item.Plan.Groups)
+
+                if (item.Plan.TemplateDisplaySlots != null && item.Plan.TemplateDisplaySlots.Count > 0)
+                {
+                    int lastGroup = -1;
+                    foreach (var slot in item.Plan.TemplateDisplaySlots)
+                    {
+                        if (slot.Kind == SupeyTemplateSlot.SlotKind.Gap)
+                        {
+                            AddSupeyPreviewGapRow();
+                            continue;
+                        }
+
+                        if (!slot.IsMatched || slot.MatchedLiveTrip == null)
+                            continue;
+
+                        var t = slot.MatchedLiveTrip;
+                        SupeyTripCluster g = null;
+                        int ti = -1;
+                        foreach (var grp in item.Plan.Groups)
+                        {
+                            for (int i = 0; i < grp.Trips.Count; i++)
+                            {
+                                if (ReferenceEquals(grp.Trips[i], t)
+                                    || string.Equals(grp.Trips[i].TripNumber, t.TripNumber,
+                                        StringComparison.OrdinalIgnoreCase))
+                                {
+                                    g = grp;
+                                    ti = i;
+                                    break;
+                                }
+                            }
+                            if (g != null) break;
+                        }
+
+                        if (g != null && g.GroupNumber != lastGroup)
+                        {
+                            AddGroupRouteHeaderRow(g, item.Plan);
+                            lastGroup = g.GroupNumber;
+                        }
+
+                        if (g == null) continue;
+
+                        string puAddr = SupeyTripTimes.FormatEndpoint(t.PUStreet, t.PUCity);
+                        string doAddr = SupeyTripTimes.FormatEndpoint(t.DOStreet, t.DOCITY);
+                        string geo = SupeyTripGeocodeStatus.ForScheduledTrip(t, g, item.Plan, ti);
+                        SupeyTripProjectedTiming timing = null;
+                        string tn = (t.TripNumber ?? "").Trim();
+                        if (!string.IsNullOrEmpty(tn) && item.Plan.TripTimings != null)
+                            item.Plan.TripTimings.TryGetValue(tn, out timing);
+                        string estPu = timing?.EstPu.HasValue == true
+                            ? SupeyTripTimes.FormatTimeOfDay(timing.EstPu) : "—";
+                        string late = !string.IsNullOrWhiteSpace(timing?.LateLabel)
+                            ? timing.LateLabel : "—";
+                        var lvi = new ListViewItem(new[]
+                        {
+                            g.GroupNumber.ToString(),
+                            t.TripNumber ?? "",
+                            t.ClientFullName ?? "",
+                            geo,
+                            t.PUTime ?? "",
+                            estPu,
+                            puAddr,
+                            doAddr,
+                            t.DOTime ?? "",
+                            late,
+                            t.Miles ?? "",
+                        });
+                        lvi.UseItemStyleForSubItems = false;
+                        lvi.Tag = new SupeyPreviewRowTag(g, t, item.Plan, ti);
+                        lvi.SubItems[0].BackColor = g.GroupColor;
+                        lvi.SubItems[0].ForeColor = Color.Black;
+                        StyleGeoSubItem(lvi.SubItems[SupeyPrevColGeoIndex], geo);
+                        if (late != "—" && late.IndexOf('L') >= 0)
+                            lvi.SubItems[SupeyPrevColLateIndex].ForeColor = Color.FromArgb(255, 120, 120);
+                        _supeyPreviewLv.Items.Add(lvi);
+                        rowIdx++;
+                    }
+                }
+                else foreach (var g in item.Plan.Groups)
                 {
                     AddGroupRouteHeaderRow(g, item.Plan);
                     for (int ti = 0; ti < g.Trips.Count; ti++)
@@ -2683,11 +2850,13 @@ namespace Hiatme_Tool_Suite_v3
                 RestoreSupeyPreviewListSorter();
                 BindReservesPreviewSections();
                 _supeyMap.Clear();
+                int wc = _supeyResult.ReservesWillCalls.Count;
                 int need = _supeyResult.Reserves.Count;
                 int rer = _supeyResult.ReservesReroute.Count;
                 _supeyPreviewStatsLbl.Text = "Reserves: " + _supeyResult.TotalReserveCount
-                    + " — " + need + " need driver"
-                    + (rer > 0 ? ", " + rer + " reroute (no-go areas)" : "")
+                    + (wc > 0 ? " — " + wc + " will call" : "")
+                    + " — " + need + " reserver"
+                    + (rer > 0 ? ", " + rer + " reroute" : "")
                     + ". Reroute trips are not auto-assigned on BUILD.";
             }
 
@@ -3028,6 +3197,189 @@ namespace Hiatme_Tool_Suite_v3
             return lead + " Click BUILD — AI schedule loads on the list automatically.";
         }
 
+        private void UpdateSupeyTemplateBuildHint()
+        {
+            if (_supeyToolbarStatusLbl == null) return;
+            if (_supeyUseTemplatesCb == null || !_supeyUseTemplatesCb.Checked)
+                return;
+            string dow = _supeyDatePicker?.Value.DayOfWeek.ToString() ?? "weekday";
+            string fin = (_supeyFinishRemainingCb != null && _supeyFinishRemainingCb.Checked)
+                ? "Supey will run on leftovers"
+                : "Supey will not run — non-template trips → Reservers";
+            _supeyToolbarStatusLbl.Text = "Will use " + dow + " CSVs · " + fin;
+        }
+
+        private void ApplySupeyTemplateBuildMeta(
+            SupeyScheduleResult result,
+            SupeyTemplateMatchResult templateMatch,
+            bool useTemplates,
+            bool finishRemaining)
+        {
+            if (result == null) return;
+            var meta = new SupeyTemplateBuildMeta
+            {
+                Weekday = _supeyDatePicker?.Value.DayOfWeek.ToString() ?? "",
+                FinishRemainingWasOn = finishRemaining,
+            };
+            if (!useTemplates || templateMatch == null || !templateMatch.HadTemplates)
+            {
+                meta.Mode = SupeyTemplateBuildMode.SupeyOnly;
+                result.TemplateBuild = meta;
+                return;
+            }
+
+            meta.Mode = finishRemaining
+                ? SupeyTemplateBuildMode.TemplateThenSupey
+                : SupeyTemplateBuildMode.TemplateSeedOnly;
+            meta.TemplateMatched = templateMatch.MatchedCount;
+            meta.TemplateUnmatchedRows = templateMatch.UnmatchedTemplateRowCount;
+            meta.OrphanTemplateDriverTabs = templateMatch.OrphanTemplateDriverTabs?.Count ?? 0;
+            meta.TripsLockedByTemplate = templateMatch.MatchedCount;
+            int assigned = HiatmeAiScheduleMapper.CountAssignedTrips(result);
+            meta.TripsAssignedBySolver = Math.Max(0, assigned - meta.TripsLockedByTemplate);
+            meta.WillCallCount = result.ReservesWillCalls.Count;
+            meta.ReserverCount = result.Reserves.Count;
+            meta.RerouteCount = result.ReservesReroute.Count;
+            meta.TripsToReserversAfterTemplate = result.TotalReserveCount;
+
+            result.TemplateBuild = meta;
+            if (meta.Mode == SupeyTemplateBuildMode.TemplateSeedOnly)
+            {
+                result.BuildWarnings.Add(new SupeyWarning(
+                    SupeyWarningKind.UnassignedToReserves,
+                    "",
+                    "Templates",
+                    "Finish remaining is OFF — non-template trips are in Reservers. "
+                    + "Turn on Finish remaining to auto-assign them."));
+            }
+        }
+
+        private string FormatSupeyTemplateCompareText(
+            SupeyTemplateCompare compare,
+            SupeyTemplateBuildMeta meta)
+        {
+            if (compare == null)
+                return "No template compare.";
+            if (meta == null || meta.Mode == SupeyTemplateBuildMode.SupeyOnly)
+                return compare.SummaryText;
+
+            var lines = new List<string>();
+            lines.Add(meta.FormatTemplatePassLine());
+            if (meta.Mode == SupeyTemplateBuildMode.TemplateSeedOnly)
+            {
+                if (compare.HadTemplates && compare.TemplateTripCount > 0)
+                {
+                    double pct = 100.0 * meta.TripsLockedByTemplate / compare.TemplateTripCount;
+                    lines.Add(string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Locks applied: {0:F0}% ({1}/{2}) on roster.",
+                        pct, meta.TripsLockedByTemplate, compare.TemplateTripCount));
+                }
+                lines.Add("Supey finish was OFF — compare does not judge reserves.");
+            }
+            else
+            {
+                lines.Add(compare.SummaryText);
+            }
+
+            return string.Join(Environment.NewLine, lines);
+        }
+
+        private void RecordSupeyBuildOptions(bool serverSolveAttempted, bool builtOnServer)
+        {
+            if (_supeyResult == null) return;
+            bool useTemplates = _supeyUseTemplatesCb != null && _supeyUseTemplatesCb.Checked;
+            bool finishRemaining = useTemplates
+                && (_supeyFinishRemainingCb == null
+                    || (_supeyFinishRemainingCb.Enabled && _supeyFinishRemainingCb.Checked));
+            _supeyResult.BuildOptions = SupeyBuildOptionsSnapshot.Capture(
+                _supeyResult.ServiceDate != default(DateTime)
+                    ? _supeyResult.ServiceDate
+                    : _supeyDatePicker.Value.Date,
+                useTemplates,
+                finishRemaining,
+                _supeyAiSettings,
+                serverSolveAttempted,
+                builtOnServer,
+                _supeyLastBuildEngine,
+                _supeyResult.TemplateBuild,
+                GetCheckedSupeyDrivers()?.Count ?? 0);
+        }
+
+        private async Task CompleteSupeyBuildUiAsync(
+            DateTime date,
+            SupeyTemplateHints hints,
+            SupeyScheduleRules scheduleRules,
+            bool serverSolveAttempted,
+            bool builtOnServer,
+            SupeyTemplateMatchResult templateMatch)
+        {
+            _supeyTripsPanelView = SupeyTripsPanelView.AiSchedule;
+            BindSupeyPreview();
+            await HydrateSupeyGeocodeForMapAsync().ConfigureAwait(true);
+            _supeyLastTemplateCompare = SupeyTemplateCompare.Run(_supeyResult, hints);
+            if (_supeyTemplateCompareLbl != null)
+                _supeyTemplateCompareLbl.Text = FormatSupeyTemplateCompareText(
+                    _supeyLastTemplateCompare, _supeyResult?.TemplateBuild);
+            SyncSupeyScheduleToServer("build");
+
+            string buildTag = "BUILD";
+            if (_supeyResult?.TemplateBuild != null)
+            {
+                buildTag = _supeyResult.TemplateBuild.FormatModeTag();
+                if (_supeyScheduleUpdatedLbl != null)
+                {
+                    string when = DateTime.Now.ToString("h:mm tt");
+                    string hdr = _supeyResult.TemplateBuild.Mode == SupeyTemplateBuildMode.TemplateSeedOnly
+                        ? "BUILD · " + _supeyResult.TemplateBuild.Weekday + " templates · Supey did not run"
+                        : "BUILD · " + _supeyResult.TemplateBuild.Weekday + " templates seeded · Supey filled remainder";
+                    _supeyScheduleUpdatedLbl.Text = "Schedule on screen · updated " + when + " · " + hdr;
+                    _supeyScheduleUpdatedLbl.ForeColor = Color.FromArgb(144, 238, 144);
+                }
+            }
+            else
+            {
+                MarkSupeyScheduleUpdated("BUILD");
+            }
+
+            SetSupeyAiLastAppliedLabel("BUILD");
+            _ = RefreshSupeyRulesPanelAsync();
+
+            _supeyLastBuildEngine = builtOnServer
+                ? _supeyLastBuildEngine
+                : (serverSolveAttempted
+                    ? "local C# (server failed, desktop fallback)"
+                    : "local C#");
+            if (_supeyResult?.TemplateBuild != null
+                && _supeyResult.TemplateBuild.Mode != SupeyTemplateBuildMode.SupeyOnly)
+            {
+                _supeyLastBuildEngine = _supeyResult.TemplateBuild.FormatModeTag() + " · " + _supeyLastBuildEngine;
+            }
+
+            _supeyLastBuildStats = StatsFromSupeyResult(_supeyResult, _supeyLoadedTrips?.Count ?? 0);
+            RecordSupeyBuildOptions(serverSolveAttempted, builtOnServer);
+            SupeyBuildEngineLabel.SyncBuildWarning(
+                _supeyResult, _supeyLastBuildEngine, _supeyLastServerSolveError);
+            SetSupeyLastBuildSummary(_supeyLastBuildEngine, _supeyLastBuildStats);
+
+            if (_supeyResult != null && _supeyResult.TotalReserveCount > 0)
+            {
+                _supeyResult.BuildWarnings.Add(new SupeyWarning(
+                    SupeyWarningKind.UnassignedToReserves,
+                    "",
+                    "Build",
+                    _supeyResult.TotalReserveCount +
+                    " trip(s) in reserves — Warnings → Copy for AI review for trip numbers."));
+            }
+
+            int scheduled = HiatmeAiScheduleMapper.CountAssignedTrips(_supeyResult);
+            string engineLabel = builtOnServer ? "server" : "local";
+            SetSupeyStatus("Build complete (" + engineLabel + "). " + _supeyResult.DriverPlans.Count +
+                " driver(s), " + scheduled + " on screen, " +
+                _supeyResult.TotalReserveCount + " reserve(s), " +
+                _supeyResult.WarningCount + " warning(s).");
+        }
+
         /// <summary>Shown above the trip list after BUILD or AI Send applies changes.</summary>
         private void MarkSupeyScheduleUpdated(string source)
         {
@@ -3112,7 +3464,7 @@ namespace Hiatme_Tool_Suite_v3
                         noGeo++;
                 }
             }
-            int reserves = result.Reserves.Count;
+            int reserves = result.TotalReserveCount;
             return new HiatmeBuildStats
             {
                 TripsTotal = tripsLoaded > 0 ? tripsLoaded : assigned + reserves,

@@ -25,11 +25,20 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>Trips that need a driver (unassigned, missing geo on assignable legs, etc).</summary>
         public List<MCDownloadedTrip> Reserves { get; } = new List<MCDownloadedTrip>();
 
+        /// <summary>Will-call trips (PU time 00:00) — held in reserves, not auto-assigned.</summary>
+        public List<MCDownloadedTrip> ReservesWillCalls { get; } = new List<MCDownloadedTrip>();
+
         /// <summary>Out-of-service-area trips — reroute to Modivcare; not auto-assigned on BUILD.</summary>
         public List<MCDownloadedTrip> ReservesReroute { get; } = new List<MCDownloadedTrip>();
 
+        /// <summary>Template BUILD metadata for mode-aware status lines (null when templates not used).</summary>
+        public SupeyTemplateBuildMeta TemplateBuild { get; set; }
+
+        /// <summary>Toolbar/settings at BUILD time — included in warnings paste for AI review.</summary>
+        public SupeyBuildOptionsSnapshot BuildOptions { get; set; }
+
         /// <summary>All reserve buckets combined (for counts and clipboard).</summary>
-        public int TotalReserveCount => Reserves.Count + ReservesReroute.Count;
+        public int TotalReserveCount => Reserves.Count + ReservesWillCalls.Count + ReservesReroute.Count;
 
         /// <summary>Build-level warnings that aren't tied to a specific driver (e.g. a roster home that won't geocode).</summary>
         public List<SupeyWarning> BuildWarnings { get; } = new List<SupeyWarning>();

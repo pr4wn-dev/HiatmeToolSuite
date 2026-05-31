@@ -77,7 +77,7 @@ namespace Hiatme_Tool_Suite_v3
                         string trip = (values[0] ?? "").Replace("\"", "").Trim();
                         string client = (values[2] ?? "").Replace("\"", "").Trim();
 
-                        if (!string.IsNullOrEmpty(trip))
+                        if (!TripTemplateCsvValidator.IsPlaceholderTripNumber(trip))
                         {
                             preferredDriver[trip] = driver;
                             HasAnyTemplate = true;

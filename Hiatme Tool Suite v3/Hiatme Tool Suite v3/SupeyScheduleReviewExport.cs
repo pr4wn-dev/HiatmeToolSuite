@@ -20,6 +20,14 @@ namespace Hiatme_Tool_Suite_v3
             sb.AppendLine("# Hiatme schedule — paste into Cursor for review");
             sb.AppendLine("Service date: " + serviceDate.ToString("yyyy-MM-dd"));
             sb.AppendLine(SupeyBuildEngineLabel.Describe(buildEngine));
+            if (result.BuildOptions != null)
+                result.BuildOptions.AppendTo(sb);
+            else
+            {
+                sb.AppendLine("## BUILD options (enabled for this build)");
+                sb.AppendLine("(not recorded — run BUILD again, then copy for review)");
+                sb.AppendLine();
+            }
             sb.AppendLine("Drivers with trips: " + CountDriversWithTrips(result)
                 + " · Reserves: " + result.TotalReserveCount
                 + " · Warnings: " + result.WarningCount);
@@ -250,10 +258,23 @@ namespace Hiatme_Tool_Suite_v3
         private static void AppendReserves(StringBuilder sb, SupeyScheduleResult result)
         {
             sb.Append("=== RESERVES === (")
-              .Append(result.Reserves.Count)
-              .Append(" trip").Append(result.Reserves.Count == 1 ? "" : "s")
+              .Append(result.TotalReserveCount)
+              .Append(" trip").Append(result.TotalReserveCount == 1 ? "" : "s")
               .AppendLine(")");
             sb.AppendLine("Trip #\tClient\tPU Time\tPU Street\tPU City\tDO Time\tDO Street\tDO City\tMiles");
+            foreach (var t in result.ReservesWillCalls)
+            {
+                sb.Append(Sanitize(t.TripNumber)).Append('\t')
+                  .Append(Sanitize(t.ClientFullName)).Append('\t')
+                  .Append(Sanitize(t.PUTime)).Append('\t')
+                  .Append(Sanitize(t.PUStreet)).Append('\t')
+                  .Append(Sanitize(t.PUCity)).Append('\t')
+                  .Append(Sanitize(t.DOTime)).Append('\t')
+                  .Append(Sanitize(t.DOStreet)).Append('\t')
+                  .Append(Sanitize(t.DOCITY)).Append('\t')
+                  .Append(Sanitize(t.Miles))
+                  .AppendLine();
+            }
             foreach (var t in result.Reserves)
             {
                 sb.Append(Sanitize(t.TripNumber)).Append('\t')

@@ -67,12 +67,7 @@ namespace Hiatme_Tool_Suite_v3
             // Build per-driver CSVs in load order so the resulting workbook tab order matches the
             // roster.
             foreach (var plan in result.DriverPlans)
-            {
-                var trips = new List<MCDownloadedTrip>();
-                foreach (var g in plan.Groups)
-                    trips.AddRange(g.Trips);
-                SaveTripListToCsv(trips, SafeFileName(plan.Driver?.Name ?? "Driver"));
-            }
+                SaveDriverPlanToCsv(plan, SafeFileName(plan.Driver?.Name ?? "Driver"));
             SaveTripListToCsv(result.Reserves, "Reserves");
 
             string defaultFileName = "Schedule for " +
@@ -112,6 +107,38 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        private const string BlankTripCsvLine =
+            "\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\"";
+
+        private static void SaveDriverPlanToCsv(SupeyDriverPlan plan, string fileBase)
+        {
+            string fullPath = Path.Combine(GetTempDirectory(), fileBase + ".csv");
+            var csv = new StringBuilder();
+            if (plan?.TemplateDisplaySlots != null && plan.TemplateDisplaySlots.Count > 0)
+            {
+                foreach (var slot in plan.TemplateDisplaySlots)
+                {
+                    if (slot.Kind == SupeyTemplateSlot.SlotKind.Gap)
+                    {
+                        csv.AppendLine(BlankTripCsvLine);
+                        continue;
+                    }
+                    if (slot.MatchedLiveTrip != null)
+                        csv.AppendLine(FormatTripCsvLine(slot.MatchedLiveTrip));
+                }
+            }
+            else if (plan?.Groups != null)
+            {
+                foreach (var g in plan.Groups)
+                {
+                    if (g?.Trips == null) continue;
+                    foreach (var t in g.Trips)
+                        csv.AppendLine(FormatTripCsvLine(t));
+                }
+            }
+            File.WriteAllText(fullPath, csv.ToString());
+        }
+
         private static void SaveTripListToCsv(IList<MCDownloadedTrip> trips, string fileBase)
         {
             string fullPath = Path.Combine(GetTempDirectory(), fileBase + ".csv");
@@ -119,15 +146,19 @@ namespace Hiatme_Tool_Suite_v3
             if (trips != null)
             {
                 foreach (var t in trips)
-                {
-                    csv.AppendLine(string.Format("\"{0}\",\"{1}\",\"{2}\",\"{3}\",\"{4}\",\"{5}\",\"{6}\",\"{7}\",\"{8}\",\"{9}\",\"{10}\",\"{11}\",\"{12}\",\"{13}\"",
-                        t.TripNumber ?? "", t.Date ?? "", t.ClientFullName ?? "",
-                        t.PUStreet ?? "", t.PUCity ?? "", t.PUTelephone ?? "", t.PUTime ?? "",
-                        t.DOStreet ?? "", t.DOCITY ?? "", t.DOTelephone ?? "", t.DOTime ?? "",
-                        t.Age ?? "", t.Miles ?? "", t.Comments ?? ""));
-                }
+                    csv.AppendLine(FormatTripCsvLine(t));
             }
             File.WriteAllText(fullPath, csv.ToString());
+        }
+
+        private static string FormatTripCsvLine(MCDownloadedTrip t)
+        {
+            if (t == null) return BlankTripCsvLine;
+            return string.Format("\"{0}\",\"{1}\",\"{2}\",\"{3}\",\"{4}\",\"{5}\",\"{6}\",\"{7}\",\"{8}\",\"{9}\",\"{10}\",\"{11}\",\"{12}\",\"{13}\"",
+                t.TripNumber ?? "", t.Date ?? "", t.ClientFullName ?? "",
+                t.PUStreet ?? "", t.PUCity ?? "", t.PUTelephone ?? "", t.PUTime ?? "",
+                t.DOStreet ?? "", t.DOCITY ?? "", t.DOTelephone ?? "", t.DOTime ?? "",
+                t.Age ?? "", t.Miles ?? "", t.Comments ?? "");
         }
 
         private static string SafeFileName(string raw)
