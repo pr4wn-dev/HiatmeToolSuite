@@ -1,5 +1,11 @@
 {
   "BaseUrl": "http://192.168.1.50:8787",
-  "ApiToken": "",
-  "UseServerGeo": true
+  "FallbackBaseUrls": [ "http://127.0.0.1:8787" ],
+  "ApiToken": "copy-from-AIagent-.env-HIATME_API_TOKEN-or-run-scripts-sync-hiatme-ai-config.ps1",
+  "UseServerGeo": true,
+  "UseServerSolve": true,
+  "AllowLocalSolveFallback": false,
+  "UseWeekdayTemplates": true,
+  "FinishRemainingAfterTemplates": true,
+  "RememberOnSave": true
 }

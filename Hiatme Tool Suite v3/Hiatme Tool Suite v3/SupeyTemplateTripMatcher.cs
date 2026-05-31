@@ -67,7 +67,11 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     if (slot.Kind == SupeyTemplateSlot.SlotKind.Gap)
                     {
-                        orderedSlots.Add(new SupeyTemplateSlot { Kind = SupeyTemplateSlot.SlotKind.Gap });
+                        orderedSlots.Add(new SupeyTemplateSlot
+                        {
+                            Kind = SupeyTemplateSlot.SlotKind.Gap,
+                            NoteText = slot.NoteText,
+                        });
                         continue;
                     }
 

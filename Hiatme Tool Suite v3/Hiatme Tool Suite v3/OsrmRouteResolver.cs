@@ -9,17 +9,17 @@ using Newtonsoft.Json.Linq;
 namespace Hiatme_Tool_Suite_v3
 {
     /// <summary>
-    /// OSRM routing with retries, local→public fallback, and segmented chains before straight-line.
+    /// OSRM routing: retries, segmented chains, then per-leg chain (nearly always succeeds on Maine graph).
     /// </summary>
     internal static class OsrmRouteResolver
     {
         private const int MaxUrlLength = 7500;
         private const int MaxWaypointsPerRequest = 12;
-        private const int AttemptsPerEndpoint = 2;
+        private const int AttemptsPerEndpoint = 4;
         private const string RouteQuery =
             "overview=full&geometries=geojson&alternatives=false&steps=false&annotations=distance,duration";
 
-        private static readonly HttpClient Http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+        private static readonly HttpClient Http = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
 
         public static async Task<RouteEstimator.RoutePolylineResult> RouteBestEffortAsync(
             IList<GeoPoint> waypoints, CancellationToken token)
@@ -42,7 +42,7 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     token.ThrowIfCancellationRequested();
                     if (attempt > 0)
-                        await Task.Delay(400, token).ConfigureAwait(false);
+                        await Task.Delay(350 * attempt, token).ConfigureAwait(false);
 
                     var parsed = await TryFetchParseAsync(endpoint, coordPath, waypoints, token)
                         .ConfigureAwait(false);
@@ -53,7 +53,8 @@ namespace Hiatme_Tool_Suite_v3
                 }
             }
 
-            return BuildStraightLineLastResort(waypoints, lastError);
+            return await RouteLegChainAsync(waypoints, token).ConfigureAwait(false)
+                ?? RouteEstimator.RoutePolylineResult.Fail(lastError);
         }
 
         private static async Task<RouteEstimator.RoutePolylineResult> RouteSegmentedAsync(
@@ -89,8 +90,13 @@ namespace Hiatme_Tool_Suite_v3
                 }
 
                 if (seg == null || !seg.Ok || seg.IsStraightLineFallback)
-                    return BuildStraightLineLastResort(waypoints,
+                {
+                    var chain = await RouteLegChainAsync(waypoints, token).ConfigureAwait(false);
+                    if (chain != null && chain.Ok)
+                        return chain;
+                    return RouteEstimator.RoutePolylineResult.Fail(
                         "Could not route a long trip chain (" + slice.Count + " stops in segment): " + segError);
+                }
 
                 if (seg.LegDurations != null)
                 {
@@ -204,12 +210,93 @@ namespace Hiatme_Tool_Suite_v3
                 legDurations, legDistances, polyline, totalDuration, totalDistance);
         }
 
-        private static RouteEstimator.RoutePolylineResult BuildStraightLineLastResort(
-            IList<GeoPoint> waypoints, string osrmError)
+        /// <summary>Sum of 2-point OSRM legs — reliable when multi-stop /route fails.</summary>
+        private static async Task<RouteEstimator.RoutePolylineResult> RouteLegChainAsync(
+            IList<GeoPoint> waypoints,
+            CancellationToken token)
         {
-            return RouteEstimator.BuildStraightLineFallback(waypoints,
-                (osrmError ?? "OSRM failed") +
-                " — straight-line used only after local + public OSRM retries.");
+            if (waypoints == null || waypoints.Count < 2)
+                return null;
+
+            var legDurations = new List<double>();
+            var legDistances = new List<double>();
+            var polyline = new List<GeoPoint>();
+            double totalSeconds = 0;
+            double totalMeters = 0;
+
+            for (int i = 0; i < waypoints.Count - 1; i++)
+            {
+                token.ThrowIfCancellationRequested();
+                var a = waypoints[i];
+                var b = waypoints[i + 1];
+                if (SameCoord(a, b))
+                {
+                    legDurations.Add(0);
+                    legDistances.Add(0);
+                    if (polyline.Count == 0)
+                        polyline.Add(a);
+                    continue;
+                }
+
+                string legPath;
+                string legErr;
+                var two = new List<GeoPoint> { a, b };
+                if (!TryBuildCoordinatePath(two, out legPath, out legErr))
+                    return RouteEstimator.RoutePolylineResult.Fail(legErr);
+
+                RouteEstimator.RoutePolylineResult leg = null;
+                string legFail = "leg routing failed";
+                foreach (string endpoint in OsrmSettings.RouteEndpointsInOrder())
+                {
+                    for (int attempt = 0; attempt < AttemptsPerEndpoint; attempt++)
+                    {
+                        if (attempt > 0)
+                            await Task.Delay(250 * attempt, token).ConfigureAwait(false);
+                        leg = await TryFetchParseAsync(endpoint, legPath, two, token).ConfigureAwait(false);
+                        if (leg.Ok && !leg.IsStraightLineFallback)
+                            break;
+                        legFail = leg.ErrorMessage ?? legFail;
+                    }
+                    if (leg != null && leg.Ok && !leg.IsStraightLineFallback)
+                        break;
+                }
+
+                if (leg == null || !leg.Ok || leg.IsStraightLineFallback)
+                    return null;
+
+                double dur = leg.TotalSeconds;
+                double dist = leg.TotalMeters;
+                legDurations.Add(dur);
+                legDistances.Add(dist);
+                totalSeconds += dur;
+                totalMeters += dist;
+
+                if (polyline.Count == 0)
+                {
+                    if (leg.Polyline != null && leg.Polyline.Count > 0)
+                        polyline.AddRange(leg.Polyline);
+                    else
+                        polyline.Add(a);
+                }
+                else if (leg.Polyline != null)
+                {
+                    for (int p = 1; p < leg.Polyline.Count; p++)
+                        polyline.Add(leg.Polyline[p]);
+                }
+                else
+                    polyline.Add(b);
+            }
+
+            if (polyline.Count == 0)
+                polyline.AddRange(waypoints);
+
+            return RouteEstimator.RoutePolylineResult.Success(
+                legDurations, legDistances, polyline, totalSeconds, totalMeters);
+        }
+
+        private static bool SameCoord(GeoPoint a, GeoPoint b)
+        {
+            return Math.Abs(a.Lat - b.Lat) < 1e-6 && Math.Abs(a.Lng - b.Lng) < 1e-6;
         }
 
         private static int EstimateUrlLength(string coordPath)

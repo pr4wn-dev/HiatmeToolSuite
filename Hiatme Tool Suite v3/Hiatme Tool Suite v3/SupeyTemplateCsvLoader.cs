@@ -24,7 +24,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 if (string.IsNullOrWhiteSpace(line))
                 {
-                    slots.Add(new SupeyTemplateSlot { Kind = SupeyTemplateSlot.SlotKind.Gap });
+                    slots.Add(new SupeyTemplateSlot { Kind = SupeyTemplateSlot.SlotKind.Gap, NoteText = "" });
                     continue;
                 }
 
@@ -38,7 +38,13 @@ namespace Hiatme_Tool_Suite_v3
                 if (rowValues.Length < 14)
                 {
                     if (TripTemplateCsvValidator.IsTemplateGapRow(rowValues))
-                        slots.Add(new SupeyTemplateSlot { Kind = SupeyTemplateSlot.SlotKind.Gap });
+                    {
+                        slots.Add(new SupeyTemplateSlot
+                        {
+                            Kind = SupeyTemplateSlot.SlotKind.Gap,
+                            NoteText = TripTemplateCsvValidator.ExtractInstructionText(rowValues),
+                        });
+                    }
                     continue;
                 }
 
@@ -47,7 +53,11 @@ namespace Hiatme_Tool_Suite_v3
 
                 if (TripTemplateCsvValidator.IsTemplateGapRow(rowValues))
                 {
-                    slots.Add(new SupeyTemplateSlot { Kind = SupeyTemplateSlot.SlotKind.Gap });
+                    slots.Add(new SupeyTemplateSlot
+                    {
+                        Kind = SupeyTemplateSlot.SlotKind.Gap,
+                        NoteText = TripTemplateCsvValidator.ExtractInstructionText(rowValues),
+                    });
                     continue;
                 }
 

@@ -101,14 +101,14 @@ namespace Hiatme_Tool_Suite_v3
         /// permitted on B/C legs).
         /// </summary>
         public System.TimeSpan EffectiveEarliestPickup =>
-            IsAllALeg ? EarliestPickup.Subtract(System.TimeSpan.FromMinutes(29.0)) : EarliestPickup;
+            SupeyDeskScheduleTiming.EffectiveEarliestPickup(this);
 
         /// <summary>
         /// Symmetric to <see cref="EffectiveEarliestPickup"/> for the last rider — the earliest
         /// the driver can pick the last rider up and start the drop-off run.
         /// </summary>
         public System.TimeSpan EffectiveLatestPickup =>
-            IsAllALeg ? LatestPickup.Subtract(System.TimeSpan.FromMinutes(29.0)) : LatestPickup;
+            SupeyDeskScheduleTiming.EffectiveLatestPickup(this);
 
         /// <summary>Centroid of <see cref="PickupPoints"/> (lat/lng mean). Used by home-affinity scoring.</summary>
         public GeoPoint PickupCentroid { get; set; }
@@ -156,6 +156,7 @@ namespace Hiatme_Tool_Suite_v3
         public List<string> DoInfeasible { get; } = new List<string>();
         public List<string> TimeConflict { get; } = new List<string>();
         public List<string> PolicyAvoid { get; } = new List<string>();
+        public List<string> OsrmUnavailable { get; } = new List<string>();
 
         /// <summary>
         /// Free-form note attached to the most-recent DO-infeasibility — names the specific rider
@@ -166,13 +167,15 @@ namespace Hiatme_Tool_Suite_v3
 
         public int TotalRejections =>
             Capacity.Count + ShiftStart.Count + ShiftEnd.Count
-            + PuLate.Count + DoInfeasible.Count + TimeConflict.Count + PolicyAvoid.Count;
+            + PuLate.Count + DoInfeasible.Count + TimeConflict.Count + PolicyAvoid.Count
+            + OsrmUnavailable.Count;
 
         public void Clear()
         {
             Capacity.Clear(); ShiftStart.Clear(); ShiftEnd.Clear();
             PuLate.Clear(); DoInfeasible.Clear(); TimeConflict.Clear();
             PolicyAvoid.Clear();
+            OsrmUnavailable.Clear();
             LateRiderNote = null;
         }
 
@@ -203,6 +206,7 @@ namespace Hiatme_Tool_Suite_v3
             Append("busy (cannot make PU on time)", TimeConflict);
             Append("cannot make DO appt", DoInfeasible);
             Append("rule blocked", PolicyAvoid);
+            Append("OSRM routing unavailable", OsrmUnavailable);
             if (!string.IsNullOrEmpty(LateRiderNote))
                 sb.Append(" — ").Append(LateRiderNote);
             if (TimeConflict.Count > 0 && ShiftEnd.Count == 0

@@ -271,14 +271,21 @@
     <Compile Include="SupeyTemplateHints.cs" />
     <Compile Include="SupeyFrequentRiders.cs" />
     <Compile Include="SupeyTripTimingPolicy.cs" />
+    <Compile Include="SupeyDeskScheduleTiming.cs" />
+    <Compile Include="SupeyDeskScheduleTiming.Rules.cs" />
+    <Compile Include="OsrmBootstrap.cs" />
+    <Compile Include="SupeyOsrmLegs.cs" />
     <Compile Include="SupeyScheduleAlgorithm.cs" />
+    <Compile Include="SupeyScheduleAlgorithm.Routing.cs" />
     <Compile Include="SupeyCorridorRouting.cs" />
     <Compile Include="SupeyScheduleRules.cs" />
     <Compile Include="SupeyDispatchRulesLoader.cs" />
     <Compile Include="SupeyOutOfArea.cs" />
     <Compile Include="SupeyBuildEngineLabel.cs" />
     <Compile Include="SupeyClusterRouting.cs" />
+    <Compile Include="SupeyClusterRouting.OsrmTour.cs" />
     <Compile Include="SupeyRouteNoteFormatter.cs" />
+    <Compile Include="SupeyRouteStopNumbers.cs" />
     <Compile Include="SupeyCollapsiblePanel.cs">
       <SubType>Component</SubType>
     </Compile>
@@ -294,6 +301,9 @@
     <Compile Include="SupeyTemplateSlot.cs" />
     <Compile Include="SupeyTemplateCsvLoader.cs" />
     <Compile Include="SupeyScheduleAlgorithm.TemplateBuild.cs" />
+    <Compile Include="SupeyScheduleAlgorithm.TemplateFinish.cs" />
+    <Compile Include="SupeyScheduleAlgorithm.ManualEdit.cs" />
+    <Compile Include="SupeyDriverPlanManualEdit.cs" />
     <Compile Include="SupeyScheduleReviewExport.cs" />
     <Compile Include="SupeyWarningsExport.cs" />
     <Compile Include="SupeyScheduleBuilder.cs" />
@@ -401,6 +411,7 @@
     <None Include="hiatme_ai.defaults.json" Condition="Exists('hiatme_ai.defaults.json')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Include="scripts\sync-hiatme-ai-config.ps1" />
     <None Include="hiatme_ai.defaults.json.example" Condition="!Exists('hiatme_ai.defaults.json')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <TargetPath>hiatme_ai.defaults.json</TargetPath>

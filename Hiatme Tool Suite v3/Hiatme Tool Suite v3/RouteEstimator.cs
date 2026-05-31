@@ -242,14 +242,15 @@ namespace Hiatme_Tool_Suite_v3
             if (waypoints == null || waypoints.Count < 2)
                 return RoutePolylineResult.Fail("Not enough waypoints to route.");
 
-            if (HiatmeGeoSettings.ServerOnly || HiatmeGeoSettings.UseServer)
+            var ai = HiatmeAiSettings.Load();
+            if (ai.UseServerGeo)
             {
-                if (!HiatmeGeoSettings.UseServer)
+                if (!await HiatmeGeoSettings.RefreshConnectivityAsync(ai, token).ConfigureAwait(false))
                     return RoutePolylineResult.Fail(HiatmeGeoSettings.ServerRequiredMessage);
                 try
                 {
                     var osrm = await HiatmeGeoClient.FetchOsrmJsonAsync(
-                        HiatmeAiSettings.Load(), waypoints, geometry: true, token).ConfigureAwait(false);
+                        ai, waypoints, geometry: true, token).ConfigureAwait(false);
                     if (osrm != null)
                     {
                         var parsed = TryParseOsrmPolyline(osrm, waypoints);
@@ -258,8 +259,8 @@ namespace Hiatme_Tool_Suite_v3
                     }
                 }
                 catch { /* fall through */ }
-                if (HiatmeGeoSettings.ServerOnly)
-                    return RoutePolylineResult.Fail(HiatmeGeoSettings.ServerRequiredMessage);
+                return RoutePolylineResult.Fail(
+                    "Office panel route failed — check panel URL, token, and OSRM on the server PC.");
             }
 
             return await OsrmRouteResolver.RouteBestEffortAsync(waypoints, token).ConfigureAwait(false);

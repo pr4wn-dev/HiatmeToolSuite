@@ -34,13 +34,16 @@ namespace Hiatme_Tool_Suite_v3
                     + "Set HiatmeAiBaseUrl in App.config or hiatme_ai.json.");
             }
 
-            if (!await HiatmeAiClient.PingAsync(aiSettings, cancellationToken).ConfigureAwait(false))
+            if (!await HiatmeGeoSettings.RefreshConnectivityAsync(aiSettings, cancellationToken)
+                .ConfigureAwait(false))
             {
                 return (false,
                     "Office AI panel is not reachable at " + panelUrl + ".\r\n\r\n"
                     + "On the server PC: scripts\\restart-panel.ps1 (AIagent repo).\r\n"
                     + "Desks: confirm HiatmeAiBaseUrl points at the office LAN IP and port.");
             }
+
+            await HiatmeAiClient.EnsureOsrmAsync(aiSettings, cancellationToken).ConfigureAwait(false);
 
             var ready = await HiatmeAiClient.BuildReadyAsync(aiSettings, cancellationToken)
                 .ConfigureAwait(false);

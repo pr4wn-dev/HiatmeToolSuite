@@ -127,6 +127,25 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         /// <summary>
+        /// Returns a cached coordinate without network I/O. False when missing or a remembered miss.
+        /// </summary>
+        public static bool TryGetCachedPoint(
+            string street, string city, string state, string zip, string countryCode, out GeoPoint point)
+        {
+            point = default;
+            string key = NormalizeKey(street, city, state, zip, countryCode);
+            if (string.IsNullOrEmpty(key)) return false;
+            EnsureDiskCacheLoaded();
+            lock (_cache)
+            {
+                if (!_cache.TryGetValue(key, out var cached) || !cached.HasValue)
+                    return false;
+                point = cached.Value;
+                return true;
+            }
+        }
+
+        /// <summary>
         /// Lazy-loads the persisted cache the first time a resolve happens. Idempotent — repeat
         /// calls after a successful load are no-ops. A corrupt file is logged-and-skipped so the
         /// app continues with an empty cache rather than crashing.

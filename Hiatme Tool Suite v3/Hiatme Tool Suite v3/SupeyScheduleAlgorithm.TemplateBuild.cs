@@ -109,8 +109,8 @@ namespace Hiatme_Tool_Suite_v3
                 for (int gi = 0; gi < plan.Groups.Count; gi++)
                 {
                     var cluster = plan.Groups[gi];
-                    FingerprintCluster(cluster);
-                    SupeyClusterRouting.OptimizeClusterTour(cluster);
+                    SyncClusterMetadataFromTrips(cluster);
+                    SupeyClusterRouting.ApplyTemplateDeskTour(cluster);
                     await PopulateClusterPolylineAsync(cluster, token).ConfigureAwait(false);
                 }
 
@@ -123,7 +123,7 @@ namespace Hiatme_Tool_Suite_v3
             foreach (var plan in result.DriverPlans)
             {
                 token.ThrowIfCancellationRequested();
-                OrderDriverGroupsCorridor(plan);
+                // Keep groups in template slot order (do not corridor-reorder).
                 await SequenceDriverAsync(plan, token).ConfigureAwait(false);
                 EvaluateWarnings(plan);
                 seqDone++;

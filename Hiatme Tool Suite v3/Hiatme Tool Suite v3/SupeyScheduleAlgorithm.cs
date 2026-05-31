@@ -18,9 +18,8 @@ namespace Hiatme_Tool_Suite_v3
     /// 8. Reserves + warnings — anything unassigned plus per-driver feasibility re-checks.
     /// </summary>
     /// <remarks>
-    /// Scoring uses haversine + average street speed for the (D × G) cost matrix so we don't burn
-    /// OSRM throughput on probabilistic estimates; OSRM is reserved for in-cluster + dead-head
-    /// geometry that actually gets rendered.
+    /// Assignment, clustering, tours, and feasibility use OSRM legs (cached).
+    /// straight-line fallback is display-only when OSRM is down.
     /// <para/>
     /// The user-stated optimization target is "minimize total fleet active-hours and miles, then
     /// release drivers as early as possible". We implement that via a <c>λ × activeWindowExtension</c>
@@ -131,7 +130,7 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>Weekday-template daily regulars — coverage priority only, not driver locks.</summary>
         public SupeyFrequentRiders FrequentRiders { get; set; }
 
-        public SupeyRouteCache RouteCache { get; } = new SupeyRouteCache();
+        public SupeyRouteCache RouteCache => SupeyOsrmLegs.SharedCache;
 
         /// <summary>
         /// Builds a schedule. Trips and drivers should already be filtered to "selected for this build".
@@ -146,6 +145,9 @@ namespace Hiatme_Tool_Suite_v3
             CancellationToken token)
         {
             var result = new SupeyScheduleResult { ServiceDate = serviceDate.Date };
+            await OsrmBootstrap.EnsureForBuildAsync(HiatmeAiSettings.Load(), progress, token)
+                .ConfigureAwait(false);
+            SupeyOsrmLegs.BeginBuildSession();
             if (FrequentRiders == null)
                 FrequentRiders = SupeyFrequentRiders.Load();
             if (locks != null)
@@ -313,7 +315,8 @@ namespace Hiatme_Tool_Suite_v3
             progress?.Report("Clustering " + routableTrips.Count + " trips...");
             int capacityFloor = ResolveCapacityFloor(validDrivers);
             var hintsForCluster = UseTemplateHints ? Hints : null;
-            var clusters = ClusterTrips(routableTrips, tripGeo, capacityFloor, token, hintsForCluster);
+            var clusters = await ClusterTripsAsync(routableTrips, tripGeo, capacityFloor, token, hintsForCluster)
+                .ConfigureAwait(false);
             for (int i = 0; i < clusters.Count; i++)
             {
                 clusters[i].GroupNumber = i + 1;
@@ -327,8 +330,8 @@ namespace Hiatme_Tool_Suite_v3
             foreach (var c in clusters)
             {
                 token.ThrowIfCancellationRequested();
-                FingerprintCluster(c);
-                SupeyClusterRouting.OptimizeClusterTour(c);
+                SyncClusterMetadataFromTrips(c);
+                await SupeyClusterRouting.OptimizeClusterTourAsync(c, token).ConfigureAwait(false);
                 await PopulateClusterPolylineAsync(c, token).ConfigureAwait(false);
                 fingerprinted++;
                 if ((fingerprinted % 3) == 0 || fingerprinted == clusters.Count)
@@ -338,11 +341,7 @@ namespace Hiatme_Tool_Suite_v3
             int clusterCountBeforeMerge = clusters.Count;
             clusters = SupeyClusterRouting.MergeHouseholdClusters(clusters, capacityFloor);
             int beforeHubMerge = clusters.Count;
-            clusters = SupeyClusterRouting.MergeMorningHubClusters(clusters, capacityFloor, "FALCON");
-            clusters = SupeyClusterRouting.MergeMorningHubClusters(clusters, capacityFloor, "646");
-            clusters = SupeyClusterRouting.MergeMorningHubClusters(clusters, capacityFloor, "MINOT");
-            clusters = SupeyClusterRouting.MergeMorningHubClusters(clusters, capacityFloor, "CROSS");
-            clusters = SupeyClusterRouting.MergeMorningHubClusters(clusters, capacityFloor, "MANLEY");
+            clusters = await ApplyMorningHubMergesAsync(clusters, capacityFloor, token).ConfigureAwait(false);
             if (clusters.Count != beforeHubMerge)
             {
                 progress?.Report("Merged " + (beforeHubMerge - clusters.Count) +
@@ -351,8 +350,8 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     token.ThrowIfCancellationRequested();
                     clusters[i].RoutePolyline.Clear();
-                    FingerprintCluster(clusters[i]);
-                    SupeyClusterRouting.OptimizeClusterTour(clusters[i]);
+                    SyncClusterMetadataFromTrips(clusters[i]);
+                    await SupeyClusterRouting.OptimizeClusterTourAsync(clusters[i], token).ConfigureAwait(false);
                     await PopulateClusterPolylineAsync(clusters[i], token).ConfigureAwait(false);
                 }
             }
@@ -364,14 +363,15 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     token.ThrowIfCancellationRequested();
                     clusters[i].RoutePolyline.Clear();
-                    FingerprintCluster(clusters[i]);
-                    SupeyClusterRouting.OptimizeClusterTour(clusters[i]);
+                    SyncClusterMetadataFromTrips(clusters[i]);
+                    await SupeyClusterRouting.OptimizeClusterTourAsync(clusters[i], token).ConfigureAwait(false);
                     await PopulateClusterPolylineAsync(clusters[i], token).ConfigureAwait(false);
                 }
             }
 
             int clusterCountBeforeSplit = clusters.Count;
-            clusters = SupeyClusterRouting.SplitInefficientClusters(clusters);
+            clusters = await SupeyClusterRouting.SplitInefficientClustersAsync(clusters, token)
+                .ConfigureAwait(false);
             if (clusters.Count != clusterCountBeforeSplit)
             {
                 progress?.Report("Re-routing " + clusters.Count + " group(s) after mileage split...");
@@ -379,8 +379,8 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     token.ThrowIfCancellationRequested();
                     clusters[i].RoutePolyline.Clear();
-                    FingerprintCluster(clusters[i]);
-                    SupeyClusterRouting.OptimizeClusterTour(clusters[i]);
+                    SyncClusterMetadataFromTrips(clusters[i]);
+                    await SupeyClusterRouting.OptimizeClusterTourAsync(clusters[i], token).ConfigureAwait(false);
                     await PopulateClusterPolylineAsync(clusters[i], token).ConfigureAwait(false);
                 }
             }
@@ -436,7 +436,8 @@ namespace Hiatme_Tool_Suite_v3
             remaining.Sort(CompareClustersForCoveragePriority);
 
             progress?.Report("Pass A: morning clinic hubs...");
-            AssignMorningHubWaves(remaining, driverPlans, avgRidersForPassA);
+            await AssignMorningHubWavesAsync(remaining, driverPlans, avgRidersForPassA, token)
+                .ConfigureAwait(false);
 
             progress?.Report("Pass A: assigning groups for coverage...");
             foreach (var cluster in remaining.ToArray())
@@ -451,7 +452,8 @@ namespace Hiatme_Tool_Suite_v3
             await PolishAssignmentsAsync(driverPlans, token).ConfigureAwait(false);
 
             progress?.Report("Pass C: improving coverage (group swaps + reserves)...");
-            ImproveCoverage(result, driverPlans, tripGeo, capacityFloor, hintsForCluster, progress, token);
+            await ImproveCoverageAsync(result, driverPlans, tripGeo, capacityFloor, hintsForCluster, progress, token)
+                .ConfigureAwait(false);
 
             // -------- Phase 6: Sequence each driver --------
             progress?.Report("Sequencing dead-heads for " + driverPlans.Count + " driver(s)...");
@@ -459,7 +461,7 @@ namespace Hiatme_Tool_Suite_v3
             foreach (var plan in driverPlans)
             {
                 token.ThrowIfCancellationRequested();
-                OrderDriverGroupsCorridor(plan);
+                await OrderDriverGroupsCorridorAsync(plan, token).ConfigureAwait(false);
                 await SequenceDriverAsync(plan, token).ConfigureAwait(false);
                 seqDone++;
                 progress?.Report("Sequenced " + seqDone + " / " + driverPlans.Count + " driver(s)...");
@@ -518,7 +520,7 @@ namespace Hiatme_Tool_Suite_v3
             return Math.Min(floor, max);
         }
 
-        private static List<SupeyTripCluster> ClusterTrips(
+        private static async Task<List<SupeyTripCluster>> ClusterTripsAsync(
             List<MCDownloadedTrip> trips, Dictionary<MCDownloadedTrip, SupeyTripGeo> geo,
             int capacityFloor, CancellationToken token, SupeyTemplateHints hints,
             double? clusterTimeWindowMinutes = null)
@@ -527,8 +529,10 @@ namespace Hiatme_Tool_Suite_v3
             var sorted = new List<MCDownloadedTrip>(trips);
             sorted.Sort((a, b) =>
             {
-                var ta = SupeyTripTimes.TryParsePU(a) ?? TimeSpan.MaxValue;
-                var tb = SupeyTripTimes.TryParsePU(b) ?? TimeSpan.MaxValue;
+                var ta = SupeyDeskScheduleTiming.ScheduledPickupForBuild(a);
+                var tb = SupeyDeskScheduleTiming.ScheduledPickupForBuild(b);
+                if (ta == TimeSpan.Zero) ta = TimeSpan.MaxValue;
+                if (tb == TimeSpan.Zero) tb = TimeSpan.MaxValue;
                 return ta.CompareTo(tb);
             });
 
@@ -541,7 +545,8 @@ namespace Hiatme_Tool_Suite_v3
                 if (!puTimeOpt.HasValue) continue;
                 var pu = g.Pickup.Value;
                 var dro = g.Dropoff.Value;
-                var puTime = puTimeOpt.Value;
+                var puTime = SupeyDeskScheduleTiming.ScheduledPickupForBuild(t);
+                if (puTime == TimeSpan.Zero) continue;
                 char tripLeg = DetectLeg(t.TripNumber);
                 bool tripIsA = tripLeg == 'A';
                 string tripFacilityKey = SupeyClusterRouting.MergeKeyForTrip(t);
@@ -562,10 +567,12 @@ namespace Hiatme_Tool_Suite_v3
 
                     double puRadius = tripIsA ? PuClusterRadiusMetersALeg : PuClusterRadiusMetersBcLeg;
                     double doRadius = tripIsA ? DoClusterRadiusMetersALeg : DoClusterRadiusMetersBcLeg;
-                    double puDist = HaversineMeters(c.PickupCentroid, pu);
-                    if (puDist > puRadius) continue;
-                    double doDist = HaversineMeters(c.DropoffCentroid, dro);
-                    if (doDist > doRadius) continue;
+                    var puLeg = await SupeyOsrmLegs.GetLegAsync(pu, c.PickupCentroid, token).ConfigureAwait(false);
+                    if (!puLeg.Ok || puLeg.Meters > puRadius) continue;
+                    double puDist = puLeg.Meters;
+                    var doLeg = await SupeyOsrmLegs.GetLegAsync(dro, c.DropoffCentroid, token).ConfigureAwait(false);
+                    if (!doLeg.Ok || doLeg.Meters > doRadius) continue;
+                    double doDist = doLeg.Meters;
 
                     double score = tripIsA
                         ? (puDist + DoScoringWeight * doDist)
@@ -721,19 +728,19 @@ namespace Hiatme_Tool_Suite_v3
                 path.Add(c.DropoffPoints[c.DropoffOrder[i]]);
             if (path.Count < 2) return;
 
-            var route = await RouteCache.GetAsync(path, token).ConfigureAwait(false);
-            if (route.Ok)
+            c.RoutePolyline.Clear();
+            var route = await SupeyOsrmLegs.RouteAsync(path, token).ConfigureAwait(false);
+            if (route.Ok && !route.IsStraightLineFallback)
             {
                 c.RoutePolyline.AddRange(route.Polyline);
                 c.IntraClusterDriveSeconds = route.TotalSeconds;
                 c.IntraClusterMeters = route.TotalMeters;
-                c.IsStraightLineFallback = route.IsStraightLineFallback;
+                c.IsStraightLineFallback = false;
             }
             else
             {
-                c.RoutePolyline.AddRange(path);
-                c.IntraClusterDriveSeconds = HaversineMetersAlong(path) / AverageStreetSpeedMps;
-                c.IntraClusterMeters = HaversineMetersAlong(path);
+                c.IntraClusterDriveSeconds = 0;
+                c.IntraClusterMeters = 0;
                 c.IsStraightLineFallback = true;
             }
 
@@ -748,7 +755,8 @@ namespace Hiatme_Tool_Suite_v3
                 c.TailDriveSeconds = c.IntraClusterDriveSeconds;
                 c.DropoffLegSeconds.Add(c.IntraClusterDriveSeconds);
             }
-            else if (route.Ok && route.LegDurations != null && route.LegDurations.Count >= 2 * n - 1)
+            else if (route.Ok && !route.IsStraightLineFallback
+                && route.LegDurations != null && route.LegDurations.Count >= 2 * n - 1)
             {
                 double tail = 0;
                 for (int i = n - 1; i < route.LegDurations.Count; i++)
@@ -764,6 +772,8 @@ namespace Hiatme_Tool_Suite_v3
                 double perLeg = c.TailDriveSeconds / n;
                 for (int i = 0; i < n; i++) c.DropoffLegSeconds.Add(perLeg);
             }
+
+            await SupeyClusterRouting.ApplySharedDropHubLegTimesAsync(c, token).ConfigureAwait(false);
         }
 
         // ----- Phase 4 + 5 -----
@@ -780,7 +790,8 @@ namespace Hiatme_Tool_Suite_v3
             CancellationToken token,
             int splitDepth)
         {
-            var pick = ScoreAndPickForCoverage(cluster, plans, preferDriver: null);
+            var pick = await ScoreAndPickForCoverageAsync(cluster, plans, preferDriver: null, token)
+                .ConfigureAwait(false);
             if (pick != null)
             {
                 pick.Groups.Add(cluster);
@@ -800,8 +811,8 @@ namespace Hiatme_Tool_Suite_v3
                     foreach (var sub in parts)
                     {
                         token.ThrowIfCancellationRequested();
-                        FingerprintCluster(sub);
-                        SupeyClusterRouting.OptimizeClusterTour(sub);
+                        SyncClusterMetadataFromTrips(sub);
+                        await SupeyClusterRouting.OptimizeClusterTourAsync(sub, token).ConfigureAwait(false);
                         await PopulateClusterPolylineAsync(sub, token).ConfigureAwait(false);
                         remaining.Add(sub);
                         await TryAssignClusterAsync(sub, remaining, plans, result, progress, token, splitDepth + 1)
@@ -849,16 +860,19 @@ namespace Hiatme_Tool_Suite_v3
                     if (!ClusterMatchesPartnerRequest(candidate, partnerBases, clientNames))
                         continue;
 
-                    bool feasible = TryScoreDriver(candidate, driver, AverageRiderLoad(plans),
-                        recordRejections: false, assignmentMode: AssignmentCostMode.MaximizeCoverage, out _);
+                    var partnerScore = await TryScoreDriverAsync(candidate, driver, AverageRiderLoad(plans),
+                        recordRejections: false, assignmentMode: AssignmentCostMode.MaximizeCoverage, token)
+                        .ConfigureAwait(false);
+                    bool feasible = partnerScore.ok;
                     if (!feasible)
                     {
                         for (double slack = 1.0; slack <= CoverageMaxPuSlackMinutes + 4; slack += 1.0)
                         {
-                            if (TryScoreDriver(candidate, driver, AverageRiderLoad(plans),
+                            partnerScore = await TryScoreDriverAsync(candidate, driver, AverageRiderLoad(plans),
                                     recordRejections: false,
-                                    assignmentMode: AssignmentCostMode.MaximizeCoverage, out _,
-                                    puLateGraceMinutes: slack))
+                                    assignmentMode: AssignmentCostMode.MaximizeCoverage, token,
+                                    puLateGraceMinutes: slack).ConfigureAwait(false);
+                            if (partnerScore.ok)
                             {
                                 feasible = true;
                                 break;
@@ -867,8 +881,8 @@ namespace Hiatme_Tool_Suite_v3
                     }
                     if (!feasible) continue;
 
-                    FingerprintCluster(candidate);
-                    SupeyClusterRouting.OptimizeClusterTour(candidate);
+                    SyncClusterMetadataFromTrips(candidate);
+                    await SupeyClusterRouting.OptimizeClusterTourAsync(candidate, token).ConfigureAwait(false);
                     await PopulateClusterPolylineAsync(candidate, token).ConfigureAwait(false);
                     driver.Groups.Add(candidate);
                     remaining.Remove(candidate);
@@ -988,10 +1002,11 @@ namespace Hiatme_Tool_Suite_v3
         /// Spread morning A-leg clinic loads across drivers before the main greedy pass.
         /// One cluster per hub per sweep so Manley does not consume every driver before Falcon/Minot/646.
         /// </summary>
-        private void AssignMorningHubWaves(
+        private async Task AssignMorningHubWavesAsync(
             List<SupeyTripCluster> remaining,
             List<SupeyDriverPlan> plans,
-            double avgRiders)
+            double avgRiders,
+            CancellationToken token)
         {
             var byHub = new Dictionary<string, List<SupeyTripCluster>>(StringComparer.OrdinalIgnoreCase);
             foreach (var c in remaining)
@@ -1015,29 +1030,35 @@ namespace Hiatme_Tool_Suite_v3
             var driverLockedHub = new Dictionary<SupeyDriverPlan, string>();
 
             // Falcon / 646 / Minot before other morning hubs consume every driver slot.
-            SeedCriticalMorningHubs(remaining, plans, avgRiders, byHub, hubKeys, hubsServed, driverLockedHub);
+            await SeedCriticalMorningHubsAsync(remaining, plans, avgRiders, byHub, hubKeys, hubsServed,
+                driverLockedHub, token).ConfigureAwait(false);
 
-            // Dedicated morning waves (multi-driver) before distinct-hub spread marks hubs "served".
-            AssignDedicatedMorningHubWave(remaining, plans, avgRiders, driverLockedHub, IsFalconMorningHub);
-            AssignDedicatedMorningHubWave(remaining, plans, avgRiders, driverLockedHub, Is646MorningHub);
-            AssignDedicatedMorningHubWave(remaining, plans, avgRiders, driverLockedHub, IsMinotMorningHub);
-            AssignDedicatedMorningHubWave(remaining, plans, avgRiders, driverLockedHub, IsCrossMorningHub);
-            AssignDedicatedMorningHubWave(remaining, plans, avgRiders, driverLockedHub, IsManleyMorningHub);
+            await AssignDedicatedMorningHubWaveAsync(remaining, plans, avgRiders, driverLockedHub,
+                IsFalconMorningHub, token).ConfigureAwait(false);
+            await AssignDedicatedMorningHubWaveAsync(remaining, plans, avgRiders, driverLockedHub,
+                Is646MorningHub, token).ConfigureAwait(false);
+            await AssignDedicatedMorningHubWaveAsync(remaining, plans, avgRiders, driverLockedHub,
+                IsMinotMorningHub, token).ConfigureAwait(false);
+            await AssignDedicatedMorningHubWaveAsync(remaining, plans, avgRiders, driverLockedHub,
+                IsCrossMorningHub, token).ConfigureAwait(false);
+            await AssignDedicatedMorningHubWaveAsync(remaining, plans, avgRiders, driverLockedHub,
+                IsManleyMorningHub, token).ConfigureAwait(false);
 
-            // One cluster per clinic hub on a distinct driver before anyone stacks a second hub.
-            SpreadMorningHubsDistinctDriverFirst(remaining, plans, avgRiders, byHub, hubKeys,
-                allowPuSlack: false, hubsServed, driverLockedHub);
-            SpreadMorningHubsDistinctDriverFirst(remaining, plans, avgRiders, byHub, hubKeys,
-                allowPuSlack: true, hubsServed, driverLockedHub);
-            SweepMorningHubsOncePerHub(remaining, plans, avgRiders, byHub, hubKeys, allowPuSlack: false);
-            SweepMorningHubsOncePerHub(remaining, plans, avgRiders, byHub, hubKeys, allowPuSlack: true);
+            await SpreadMorningHubsDistinctDriverFirstAsync(remaining, plans, avgRiders, byHub, hubKeys,
+                allowPuSlack: false, hubsServed, driverLockedHub, token).ConfigureAwait(false);
+            await SpreadMorningHubsDistinctDriverFirstAsync(remaining, plans, avgRiders, byHub, hubKeys,
+                allowPuSlack: true, hubsServed, driverLockedHub, token).ConfigureAwait(false);
+            await SweepMorningHubsOncePerHubAsync(remaining, plans, avgRiders, byHub, hubKeys,
+                allowPuSlack: false, token).ConfigureAwait(false);
+            await SweepMorningHubsOncePerHubAsync(remaining, plans, avgRiders, byHub, hubKeys,
+                allowPuSlack: true, token).ConfigureAwait(false);
         }
 
         /// <summary>
         /// Assigns the earliest cluster for each hub that has not yet been served, preferring
         /// drivers not already locked to a different morning clinic hub.
         /// </summary>
-        private void SpreadMorningHubsDistinctDriverFirst(
+        private async Task SpreadMorningHubsDistinctDriverFirstAsync(
             List<SupeyTripCluster> remaining,
             List<SupeyDriverPlan> plans,
             double avgRiders,
@@ -1045,7 +1066,8 @@ namespace Hiatme_Tool_Suite_v3
             List<string> hubKeys,
             bool allowPuSlack,
             HashSet<string> hubsServed,
-            Dictionary<SupeyDriverPlan, string> driverLockedHub)
+            Dictionary<SupeyDriverPlan, string> driverLockedHub,
+            CancellationToken token)
         {
             bool progress;
             do
@@ -1053,12 +1075,13 @@ namespace Hiatme_Tool_Suite_v3
                 progress = false;
                 foreach (string hubKey in hubKeys)
                 {
+                    token.ThrowIfCancellationRequested();
                     if (hubsServed.Contains(hubKey)) continue;
                     var cluster = EarliestRemainingClusterInHub(byHub[hubKey], remaining);
                     if (cluster == null) continue;
 
-                    var pick = PickForDistinctMorningHub(cluster, plans, avgRiders, hubKey,
-                        driverLockedHub, allowPuSlack);
+                    var pick = await PickForDistinctMorningHubAsync(cluster, plans, avgRiders, hubKey,
+                        driverLockedHub, allowPuSlack, token).ConfigureAwait(false);
                     if (pick == null) continue;
 
                     pick.Groups.Add(cluster);
@@ -1077,12 +1100,13 @@ namespace Hiatme_Tool_Suite_v3
         /// Spreads morning clinic clusters for one hub (Falcon, Manley, …) across several drivers
         /// before the general hub sweep marks the hub served after a single assignment.
         /// </summary>
-        private void AssignDedicatedMorningHubWave(
+        private async Task AssignDedicatedMorningHubWaveAsync(
             List<SupeyTripCluster> remaining,
             List<SupeyDriverPlan> plans,
             double avgRiders,
             Dictionary<SupeyDriverPlan, string> driverLockedHub,
-            Func<string, bool> matchesHubKey)
+            Func<string, bool> matchesHubKey,
+            CancellationToken token)
         {
             var pool = CollectMorningHubClusters(remaining, matchesHubKey);
             if (pool.Count == 0) return;
@@ -1097,12 +1121,13 @@ namespace Hiatme_Tool_Suite_v3
                     int driversUsed = 0;
                     foreach (var plan in orderedDrivers)
                     {
+                        token.ThrowIfCancellationRequested();
                         if (driversUsed >= DedicatedMorningHubMaxDrivers) break;
                         if (!PlanEligibleForDedicatedHubWave(plan, driverLockedHub, matchesHubKey))
                             continue;
 
-                        SupeyTripCluster cluster = PickEarliestFeasibleHubCluster(
-                            pool, remaining, plan, avgRiders, allowPuSlack);
+                        SupeyTripCluster cluster = await PickEarliestFeasibleHubClusterAsync(
+                            pool, remaining, plan, avgRiders, allowPuSlack, token).ConfigureAwait(false);
                         if (cluster == null) continue;
 
                         plan.Groups.Add(cluster);
@@ -1217,18 +1242,19 @@ namespace Hiatme_Tool_Suite_v3
             return true;
         }
 
-        private SupeyTripCluster PickEarliestFeasibleHubCluster(
+        private async Task<SupeyTripCluster> PickEarliestFeasibleHubClusterAsync(
             List<SupeyTripCluster> hubOrdered,
             List<SupeyTripCluster> remaining,
             SupeyDriverPlan plan,
             double avgRiders,
-            bool allowPuSlack)
+            bool allowPuSlack,
+            CancellationToken token)
         {
             foreach (var c in hubOrdered)
             {
                 if (!remaining.Contains(c)) continue;
-                if (PickLightestFeasibleDriverFrom(c, new List<SupeyDriverPlan> { plan }, avgRiders,
-                        allowPuSlack, preferEarlyShift: true) != null)
+                if (await PickLightestFeasibleDriverFromAsync(c, new List<SupeyDriverPlan> { plan }, avgRiders,
+                        allowPuSlack, preferEarlyShift: true, token).ConfigureAwait(false) != null)
                     return c;
             }
             return null;
@@ -1248,13 +1274,14 @@ namespace Hiatme_Tool_Suite_v3
             return best;
         }
 
-        private SupeyDriverPlan PickForDistinctMorningHub(
+        private async Task<SupeyDriverPlan> PickForDistinctMorningHubAsync(
             SupeyTripCluster cluster,
             List<SupeyDriverPlan> plans,
             double avgRiders,
             string hubKey,
             Dictionary<SupeyDriverPlan, string> driverLockedHub,
-            bool allowPuSlack)
+            bool allowPuSlack,
+            CancellationToken token)
         {
             var open = new List<SupeyDriverPlan>();
             var sameHub = new List<SupeyDriverPlan>();
@@ -1267,9 +1294,11 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             bool preferEarlyShift = cluster.EarliestPickup < new TimeSpan(8, 0, 0);
-            var pick = PickLightestFeasibleDriverFrom(cluster, open, avgRiders, allowPuSlack, preferEarlyShift);
+            var pick = await PickLightestFeasibleDriverFromAsync(cluster, open, avgRiders, allowPuSlack,
+                preferEarlyShift, token).ConfigureAwait(false);
             if (pick != null) return pick;
-            return PickLightestFeasibleDriverFrom(cluster, sameHub, avgRiders, allowPuSlack, preferEarlyShift);
+            return await PickLightestFeasibleDriverFromAsync(cluster, sameHub, avgRiders, allowPuSlack,
+                preferEarlyShift, token).ConfigureAwait(false);
         }
 
         private static List<string> SortHubKeysByMorningPriority(
@@ -1308,27 +1337,29 @@ namespace Hiatme_Tool_Suite_v3
         /// Assigns the earliest cluster at each critical clinic hub while drivers are still open,
         /// so Falcon/646/Minot are not starved after Manley fills every timeline.
         /// </summary>
-        private void SeedCriticalMorningHubs(
+        private async Task SeedCriticalMorningHubsAsync(
             List<SupeyTripCluster> remaining,
             List<SupeyDriverPlan> plans,
             double avgRiders,
             Dictionary<string, List<SupeyTripCluster>> byHub,
             List<string> hubKeys,
             HashSet<string> hubsServed,
-            Dictionary<SupeyDriverPlan, string> driverLockedHub)
+            Dictionary<SupeyDriverPlan, string> driverLockedHub,
+            CancellationToken token)
         {
             foreach (string hubKey in hubKeys)
             {
+                token.ThrowIfCancellationRequested();
                 if (!IsSeedPriorityMorningHub(hubKey)) continue;
                 if (!byHub.TryGetValue(hubKey, out var hubClusters)) continue;
                 var cluster = EarliestRemainingClusterInHub(hubClusters, remaining);
                 if (cluster == null) continue;
 
-                var pick = PickLightestFeasibleDriver(cluster, plans, avgRiders, allowPuSlack: false,
-                    preferEarlyShift: true);
+                var pick = await PickLightestFeasibleDriverAsync(cluster, plans, avgRiders, allowPuSlack: false,
+                    token, preferEarlyShift: true).ConfigureAwait(false);
                 if (pick == null)
-                    pick = PickLightestFeasibleDriver(cluster, plans, avgRiders, allowPuSlack: true,
-                        preferEarlyShift: true);
+                    pick = await PickLightestFeasibleDriverAsync(cluster, plans, avgRiders, allowPuSlack: true,
+                        token, preferEarlyShift: true).ConfigureAwait(false);
                 if (pick == null) continue;
 
                 pick.Groups.Add(cluster);
@@ -1347,13 +1378,14 @@ namespace Hiatme_Tool_Suite_v3
             return t;
         }
 
-        private void SweepMorningHubsOncePerHub(
+        private async Task SweepMorningHubsOncePerHubAsync(
             List<SupeyTripCluster> remaining,
             List<SupeyDriverPlan> plans,
             double avgRiders,
             Dictionary<string, List<SupeyTripCluster>> byHub,
             List<string> hubKeys,
-            bool allowPuSlack)
+            bool allowPuSlack,
+            CancellationToken token)
         {
             bool anyAssigned;
             do
@@ -1361,6 +1393,7 @@ namespace Hiatme_Tool_Suite_v3
                 anyAssigned = false;
                 foreach (string hubKey in hubKeys)
                 {
+                    token.ThrowIfCancellationRequested();
                     SupeyTripCluster cluster = null;
                     var hubClusters = byHub[hubKey];
                     hubClusters.Sort((a, b) => a.EarliestPickup.CompareTo(b.EarliestPickup));
@@ -1372,8 +1405,9 @@ namespace Hiatme_Tool_Suite_v3
                     }
                     if (cluster == null) continue;
 
-                    var pick = PickLightestFeasibleDriver(cluster, plans, avgRiders, allowPuSlack,
-                        preferEarlyShift: cluster.EarliestPickup < new TimeSpan(8, 0, 0));
+                    var pick = await PickLightestFeasibleDriverAsync(cluster, plans, avgRiders, allowPuSlack,
+                        token, preferEarlyShift: cluster.EarliestPickup < new TimeSpan(8, 0, 0))
+                        .ConfigureAwait(false);
                     if (pick == null) continue;
                     pick.Groups.Add(cluster);
                     remaining.Remove(cluster);
@@ -1397,22 +1431,24 @@ namespace Hiatme_Tool_Suite_v3
             return sa.CompareTo(sb);
         }
 
-        private SupeyDriverPlan PickLightestFeasibleDriver(
+        private Task<SupeyDriverPlan> PickLightestFeasibleDriverAsync(
             SupeyTripCluster cluster,
             List<SupeyDriverPlan> plans,
             double avgRiders,
             bool allowPuSlack,
+            CancellationToken token,
             bool preferEarlyShift = false)
         {
-            return PickLightestFeasibleDriverFrom(cluster, plans, avgRiders, allowPuSlack, preferEarlyShift);
+            return PickLightestFeasibleDriverFromAsync(cluster, plans, avgRiders, allowPuSlack, preferEarlyShift, token);
         }
 
-        private SupeyDriverPlan PickLightestFeasibleDriverFrom(
+        private async Task<SupeyDriverPlan> PickLightestFeasibleDriverFromAsync(
             SupeyTripCluster cluster,
             List<SupeyDriverPlan> plans,
             double avgRiders,
             bool allowPuSlack,
-            bool preferEarlyShift)
+            bool preferEarlyShift,
+            CancellationToken token)
         {
             if (plans == null || plans.Count == 0) return null;
 
@@ -1435,11 +1471,13 @@ namespace Hiatme_Tool_Suite_v3
             string clusterHub = cluster.FacilityMergeKey ?? "";
             foreach (var p in ordered)
             {
-                double cost;
-                if (TryScoreDriver(cluster, p, avgRiders, recordRejections: false,
-                        assignmentMode: AssignmentCostMode.MaximizeCoverage, out cost))
+                token.ThrowIfCancellationRequested();
+                var scored = await TryScoreDriverAsync(cluster, p, avgRiders, recordRejections: false,
+                        assignmentMode: AssignmentCostMode.MaximizeCoverage, token)
+                    .ConfigureAwait(false);
+                if (scored.ok)
                 {
-                    cost += MorningHubAffinityPenalty(p, clusterHub);
+                    double cost = scored.cost + MorningHubAffinityPenalty(p, clusterHub);
                     if (cost < bestCost) { bestCost = cost; best = p; bestSlack = 0; }
                     continue;
                 }
@@ -1452,11 +1490,11 @@ namespace Hiatme_Tool_Suite_v3
 
                 for (double slack = 1.0; slack <= maxSlack; slack += 1.0)
                 {
-                    if (!TryScoreDriver(cluster, p, avgRiders, recordRejections: false,
-                            assignmentMode: AssignmentCostMode.MaximizeCoverage, out cost,
-                            puLateGraceMinutes: slack))
-                        continue;
-                    cost += MorningHubAffinityPenalty(p, clusterHub);
+                    scored = await TryScoreDriverAsync(cluster, p, avgRiders, recordRejections: false,
+                            assignmentMode: AssignmentCostMode.MaximizeCoverage, token,
+                            puLateGraceMinutes: slack).ConfigureAwait(false);
+                    if (!scored.ok) continue;
+                    double cost = scored.cost + MorningHubAffinityPenalty(p, clusterHub);
                     if (slack < bestSlack || (Math.Abs(slack - bestSlack) < 0.01 && cost < bestCost))
                     {
                         bestSlack = slack;
@@ -1505,10 +1543,11 @@ namespace Hiatme_Tool_Suite_v3
                 System.Globalization.CultureInfo.InvariantCulture, out m) ? m : 0;
         }
 
-        private SupeyDriverPlan ScoreAndPickForCoverage(
+        private async Task<SupeyDriverPlan> ScoreAndPickForCoverageAsync(
             SupeyTripCluster cluster,
             List<SupeyDriverPlan> plans,
-            SupeyDriverPlan preferDriver)
+            SupeyDriverPlan preferDriver,
+            CancellationToken token)
         {
             cluster.Rejections.Clear();
             double avgRiders = AverageRiderLoad(plans);
@@ -1521,9 +1560,9 @@ namespace Hiatme_Tool_Suite_v3
             {
                 for (double slack = 0; slack <= CoverageMaxPuSlackMinutes + 4 + extraPuSlack; slack += 1.0)
                 {
-                    if (TryScoreDriver(cluster, preferDriver, avgRiders, recordRejections: false,
-                            assignmentMode: AssignmentCostMode.MaximizeCoverage, out _,
-                            puLateGraceMinutes: slack))
+                    if ((await TryScoreDriverAsync(cluster, preferDriver, avgRiders, recordRejections: false,
+                            assignmentMode: AssignmentCostMode.MaximizeCoverage, token,
+                            puLateGraceMinutes: slack).ConfigureAwait(false)).ok)
                         return preferDriver;
                 }
             }
@@ -1545,21 +1584,22 @@ namespace Hiatme_Tool_Suite_v3
 
             foreach (var p in ordered)
             {
-                if (!TryScoreDriver(cluster, p, avgRiders, recordRejections: true,
-                        assignmentMode: AssignmentCostMode.MaximizeCoverage, out double cost))
-                    continue;
-                if (cost < bestCost) { bestCost = cost; bestDriver = p; }
+                token.ThrowIfCancellationRequested();
+                var pickScore = await TryScoreDriverAsync(cluster, p, avgRiders, recordRejections: true,
+                        assignmentMode: AssignmentCostMode.MaximizeCoverage, token)
+                    .ConfigureAwait(false);
+                if (!pickScore.ok) continue;
+                if (pickScore.cost < bestCost) { bestCost = pickScore.cost; bestDriver = p; }
             }
 
             if (bestDriver != null)
                 return bestDriver;
 
-            // All busy on PU timing only: add the minimum extra slack (≤8 min), not a fixed 18 min block.
             if (cluster.Rejections.DoInfeasible.Count == 0
                 && cluster.Rejections.TimeConflict.Count >= plans.Count - 1)
             {
-                return PickLightestFeasibleDriver(cluster, plans, avgRiders, allowPuSlack: true,
-                    preferEarlyShift: cluster.EarliestPickup < new TimeSpan(8, 0, 0));
+                return await PickLightestFeasibleDriverAsync(cluster, plans, avgRiders, allowPuSlack: true, token,
+                    preferEarlyShift: cluster.EarliestPickup < new TimeSpan(8, 0, 0)).ConfigureAwait(false);
             }
 
             return null;
@@ -1574,7 +1614,7 @@ namespace Hiatme_Tool_Suite_v3
         /// Pass C: move whole groups from overloaded drivers to lighter ones, then re-cluster
         /// reserves and try to assign them without splitting household groups.
         /// </summary>
-        private void ImproveCoverage(
+        private async Task ImproveCoverageAsync(
             SupeyScheduleResult result,
             List<SupeyDriverPlan> plans,
             Dictionary<MCDownloadedTrip, SupeyTripGeo> tripGeo,
@@ -1583,15 +1623,17 @@ namespace Hiatme_Tool_Suite_v3
             IProgress<string> progress,
             CancellationToken token)
         {
-            int swaps = SwapGroupsForBalance(plans, token);
-            int fromReserves = TryAssignReserveGroups(result, plans, tripGeo, capacityFloor, hints, token);
-            int legPairs = ReconcileLegPairs(result, plans, tripGeo, capacityFloor, token);
+            int swaps = await SwapGroupsForBalanceAsync(plans, token).ConfigureAwait(false);
+            int fromReserves = await TryAssignReserveGroupsAsync(result, plans, tripGeo, capacityFloor, hints, token)
+                .ConfigureAwait(false);
+            int legPairs = await ReconcileLegPairsAsync(result, plans, tripGeo, capacityFloor, token)
+                .ConfigureAwait(false);
             if (swaps > 0 || fromReserves > 0 || legPairs > 0)
                 progress?.Report("Pass C: " + swaps + " group swap(s), " + fromReserves +
                     " from reserves, " + legPairs + " A/B leg pair(s).");
         }
 
-        private int SwapGroupsForBalance(List<SupeyDriverPlan> plans, CancellationToken token)
+        private async Task<int> SwapGroupsForBalanceAsync(List<SupeyDriverPlan> plans, CancellationToken token)
         {
             int moves = 0;
             while (moves < CoverageImproveMaxGroupSwaps)
@@ -1616,13 +1658,14 @@ namespace Hiatme_Tool_Suite_v3
                 candidates.Sort((a, b) => a.EarliestPickup.CompareTo(b.EarliestPickup));
                 foreach (var cluster in candidates)
                 {
-                    if (!TryScoreDriver(cluster, recipient, avgRiders, recordRejections: false,
-                            assignmentMode: AssignmentCostMode.MaximizeCoverage, out _))
+                    if (!(await TryScoreDriverAsync(cluster, recipient, avgRiders, recordRejections: false,
+                            assignmentMode: AssignmentCostMode.MaximizeCoverage, token)
+                        .ConfigureAwait(false)).ok)
                         continue;
 
                     donor.Groups.Remove(cluster);
                     recipient.Groups.Add(cluster);
-                    OrderDriverGroupsCorridor(recipient);
+                    await OrderDriverGroupsCorridorAsync(recipient, token).ConfigureAwait(false);
                     moves++;
                     moved = true;
                     break;
@@ -1632,7 +1675,7 @@ namespace Hiatme_Tool_Suite_v3
             return moves;
         }
 
-        private int TryAssignReserveGroups(
+        private async Task<int> TryAssignReserveGroupsAsync(
             SupeyScheduleResult result,
             List<SupeyDriverPlan> plans,
             Dictionary<MCDownloadedTrip, SupeyTripGeo> tripGeo,
@@ -1645,12 +1688,10 @@ namespace Hiatme_Tool_Suite_v3
             var reserveTrips = new List<MCDownloadedTrip>(result.Reserves);
             result.Reserves.Clear();
             var hintsForCluster = UseTemplateHints ? hints : null;
-            var clusters = ClusterTrips(reserveTrips, tripGeo, capacityFloor, token, hintsForCluster,
-                ReserveRetryClusterWindowMinutes);
+            var clusters = await ClusterTripsAsync(reserveTrips, tripGeo, capacityFloor, token, hintsForCluster,
+                ReserveRetryClusterWindowMinutes).ConfigureAwait(false);
             clusters = SupeyClusterRouting.MergeHouseholdClusters(clusters, capacityFloor);
-            clusters = SupeyClusterRouting.MergeMorningHubClusters(clusters, capacityFloor, "MINOT");
-            clusters = SupeyClusterRouting.MergeMorningHubClusters(clusters, capacityFloor, "CROSS");
-            clusters = SupeyClusterRouting.MergeMorningHubClusters(clusters, capacityFloor, "646");
+            clusters = await ApplyMorningHubMergesAsync(clusters, capacityFloor, token).ConfigureAwait(false);
             clusters = SupeyClusterRouting.SplitClustersExceedingRiders(clusters, ReserveRetryMaxRidersPerCluster);
 
             int nextGroup = NextAvailableGroupNumber(plans);
@@ -1670,11 +1711,12 @@ namespace Hiatme_Tool_Suite_v3
                 if (processed >= CoverageImproveMaxReserveGroups) break;
                 processed++;
 
-                FingerprintCluster(cluster);
-                SupeyClusterRouting.OptimizeClusterTour(cluster);
-                EstimateClusterDriveFromHaversine(cluster);
+                SyncClusterMetadataFromTrips(cluster);
+                await SupeyClusterRouting.OptimizeClusterTourAsync(cluster, token).ConfigureAwait(false);
+                await PopulateClusterPolylineAsync(cluster, token).ConfigureAwait(false);
 
-                var pick = ScoreAndPickForCoverage(cluster, plans, preferDriver: null);
+                var pick = await ScoreAndPickForCoverageAsync(cluster, plans, preferDriver: null, token)
+                    .ConfigureAwait(false);
                 if (pick != null)
                 {
                     pick.Groups.Add(cluster);
@@ -1692,7 +1734,7 @@ namespace Hiatme_Tool_Suite_v3
         /// When one leg of a round trip is on a driver and the partner leg is still in reserves,
         /// try to place the orphan on that same driver (timing permitting).
         /// </summary>
-        private int ReconcileLegPairs(
+        private async Task<int> ReconcileLegPairsAsync(
             SupeyScheduleResult result,
             List<SupeyDriverPlan> plans,
             Dictionary<MCDownloadedTrip, SupeyTripGeo> tripGeo,
@@ -1750,14 +1792,16 @@ namespace Hiatme_Tool_Suite_v3
                     }
                 }
 
-                var cluster = ClusterTrips(new List<MCDownloadedTrip> { t }, tripGeo, capacityFloor, token, null);
+                var cluster = await ClusterTripsAsync(new List<MCDownloadedTrip> { t }, tripGeo, capacityFloor, token, null)
+                    .ConfigureAwait(false);
                 if (cluster.Count == 0) { SupeyReserveBuckets.AddToReserves(result, t); continue; }
 
-                FingerprintCluster(cluster[0]);
-                SupeyClusterRouting.OptimizeClusterTour(cluster[0]);
-                EstimateClusterDriveFromHaversine(cluster[0]);
+                SyncClusterMetadataFromTrips(cluster[0]);
+                await SupeyClusterRouting.OptimizeClusterTourAsync(cluster[0], token).ConfigureAwait(false);
+                await PopulateClusterPolylineAsync(cluster[0], token).ConfigureAwait(false);
 
-                var pick = ScoreAndPickForCoverage(cluster[0], plans, prefer);
+                var pick = await ScoreAndPickForCoverageAsync(cluster[0], plans, prefer, token)
+                    .ConfigureAwait(false);
                 if (pick != null)
                 {
                     pick.Groups.Add(cluster[0]);
@@ -1796,39 +1840,6 @@ namespace Hiatme_Tool_Suite_v3
             return next;
         }
 
-        /// <summary>Haversine in-group metrics when Pass C skips OSRM (scoring only).</summary>
-        private static void EstimateClusterDriveFromHaversine(SupeyTripCluster c)
-        {
-            int n = c.Trips.Count;
-            if (n == 0) return;
-            var path = new List<GeoPoint>(n * 2);
-            if (c.PickupOrder.Count == 0)
-                for (int i = 0; i < n; i++) c.PickupOrder.Add(i);
-            foreach (int idx in c.PickupOrder)
-                path.Add(c.PickupPoints[idx]);
-            if (c.DropoffOrder.Count == 0)
-                for (int i = 0; i < n; i++) c.DropoffOrder.Add(i);
-            foreach (int idx in c.DropoffOrder)
-                path.Add(c.DropoffPoints[idx]);
-
-            c.RoutePolyline.Clear();
-            c.RoutePolyline.AddRange(path);
-            c.IntraClusterMeters = HaversineMetersAlong(path);
-            c.IntraClusterDriveSeconds = c.IntraClusterMeters / AverageStreetSpeedMps;
-            c.IsStraightLineFallback = true;
-
-            c.DropoffLegSeconds.Clear();
-            if (n <= 1)
-            {
-                c.TailDriveSeconds = c.IntraClusterDriveSeconds;
-                c.DropoffLegSeconds.Add(c.IntraClusterDriveSeconds);
-                return;
-            }
-            double perLeg = c.IntraClusterDriveSeconds / Math.Max(1, path.Count - 1);
-            for (int i = 0; i < n; i++) c.DropoffLegSeconds.Add(perLeg);
-            c.TailDriveSeconds = perLeg * n;
-        }
-
         private async Task PolishAssignmentsAsync(List<SupeyDriverPlan> plans, CancellationToken token)
         {
             int moves = 0;
@@ -1848,16 +1859,17 @@ namespace Hiatme_Tool_Suite_v3
                     foreach (var rec in plans)
                     {
                         if (ReferenceEquals(rec, donor)) continue;
-                        if (!TryScoreDriver(cluster, rec, avgRiders, recordRejections: false,
-                                assignmentMode: AssignmentCostMode.MinimizeExtension, out double cost))
-                            continue;
-                        if (cost < bestCost) { bestCost = cost; bestRec = rec; }
+                        var polishScore = await TryScoreDriverAsync(cluster, rec, avgRiders, recordRejections: false,
+                                assignmentMode: AssignmentCostMode.MinimizeExtension, token)
+                            .ConfigureAwait(false);
+                        if (!polishScore.ok) continue;
+                        if (polishScore.cost < bestCost) { bestCost = polishScore.cost; bestRec = rec; }
                     }
                     if (bestRec == null) continue;
                     double before = TotalFleetMeters(plans);
                     donor.Groups.RemoveAt(donor.Groups.Count - 1);
                     bestRec.Groups.Add(cluster);
-                    OrderDriverGroupsCorridor(bestRec);
+                    await OrderDriverGroupsCorridorAsync(bestRec, token).ConfigureAwait(false);
                     await SequenceDriverAsync(donor, token).ConfigureAwait(false);
                     await SequenceDriverAsync(bestRec, token).ConfigureAwait(false);
                     double after = TotalFleetMeters(plans);
@@ -1880,54 +1892,6 @@ namespace Hiatme_Tool_Suite_v3
             double m = 0;
             foreach (var p in plans) m += p.TotalMeters;
             return m;
-        }
-
-        private static void ReorderDriverGroups(SupeyDriverPlan plan)
-        {
-            if (plan.Groups.Count <= 2) return;
-            plan.Groups.Sort((a, b) => a.EarliestPickup.CompareTo(b.EarliestPickup));
-            bool improved = true;
-            int safety = plan.Groups.Count * 2;
-            var shiftStart = plan.Driver.ParseShiftStart() ?? TimeSpan.Zero;
-            while (improved && safety-- > 0)
-            {
-                improved = false;
-                for (int i = 0; i < plan.Groups.Count - 1; i++)
-                {
-                    var a = plan.Groups[i];
-                    var b = plan.Groups[i + 1];
-                    double keep = HaversineMeters(LastDropoffPoint(a), FirstPickupGeo(b));
-                    double swap = HaversineMeters(LastDropoffPoint(b), FirstPickupGeo(a));
-                    if (swap + 200 >= keep) continue;
-                    if (a.EarliestPickup > b.EarliestPickup) continue;
-                    var trial = new List<SupeyTripCluster>(plan.Groups);
-                    trial[i] = b;
-                    trial[i + 1] = a;
-                    if (!GroupsChronologicallyFeasible(plan, trial, shiftStart)) continue;
-                    plan.Groups[i] = b;
-                    plan.Groups[i + 1] = a;
-                    improved = true;
-                }
-                plan.Groups.Sort((x, y) => x.EarliestPickup.CompareTo(y.EarliestPickup));
-            }
-        }
-
-        private static bool GroupsChronologicallyFeasible(SupeyDriverPlan plan, List<SupeyTripCluster> order, TimeSpan shiftStart)
-        {
-            var current = shiftStart;
-            var loc = PlanAnchorGeo(plan);
-            foreach (var c in order)
-            {
-                double dh = HaversineMeters(loc, FirstPickupGeo(c)) / AverageStreetSpeedMps;
-                var arrival = current.Add(TimeSpan.FromSeconds(dh));
-                double puCap = LegPuLateCapMinutes(c);
-                if (arrival > c.EarliestPickup.Add(TimeSpan.FromMinutes(puCap))) return false;
-                var (ok, end, _, _) = ProjectClusterFeasibility(c, arrival);
-                if (!ok) return false;
-                current = end;
-                loc = LastDropoffPoint(c);
-            }
-            return true;
         }
 
         private static GeoPoint PlanAnchorGeo(SupeyDriverPlan plan)
@@ -1956,30 +1920,30 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         /// <summary>
-        /// Hard feasibility + soft cost for one (driver, cluster) pair.
+        /// Hard feasibility + soft cost for one (driver, cluster) pair — OSRM deadhead + in-group legs.
         /// </summary>
-        private bool TryScoreDriver(
+        private async Task<(bool ok, double cost)> TryScoreDriverAsync(
             SupeyTripCluster cluster,
             SupeyDriverPlan p,
             double avgRiders,
             bool recordRejections,
             AssignmentCostMode assignmentMode,
-            out double cost,
+            CancellationToken token,
             double puLateGraceMinutes = 0,
             double doLateGraceMinutes = 0)
         {
-            cost = double.MaxValue;
+            double cost = double.MaxValue;
 
             if (cluster.RiderCount > p.Driver.CapacityPassengers)
             {
                 if (recordRejections) cluster.Rejections.Capacity.Add(p.Driver.Name);
-                return false;
+                return (false, cost);
             }
 
             if (ScheduleRules != null && ScheduleRules.IsDriverBlockedForCluster(p.Driver.Name, cluster))
             {
                 if (recordRejections) cluster.Rejections.PolicyAvoid.Add(p.Driver.Name);
-                return false;
+                return (false, cost);
             }
 
             var shiftStart = p.Driver.ParseShiftStart();
@@ -1987,13 +1951,25 @@ namespace Hiatme_Tool_Suite_v3
             if (shiftStart.HasValue && cluster.EarliestPickup < shiftStart.Value)
             {
                 if (recordRejections) cluster.Rejections.ShiftStart.Add(p.Driver.Name);
-                return false;
+                return (false, cost);
             }
 
-            var (currentLastDO, currentLastLoc) = ProjectedLastEvent(p);
+            if (!await EnsureClusterOsrmAsync(cluster, token).ConfigureAwait(false))
+            {
+                if (recordRejections) cluster.Rejections.OsrmUnavailable.Add(p.Driver.Name);
+                return (false, cost);
+            }
+
+            var (currentLastDO, currentLastLoc) = await ProjectedLastEventAsync(p, token).ConfigureAwait(false);
             int firstPu = FirstPickupIndex(cluster);
-            double dhMeters = HaversineMeters(currentLastLoc, cluster.PickupPoints[firstPu]);
-            double dhSeconds = dhMeters / AverageStreetSpeedMps;
+            var deadhead = await GetDeadheadToClusterAsync(p, cluster, token).ConfigureAwait(false);
+            if (!deadhead.FromOsrm)
+            {
+                if (recordRejections) cluster.Rejections.OsrmUnavailable.Add(p.Driver.Name);
+                return (false, cost);
+            }
+
+            double dhSeconds = deadhead.Seconds;
             var arrivalAtFirstPU = currentLastDO.Add(TimeSpan.FromSeconds(dhSeconds));
             double puLateCapMinutes = LegPuLateCapMinutes(cluster) + puLateGraceMinutes;
             if (arrivalAtFirstPU > cluster.EarliestPickup.Add(TimeSpan.FromMinutes(puLateCapMinutes)))
@@ -2005,7 +1981,7 @@ namespace Hiatme_Tool_Suite_v3
                     else
                         cluster.Rejections.PuLate.Add(p.Driver.Name);
                 }
-                return false;
+                return (false, cost);
             }
 
             double doCap = DoLateMaxMinutes + doLateGraceMinutes;
@@ -2026,21 +2002,27 @@ namespace Hiatme_Tool_Suite_v3
                             + " late by " + ((int)Math.Round(lateMinutes)) + " min";
                     }
                 }
-                return false;
+                return (false, cost);
             }
             if (shiftEnd.HasValue && clusterEnd > shiftEnd.Value)
             {
                 if (recordRejections) cluster.Rejections.ShiftEnd.Add(p.Driver.Name);
-                return false;
+                return (false, cost);
             }
 
             if (!p.HomeGeo.HasValue)
             {
                 if (recordRejections) cluster.Rejections.PolicyAvoid.Add(p.Driver.Name);
-                return false;
+                return (false, cost);
             }
 
-            double homeAffinitySeconds = HaversineMeters(p.HomeGeo.Value, cluster.PickupCentroid) / AverageStreetSpeedMps;
+            double homeAffinitySeconds = 0;
+            if (p.HomeGeo.HasValue && firstPu >= 0 && firstPu < cluster.PickupPoints.Count)
+            {
+                var homeLeg = await GetDriveLegAsync(p.HomeGeo.Value, cluster.PickupPoints[firstPu], token)
+                    .ConfigureAwait(false);
+                if (homeLeg.FromOsrm) homeAffinitySeconds = homeLeg.Seconds;
+            }
 
             double extensionSeconds;
             if (p.Groups.Count == 0)
@@ -2081,7 +2063,8 @@ namespace Hiatme_Tool_Suite_v3
                 cost += ScheduleRules.LoadPreferencePenaltySeconds(cluster, p.Driver.Name);
             }
 
-            cost -= CorridorAssignmentBonus(p, cluster, currentLastLoc, firstPu);
+            cost -= await CorridorAssignmentBonusAsync(p, cluster, currentLastLoc, firstPu, token)
+                .ConfigureAwait(false);
 
             if (FrequentRiders != null && FrequentRiders.ClusterHasFrequent(cluster))
                 cost -= FrequentRiderCoverageBonusSeconds;
@@ -2123,7 +2106,7 @@ namespace Hiatme_Tool_Suite_v3
                 }
             }
 
-            return true;
+            return (true, cost);
         }
 
         /// <summary>Modivcare trip number without the -A / -B / -C leg suffix.</summary>
@@ -2206,34 +2189,6 @@ namespace Hiatme_Tool_Suite_v3
         /// after the entire chain so far. O(N) per call, O(N²) across a build, but N is small
         /// per driver (~10–25 clusters).
         /// </remarks>
-        private static (TimeSpan time, GeoPoint loc) ProjectedLastEvent(SupeyDriverPlan p)
-        {
-            // No shift configured ⇒ driver is available from midnight on. We don't fabricate
-            // a 6 AM default; that quietly disqualifies drivers whose shift starts earlier.
-            var shiftStart = p.Driver.ParseShiftStart() ?? TimeSpan.Zero;
-            if (p.Groups.Count == 0)
-                return (shiftStart, PlanAnchorGeo(p));
-
-            // Walk in corridor visit order (same chain used before OSRM sequencing).
-            var visitOrder = BuildCorridorGroupOrder(p);
-
-            var current = shiftStart;
-            var loc = PlanAnchorGeo(p);
-            foreach (var c in visitOrder)
-            {
-                double dhSeconds = HaversineMeters(loc, c.PickupPoints[FirstPickupIndex(c)]) / AverageStreetSpeedMps;
-                var arrival = current.Add(TimeSpan.FromSeconds(dhSeconds));
-                // Cluster end uses the wait-at-the-door model (see ProjectClusterEnd) which
-                // accounts for both A-leg early-pickup compression and the wait the driver
-                // takes at the LAST PU when scheduled times are spread out.
-                current = ProjectClusterEnd(c, arrival);
-                // Use the last DO point (chronologically) as the driver's location; the cluster
-                // was already fingerprinted into PU1..PUn → DO1..DOn order, so the final DO is
-                // truly where they end up.
-                loc = LastDropoffPoint(c);
-            }
-            return (current, loc);
-        }
 
         /// <summary>
         /// Computes the moment the cluster ends (driver becomes free at the last DO) AND
@@ -2283,9 +2238,19 @@ namespace Hiatme_Tool_Suite_v3
                 int tripIdx = c.DropoffOrder[i];
                 var trip = c.Trips[tripIdx];
                 var deadline = SupeyTripTimes.TryParseDO(trip);
-                if (!deadline.HasValue) continue; // null = no specific deadline (B/C return)
+                var earliestDrop = SupeyDeskScheduleTiming.EarliestDropoffForFeasibility(trip);
+                if (!deadline.HasValue && !earliestDrop.HasValue) continue;
 
                 double tripDoCap = SupeyTripTimingPolicy.DoLateCapMinutes(trip);
+
+                if (earliestDrop.HasValue && current < earliestDrop.Value)
+                {
+                    double earlyMin = (earliestDrop.Value - current).TotalMinutes;
+                    if (earlyMin > worstMinutes) { worstMinutes = earlyMin; worstTrip = tripIdx; }
+                    feasible = false;
+                }
+
+                if (!deadline.HasValue) continue;
 
                 if (current >= deadline.Value.Add(TimeSpan.FromMinutes(tripDoCap)))
                 {
@@ -2343,13 +2308,24 @@ namespace Hiatme_Tool_Suite_v3
             plan.Warnings.Clear();
 
             if (plan.Groups.Count == 0) return;
-            if (!plan.HomeGeo.HasValue) return;
 
-            // Home → first cluster start.
-            await AddDeadHeadAsync(plan, plan.HomeGeo.Value, FirstPickupGeo(plan.Groups[0]),
-                "Home → Group " + plan.Groups[0].GroupNumber, token).ConfigureAwait(false);
+            bool hasHome = plan.HomeGeo.HasValue;
 
-            // Inter-cluster connectors.
+            if (hasHome)
+            {
+                await AddDeadHeadAsync(plan, plan.HomeGeo.Value, FirstPickupGeo(plan.Groups[0]),
+                    "Home → Group " + plan.Groups[0].GroupNumber, token).ConfigureAwait(false);
+            }
+            else
+            {
+                plan.DeadHeads.Add(new SupeyDeadHeadSegment
+                {
+                    Label = "Start → Group " + plan.Groups[0].GroupNumber,
+                    DurationSeconds = 0,
+                    DistanceMeters = 0
+                });
+            }
+
             for (int i = 1; i < plan.Groups.Count; i++)
             {
                 var prev = plan.Groups[i - 1];
@@ -2359,12 +2335,14 @@ namespace Hiatme_Tool_Suite_v3
                     "Group " + prev.GroupNumber + " → Group " + curr.GroupNumber, token).ConfigureAwait(false);
             }
 
-            // Last cluster end → home.
             var lastGroup = plan.Groups[plan.Groups.Count - 1];
-            await AddDeadHeadAsync(plan,
-                LastDropoffPoint(lastGroup),
-                plan.HomeGeo.Value,
-                "Group " + lastGroup.GroupNumber + " → Home", token).ConfigureAwait(false);
+            if (hasHome)
+            {
+                await AddDeadHeadAsync(plan,
+                    LastDropoffPoint(lastGroup),
+                    plan.HomeGeo.Value,
+                    "Group " + lastGroup.GroupNumber + " → Home", token).ConfigureAwait(false);
+            }
 
             // Add intra-cluster totals.
             foreach (var g in plan.Groups)
@@ -2389,8 +2367,13 @@ namespace Hiatme_Tool_Suite_v3
 
             plan.FirstPickup = plan.Groups[0].EarliestPickup;
             plan.LastDropoff = current; // actual end of the last cluster, not its appointment time
-            var finalReturn = plan.DeadHeads[plan.DeadHeads.Count - 1];
-            plan.ReleaseTimeOfDay = current.Add(TimeSpan.FromSeconds(finalReturn.DurationSeconds));
+            if (hasHome && plan.DeadHeads.Count > 0)
+            {
+                var finalReturn = plan.DeadHeads[plan.DeadHeads.Count - 1];
+                plan.ReleaseTimeOfDay = current.Add(TimeSpan.FromSeconds(finalReturn.DurationSeconds));
+            }
+            else
+                plan.ReleaseTimeOfDay = current;
         }
 
         private async Task AddDeadHeadAsync(SupeyDriverPlan plan, GeoPoint from, GeoPoint to,
@@ -2398,25 +2381,35 @@ namespace Hiatme_Tool_Suite_v3
         {
             var seg = new SupeyDeadHeadSegment { From = from, To = to, Label = label };
             var path = new List<GeoPoint> { from, to };
-            var route = await RouteCache.GetAsync(path, token).ConfigureAwait(false);
-            if (route.Ok)
+            var leg = await SupeyOsrmLegs.GetLegAsync(from, to, token).ConfigureAwait(false);
+            if (leg.Ok)
             {
-                seg.DistanceMeters = route.TotalMeters;
-                seg.DurationSeconds = route.TotalSeconds;
-                seg.IsStraightLineFallback = route.IsStraightLineFallback;
-                seg.Polyline.AddRange(route.Polyline);
+                seg.DistanceMeters = leg.Meters;
+                seg.DurationSeconds = leg.Seconds;
+                seg.IsStraightLineFallback = false;
+                var route = await SupeyOsrmLegs.RouteAsync(path, token).ConfigureAwait(false);
+                if (route.Ok && route.Polyline != null)
+                    seg.Polyline.AddRange(route.Polyline);
+                else
+                {
+                    seg.Polyline.Add(from);
+                    seg.Polyline.Add(to);
+                }
             }
             else
             {
                 seg.IsStraightLineFallback = true;
-                seg.DistanceMeters = HaversineMeters(from, to);
-                seg.DurationSeconds = seg.DistanceMeters / AverageStreetSpeedMps;
+                seg.DistanceMeters = 0;
+                seg.DurationSeconds = 0;
                 seg.Polyline.Add(from);
                 seg.Polyline.Add(to);
             }
             plan.DeadHeads.Add(seg);
-            plan.TotalDriveSeconds += seg.DurationSeconds;
-            plan.TotalMeters += seg.DistanceMeters;
+            if (leg.Ok)
+            {
+                plan.TotalDriveSeconds += seg.DurationSeconds;
+                plan.TotalMeters += seg.DistanceMeters;
+            }
         }
 
         // ----- Phase 7 -----
@@ -2457,7 +2450,8 @@ namespace Hiatme_Tool_Suite_v3
                         if (lastGroup.RiderCount > rec.Driver.CapacityPassengers) continue;
                         // Recipient must already be working at least as late as the moved cluster
                         // (use projected end, not appointment time).
-                        var (recProjectedEnd, _) = ProjectedLastEvent(rec);
+                        var (recProjectedEnd, _) = await ProjectedLastEventAsync(rec, token)
+                            .ConfigureAwait(false);
                         if (recProjectedEnd < lastGroup.EarliestPickup) continue;
 
                         bestRecipient = rec;
@@ -2466,14 +2460,15 @@ namespace Hiatme_Tool_Suite_v3
                     if (bestRecipient == null) continue;
 
                     double avgRiders = AverageRiderLoad(plans);
-                    if (!TryScoreDriver(lastGroup, bestRecipient, avgRiders, recordRejections: false,
-                            assignmentMode: AssignmentCostMode.MinimizeExtension, out _))
+                    if (!(await TryScoreDriverAsync(lastGroup, bestRecipient, avgRiders, recordRejections: false,
+                            assignmentMode: AssignmentCostMode.MinimizeExtension, token)
+                        .ConfigureAwait(false)).ok)
                         continue;
 
                     double beforeFleet = TotalFleetSeconds(plans);
                     donor.Groups.RemoveAt(donor.Groups.Count - 1);
                     bestRecipient.Groups.Add(lastGroup);
-                    OrderDriverGroupsCorridor(bestRecipient);
+                    await OrderDriverGroupsCorridorAsync(bestRecipient, token).ConfigureAwait(false);
                     await SequenceDriverAsync(donor, token).ConfigureAwait(false);
                     await SequenceDriverAsync(bestRecipient, token).ConfigureAwait(false);
                     double afterFleet = TotalFleetSeconds(plans);
@@ -2488,7 +2483,7 @@ namespace Hiatme_Tool_Suite_v3
                         // Undo.
                         bestRecipient.Groups.Remove(lastGroup);
                         donor.Groups.Add(lastGroup);
-                        OrderDriverGroupsCorridor(donor);
+                        await OrderDriverGroupsCorridorAsync(donor, token).ConfigureAwait(false);
                         await SequenceDriverAsync(donor, token).ConfigureAwait(false);
                         await SequenceDriverAsync(bestRecipient, token).ConfigureAwait(false);
                     }
@@ -2582,14 +2577,25 @@ namespace Hiatme_Tool_Suite_v3
                             tightestIdx = g.DropoffOrder[j];
                         }
                     }
-                    if (tightestIdx >= 0 && tightestMinutes < TightArrivalSlackMinutes)
+                    if (tightestIdx >= 0)
                     {
                         var t = g.Trips[tightestIdx];
-                        plan.Warnings.Add(new SupeyWarning(SupeyWarningKind.TightArrival,
-                            t.TripNumber ?? "", plan.Driver.Name,
-                            "Group " + g.GroupNumber + " — " +
-                            (t.ClientFullName ?? t.TripNumber ?? "rider") +
-                            " arrives with only " + tightestMinutes.ToString("0") + " min of slack."));
+                        if (tightestMinutes < 0)
+                        {
+                            plan.Warnings.Add(new SupeyWarning(SupeyWarningKind.LateArrival,
+                                t.TripNumber ?? "", plan.Driver.Name,
+                                "Group " + g.GroupNumber + " — " +
+                                (t.ClientFullName ?? t.TripNumber ?? "rider") +
+                                " may miss DO appt by " + (-tightestMinutes).ToString("0") + " min."));
+                        }
+                        else if (tightestMinutes < TightArrivalSlackMinutes)
+                        {
+                            plan.Warnings.Add(new SupeyWarning(SupeyWarningKind.TightArrival,
+                                t.TripNumber ?? "", plan.Driver.Name,
+                                "Group " + g.GroupNumber + " — " +
+                                (t.ClientFullName ?? t.TripNumber ?? "rider") +
+                                " arrives with only " + tightestMinutes.ToString("0") + " min of slack."));
+                        }
                     }
                 }
 

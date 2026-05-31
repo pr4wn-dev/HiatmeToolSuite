@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -51,6 +52,7 @@ namespace Hiatme_Tool_Suite_v3
         private SupeyButton _supeyBuildBtn;
         private CheckBox _supeyUseTemplatesCb;
         private CheckBox _supeyFinishRemainingCb;
+        private SupeyButton _supeyRefreshNotesBtn;
         private SupeyButton _supeySaveBtn;
         private SupeyButton _supeyCancelBtn;
         private MaterialLabel _supeyScheduleUpdatedLbl;
@@ -96,6 +98,7 @@ namespace Hiatme_Tool_Suite_v3
         private const int SupeyPrevColPuAddrIndex = 6;
         private const int SupeyPrevColDoAddrIndex = 7;
         private const int SupeyPrevColLateIndex = 9;
+        private SupeyPreviewRowTag _supeyDragTripTag;
         private MaterialLabel _supeyPreviewStatsLbl;
         private Label _supeyPreviewEmptyHint;
 
@@ -273,6 +276,16 @@ namespace Hiatme_Tool_Suite_v3
             _supeyFinishRemainingCb.CheckedChanged += (s, e) => UpdateSupeyTemplateBuildHint();
             _supeyFinishRemainingCb.Enabled = _supeyUseTemplatesCb.Checked;
 
+            _supeyRefreshNotesBtn = new SupeyButton
+            {
+                Text = "ROUTES & NOTES",
+                Kind = SupeyButton.Variant.Secondary,
+                Size = new Size(138, 30),
+                Margin = new Padding(0, 1, 6, 0),
+                Visible = false,
+            };
+            _supeyRefreshNotesBtn.Click += async (s, e) => await OnSupeyRefreshRoutesAndNotesAsync();
+
             _supeySaveBtn = new SupeyButton
             {
                 Text = "SAVE WORKBOOK",
@@ -345,6 +358,7 @@ namespace Hiatme_Tool_Suite_v3
             leftFlow.Controls.Add(_supeyUseTemplatesCb);
             leftFlow.Controls.Add(_supeyFinishRemainingCb);
             leftFlow.Controls.Add(_supeyBuildBtn);
+            leftFlow.Controls.Add(_supeyRefreshNotesBtn);
             leftFlow.Controls.Add(_supeySaveBtn);
             leftFlow.Controls.Add(_supeyCancelBtn);
 
@@ -892,6 +906,11 @@ namespace Hiatme_Tool_Suite_v3
             // ItemChecked fires per-item during bulk Add() — the rebuild path uses
             // _supeySuppressItemChecked to mute it so we don't recompute button states N times
             // while items are still being constructed.
+            _supeyDriversLv.AllowDrop = true;
+            _supeyDriversLv.DragEnter += SupeyDriversLv_DragEnter;
+            _supeyDriversLv.DragOver += SupeyDriversLv_DragOver;
+            _supeyDriversLv.DragDrop += SupeyDriversLv_DragDrop;
+
             _supeyDriversLv.ItemChecked += (s, e) =>
             {
                 if (_supeySuppressItemChecked) return;
@@ -1174,6 +1193,11 @@ namespace Hiatme_Tool_Suite_v3
             _supeyPreviewLv.MouseUp += SupeyPreviewLv_MouseUp_HandleWarningsContext;
             _supeyPreviewLv.SelectedIndexChanged += SupeyPreviewLv_SelectedTripChanged;
             _supeyPreviewLv.DoubleClick += SupeyPreviewLv_DoubleClickTrip;
+            _supeyPreviewLv.AllowDrop = true;
+            _supeyPreviewLv.ItemDrag += SupeyPreviewLv_ItemDrag;
+            _supeyPreviewLv.DragEnter += SupeyPreviewLv_DragEnter;
+            _supeyPreviewLv.DragOver += SupeyPreviewLv_DragOver;
+            _supeyPreviewLv.DragDrop += SupeyPreviewLv_DragDrop;
         }
 
         private void SupeyPreviewLv_MouseUp_HandleWarningsContext(object sender, MouseEventArgs e)
@@ -2337,15 +2361,32 @@ namespace Hiatme_Tool_Suite_v3
                     serverSolveAttempted = true;
                     try
                     {
-                        SetSupeyToolbarBusy(true, "Server solve (cluster + assign)…");
+                        int tripCount = _supeyLoadedTrips?.Count ?? 0;
+                        var solveSw = Stopwatch.StartNew();
+                        var solvePollCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+                        var solvePollTask = PollServerSolveProgressAsync(
+                            _supeyAiSettings, solveSw, tripCount, solvePollCts.Token);
+
+                        SetSupeyToolbarBusy(true,
+                            "Server solve — starting… 0:00 · " + tripCount + " trips");
                         var solveCtx = HiatmeScheduleContextBuilder.Build(
                             date, _supeyRoster, _supeyLoadedTrips, null, false, selected);
                         ApplyWellRydeDispatcherToAiContext(solveCtx);
                         if (startingLocks.Count > 0)
                             solveCtx["locks"] = JObject.FromObject(startingLocks);
 
-                        var solveResp = await HiatmeAiClient.ScheduleSolveAsync(
-                            _supeyAiSettings, solveCtx, token).ConfigureAwait(true);
+                        HiatmeAiBuildResponse solveResp;
+                        try
+                        {
+                            solveResp = await HiatmeAiClient.ScheduleSolveAsync(
+                                _supeyAiSettings, solveCtx, token).ConfigureAwait(true);
+                        }
+                        finally
+                        {
+                            try { solvePollCts.Cancel(); } catch { }
+                            try { solvePollTask.GetAwaiter().GetResult(); } catch { }
+                            try { solvePollCts.Dispose(); } catch { }
+                        }
                         if (solveResp?.Schedule != null)
                         {
                             _supeyLastServerSolveError = null;
@@ -2355,7 +2396,7 @@ namespace Hiatme_Tool_Suite_v3
                             _supeyLastBuildStats = solveResp.BuildStats;
                             ApplySupeyBuildDiagnostics(solveResp);
                             BindSupeyPreview();
-                            _ = HydrateSupeyGeocodeForMapAsync();
+                            await HydrateSupeyGeocodeForMapAsync().ConfigureAwait(true);
                             builtOnServer = true;
                             string solver = string.IsNullOrWhiteSpace(solveResp.Solver)
                                 ? "server"
@@ -2422,9 +2463,20 @@ namespace Hiatme_Tool_Suite_v3
                         catch { }
                     });
 
-                    _supeyResult = await algo.BuildAsync(
-                        date, _supeyLoadedTrips, selected, startingLocks, progress, token)
-                        .ConfigureAwait(true);
+                    if (useTemplates && finishRemaining && templateMatch != null)
+                    {
+                        _supeyResult = await algo.BuildTemplateThenFinishAsync(
+                            date, _supeyLoadedTrips, selected, templateMatch, startingLocks,
+                            progress, token).ConfigureAwait(true);
+                        _supeyLastBuildEngine = "templates + desk-timing finish";
+                    }
+                    else
+                    {
+                        _supeyResult = await algo.BuildAsync(
+                            date, _supeyLoadedTrips, selected, startingLocks, progress, token)
+                            .ConfigureAwait(true);
+                        _supeyLastBuildEngine = "local C# (desk timing)";
+                    }
 
                     ApplySupeyTemplateBuildMeta(_supeyResult, templateMatch, useTemplates, finishRemaining);
                     await CompleteSupeyBuildUiAsync(
@@ -2448,6 +2500,37 @@ namespace Hiatme_Tool_Suite_v3
                 // so the toolbar refresh sees `_supeyCts == null` and re-enables BUILD/SAVE.
                 try { _supeyCts?.Dispose(); } catch { }
                 _supeyCts = null;
+                SetSupeyToolbarBusy(false, null);
+            }
+        }
+
+        private async Task OnSupeyRefreshRoutesAndNotesAsync()
+        {
+            if (_supeyResult == null || _supeyResult.DriverPlans.Count == 0)
+            {
+                SetSupeyStatus("Nothing to refresh — build a schedule first.");
+                return;
+            }
+
+            try
+            {
+                SetSupeyToolbarBusy(true, "Refreshing routes and notes…");
+                await SupeyDriverPlanManualEdit.RefreshEntireScheduleAsync(_supeyResult, CancellationToken.None)
+                    .ConfigureAwait(true);
+                OnSupeyPreviewDriverChanged();
+                if (_supeyPreviewDriverCb?.SelectedItem is SupeyPreviewItem itm && itm.Plan != null)
+                    _supeyMap?.ShowDriverPlan(itm.Plan);
+                BindSupeyPreview();
+                SetSupeyStatus("Routes, group miles, and notes updated — review then SAVE WORKBOOK.");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "Could not refresh routes and notes:\n\n" + ex.Message,
+                    "Supey Schedule", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                SetSupeyStatus("Refresh failed.");
+            }
+            finally
+            {
                 SetSupeyToolbarBusy(false, null);
             }
         }
@@ -2634,11 +2717,19 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
-        private void AddSupeyPreviewGapRow()
+        private void AddSupeyPreviewGapRow(string noteText = "")
         {
-            var blank = new ListViewItem(new[] { "", "", "", "", "", "", "", "", "", "", "" });
+            string note = (noteText ?? "").Trim();
+            var cells = new[] { "", "", note, "", "", "", "", "", "", "", "" };
+            var blank = new ListViewItem(cells);
             blank.UseItemStyleForSubItems = false;
             blank.SubItems[0].BackColor = SupeyTheme.SurfaceHeader;
+            if (note.Length > 0)
+            {
+                blank.SubItems[2].ForeColor = SupeyTheme.TextSecondary;
+                blank.Font = new Font(_supeyPreviewLv.Font, FontStyle.Italic);
+            }
+            blank.Tag = new SupeyPreviewGapTag(note);
             _supeyPreviewLv.Items.Add(blank);
         }
 
@@ -2722,7 +2813,7 @@ namespace Hiatme_Tool_Suite_v3
                     {
                         if (slot.Kind == SupeyTemplateSlot.SlotKind.Gap)
                         {
-                            AddSupeyPreviewGapRow();
+                            AddSupeyPreviewGapRow(slot.NoteText);
                             continue;
                         }
 
@@ -3147,6 +3238,13 @@ namespace Hiatme_Tool_Suite_v3
                 _supeyBuildBtn.Visible = loaded > 0 && _supeyCts == null;
                 _supeyBuildBtn.Enabled = buildOk;
             }
+            if (_supeyRefreshNotesBtn != null)
+            {
+                _supeyRefreshNotesBtn.Visible = _supeyResult != null && _supeyCts == null;
+                _supeyRefreshNotesBtn.Enabled = _supeyResult != null
+                    && _supeyCts == null
+                    && _supeyResult.DriverPlans.Count > 0;
+            }
             if (_supeySaveBtn != null)
             {
                 _supeySaveBtn.Visible = _supeyResult != null && _supeyCts == null;
@@ -3476,6 +3574,81 @@ namespace Hiatme_Tool_Suite_v3
             };
         }
 
+        private async Task PollServerSolveProgressAsync(
+            HiatmeAiSettings settings,
+            Stopwatch sw,
+            int tripCount,
+            CancellationToken token)
+        {
+            while (!token.IsCancellationRequested)
+            {
+                try
+                {
+                    await Task.Delay(1500, token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+
+                HiatmeAiClient.BuildProgressStatus prog = null;
+                try
+                {
+                    prog = await HiatmeAiClient.GetBuildProgressAsync(settings, token)
+                        .ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch { }
+
+                string msg = FormatServerSolveProgress(prog, sw.Elapsed, tripCount);
+                try
+                {
+                    if (IsHandleCreated && !IsDisposed && _supeyCts != null)
+                        BeginInvoke((Action)(() => SetSupeyToolbarBusy(true, msg)));
+                }
+                catch { }
+            }
+        }
+
+        private static string FormatServerSolveProgress(
+            HiatmeAiClient.BuildProgressStatus prog,
+            TimeSpan elapsed,
+            int tripCount)
+        {
+            string clock = elapsed.ToString(@"m\:ss");
+            if (prog == null || !prog.Active)
+            {
+                return "Server solve… " + clock + " · " + tripCount + " trips"
+                    + " (waiting for server)";
+            }
+
+            string label = string.IsNullOrWhiteSpace(prog.Label)
+                ? "Working"
+                : prog.Label.Trim();
+            string counts = "";
+            if (prog.Total > 0)
+            {
+                int left = Math.Max(0, prog.Total - prog.Done);
+                counts = " · " + prog.Done + "/" + prog.Total + " done"
+                    + (left > 0 ? ", " + left + " left" : "");
+            }
+
+            string eta = "";
+            if (prog.EtaSeconds.HasValue && prog.EtaSeconds.Value > 60)
+                eta = " · ~" + (prog.EtaSeconds.Value / 60) + " min left";
+            else if (prog.EtaSeconds.HasValue && prog.EtaSeconds.Value > 0)
+                eta = " · ~" + prog.EtaSeconds.Value + "s left";
+
+            string detail = string.IsNullOrWhiteSpace(prog.Detail)
+                ? ""
+                : " · " + prog.Detail.Trim();
+
+            return "Server solve — " + label + counts + eta + " · " + clock + detail;
+        }
+
         private void SetSupeyToolbarBusy(bool busy, string msg)
         {
             if (_supeyToolbar == null) return;
@@ -3695,9 +3868,280 @@ namespace Hiatme_Tool_Suite_v3
                 ListViewSorter.Attach(_supeyPreviewLv);
         }
 
+        private bool SupeyPreviewAllowsTripDrag()
+        {
+            if (_supeyResult == null) return false;
+            var itm = _supeyPreviewDriverCb?.SelectedItem as SupeyPreviewItem;
+            return itm != null
+                && itm.Kind == SupeyPreviewItem.ItemKind.Driver
+                && itm.Plan != null
+                && itm.Plan.Groups.Count > 0;
+        }
+
+        private List<SupeyDriverPlanManualEdit.PreviewLine> ParseSupeyPreviewLines()
+        {
+            var lines = new List<SupeyDriverPlanManualEdit.PreviewLine>();
+            if (_supeyPreviewLv == null) return lines;
+            foreach (ListViewItem item in _supeyPreviewLv.Items)
+            {
+                if (item.Tag is SupeyPreviewGapTag gapTag)
+                {
+                    lines.Add(new SupeyDriverPlanManualEdit.PreviewLine
+                    {
+                        Kind = SupeyDriverPlanManualEdit.PreviewLineKind.Gap,
+                        GapNoteText = gapTag.NoteText,
+                    });
+                    continue;
+                }
+                if (item.Tag is SupeyPreviewGroupHeaderTag)
+                {
+                    if (lines.Count > 0 && lines[lines.Count - 1].Kind == SupeyDriverPlanManualEdit.PreviewLineKind.Trip)
+                    {
+                        lines.Add(new SupeyDriverPlanManualEdit.PreviewLine
+                            { Kind = SupeyDriverPlanManualEdit.PreviewLineKind.Gap });
+                    }
+                    continue;
+                }
+                if (item.Tag is SupeyPreviewRowTag row)
+                {
+                    lines.Add(new SupeyDriverPlanManualEdit.PreviewLine
+                    {
+                        Kind = SupeyDriverPlanManualEdit.PreviewLineKind.Trip,
+                        Trip = row.Trip,
+                    });
+                }
+            }
+            return lines;
+        }
+
+        private int CountSupeyPreviewLines()
+        {
+            int n = 0;
+            if (_supeyPreviewLv == null) return 0;
+            foreach (ListViewItem item in _supeyPreviewLv.Items)
+            {
+                if (item.Tag is SupeyPreviewGapTag || item.Tag is SupeyPreviewRowTag)
+                    n++;
+            }
+            return n;
+        }
+
+        private int ListViewIndexToPreviewLineIndex(int itemIndex, out SupeyPreviewRowTag tripTag, out bool isGap)
+        {
+            tripTag = null;
+            isGap = false;
+            int line = 0;
+            for (int i = 0; i < _supeyPreviewLv.Items.Count; i++)
+            {
+                var item = _supeyPreviewLv.Items[i];
+                if (item.Tag is SupeyPreviewGroupHeaderTag)
+                    continue;
+                if (i == itemIndex)
+                {
+                    isGap = item.Tag is SupeyPreviewGapTag;
+                    tripTag = item.Tag as SupeyPreviewRowTag;
+                    return line;
+                }
+                if (item.Tag is SupeyPreviewGapTag || item.Tag is SupeyPreviewRowTag)
+                    line++;
+            }
+            return line;
+        }
+
+        private bool TryGetSupeyTripDropTarget(Point clientPt, out int insertBeforeLine, out bool mergeOntoTrip,
+            out SupeyPreviewRowTag targetTrip)
+        {
+            insertBeforeLine = 0;
+            mergeOntoTrip = false;
+            targetTrip = null;
+            if (_supeyPreviewLv == null) return false;
+
+            var hit = _supeyPreviewLv.HitTest(clientPt);
+            if (hit.Item == null)
+            {
+                insertBeforeLine = CountSupeyPreviewLines();
+                return true;
+            }
+
+            if (hit.Item.Tag is SupeyPreviewGroupHeaderTag)
+            {
+                insertBeforeLine = ListViewIndexToPreviewLineIndex(hit.Item.Index + 1, out _, out _);
+                if (insertBeforeLine < 0) insertBeforeLine = CountSupeyPreviewLines();
+                return true;
+            }
+
+            int lineIdx = ListViewIndexToPreviewLineIndex(hit.Item.Index, out targetTrip, out bool isGap);
+            if (isGap)
+            {
+                insertBeforeLine = lineIdx;
+                return true;
+            }
+
+            if (targetTrip == null) return false;
+
+            var bounds = hit.Item.GetBounds(ItemBoundsPortion.Entire);
+            int relY = clientPt.Y - bounds.Top;
+            int h = Math.Max(bounds.Height, 1);
+            if (relY < h / 3)
+            {
+                insertBeforeLine = lineIdx;
+                return true;
+            }
+            if (relY > h * 2 / 3)
+            {
+                insertBeforeLine = lineIdx + 1;
+                return true;
+            }
+
+            mergeOntoTrip = true;
+            insertBeforeLine = lineIdx;
+            return true;
+        }
+
+        private void SupeyPreviewLv_ItemDrag(object sender, ItemDragEventArgs e)
+        {
+            if (!SupeyPreviewAllowsTripDrag()) return;
+            if (!(e.Item is ListViewItem lvi) || !(lvi.Tag is SupeyPreviewRowTag tag)) return;
+            _supeyDragTripTag = tag;
+            DoDragDrop(tag, DragDropEffects.Move);
+        }
+
+        private void SupeyPreviewLv_DragEnter(object sender, DragEventArgs e)
+        {
+            if (!SupeyPreviewAllowsTripDrag()) return;
+            if (e.Data.GetDataPresent(typeof(SupeyPreviewRowTag)))
+                e.Effect = DragDropEffects.Move;
+        }
+
+        private void SupeyPreviewLv_DragOver(object sender, DragEventArgs e)
+        {
+            if (!SupeyPreviewAllowsTripDrag() || !e.Data.GetDataPresent(typeof(SupeyPreviewRowTag)))
+            {
+                e.Effect = DragDropEffects.None;
+                return;
+            }
+            e.Effect = DragDropEffects.Move;
+        }
+
+        private async void SupeyPreviewLv_DragDrop(object sender, DragEventArgs e)
+        {
+            if (!SupeyPreviewAllowsTripDrag()) return;
+            if (!e.Data.GetDataPresent(typeof(SupeyPreviewRowTag))) return;
+            var dragTag = e.Data.GetData(typeof(SupeyPreviewRowTag)) as SupeyPreviewRowTag;
+            if (dragTag?.Trip == null || dragTag.Plan == null) return;
+
+            var pt = _supeyPreviewLv.PointToClient(new Point(e.X, e.Y));
+            if (!TryGetSupeyTripDropTarget(pt, out int insertLine, out bool merge, out SupeyPreviewRowTag dropOnRow))
+                return;
+
+            var lines = ParseSupeyPreviewLines();
+            if (lines.Count == 0) return;
+
+            MCDownloadedTrip dropOnTrip = dropOnRow?.Trip;
+            SupeyDriverPlanManualEdit.ApplyTripMove(lines, dragTag.Trip, dropOnTrip, insertLine, merge);
+            SupeyDriverPlanManualEdit.RebuildGroupsFromLines(dragTag.Plan, lines);
+
+            SetSupeyStatus(merge
+                ? "Merged trip — updating route…"
+                : "Moved trip — updating route…");
+            try
+            {
+                var planToRefresh = dragTag.Plan;
+                await SupeyDriverPlanManualEdit.RefreshRoutingAsync(planToRefresh, CancellationToken.None)
+                    .ConfigureAwait(true);
+                if (_supeyResult != null)
+                    SupeyDriverPlanManualEdit.SyncDriverWarningsToResult(_supeyResult);
+                OnSupeyPreviewDriverChanged();
+                if (_supeyMap != null && planToRefresh != null)
+                    _supeyMap.ShowDriverPlan(planToRefresh);
+                SetSupeyStatus("Schedule updated — routes and miles refreshed on map.");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "Could not refresh routes after move:\n\n" + ex.Message,
+                    "Supey Schedule", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                OnSupeyPreviewDriverChanged();
+            }
+        }
+
+        private void SupeyDriversLv_DragEnter(object sender, DragEventArgs e)
+        {
+            if (!e.Data.GetDataPresent(typeof(SupeyPreviewRowTag))) return;
+            e.Effect = DragDropEffects.Move;
+        }
+
+        private void SupeyDriversLv_DragOver(object sender, DragEventArgs e)
+        {
+            if (!e.Data.GetDataPresent(typeof(SupeyPreviewRowTag)))
+            {
+                e.Effect = DragDropEffects.None;
+                return;
+            }
+            e.Effect = DragDropEffects.Move;
+        }
+
+        private async void SupeyDriversLv_DragDrop(object sender, DragEventArgs e)
+        {
+            if (_supeyResult == null) return;
+            if (!e.Data.GetDataPresent(typeof(SupeyPreviewRowTag))) return;
+            var dragTag = e.Data.GetData(typeof(SupeyPreviewRowTag)) as SupeyPreviewRowTag;
+            if (dragTag?.Trip == null || dragTag.Plan == null) return;
+
+            var pt = _supeyDriversLv.PointToClient(new Point(e.X, e.Y));
+            var hit = _supeyDriversLv.HitTest(pt);
+            var targetDriver = hit.Item?.Tag as SupeyDriverProfile;
+            if (targetDriver == null)
+                return;
+
+            SupeyDriverPlan toPlan = null;
+            foreach (var p in _supeyResult.DriverPlans)
+            {
+                if (p.Driver != null
+                    && string.Equals(p.Driver.Name, targetDriver.Name, StringComparison.OrdinalIgnoreCase))
+                {
+                    toPlan = p;
+                    break;
+                }
+            }
+            if (toPlan == null || ReferenceEquals(toPlan, dragTag.Plan)) return;
+
+            if (!SupeyDriverPlanManualEdit.MoveTripBetweenDrivers(_supeyResult, dragTag.Plan, toPlan, dragTag.Trip))
+                return;
+
+            SetSupeyStatus("Moving trip to " + (targetDriver.Name ?? "driver") + "…");
+            try
+            {
+                await SupeyDriverPlanManualEdit.RefreshRoutingAsync(dragTag.Plan, CancellationToken.None)
+                    .ConfigureAwait(true);
+                await SupeyDriverPlanManualEdit.RefreshRoutingAsync(toPlan, CancellationToken.None)
+                    .ConfigureAwait(true);
+                SupeyDriverPlanManualEdit.SyncDriverWarningsToResult(_supeyResult);
+
+                foreach (var obj in _supeyPreviewDriverCb.Items)
+                {
+                    var item = obj as SupeyPreviewItem;
+                    if (item == null) continue;
+                    if (item.Plan == toPlan)
+                    {
+                        _supeyPreviewDriverCb.SelectedItem = item;
+                        break;
+                    }
+                }
+                OnSupeyPreviewDriverChanged();
+                _supeyMap?.ShowDriverPlan(toPlan);
+                SetSupeyStatus("Trip moved to " + (targetDriver.Name ?? "driver") + " — solo group at end of day.");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "Could not move trip to another driver:\n\n" + ex.Message,
+                    "Supey Schedule", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                OnSupeyPreviewDriverChanged();
+            }
+        }
+
         private void AddGroupRouteHeaderRow(SupeyTripCluster g, SupeyDriverPlan plan)
         {
-            string note = SupeyRouteNoteFormatter.Format(g);
+            string note = SupeyDriverPlanManualEdit.FormatRouteHeader(g);
             var lvi = new ListViewItem(new[]
             {
                 g.GroupNumber.ToString(),
@@ -3726,6 +4170,12 @@ namespace Hiatme_Tool_Suite_v3
             int gr = Math.Max(0, groupColor.G - 48);
             int b = Math.Max(0, groupColor.B - 48);
             return Color.FromArgb(255, r, gr, b);
+        }
+
+        private sealed class SupeyPreviewGapTag
+        {
+            public string NoteText { get; }
+            public SupeyPreviewGapTag(string noteText) => NoteText = noteText ?? "";
         }
 
         private sealed class SupeyPreviewGroupHeaderTag

@@ -1,3 +1,6 @@
+using System.Threading;
+using System.Threading.Tasks;
+
 namespace Hiatme_Tool_Suite_v3
 {
     /// <summary>
@@ -77,6 +80,25 @@ namespace Hiatme_Tool_Suite_v3
             _serverOnly = null;
             _panelReachable = null;
             _panelUrl = null;
+        }
+
+        /// <summary>
+        /// Re-probe the panel before BUILD (Load() only probed once at startup).
+        /// </summary>
+        public static async Task<bool> RefreshConnectivityAsync(
+            HiatmeAiSettings settings,
+            CancellationToken token = default)
+        {
+            settings = settings ?? HiatmeAiSettings.Load();
+            _panelUrl = settings.BaseUrl?.Trim();
+            _serverOnly = settings.UseServerGeo;
+
+            bool ok = await Task.Run(
+                () => HiatmeAiSettings.ProbePanelPublic(settings.BaseUrl, settings.ApiToken),
+                token).ConfigureAwait(false);
+
+            _panelReachable = ok;
+            return ok;
         }
     }
 }

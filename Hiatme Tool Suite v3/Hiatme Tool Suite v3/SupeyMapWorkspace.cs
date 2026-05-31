@@ -14,8 +14,9 @@ namespace Hiatme_Tool_Suite_v3
     /// <summary>
     /// Map + legend pair embedded in the Supey schedule tab. One <see cref="SupeyMapWorkspace"/>
     /// instance lives next to the trip preview ListView; calling <see cref="ShowDriverPlan"/>
-    /// rebuilds the per-group overlays, dead-head overlay, and the legend checkboxes from
-    /// scratch. The user can hide individual groups via the legend, and the dead-head connector
+    /// rebuilds the per-group overlays, dead-head overlay, and legend checkboxes from scratch,
+    /// but keeps the user's group visibility when refreshing the same driver (e.g. after drag
+    /// or route refresh). The user can hide individual groups via the legend, and the dead-head connector
     /// trails get their own toggle so dispatchers can mute the "between groups" line noise.
     /// </summary>
     /// <remarks>
@@ -323,11 +324,13 @@ namespace Hiatme_Tool_Suite_v3
 
         /// <summary>
         /// Rebuilds the map for the given driver: one overlay per group, one for the home marker,
-        /// one for dead-head connectors. Resets the legend so the user starts with everything
-        /// visible. Auto-fits the viewport to the driver's full footprint.
+        /// one for dead-head connectors. Legend checkboxes default to all visible on first show
+        /// or driver change; on refresh for the same driver, prior group visibility is restored
+        /// (including single-group focus after drag/route updates). Auto-fits to visible groups.
         /// </summary>
         public void ShowDriverPlan(SupeyDriverPlan plan)
         {
+            var legendSnap = CaptureLegendVisibility();
             _currentPlan = plan;
             _map.Overlays.Clear();
             _groupOverlays.Clear();
@@ -406,6 +409,8 @@ namespace Hiatme_Tool_Suite_v3
                     overlay.Routes.Add(route);
                 }
 
+                int totalStops = SupeyRouteStopNumbers.TotalStops(g);
+
                 // PU markers (one per trip).
                 for (int i = 0; i < g.PickupPoints.Count; i++)
                 {
@@ -413,12 +418,12 @@ namespace Hiatme_Tool_Suite_v3
                     var pt = g.PickupPoints[i];
                     if (pt.Lat == 0 && pt.Lng == 0) continue;
                     var trip = i < g.Trips.Count ? g.Trips[i] : null;
+                    int stop = SupeyRouteStopNumbers.ForEndpoint(g, isPickup: true, tripIndex: i);
                     var marker = new SupeyDraggableMarker(
                         new PointLatLng(pt.Lat, pt.Lng), GMarkerGoogleType.green_small)
                     {
-                        ToolTipText = "Group " + g.GroupNumber + " - PU (right-click to fix geocode)\n" +
-                            (trip?.ClientFullName ?? "") + "\n" + (trip?.PUStreet ?? "") + ", " + (trip?.PUCity ?? "") +
-                            "\nPU: " + (trip?.PUTime ?? ""),
+                        RouteStopNumber = stop,
+                        ToolTipText = FormatRouteStopTooltip(g, stop, totalStops, "PU", trip),
                         ToolTipMode = MarkerTooltipMode.OnMouseOver,
                         Tag = BuildMarkerInfo(trip, "Pickup", true, p => g.PickupPoints[idx] = p),
                     };
@@ -433,12 +438,12 @@ namespace Hiatme_Tool_Suite_v3
                     var pt = g.DropoffPoints[i];
                     if (pt.Lat == 0 && pt.Lng == 0) continue;
                     var trip = i < g.Trips.Count ? g.Trips[i] : null;
+                    int stop = SupeyRouteStopNumbers.ForEndpoint(g, isPickup: false, tripIndex: i);
                     var marker = new SupeyDraggableMarker(
                         new PointLatLng(pt.Lat, pt.Lng), GMarkerGoogleType.red_small)
                     {
-                        ToolTipText = "Group " + g.GroupNumber + " - DO (right-click to fix geocode)\n" +
-                            (trip?.ClientFullName ?? "") + "\n" + (trip?.DOStreet ?? "") + ", " + (trip?.DOCITY ?? "") +
-                            "\nDO: " + (trip?.DOTime ?? ""),
+                        RouteStopNumber = stop,
+                        ToolTipText = FormatRouteStopTooltip(g, stop, totalStops, "DO", trip),
                         ToolTipMode = MarkerTooltipMode.OnMouseOver,
                         Tag = BuildMarkerInfo(trip, "Dropoff", false, p => g.DropoffPoints[idx] = p),
                     };
@@ -452,7 +457,127 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             AddDeadheadToggle();
+            ApplyLegendVisibility(plan, legendSnap);
             FitToPlan();
+            _map.Refresh();
+        }
+
+        private sealed class LegendVisibilitySnapshot
+        {
+            public string DriverKey;
+            public Dictionary<string, bool> TripWasVisible;
+            public int CheckedGroupCount;
+            public bool? DeadheadChecked;
+        }
+
+        private LegendVisibilitySnapshot CaptureLegendVisibility()
+        {
+            if (_currentPlan == null || _groupCheckboxes.Count == 0)
+                return null;
+
+            var snap = new LegendVisibilitySnapshot
+            {
+                DriverKey = _currentPlan.Driver?.Name ?? "",
+                TripWasVisible = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase),
+            };
+
+            foreach (var g in _currentPlan.Groups)
+            {
+                if (!_groupCheckboxes.TryGetValue(g.GroupNumber, out var cb))
+                    continue;
+                bool visible = cb.Checked;
+                if (visible)
+                    snap.CheckedGroupCount++;
+                foreach (var t in g.Trips)
+                {
+                    var tn = t?.TripNumber;
+                    if (string.IsNullOrWhiteSpace(tn))
+                        continue;
+                    snap.TripWasVisible[tn] = visible;
+                }
+            }
+
+            snap.DeadheadChecked = _deadheadToggle?.Checked;
+            return snap;
+        }
+
+        private void ApplyLegendVisibility(SupeyDriverPlan plan, LegendVisibilitySnapshot snap)
+        {
+            if (snap == null || plan == null || _groupCheckboxes.Count == 0)
+                return;
+
+            string driverKey = plan.Driver?.Name ?? "";
+            if (!string.Equals(driverKey, snap.DriverKey, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            if (snap.CheckedGroupCount == 1 && snap.TripWasVisible.Count > 0)
+            {
+                int bestGroup = -1;
+                int bestScore = 0;
+                foreach (var g in plan.Groups)
+                {
+                    int score = 0;
+                    foreach (var t in g.Trips)
+                    {
+                        var tn = t?.TripNumber;
+                        if (string.IsNullOrWhiteSpace(tn))
+                            continue;
+                        if (snap.TripWasVisible.TryGetValue(tn, out bool was) && was)
+                            score++;
+                    }
+                    if (score > bestScore)
+                    {
+                        bestScore = score;
+                        bestGroup = g.GroupNumber;
+                    }
+                }
+
+                foreach (var kv in _groupCheckboxes)
+                    SetGroupVisible(kv.Key, kv.Key == bestGroup && bestScore > 0);
+            }
+            else if (snap.CheckedGroupCount > 0 && snap.CheckedGroupCount < _groupCheckboxes.Count)
+            {
+                foreach (var g in plan.Groups)
+                {
+                    bool show = false;
+                    foreach (var t in g.Trips)
+                    {
+                        var tn = t?.TripNumber;
+                        if (string.IsNullOrWhiteSpace(tn))
+                        {
+                            show = true;
+                            break;
+                        }
+                        if (!snap.TripWasVisible.TryGetValue(tn, out bool was))
+                        {
+                            show = true;
+                            break;
+                        }
+                        if (was)
+                            show = true;
+                    }
+                    if (g.Trips.Count == 0)
+                        show = true;
+                    SetGroupVisible(g.GroupNumber, show);
+                }
+            }
+
+            if (snap.DeadheadChecked.HasValue && _deadheadToggle != null)
+            {
+                _deadheadToggle.Checked = snap.DeadheadChecked.Value;
+                if (_deadheadOverlay != null)
+                    _deadheadOverlay.IsVisibile = snap.DeadheadChecked.Value;
+            }
+
+            _map.Refresh();
+        }
+
+        private void SetGroupVisible(int groupNumber, bool visible)
+        {
+            if (_groupCheckboxes.TryGetValue(groupNumber, out var cb) && cb.Checked != visible)
+                cb.Checked = visible;
+            if (_groupOverlays.TryGetValue(groupNumber, out var overlay))
+                overlay.IsVisibile = visible;
         }
 
         private void AddLegendRow(SupeyTripCluster g)
@@ -480,10 +605,12 @@ namespace Hiatme_Tool_Suite_v3
                 ForeColor = Color.Gainsboro,
             };
             cb.CheckedChanged += OnGroupChecked;
+            double routeMi = g.IntraClusterMeters * 0.000621371;
+            string miText = routeMi > 0.05 ? " · " + routeMi.ToString("0.0") + " mi" : "";
             var lbl = new Label
             {
                 Text = "Grp " + g.GroupNumber + " - " + g.RiderCount + (g.RiderCount == 1 ? " rider " : " riders ") +
-                       SupeyTripTimes.FormatTimeOfDay(g.EarliestPickup),
+                       SupeyTripTimes.FormatTimeOfDay(g.EarliestPickup) + miText,
                 AutoSize = false,
                 Width = 160,
                 Height = 18,
@@ -551,6 +678,8 @@ namespace Hiatme_Tool_Suite_v3
                 pts.Add(new PointLatLng(_currentPlan.HomeGeo.Value.Lat, _currentPlan.HomeGeo.Value.Lng));
             foreach (var g in _currentPlan.Groups)
             {
+                if (_groupCheckboxes.TryGetValue(g.GroupNumber, out var cb) && !cb.Checked)
+                    continue;
                 foreach (var p in g.PickupPoints) pts.Add(new PointLatLng(p.Lat, p.Lng));
                 foreach (var p in g.DropoffPoints) pts.Add(new PointLatLng(p.Lat, p.Lng));
             }
@@ -573,6 +702,24 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         public void RefitToCurrentPlan() => FitToPlan();
+
+        private static string FormatRouteStopTooltip(
+            SupeyTripCluster g,
+            int stop,
+            int totalStops,
+            string leg,
+            MCDownloadedTrip trip)
+        {
+            string stopLine = totalStops > 0
+                ? "Stop " + stop + " of " + totalStops + " (route order) · "
+                : "";
+            return stopLine + "Group " + g.GroupNumber + " · " + leg +
+                " (right-click to fix geocode)\n" +
+                (trip?.ClientFullName ?? "") + "\n" +
+                (leg == "PU"
+                    ? (trip?.PUStreet ?? "") + ", " + (trip?.PUCity ?? "") + "\nPU: " + (trip?.PUTime ?? "")
+                    : (trip?.DOStreet ?? "") + ", " + (trip?.DOCITY ?? "") + "\nDO: " + (trip?.DOTime ?? ""));
+        }
 
         private static SupeyMapMarkerInfo BuildMarkerInfo(
             MCDownloadedTrip trip,

@@ -21,7 +21,7 @@ namespace Hiatme_Tool_Suite_v3
         private static bool _localHealthy;
         private static readonly TimeSpan HealthCacheTtl = TimeSpan.FromSeconds(30);
 
-        private static readonly HttpClient HealthHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+        private static readonly HttpClient HealthHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
 
         public static string LocalBaseUrl { get; } = NormalizeRouteBaseUrl(
             ConfigurationManager.AppSettings["OsrmBaseUrl"] ?? DefaultLocalUrl);
@@ -33,7 +33,7 @@ namespace Hiatme_Tool_Suite_v3
             ConfigurationManager.AppSettings["OsrmPreferLocal"], true);
 
         public static int MaxConcurrent { get; } = ParseInt(
-            ConfigurationManager.AppSettings["OsrmMaxConcurrent"], 6, 1, 32);
+            ConfigurationManager.AppSettings["OsrmMaxConcurrent"], 12, 1, 32);
 
         /// <summary>Base URI used for route requests after health / fallback resolution.</summary>
         public static string CurrentRouteBaseUri => ResolveRouteBaseUri();

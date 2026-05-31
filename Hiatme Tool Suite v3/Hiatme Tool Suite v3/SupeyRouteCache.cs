@@ -42,7 +42,8 @@ namespace Hiatme_Tool_Suite_v3
                 }
 
                 var result = await RouteEstimator.GetRouteWithGeometryAsync(waypoints, token).ConfigureAwait(false);
-                lock (_cache) { _cache[key] = result; }
+                if (result.Ok && !result.IsStraightLineFallback)
+                    lock (_cache) { _cache[key] = result; }
                 return result;
             }
             finally

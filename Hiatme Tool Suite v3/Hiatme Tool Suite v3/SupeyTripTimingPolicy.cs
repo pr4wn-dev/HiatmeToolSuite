@@ -24,6 +24,10 @@ namespace Hiatme_Tool_Suite_v3
             @"(?i)\b(day\s*hab|dayhab|program|residential|sheltered|workshop|adult\s*day)\b",
             RegexOptions.Compiled);
 
+        private static readonly Regex CannotDropBefore = new Regex(
+            @"CANNOT\s+BE\s+DROPPED\s+OFF\s+BEFORE",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
         public static TimingTier TierFor(MCDownloadedTrip t)
         {
             if (t == null) return TimingTier.ReturnRide;
@@ -43,7 +47,9 @@ namespace Hiatme_Tool_Suite_v3
             if (IsProgramDropHub(doStreet, doCity))
                 return TimingTier.ProgramFlexible;
 
-            if (IsMinotClinicDrop(doStreet))
+            // Minot: sheets use "cannot drop before" windows — program-flexible, not strict clinic.
+            if (IsMinotClinicDrop(doStreet)
+                || CannotDropBefore.IsMatch(comments))
                 return TimingTier.ProgramFlexible;
 
             if (IsClinicDropHub(doStreet, doCity))

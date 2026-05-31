@@ -193,6 +193,97 @@ namespace Hiatme_Tool_Suite_v3
             public List<string> Issues { get; set; }
         }
 
+        /// <summary>Live server BUILD progress (poll during POST /api/hiatme/solve).</summary>
+        public sealed class BuildProgressStatus
+        {
+            public bool Active { get; set; }
+            public string Phase { get; set; }
+            public string Label { get; set; }
+            public int Done { get; set; }
+            public int Total { get; set; }
+            public string Detail { get; set; }
+            public int? EtaSeconds { get; set; }
+        }
+
+        public static async Task<BuildProgressStatus> GetBuildProgressAsync(
+            HiatmeAiSettings settings,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null) return null;
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl)) return null;
+
+            string cid = Uri.EscapeDataString(settings.ResolvedClientId());
+            string url = baseUrl + "/api/hiatme/build-progress?client_id=" + cid;
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Get, url))
+                {
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken)
+                        .ConfigureAwait(false))
+                    {
+                        if (!resp.IsSuccessStatusCode) return null;
+                        var root = JObject.Parse(
+                            await resp.Content.ReadAsStringAsync().ConfigureAwait(false));
+                        if (root["active"]?.Value<bool>() != true)
+                            return new BuildProgressStatus { Active = false };
+                        return new BuildProgressStatus
+                        {
+                            Active = true,
+                            Phase = root["phase"]?.ToString(),
+                            Label = root["label"]?.ToString(),
+                            Done = root["done"]?.Value<int>() ?? 0,
+                            Total = root["total"]?.Value<int>() ?? 0,
+                            Detail = root["detail"]?.ToString(),
+                            EtaSeconds = root["eta_seconds"]?.Type == JTokenType.Null
+                                ? (int?)null
+                                : root["eta_seconds"]?.Value<int>(),
+                        };
+                    }
+                }
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>Start/wait for Maine OSRM on the panel host — POST /api/hiatme/osrm/ensure.</summary>
+        public static async Task<bool> EnsureOsrmAsync(
+            HiatmeAiSettings settings,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null) return false;
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl)) return false;
+
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Post, baseUrl + "/api/hiatme/osrm/ensure"))
+                {
+                    req.Content = new StringContent("{}", System.Text.Encoding.UTF8, "application/json");
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken)
+                        .ConfigureAwait(false))
+                    {
+                        if (!resp.IsSuccessStatusCode) return false;
+                        var root = JObject.Parse(
+                            await resp.Content.ReadAsStringAsync().ConfigureAwait(false));
+                        return root["ok"]?.Value<bool>() == true;
+                    }
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         /// <summary>Pre-BUILD: OSRM + solve smoke — GET /api/hiatme/ready.</summary>
         public static async Task<BuildReadyStatus> BuildReadyAsync(
             HiatmeAiSettings settings,

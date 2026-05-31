@@ -79,10 +79,46 @@ namespace Hiatme_Tool_Suite_v3
             return false;
         }
 
-        /// <summary>Intentional blank spacer row in a driver template (Excel empty line).</summary>
+        /// <summary>Dispatcher instruction row (no trip #, has note text in any column).</summary>
+        public static bool IsTemplateInstructionRow(string[] rowValues)
+        {
+            if (rowValues == null || rowValues.Length == 0)
+                return false;
+
+            string Cell(int i) => i < rowValues.Length ? (rowValues[i] ?? "").Replace("\"", "").Trim() : "";
+            if (!IsPlaceholderTripNumber(Cell(0)) && !string.IsNullOrWhiteSpace(Cell(0)))
+                return false;
+
+            for (int i = 0; i < 14; i++)
+            {
+                string c = Cell(i);
+                if (string.IsNullOrWhiteSpace(c) || c.Equals("NaT", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>Combined text from an instruction/gap row (display only).</summary>
+        public static string ExtractInstructionText(string[] rowValues)
+        {
+            if (rowValues == null) return "";
+            var parts = new List<string>();
+            for (int i = 0; i < 14; i++)
+            {
+                string c = i < rowValues.Length ? (rowValues[i] ?? "").Replace("\"", "").Trim() : "";
+                if (c.Length > 0) parts.Add(c);
+            }
+            return string.Join(" ", parts).Trim();
+        }
+
+        /// <summary>Intentional blank spacer or instruction row in a driver template.</summary>
         public static bool IsTemplateGapRow(string[] rowValues)
         {
             if (rowValues == null || rowValues.Length == 0)
+                return true;
+
+            if (IsTemplateInstructionRow(rowValues))
                 return true;
 
             string Cell(int i) => i < rowValues.Length ? (rowValues[i] ?? "").Replace("\"", "").Trim() : "";

@@ -40,7 +40,7 @@ namespace Hiatme_Tool_Suite_v3
                     if (d == null) continue;
                     bool selected = selectedNames.Count == 0
                         || selectedNames.Contains(d.Name ?? "");
-                    ((JArray)ctx["roster"]).Add(new JObject
+                    var rosterRow = new JObject
                     {
                         ["name"] = Trunc(d.Name, 80),
                         ["capacity"] = d.CapacityPassengers,
@@ -53,7 +53,9 @@ namespace Hiatme_Tool_Suite_v3
                         ["home"] = Trunc(d.FormatHomeOneLine(), 120),
                         ["wellryde_sec_id"] = d.WellRydeSecId ?? "",
                         ["selected"] = selected,
-                    });
+                    };
+                    AttachCachedCoords(rosterRow, d.HomeStreet, d.HomeCity, d.HomeState ?? "ME", d.HomeZip, "home");
+                    ((JArray)ctx["roster"]).Add(rosterRow);
                 }
             }
 
@@ -62,7 +64,7 @@ namespace Hiatme_Tool_Suite_v3
                 foreach (var t in trips.Take(500))
                 {
                     if (t == null) continue;
-                    ((JArray)ctx["trips"]).Add(new JObject
+                    var tripRow = new JObject
                     {
                         ["trip_number"] = t.TripNumber ?? "",
                         ["client"] = Trunc(t.ClientFullName ?? "", 60),
@@ -74,7 +76,10 @@ namespace Hiatme_Tool_Suite_v3
                         ["do_city"] = Trunc(t.DOCITY ?? "", 40),
                         ["miles"] = t.Miles ?? "",
                         ["alerts"] = t.GetAlerts() ?? "",
-                    });
+                    };
+                    AttachCachedCoords(tripRow, t.PUStreet, t.PUCity, "ME", "", "pu");
+                    AttachCachedCoords(tripRow, t.DOStreet, t.DOCITY, "ME", "", "do");
+                    ((JArray)ctx["trips"]).Add(tripRow);
                 }
             }
 
@@ -183,6 +188,17 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             return ctx;
+        }
+
+        private static void AttachCachedCoords(
+            JObject row, string street, string city, string state, string zip, string prefix)
+        {
+            if (row == null) return;
+            if (!AddressGeocoder.TryGetCachedPoint(street, city, state, zip, "us", out var pt))
+                return;
+            if (pt.Lat == 0 && pt.Lng == 0) return;
+            row[prefix + "_lat"] = Math.Round(pt.Lat, 5);
+            row[prefix + "_lon"] = Math.Round(pt.Lng, 5);
         }
 
         private static string Trunc(string s, int max)

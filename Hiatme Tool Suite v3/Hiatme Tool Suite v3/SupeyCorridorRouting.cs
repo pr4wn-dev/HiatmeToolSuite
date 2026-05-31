@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace Hiatme_Tool_Suite_v3
 {
     /// <summary>
     /// Home → corridor (Auburn/Lewiston) → nearest-next group ordering for each driver day.
-    /// Every append is checked with the same PU/DO window simulation as greedy assignment.
+    /// Deadheads use OSRM; every append is checked with PU/DO window simulation.
     /// </summary>
     internal sealed partial class SupeyScheduleAlgorithm
     {
@@ -17,22 +19,18 @@ namespace Hiatme_Tool_Suite_v3
         private static readonly GeoPoint AuburnHub = new GeoPoint(44.0978, -70.2312);
         private static readonly GeoPoint LewistonHub = new GeoPoint(44.1004, -70.2148);
 
-        /// <summary>
-        /// Reorders <see cref="SupeyDriverPlan.Groups"/> as a feasible nearest-next chain from home,
-        /// biased toward the Auburn/Lewiston corridor, then runs a short adjacent-swap polish.
-        /// </summary>
-        private static void OrderDriverGroupsCorridor(SupeyDriverPlan plan)
+        private static async Task OrderDriverGroupsCorridorAsync(SupeyDriverPlan plan, CancellationToken token)
         {
             if (plan.Groups.Count <= 1) return;
-            var ordered = BuildCorridorGroupOrder(plan);
+            var ordered = await BuildCorridorGroupOrderAsync(plan, token).ConfigureAwait(false);
             plan.Groups.Clear();
             foreach (var g in ordered)
                 plan.Groups.Add(g);
-            ReorderDriverGroups(plan);
+            await ReorderDriverGroupsAsync(plan, token).ConfigureAwait(false);
         }
 
-        /// <summary>Feasible home → nearest-next chain used for scoring and final sequencing.</summary>
-        private static List<SupeyTripCluster> BuildCorridorGroupOrder(SupeyDriverPlan plan)
+        private static async Task<List<SupeyTripCluster>> BuildCorridorGroupOrderAsync(
+            SupeyDriverPlan plan, CancellationToken token)
         {
             if (plan.Groups.Count == 0)
                 return new List<SupeyTripCluster>();
@@ -50,14 +48,18 @@ namespace Hiatme_Tool_Suite_v3
                 foreach (var c in pool)
                 {
                     var trial = new List<SupeyTripCluster>(ordered) { c };
-                    if (!GroupsChronologicallyFeasible(plan, trial, shiftStart))
+                    if (!await GroupsChronologicallyFeasibleAsync(plan, trial, shiftStart, token)
+                        .ConfigureAwait(false))
                         continue;
 
-                    double dh = HaversineMeters(loc, FirstPickupGeo(c));
-                    double score = dh
-                        - CorridorChainDeadheadCredit(dh)
+                    var dhLeg = await SupeyOsrmLegs.GetLegAsync(loc, FirstPickupGeo(c), token)
+                        .ConfigureAwait(false);
+                    if (!dhLeg.Ok) continue;
+
+                    double score = dhLeg.Meters
+                        - CorridorChainDeadheadCredit(dhLeg.Meters)
                         - CorridorZoneBonusSeconds * CorridorZoneFraction(c)
-                        - HomeTowardCorridorCredit(plan.HomeGeo, loc, c);
+                        - await HomeTowardCorridorCreditAsync(plan.HomeGeo, loc, c, token).ConfigureAwait(false);
 
                     score += c.EarliestPickup.TotalMinutes * 0.05;
                     if (score < bestScore)
@@ -73,7 +75,8 @@ namespace Hiatme_Tool_Suite_v3
                     foreach (var c in pool)
                     {
                         var trial = new List<SupeyTripCluster>(ordered) { c };
-                        if (!GroupsChronologicallyFeasible(plan, trial, shiftStart))
+                        if (!await GroupsChronologicallyFeasibleAsync(plan, trial, shiftStart, token)
+                            .ConfigureAwait(false))
                             continue;
                         best = c;
                         break;
@@ -113,18 +116,30 @@ namespace Hiatme_Tool_Suite_v3
             return hits / (double)cluster.Trips.Count;
         }
 
-        private static double HomeTowardCorridorCredit(GeoPoint? home, GeoPoint fromLoc, SupeyTripCluster cluster)
+        private static async Task<double> HomeTowardCorridorCreditAsync(
+            GeoPoint? home, GeoPoint fromLoc, SupeyTripCluster cluster, CancellationToken token)
         {
             if (!home.HasValue || cluster == null) return 0;
-            double toHub = Math.Min(
-                HaversineMeters(home.Value, AuburnHub),
-                HaversineMeters(home.Value, LewistonHub));
-            double pickupToHub = Math.Min(
-                HaversineMeters(cluster.PickupCentroid, AuburnHub),
-                HaversineMeters(cluster.PickupCentroid, LewistonHub));
-            double fromToPickup = HaversineMeters(fromLoc, cluster.PickupCentroid);
+            var toAub = await SupeyOsrmLegs.GetLegAsync(home.Value, AuburnHub, token).ConfigureAwait(false);
+            var toLew = await SupeyOsrmLegs.GetLegAsync(home.Value, LewistonHub, token).ConfigureAwait(false);
+            if (!toAub.Ok && !toLew.Ok) return 0;
+            double toHub = double.MaxValue;
+            if (toAub.Ok) toHub = Math.Min(toHub, toAub.Meters);
+            if (toLew.Ok) toHub = Math.Min(toHub, toLew.Meters);
 
-            if (fromToPickup > toHub * 1.35 + 8000.0)
+            var puAub = await SupeyOsrmLegs.GetLegAsync(cluster.PickupCentroid, AuburnHub, token)
+                .ConfigureAwait(false);
+            var puLew = await SupeyOsrmLegs.GetLegAsync(cluster.PickupCentroid, LewistonHub, token)
+                .ConfigureAwait(false);
+            double pickupToHub = double.MaxValue;
+            if (puAub.Ok) pickupToHub = Math.Min(pickupToHub, puAub.Meters);
+            if (puLew.Ok) pickupToHub = Math.Min(pickupToHub, puLew.Meters);
+            if (pickupToHub == double.MaxValue) pickupToHub = 0;
+
+            var fromPu = await SupeyOsrmLegs.GetLegAsync(fromLoc, cluster.PickupCentroid, token)
+                .ConfigureAwait(false);
+            if (!fromPu.Ok) return 0;
+            if (fromPu.Meters > toHub * 1.35 + 8000.0)
                 return 0;
 
             double along = Math.Max(0, toHub - pickupToHub);
@@ -141,17 +156,114 @@ namespace Hiatme_Tool_Suite_v3
                 || c.Contains("MINOT") || c.Contains("MECHANIC FALLS");
         }
 
-        private static double CorridorAssignmentBonus(SupeyDriverPlan plan, SupeyTripCluster cluster, GeoPoint lastLoc, int firstPu)
+        private static async Task<double> CorridorAssignmentBonusAsync(
+            SupeyDriverPlan plan,
+            SupeyTripCluster cluster,
+            GeoPoint lastLoc,
+            int firstPu,
+            CancellationToken token)
         {
             double bonus = CorridorZoneBonusSeconds * CorridorZoneFraction(cluster);
             if (plan.Groups.Count == 0)
             {
                 if (plan.HomeGeo.HasValue)
-                    bonus += HomeTowardCorridorCredit(plan.HomeGeo, plan.HomeGeo.Value, cluster);
+                    bonus += await HomeTowardCorridorCreditAsync(plan.HomeGeo, plan.HomeGeo.Value, cluster, token)
+                        .ConfigureAwait(false);
             }
             else if (firstPu >= 0 && cluster.PickupPoints != null && firstPu < cluster.PickupPoints.Count)
-                bonus += CorridorChainDeadheadCredit(HaversineMeters(lastLoc, cluster.PickupPoints[firstPu]));
+            {
+                var leg = await SupeyOsrmLegs.GetLegAsync(lastLoc, cluster.PickupPoints[firstPu], token)
+                    .ConfigureAwait(false);
+                if (leg.Ok)
+                    bonus += CorridorChainDeadheadCredit(leg.Meters);
+            }
             return bonus;
+        }
+
+        private static async Task<bool> GroupsChronologicallyFeasibleAsync(
+            SupeyDriverPlan plan,
+            List<SupeyTripCluster> order,
+            TimeSpan shiftStart,
+            CancellationToken token)
+        {
+            var current = shiftStart;
+            var loc = PlanAnchorGeo(plan);
+            foreach (var c in order)
+            {
+                var leg = await SupeyOsrmLegs.GetLegAsync(loc, FirstPickupGeo(c), token).ConfigureAwait(false);
+                if (!leg.Ok) return false;
+
+                var arrival = current.Add(TimeSpan.FromSeconds(leg.Seconds));
+                double puCap = LegPuLateCapMinutes(c);
+                if (arrival > c.EarliestPickup.Add(TimeSpan.FromMinutes(puCap))) return false;
+                var (ok, end, _, _) = ProjectClusterFeasibility(c, arrival);
+                if (!ok) return false;
+                current = end;
+                loc = LastDropoffPoint(c);
+            }
+            return true;
+        }
+
+        private static async Task ReorderDriverGroupsAsync(SupeyDriverPlan plan, CancellationToken token)
+        {
+            if (plan.Groups.Count <= 2) return;
+            plan.Groups.Sort((a, b) => a.EarliestPickup.CompareTo(b.EarliestPickup));
+            bool improved = true;
+            int safety = plan.Groups.Count * 2;
+            var shiftStart = plan.Driver.ParseShiftStart() ?? TimeSpan.Zero;
+            while (improved && safety-- > 0)
+            {
+                improved = false;
+                for (int i = 0; i < plan.Groups.Count - 1; i++)
+                {
+                    var a = plan.Groups[i];
+                    var b = plan.Groups[i + 1];
+                    var keepLeg = await SupeyOsrmLegs.GetLegAsync(LastDropoffPoint(a), FirstPickupGeo(b), token)
+                        .ConfigureAwait(false);
+                    var swapLeg = await SupeyOsrmLegs.GetLegAsync(LastDropoffPoint(b), FirstPickupGeo(a), token)
+                        .ConfigureAwait(false);
+                    if (!keepLeg.Ok || !swapLeg.Ok) continue;
+                    if (swapLeg.Meters + 200 >= keepLeg.Meters) continue;
+                    if (a.EarliestPickup > b.EarliestPickup) continue;
+                    var trial = new List<SupeyTripCluster>(plan.Groups);
+                    trial[i] = b;
+                    trial[i + 1] = a;
+                    if (!await GroupsChronologicallyFeasibleAsync(plan, trial, shiftStart, token)
+                        .ConfigureAwait(false))
+                        continue;
+                    plan.Groups[i] = b;
+                    plan.Groups[i + 1] = a;
+                    improved = true;
+                }
+                plan.Groups.Sort((x, y) => x.EarliestPickup.CompareTo(y.EarliestPickup));
+            }
+        }
+
+        private static async Task<(TimeSpan time, GeoPoint loc)> ProjectedLastEventAsync(
+            SupeyDriverPlan p, CancellationToken token)
+        {
+            var shiftStart = p.Driver.ParseShiftStart() ?? TimeSpan.Zero;
+            if (p.Groups.Count == 0)
+                return (shiftStart, PlanAnchorGeo(p));
+
+            var visitOrder = await BuildCorridorGroupOrderAsync(p, token).ConfigureAwait(false);
+            var current = shiftStart;
+            var loc = PlanAnchorGeo(p);
+            foreach (var c in visitOrder)
+            {
+                int firstPu = FirstPickupIndex(c);
+                GeoPoint pu = firstPu >= 0 && c.PickupPoints != null && firstPu < c.PickupPoints.Count
+                    ? c.PickupPoints[firstPu]
+                    : FirstPickupGeo(c);
+                var leg = await SupeyOsrmLegs.GetLegAsync(loc, pu, token).ConfigureAwait(false);
+                if (!leg.Ok)
+                    return (shiftStart, PlanAnchorGeo(p));
+
+                var arrival = current.Add(TimeSpan.FromSeconds(leg.Seconds));
+                current = ProjectClusterEnd(c, arrival);
+                loc = LastDropoffPoint(c);
+            }
+            return (current, loc);
         }
     }
 }

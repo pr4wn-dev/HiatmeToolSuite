@@ -180,24 +180,29 @@ namespace Hiatme_Tool_Suite_v3
             try
             {
                 if (!File.Exists(path)) return;
-                var part = JsonConvert.DeserializeObject<HiatmeAiSettings>(File.ReadAllText(path));
-                if (part == null) return;
-                if (!string.IsNullOrWhiteSpace(part.BaseUrl))
-                    target.BaseUrl = part.BaseUrl.Trim();
-                if (!string.IsNullOrWhiteSpace(part.ApiToken))
-                    target.ApiToken = part.ApiToken.Trim();
-                if (!string.IsNullOrWhiteSpace(part.ClientId))
-                    target.ClientId = part.ClientId.Trim();
-                if (!string.IsNullOrWhiteSpace(part.LastResolvedBaseUrl))
-                    target.LastResolvedBaseUrl = part.LastResolvedBaseUrl.Trim();
-                if (part.FallbackBaseUrls != null && part.FallbackBaseUrls.Count > 0)
-                    target.FallbackBaseUrls = part.FallbackBaseUrls;
-                target.RememberOnSave = part.RememberOnSave;
-                target.UseServerGeo = part.UseServerGeo;
-                target.UseServerSolve = part.UseServerSolve;
-                target.AllowLocalSolveFallback = part.AllowLocalSolveFallback;
-                target.UseWeekdayTemplates = part.UseWeekdayTemplates;
-                target.FinishRemainingAfterTemplates = part.FinishRemainingAfterTemplates;
+                var jo = JObject.Parse(File.ReadAllText(path));
+                if (jo["BaseUrl"] != null && !string.IsNullOrWhiteSpace(jo["BaseUrl"].ToString()))
+                    target.BaseUrl = jo["BaseUrl"].ToString().Trim();
+                if (jo["ApiToken"] != null && !string.IsNullOrWhiteSpace(jo["ApiToken"].ToString()))
+                    target.ApiToken = jo["ApiToken"].ToString().Trim();
+                if (jo["ClientId"] != null && !string.IsNullOrWhiteSpace(jo["ClientId"].ToString()))
+                    target.ClientId = jo["ClientId"].ToString().Trim();
+                if (jo["LastResolvedBaseUrl"] != null && !string.IsNullOrWhiteSpace(jo["LastResolvedBaseUrl"].ToString()))
+                    target.LastResolvedBaseUrl = jo["LastResolvedBaseUrl"].ToString().Trim();
+                if (jo["FallbackBaseUrls"] is JArray fb && fb.Count > 0)
+                    target.FallbackBaseUrls = fb.ToObject<List<string>>();
+                if (jo["RememberOnSave"] != null)
+                    target.RememberOnSave = jo["RememberOnSave"].Value<bool>();
+                if (jo["UseServerGeo"] != null)
+                    target.UseServerGeo = jo["UseServerGeo"].Value<bool>();
+                if (jo["UseServerSolve"] != null)
+                    target.UseServerSolve = jo["UseServerSolve"].Value<bool>();
+                if (jo["AllowLocalSolveFallback"] != null)
+                    target.AllowLocalSolveFallback = jo["AllowLocalSolveFallback"].Value<bool>();
+                if (jo["UseWeekdayTemplates"] != null)
+                    target.UseWeekdayTemplates = jo["UseWeekdayTemplates"].Value<bool>();
+                if (jo["FinishRemainingAfterTemplates"] != null)
+                    target.FinishRemainingAfterTemplates = jo["FinishRemainingAfterTemplates"].Value<bool>();
             }
             catch { }
         }
@@ -231,6 +236,12 @@ namespace Hiatme_Tool_Suite_v3
             {
                 var v = localFb.Trim().ToLowerInvariant();
                 s.AllowLocalSolveFallback = v == "1" || v == "true" || v == "yes" || v == "on";
+            }
+            var geo = Environment.GetEnvironmentVariable("HIATME_USE_SERVER_GEO");
+            if (!string.IsNullOrWhiteSpace(geo))
+            {
+                var v = geo.Trim().ToLowerInvariant();
+                s.UseServerGeo = v != "0" && v != "false" && v != "no" && v != "off";
             }
         }
 
