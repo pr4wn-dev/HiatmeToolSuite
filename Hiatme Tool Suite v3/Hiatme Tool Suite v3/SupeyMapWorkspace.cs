@@ -48,6 +48,11 @@ namespace Hiatme_Tool_Suite_v3
         private SupeyDriverPlan _currentPlan;
         private readonly Dictionary<string, List<SupeyDraggableMarker>> _tripMarkers =
             new Dictionary<string, List<SupeyDraggableMarker>>(StringComparer.OrdinalIgnoreCase);
+
+        private Panel _mileageHud;
+        private Label _lblGroupMileage;
+        private Label _lblTripMileage;
+
         public SupeyMapWorkspace()
         {
             DoubleBuffered = true;
@@ -175,6 +180,7 @@ namespace Hiatme_Tool_Suite_v3
             Controls.Add(_map);
             Controls.Add(_legendHost);
             Controls.Add(_emptyLabel);
+            BuildMileageHud();
             _emptyLabel.BringToFront();
             // Until ShowDriverPlan is called the legend has nothing to show — keep the rail
             // hidden so the user doesn't see an empty "Groups" panel pinned to the right edge.
@@ -272,9 +278,127 @@ namespace Hiatme_Tool_Suite_v3
             _deadheadToggle = null;
             _currentPlan = null;
             _tripMarkers.Clear();
+            ClearMileageHud();
             _emptyLabel.Visible = true;
             _legendHost.Visible = false;
             CenterOnMaineHub();
+        }
+
+        /// <summary>Schedule Builder: panel labels for selected group route miles and trip PU→DO miles.</summary>
+        public void SetMileageHud(
+            SupeyTripCluster group,
+            MCDownloadedTrip trip,
+            double groupMeters,
+            double? tripMeters,
+            bool tripApprox)
+        {
+            if (_mileageHud == null || group == null)
+            {
+                ClearMileageHud();
+                return;
+            }
+
+            string groupSuffix = group.IsStraightLineFallback ? " (est.)" : "";
+            _lblGroupMileage.Text = "Group " + group.GroupNumber + " route · "
+                + SupeyTripTimes.FormatMiles(groupMeters) + groupSuffix;
+
+            if (trip != null)
+            {
+                string tn = (trip.TripNumber ?? "").Trim();
+                if (tripMeters.HasValue)
+                {
+                    string tripSuffix = tripApprox ? " (est.)" : "";
+                    _lblTripMileage.Text = "Trip " + tn + " PU→DO · "
+                        + SupeyTripTimes.FormatMiles(tripMeters.Value) + tripSuffix;
+                }
+                else
+                    _lblTripMileage.Text = "Trip " + tn + " PU→DO · —";
+                _lblTripMileage.Visible = true;
+            }
+            else
+                _lblTripMileage.Visible = false;
+
+            _mileageHud.Visible = true;
+            _mileageHud.BringToFront();
+        }
+
+        public void ClearMileageHud()
+        {
+            if (_mileageHud != null)
+                _mileageHud.Visible = false;
+        }
+
+        /// <summary>PU/DO positions from markers currently on the map (after ShowDriverPlan).</summary>
+        public bool TryGetTripPinGeoPoints(MCDownloadedTrip trip, out GeoPoint pu, out GeoPoint dof)
+        {
+            pu = dof = default;
+            if (trip == null) return false;
+            string key = (trip.TripNumber ?? "").Trim();
+            if (key.Length == 0 || !_tripMarkers.TryGetValue(key, out var markers) || markers == null)
+                return false;
+
+            bool hasPu = false, hasDo = false;
+            foreach (var m in markers)
+            {
+                if (m == null) continue;
+                var info = m.Tag as SupeyMapMarkerInfo;
+                if (info == null) continue;
+                var gp = new GeoPoint(m.Position.Lat, m.Position.Lng);
+                if (info.IsPickup)
+                {
+                    pu = gp;
+                    hasPu = true;
+                }
+                else
+                {
+                    dof = gp;
+                    hasDo = true;
+                }
+            }
+
+            return hasPu && hasDo && !(pu.Lat == 0 && pu.Lng == 0) && !(dof.Lat == 0 && dof.Lng == 0);
+        }
+
+        private void BuildMileageHud()
+        {
+            _mileageHud = new Panel
+            {
+                AutoSize = true,
+                BackColor = SupeyTheme.SurfaceElevated,
+                Padding = new Padding(10, 8, 12, 8),
+                Location = new Point(12, 12),
+                Visible = false,
+            };
+
+            var stack = new FlowLayoutPanel
+            {
+                AutoSize = true,
+                FlowDirection = FlowDirection.TopDown,
+                WrapContents = false,
+                BackColor = SupeyTheme.SurfaceElevated,
+            };
+
+            _lblGroupMileage = new Label
+            {
+                AutoSize = true,
+                ForeColor = Color.Gainsboro,
+                Font = new Font("Segoe UI Semibold", 9f),
+                BackColor = SupeyTheme.SurfaceElevated,
+            };
+            _lblTripMileage = new Label
+            {
+                AutoSize = true,
+                ForeColor = Color.FromArgb(200, 200, 200),
+                Font = new Font("Segoe UI", 9f),
+                BackColor = SupeyTheme.SurfaceElevated,
+                Margin = new Padding(0, 4, 0, 0),
+                Visible = false,
+            };
+
+            stack.Controls.Add(_lblGroupMileage);
+            stack.Controls.Add(_lblTripMileage);
+            _mileageHud.Controls.Add(stack);
+            Controls.Add(_mileageHud);
         }
 
         /// <summary>
@@ -463,6 +587,7 @@ namespace Hiatme_Tool_Suite_v3
             _groupCheckboxes.Clear();
             _legend.Controls.Clear();
             _tripMarkers.Clear();
+            ClearMileageHud();
 
             if (plan == null || (!plan.HomeGeo.HasValue && plan.Groups.Count == 0))
             {

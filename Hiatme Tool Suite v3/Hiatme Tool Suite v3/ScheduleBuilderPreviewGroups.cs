@@ -128,13 +128,15 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             var route = await SupeyOsrmLegs.RouteAsync(waypoints, token).ConfigureAwait(false);
-            if (route.Ok && !route.IsStraightLineFallback && route.Polyline != null && route.Polyline.Count >= 2)
+            if (route.Ok && route.Polyline != null && route.Polyline.Count >= 2)
             {
                 g.RoutePolyline.AddRange(route.Polyline);
-                g.IsStraightLineFallback = false;
-                return true;
+                g.IntraClusterMeters = route.TotalMeters;
+                g.IsStraightLineFallback = route.IsStraightLineFallback;
+                return !route.IsStraightLineFallback;
             }
 
+            g.IntraClusterMeters = 0;
             ApplyStraightLineRoute(g, waypoints);
             return false;
         }

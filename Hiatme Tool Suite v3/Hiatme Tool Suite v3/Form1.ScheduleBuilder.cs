@@ -74,6 +74,14 @@ namespace Hiatme_Tool_Suite_v3
 
         private bool _fsCenterMaineAfterBuild;
 
+        private Dictionary<string, GeoPoint> _fsMapPickupByTrip =
+            new Dictionary<string, GeoPoint>(StringComparer.OrdinalIgnoreCase);
+
+        private Dictionary<string, GeoPoint> _fsMapDropoffByTrip =
+            new Dictionary<string, GeoPoint>(StringComparer.OrdinalIgnoreCase);
+
+        private int _fsMileageHudGen;
+
 
 
         private readonly Dictionary<string, List<ScheduleBuilderPreviewLine>> _fsLinesByTab =
@@ -709,33 +717,7 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-            _fsTripsLv.SelectedIndexChanged += (s, e) =>
-
-            {
-
-                if (_fsMap == null || _fsTripsLv.SelectedItems.Count == 0) return;
-
-                var item = _fsTripsLv.SelectedItems[0];
-
-                if (item.Tag is FsPreviewGapTag || item.Tag is FsPreviewNoteTag
-
-                    || item.Tag is FsPreviewSectionHeaderTag) return;
-
-                MCDownloadedTrip trip = null;
-
-                if (item.Tag is FsPreviewTripTag rowTag)
-
-                    trip = rowTag.Trip;
-
-                else
-
-                    trip = item.Tag as MCDownloadedTrip;
-
-                if (trip != null)
-
-                    _fsMap.FocusTrip(trip);
-
-            };
+            _fsTripsLv.SelectedIndexChanged += (s, e) => FsTripsLv_SelectionChangedUpdateMap();
 
         }
 
@@ -1430,6 +1412,9 @@ namespace Hiatme_Tool_Suite_v3
             int gen = Interlocked.Increment(ref _fsMapRefreshGen);
 
             _fsMap.Clear();
+            _fsMap.ClearMileageHud();
+            _fsMapPickupByTrip.Clear();
+            _fsMapDropoffByTrip.Clear();
 
             if (tabName.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
 
@@ -1572,6 +1557,8 @@ namespace Hiatme_Tool_Suite_v3
             if (centerMaineAfterBuild || !SupeyMapWorkspace.HasValidMapPins(plan))
                 _fsMap.CenterOnMaineHub();
 
+            FsTripsLv_SelectionChangedUpdateMap();
+
 
 
             int pinCount = pickup.Count + dropoff.Count;
@@ -1596,6 +1583,156 @@ namespace Hiatme_Tool_Suite_v3
             else
 
                 SetScheduleBuilderStatus(tabName + " map · no pins (geocode cache empty — BUILD/SAVE still work).");
+
+        }
+
+
+
+        private void FsTripsLv_SelectionChangedUpdateMap()
+
+        {
+
+            if (_fsMap == null) return;
+
+            if (_fsTripsLv == null || _fsTripsLv.SelectedItems.Count == 0
+
+                || string.IsNullOrWhiteSpace(_fsActiveDriverTab)
+
+                || _fsActiveDriverTab.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
+
+            {
+
+                _fsMap.ClearMileageHud();
+
+                return;
+
+            }
+
+            var item = _fsTripsLv.SelectedItems[0];
+
+            if (item.Tag is FsPreviewGapTag || item.Tag is FsPreviewSectionHeaderTag)
+
+            {
+
+                _fsMap.ClearMileageHud();
+
+                return;
+
+            }
+
+            SupeyTripCluster group = null;
+
+            MCDownloadedTrip trip = null;
+
+            if (item.Tag is FsPreviewNoteTag noteTag)
+
+                group = noteTag.Group;
+
+            else if (item.Tag is FsPreviewTripTag rowTag)
+
+            {
+
+                trip = rowTag.Trip;
+
+                group = rowTag.Group;
+
+            }
+
+            else
+
+            {
+
+                trip = item.Tag as MCDownloadedTrip;
+
+            }
+
+            if (group == null && trip != null
+
+                && _fsGroupsByTab.TryGetValue(_fsActiveDriverTab, out var groups))
+
+                group = FindFsGroupForTrip(groups, trip);
+
+            if (group == null)
+
+            {
+
+                _fsMap.ClearMileageHud();
+
+                return;
+
+            }
+
+            if (trip != null)
+
+                _fsMap.FocusTrip(trip);
+
+            _ = UpdateFsMapMileageHudAsync(group, trip);
+
+        }
+
+
+
+        private async Task UpdateFsMapMileageHudAsync(SupeyTripCluster group, MCDownloadedTrip trip)
+
+        {
+
+            if (_fsMap == null || group == null) return;
+
+            int gen = Interlocked.Increment(ref _fsMileageHudGen);
+
+            double groupMeters = ScheduleBuilderMapMileage.GroupRouteMeters(group);
+
+            double? tripMeters = null;
+
+            bool tripApprox = false;
+
+            if (trip != null)
+
+            {
+
+                GeoPoint? pinPu = null, pinDo = null;
+
+                if (_fsMap.TryGetTripPinGeoPoints(trip, out var puPin, out var doPin))
+
+                {
+
+                    pinPu = puPin;
+
+                    pinDo = doPin;
+
+                }
+
+                var tripLeg = await ScheduleBuilderMapMileage.ResolveTripPuDoMetersAsync(
+
+                    group,
+
+                    trip,
+
+                    _fsMapPickupByTrip,
+
+                    _fsMapDropoffByTrip,
+
+                    pinPu,
+
+                    pinDo,
+
+                    CancellationToken.None).ConfigureAwait(true);
+
+                tripMeters = tripLeg.meters;
+
+                tripApprox = tripLeg.approx;
+
+            }
+
+            if (gen != _fsMileageHudGen) return;
+
+            if (string.IsNullOrWhiteSpace(_fsActiveDriverTab)
+
+                || _fsActiveDriverTab.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
+
+                return;
+
+            _fsMap.SetMileageHud(group, trip, groupMeters, tripMeters, tripApprox);
 
         }
 
