@@ -3557,12 +3557,42 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             if (_supeyResult == null) return;
+
+            if (_supeyResult.HasInfeasibleDriverRejection)
+            {
+                string names = string.Join(", ", _supeyResult.InfeasibleDriverNames);
+                if (_supeyScheduleUpdatedLbl != null)
+                {
+                    _supeyScheduleUpdatedLbl.Text = "BUILD rejected impossible day(s): " + names
+                        + " — trips in reserves; see Warnings.";
+                    _supeyScheduleUpdatedLbl.ForeColor = Color.FromArgb(255, 160, 120);
+                }
+                MessageBox.Show(this,
+                    "BUILD cannot use this day for:\n" + names
+                    + "\n\nThose trips were moved to reserves. The PU/DO sheet does not fit "
+                    + "in real drive time (e.g. two groups at the same pickup minute in different towns). "
+                    + "Warnings → Copy for details.",
+                    "Supey — day infeasible",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+            }
+
             int scheduled = HiatmeAiScheduleMapper.CountAssignedTrips(_supeyResult);
             string engineLabel = builtOnServer ? "server" : "local";
-            SetSupeyStatus("Build complete (" + engineLabel + "). " + _supeyResult.DriverPlans.Count +
-                " driver(s), " + scheduled + " on screen, " +
-                _supeyResult.TotalReserveCount + " reserve(s), " +
-                _supeyResult.WarningCount + " warning(s).");
+            if (_supeyResult.HasInfeasibleDriverRejection)
+            {
+                SetSupeyStatus("BUILD finished with rejected day(s) (" + engineLabel + "). "
+                    + scheduled + " on screen, " + _supeyResult.TotalReserveCount
+                    + " reserve(s) — " + string.Join(", ", _supeyResult.InfeasibleDriverNames)
+                    + " could not run in PU/DO windows.");
+            }
+            else
+            {
+                SetSupeyStatus("Build complete (" + engineLabel + "). " + _supeyResult.DriverPlans.Count +
+                    " driver(s), " + scheduled + " on screen, " +
+                    _supeyResult.TotalReserveCount + " reserve(s), " +
+                    _supeyResult.WarningCount + " warning(s).");
+            }
         }
 
         /// <summary>Shown above the trip list after BUILD or AI Send applies changes.</summary>

@@ -40,7 +40,8 @@ namespace Hiatme_Tool_Suite_v3
                 SupeyWarningKind.BuildDiagnostic,
                 "",
                 "Post-build",
-                "Post-build pipeline v19 (OSRM PU order kept — no clock fallback on ApplyOrders or route text)."));
+                SupeyClusterRouteBuilder.PipelineTag
+                    + " — PU/DO windows; first stop uses real arrival, not forced early/on-time)."));
 
             progress?.Report("Post-build: geocoding assigned trips…");
             await SupeyScheduleGeocoder.HydratePlansOnlyAsync(result, token).ConfigureAwait(false);
@@ -110,8 +111,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 if (plan?.Groups == null || plan.Groups.Count == 0) continue;
                 token.ThrowIfCancellationRequested();
-                SupeyScheduleOrderAudit.RepairPlanOrder(plan);
-                SupeyScheduleDeskOrder.ApplyRowSortToPlan(plan);
+                await RepairDriverPlanOrderAsync(algo, plan, token).ConfigureAwait(false);
 
                 finalDone++;
                 string name = plan.Driver?.Name ?? "Driver";
@@ -153,6 +153,7 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             SupeyTripLegConsistency.AppendSplitLegWarnings(result);
+            SupeyClusterRouteAudit.AppendViolations(result);
             AppendReserveDiagnostics(result);
             SupeyWarningsUtil.StripTimingFromBuild(result);
             AppendOrderAuditFailures(plans, result);
@@ -163,7 +164,15 @@ namespace Hiatme_Tool_Suite_v3
                 plan.PreferChronologicalGroupPreview = true;
                 plan.TemplateSeedGroupCount = 0;
             }
-            progress?.Report("Post-build complete (chronological order + leg timing refresh).");
+            foreach (var plan in plans)
+                SupeyScheduleDeskOrder.SyncDisplayRowsToRoadOrder(plan);
+
+            progress?.Report("Post-build: full-day feasibility gate…");
+            SupeyDriverDayFeasibilityGate.ApplyToSchedule(result);
+
+            progress?.Report(result.HasInfeasibleDriverRejection
+                ? "Post-build complete — infeasible driver day(s) rejected (see Warnings)."
+                : "Post-build complete (chronological order + leg timing refresh).");
         }
 
         private static void AppendDriversMissingRoadMiles(List<SupeyDriverPlan> plans, SupeyScheduleResult result)
@@ -215,10 +224,13 @@ namespace Hiatme_Tool_Suite_v3
             foreach (var plan in plans)
             {
                 if (plan == null) continue;
-                bool bad = SupeyScheduleOrderAudit.GroupsOutOfChronologicalOrder(plan)
-                    || SupeyScheduleOrderAudit.AnyClusterRowsOutOfPuOrder(plan);
-                if (!bad) continue;
-                SupeyScheduleOrderAudit.RepairPlanOrder(plan);
+                bool groupBad = SupeyScheduleOrderAudit.PlanNeedsGroupOrderRepair(plan);
+                bool rowBad = SupeyScheduleOrderAudit.AnyClusterRowsOutOfDisplayOrder(plan);
+                if (!groupBad && !rowBad) continue;
+                if (groupBad)
+                    await algo.OrderDriverDayGroupsPublicAsync(plan, token).ConfigureAwait(false);
+                if (rowBad)
+                    SupeyScheduleOrderAudit.RepairPlanRowOrder(plan);
                 if (seen.Add(plan))
                     repaired.Add(plan);
             }
@@ -251,7 +263,18 @@ namespace Hiatme_Tool_Suite_v3
                 SupeyWarningKind.BuildDiagnostic,
                 "",
                 "Post-build",
-                "Re-sorted " + repaired.Count + " driver(s) into chronological group order (was out of time sequence)."));
+                "Re-ordered " + repaired.Count + " driver(s) into feasible group sequence (appointments / drive windows)."));
+        }
+
+        private static async Task RepairDriverPlanOrderAsync(
+            SupeyScheduleAlgorithm algo,
+            SupeyDriverPlan plan,
+            CancellationToken token)
+        {
+            if (plan == null) return;
+            if (SupeyScheduleOrderAudit.PlanNeedsGroupOrderRepair(plan))
+                await algo.OrderDriverDayGroupsPublicAsync(plan, token).ConfigureAwait(false);
+            SupeyScheduleOrderAudit.RepairPlanRowOrder(plan);
         }
 
         /// <summary>Full OSRM tours + deadheads after group/row order was repaired.</summary>
@@ -263,6 +286,8 @@ namespace Hiatme_Tool_Suite_v3
             CancellationToken token)
         {
             SyncAndNormalizeGroups(algo, plan);
+            if (plan.Groups.Count >= 2)
+                await algo.OrderDriverDayGroupsPublicAsync(plan, token).ConfigureAwait(false);
             PrepareDriverRouting(algo, plan);
             await OptimizeDriverGroupsAsync(algo, plan, result, driverName, null, token)
                 .ConfigureAwait(false);
@@ -275,8 +300,10 @@ namespace Hiatme_Tool_Suite_v3
             plan.ReleaseTimeOfDay = null;
 
             await AlignClustersBeforeDeadheadsAsync(algo, plan, token).ConfigureAwait(false);
+            SupeyScheduleDeskOrder.SyncDisplayRowsToRoadOrder(plan);
             await algo.SequenceDriverPublicAsync(plan, token).ConfigureAwait(false);
             await RefreshDropoffLegSecondsAsync(plan, token).ConfigureAwait(false);
+            SupeyScheduleDeskOrder.SyncDisplayRowsToRoadOrder(plan);
         }
 
         private static async Task EvaluateDriverWarningsOnlyAsync(
@@ -331,6 +358,9 @@ namespace Hiatme_Tool_Suite_v3
             CancellationToken token)
         {
             SyncAndNormalizeGroups(algo, plan);
+            if (plan.Groups.Count >= 2)
+                await algo.OrderDriverDayGroupsPublicAsync(plan, token).ConfigureAwait(false);
+            SupeyScheduleDeskOrder.ApplyDeskRowSortToPlan(plan);
 
             bool tourBudgetHit = false;
             int groupTotal = plan.Groups.Count(g => g != null && g.Trips.Count > 0);
@@ -418,6 +448,8 @@ namespace Hiatme_Tool_Suite_v3
                     "Post-build",
                     driverName + ": road miles OK but in-group leg timing missing — late-DO warnings deferred."));
             }
+
+            SupeyScheduleDeskOrder.SyncDisplayRowsToRoadOrder(plan);
         }
 
         private static bool DriverHasTimingFingerprints(SupeyDriverPlan plan)
@@ -509,7 +541,7 @@ namespace Hiatme_Tool_Suite_v3
                             {
                                 if (g.Trips.Count >= 2)
                                 {
-                                    await SupeyClusterRouting.OptimizeClusterTourPostBuildAsync(
+                                    await SupeyClusterRouteBuilder.ApplyRoadRouteAsync(
                                         g, groupLinked.Token, cursor)
                                         .ConfigureAwait(false);
                                     SupeyClusterOsrmTable.Current?.TryApplyTourMetrics(g);
@@ -566,15 +598,15 @@ namespace Hiatme_Tool_Suite_v3
             SupeyDriverPlan plan,
             CancellationToken token)
         {
-            bool orderBad = SupeyScheduleOrderAudit.GroupsOutOfChronologicalOrder(plan)
-                || SupeyScheduleOrderAudit.AnyClusterRowsOutOfPuOrder(plan);
+            bool orderBad = SupeyScheduleOrderAudit.PlanNeedsOrderRepair(plan);
             bool deadheadsStale = DeadheadsStaleForGroupOrder(plan);
             if (!orderBad && !deadheadsStale) return;
 
             if (orderBad)
-                SupeyScheduleOrderAudit.RepairPlanOrder(plan);
+                await RepairDriverPlanOrderAsync(algo, plan, token).ConfigureAwait(false);
 
             await AlignClustersBeforeDeadheadsAsync(algo, plan, token).ConfigureAwait(false);
+            SupeyScheduleDeskOrder.SyncDisplayRowsToRoadOrder(plan);
             plan.DeadHeads.Clear();
             plan.TotalMeters = 0;
             plan.TotalDriveSeconds = 0;
@@ -583,6 +615,7 @@ namespace Hiatme_Tool_Suite_v3
             plan.ReleaseTimeOfDay = null;
             await algo.SequenceDriverPublicAsync(plan, token).ConfigureAwait(false);
             await RefreshDropoffLegSecondsAsync(plan, token).ConfigureAwait(false);
+            SupeyScheduleDeskOrder.SyncDisplayRowsToRoadOrder(plan);
         }
 
         /// <summary>True when inter-group deadhead labels no longer match current Groups[] order.</summary>
@@ -639,8 +672,7 @@ namespace Hiatme_Tool_Suite_v3
                 if (g != null && g.Trips.Count > 0)
                     algo.SyncClusterMetadataPublic(g);
             }
-            SupeyClusterTimeSplit.NormalizeDayGroupOrder(plan);
-            SupeyScheduleDeskOrder.ApplyRowSortToPlan(plan);
+            SupeyClusterTimeSplit.NormalizeSplitsOnly(plan);
         }
 
         private static GeoPoint? LastClusterDropoff(SupeyTripCluster g)
@@ -663,8 +695,6 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (result == null || g == null) return;
             g.RoadTourOptimized = false;
-            g.PickupOrder.Clear();
-            g.DropoffOrder.Clear();
             string msg = (driverName ?? "Driver") + " Group " + g.GroupNumber
                 + ": not road-routed (" + reason + ") — PU/DO order may backtrack.";
             foreach (var w in result.BuildWarnings)
@@ -679,26 +709,23 @@ namespace Hiatme_Tool_Suite_v3
                 msg));
         }
 
-        /// <summary>Sync metadata, tour order, chronological group list — no OSRM.</summary>
         private static void PrepareDriverRouting(SupeyScheduleAlgorithm algo, SupeyDriverPlan plan)
         {
             if (plan?.Groups == null) return;
             foreach (var g in plan.Groups)
             {
                 if (g == null || g.Trips.Count == 0) continue;
-                EnsureClusterTourOrder(g);
                 algo.SyncClusterMetadataPublic(g);
             }
         }
 
-        /// <summary>Clock-sort trip rows, then re-run OSRM PU/DO tours before inter-group deadheads.</summary>
+        /// <summary>OSRM PU/DO tours per group (deadheads run after all groups are routed).</summary>
         private static async Task AlignClustersBeforeDeadheadsAsync(
             SupeyScheduleAlgorithm algo,
             SupeyDriverPlan plan,
             CancellationToken token)
         {
             if (plan?.Groups == null) return;
-            SupeyScheduleDeskOrder.ApplyRowSortToPlan(plan);
 
             GeoPoint? cursor = plan.HomeGeo;
             foreach (var g in plan.Groups)
@@ -714,7 +741,7 @@ namespace Hiatme_Tool_Suite_v3
                         await SupeyClusterOsrmTable.TryBindClusterAsync(g, token).ConfigureAwait(false);
                         try
                         {
-                            await SupeyClusterRouting.OptimizeClusterTourPostBuildAsync(
+                            await SupeyClusterRouteBuilder.ApplyRoadRouteAsync(
                                 g, token, cursor)
                                 .ConfigureAwait(false);
                             SupeyClusterOsrmTable.Current?.TryApplyTourMetrics(g);
@@ -776,17 +803,6 @@ namespace Hiatme_Tool_Suite_v3
                     // timing warnings deferred for this group
                 }
             }
-        }
-
-        private static void EnsureClusterTourOrder(SupeyTripCluster g)
-        {
-            if (g == null || g.Trips.Count == 0) return;
-            if (g.Trips.Count == 1)
-            {
-                SupeyClusterRouting.ApplyOrdersForSingleTrip(g);
-                return;
-            }
-            SupeyClusterDisplayOrder.ReorderTripRowsToPickupVisitOrder(g);
         }
 
         private static bool HasGeocodedStops(SupeyTripCluster g)

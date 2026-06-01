@@ -46,6 +46,14 @@ namespace Hiatme_Tool_Suite_v3
         internal async Task SequenceDriverPublicAsync(SupeyDriverPlan plan, CancellationToken token) =>
             await SequenceDriverAsync(plan, token).ConfigureAwait(false);
 
+        /// <summary>Corridor + PU/DO window feasibility — same ordering used during BUILD assign.</summary>
+        internal async Task OrderDriverDayGroupsPublicAsync(SupeyDriverPlan plan, CancellationToken token)
+        {
+            if (plan?.Groups == null || plan.Groups.Count < 2) return;
+            await OrderDriverGroupsCorridorAsync(plan, token).ConfigureAwait(false);
+            SupeyClusterTimeSplit.RenumberGroupsPublic(plan);
+        }
+
         internal void EvaluateWarningsAndTimingsPublic(SupeyDriverPlan plan)
         {
             plan.Warnings.Clear();
@@ -69,9 +77,8 @@ namespace Hiatme_Tool_Suite_v3
                 var startAtLastPU = ComputeStartAtLastPU(g, arrivalAtFirstPU);
 
                 var visit = SupeyClusterDisplayOrder.PickupVisitIndices(g);
-                var atFirstPu = arrivalAtFirstPU > g.EffectiveEarliestPickup
+                var clock = arrivalAtFirstPU > g.EffectiveEarliestPickup
                     ? arrivalAtFirstPU : g.EffectiveEarliestPickup;
-                var currentPu = atFirstPu;
                 for (int step = 0; step < visit.Count; step++)
                 {
                     int tripIdx = visit[step];
@@ -79,14 +86,13 @@ namespace Hiatme_Tool_Suite_v3
                     string tn = (g.Trips[tripIdx].TripNumber ?? "").Trim();
                     if (tn.Length == 0) continue;
 
-                    var timing = new SupeyTripProjectedTiming { EstPu = currentPu };
-                    plan.TripTimings[tn] = timing;
-
-                    if (step + 1 < visit.Count && step < g.PickupLegSeconds.Count)
+                    if (step > 0 && step < g.PickupLegSeconds.Count)
+                        clock = clock.Add(TimeSpan.FromSeconds(g.PickupLegSeconds[step]));
+                    plan.TripTimings[tn] = new SupeyTripProjectedTiming
                     {
-                        double leg = g.PickupLegSeconds[step];
-                        currentPu = currentPu.Add(TimeSpan.FromSeconds(leg));
-                    }
+                        EstPu = SupeyDispatchDriveClock.AfterPickup(g, tripIdx, clock)
+                    };
+                    clock = SupeyDispatchDriveClock.AfterPickup(g, tripIdx, clock);
                 }
 
                 var (_, groupEnd, _, _) = ProjectClusterFeasibility(g, arrivalAtFirstPU);

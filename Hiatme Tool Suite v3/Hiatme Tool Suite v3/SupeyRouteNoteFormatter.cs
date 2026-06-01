@@ -46,15 +46,10 @@ namespace Hiatme_Tool_Suite_v3
         private static List<string> DescribePickupStops(SupeyTripCluster g)
         {
             var list = new List<string>();
-            int n = g.Trips.Count;
-            if (SupeyClusterRouting.IsValidVisitOrder(g.PickupOrder, n))
-            {
-                foreach (int idx in g.PickupOrder)
-                    list.Add(DescribePickup(g.Trips[idx]));
-                return list;
-            }
-            for (int i = 0; i < n; i++)
-                list.Add(DescribePickup(g.Trips[i]));
+            foreach (int idx in SupeyClusterDisplayOrder.PickupVisitIndices(g))
+                list.Add(DescribePickup(g.Trips[idx]));
+            if (list.Count == 0 && g.Trips.Count > 0)
+                list.Add("(pickup visit order not built — re-run BUILD with OSRM)");
             return list;
         }
 

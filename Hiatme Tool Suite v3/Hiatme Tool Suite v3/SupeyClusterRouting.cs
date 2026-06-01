@@ -263,13 +263,8 @@ namespace Hiatme_Tool_Suite_v3
             ApplyOrders(c, IdentityOrder(n), BuildDeadlineDropoffOrder(c));
         }
 
-        /// <summary>Post-build: same best-feasible OSRM tour as BUILD (table-backed when bound).</summary>
-        public static Task OptimizeClusterTourPostBuildAsync(
-            SupeyTripCluster c, CancellationToken token, GeoPoint? routeStart = null) =>
-            OptimizeClusterTourBestAsync(c, token, routeStart);
-
-        /// <summary>City-block pickups (all PUs per town, then next town) + OSRM drop chain.</summary>
-        internal static async Task OptimizeClusterTourBestAsync(
+        /// <summary>Single entry: city-block PU tour + OSRM drops. Called only via <see cref="SupeyClusterRouteBuilder"/>.</summary>
+        internal static async Task ApplyClusterRoadRouteInternalAsync(
             SupeyTripCluster c, CancellationToken token, GeoPoint? routeStart)
         {
             if (c == null) return;
@@ -296,19 +291,24 @@ namespace Hiatme_Tool_Suite_v3
                 .ConfigureAwait(false);
         }
 
-        /// <summary>Post-build uses the same city-block group tour as BUILD.</summary>
+        internal static Task OptimizeClusterTourBestAsync(
+            SupeyTripCluster c, CancellationToken token, GeoPoint? routeStart) =>
+            ApplyClusterRoadRouteInternalAsync(c, token, routeStart);
+
+        public static Task OptimizeClusterTourPostBuildAsync(
+            SupeyTripCluster c, CancellationToken token, GeoPoint? routeStart = null) =>
+            SupeyClusterRouteBuilder.ApplyRoadRouteAsync(c, token, routeStart);
+
         public static Task OptimizeClusterTourForPostBuildAsync(
             SupeyTripCluster c, CancellationToken token, GeoPoint? routeStart = null) =>
-            OptimizeClusterTourBestAsync(c, token, routeStart);
+            SupeyClusterRouteBuilder.ApplyRoadRouteAsync(c, token, routeStart);
 
-        /// <summary>Pick PU/DO visit order by OSRM tour length; refine and deadlines use OSRM legs.</summary>
         public static Task OptimizeClusterTourAsync(SupeyTripCluster c, CancellationToken token) =>
-            OptimizeClusterTourAsync(c, token, null);
+            SupeyClusterRouteBuilder.ApplyRoadRouteAsync(c, token, null);
 
-        /// <param name="routeStart">Van position before this group (home or last DO); improves first PU choice.</param>
         public static Task OptimizeClusterTourAsync(
             SupeyTripCluster c, CancellationToken token, GeoPoint? routeStart) =>
-            OptimizeClusterTourBestAsync(c, token, routeStart);
+            SupeyClusterRouteBuilder.ApplyRoadRouteAsync(c, token, routeStart);
 
         private static List<int> IdentityOrder(int n)
         {

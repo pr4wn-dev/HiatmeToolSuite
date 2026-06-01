@@ -226,15 +226,21 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
+        /// <summary>Split wide-span / mixed-leg groups only — does not re-sort the day list.</summary>
+        internal static void NormalizeSplitsOnly(SupeyDriverPlan plan)
+        {
+            if (plan == null) return;
+            SplitWidePickupGroups(plan);
+            SplitMixedPartnerLegs(plan);
+        }
+
         internal static void NormalizeDayGroupOrder(SupeyDriverPlan plan)
 
         {
 
             if (plan == null) return;
 
-            SplitWidePickupGroups(plan);
-
-            SplitMixedPartnerLegs(plan);
+            NormalizeSplitsOnly(plan);
 
             SortGroupsByEarliestPickup(plan);
 
@@ -502,20 +508,16 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-        private static void RenumberGroups(SupeyDriverPlan plan)
+        private static void RenumberGroups(SupeyDriverPlan plan) => RenumberGroupsPublic(plan);
 
+        internal static void RenumberGroupsPublic(SupeyDriverPlan plan)
         {
-
+            if (plan?.Groups == null) return;
             for (int i = 0; i < plan.Groups.Count; i++)
-
             {
-
                 plan.Groups[i].GroupNumber = i + 1;
-
                 plan.Groups[i].GroupColor = SupeyGroupPalette.For(i + 1);
-
             }
-
         }
 
 
@@ -532,6 +534,23 @@ namespace Hiatme_Tool_Suite_v3
                     min = pu.Value;
             }
             return min == TimeSpan.MaxValue ? g.EarliestPickup : min;
+        }
+
+        /// <summary>Latest scheduled DO across the cluster (appointment sheet).</summary>
+        internal static TimeSpan MaxDropoffTime(SupeyTripCluster g)
+        {
+            if (g?.Trips == null || g.Trips.Count == 0)
+                return g?.HardestDropoff ?? TimeSpan.Zero;
+            TimeSpan max = TimeSpan.MinValue;
+            foreach (var t in g.Trips)
+            {
+                var d = SupeyTripTimes.TryParseDO(t);
+                if (d.HasValue && d.Value > max)
+                    max = d.Value;
+            }
+            if (max != TimeSpan.MinValue) return max;
+            if (g.HardestDropoff > TimeSpan.Zero) return g.HardestDropoff;
+            return g.LatestPickup.Add(TimeSpan.FromMinutes(30));
         }
 
         private static char LegLetter(string tripNumber)

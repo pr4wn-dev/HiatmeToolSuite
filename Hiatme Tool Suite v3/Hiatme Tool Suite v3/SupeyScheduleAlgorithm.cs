@@ -73,9 +73,9 @@ namespace Hiatme_Tool_Suite_v3
         //
         // Pickup lateness allowed (driver arrival after scheduled PU is "on time"):
         //   - A-leg : 0–14 min late.  15+ min late = LATE.
-        //   - B/C   : 0–29 min late.  30+ min late = LATE. (And early arrivals on B/C are
-        //             "too early"; we don't enforce that here because the scheduler waits at
-        //             the door — actual PU happens at the scheduled time, not on arrival.)
+        //   - B/C   : 0–29 min late.  30+ min late = LATE.
+        // Routing uses pass-through windows (see <see cref="SupeyDispatchDriveClock"/>): the van
+        // keeps moving when arrival is already inside the allowed PU window.
         // Dropoff lateness allowed (cluster end after the hardest deadline):
         //   - All legs: 0 min. At-deadline-or-after counts as LATE.
         private const double ALegPuLateMaxMinutes = 14.0;
@@ -702,8 +702,7 @@ namespace Hiatme_Tool_Suite_v3
             if (c.Trips.Count == 1) return 0;
             if (SupeyClusterRouting.IsValidVisitOrder(c.PickupOrder, c.Trips.Count))
                 return c.PickupOrder[0];
-            var puByTime = SupeyClusterRouting.BuildPickupOrderByPuTimePublic(c);
-            return puByTime != null && puByTime.Count > 0 ? puByTime[0] : 0;
+            return 0;
         }
 
         private static GeoPoint LastDropoffPoint(SupeyTripCluster c)
@@ -1976,8 +1975,14 @@ namespace Hiatme_Tool_Suite_v3
 
             double dhSeconds = deadhead.Seconds;
             var arrivalAtFirstPU = currentLastDO.Add(TimeSpan.FromSeconds(dhSeconds));
-            double puLateCapMinutes = LegPuLateCapMinutes(cluster) + puLateGraceMinutes;
-            if (arrivalAtFirstPU > cluster.EarliestPickup.Add(TimeSpan.FromMinutes(puLateCapMinutes)))
+            if (!SupeyClusterRouting.IsValidVisitOrder(cluster.PickupOrder, cluster.Trips.Count))
+            {
+                if (recordRejections) cluster.Rejections.OsrmUnavailable.Add(p.Driver.Name);
+                return (false, cost);
+            }
+            if (!await SupeyClusterRouting.PickupOrderMeetsScheduledWindowsAsync(
+                    cluster, new List<int>(cluster.PickupOrder), token, currentLastLoc, arrivalAtFirstPU)
+                .ConfigureAwait(false))
             {
                 if (recordRejections)
                 {
@@ -2201,8 +2206,8 @@ namespace Hiatme_Tool_Suite_v3
         /// <list type="bullet">
         ///   <item><b>A-leg early-pickup compression.</b> All-A-leg cluster can effectively
         ///         start up to 29 min before <see cref="SupeyTripCluster.EarliestPickup"/>.</item>
-        ///   <item><b>Wait at the last PU.</b> Spread-out PU times → the driver waits at the
-        ///         last PU's door before starting the drop-off run.</item>
+        ///   <item><b>Last PU before drops.</b> Clock follows drive + PU windows (wait only if
+        ///         too early), not idle until each scheduled time.</item>
         ///   <item><b>Mid-tour drops.</b> Riders are dropped in deadline order; each rider
         ///         must arrive by their own appointment time, not by the cluster's earliest
         ///         deadline. This is what unlocks the "drop the 7:30 appointment on the way
@@ -2214,58 +2219,18 @@ namespace Hiatme_Tool_Suite_v3
         private static (bool feasible, TimeSpan end, int latestRiderTripIndex, double latestRiderMinutesLate)
             ProjectClusterFeasibility(SupeyTripCluster c, TimeSpan arrivalAtFirstPU, double doLateMaxMinutes = DoLateMaxMinutes)
         {
-            // Wait-or-go-now at the first PU.
             var startAtFirstPU = arrivalAtFirstPU > c.EffectiveEarliestPickup
                 ? arrivalAtFirstPU : c.EffectiveEarliestPickup;
 
-            // Drive PU1 → ... → PUn. For singletons (or when fingerprinting hasn't computed
-            // a tail) treat the whole intra drive as tail with head = 0; a singleton has no
-            // inter-PU wait so the math reduces to "arrive + drive to drop".
-            double headSeconds = SupeyDeskScheduleTiming.HeadPickupSecondsForFeasibility(c);
-            var arrivalAtLastPU = startAtFirstPU.Add(TimeSpan.FromSeconds(headSeconds));
+            int firstPuIdx = c.PickupOrder.Count > 0 ? c.PickupOrder[0] : 0;
+            startAtFirstPU = SupeyDispatchDriveClock.AfterPickup(c, firstPuIdx, startAtFirstPU);
 
-            // Wait-or-go-now at the last PU before the drop run (not afternoon B-leg PU).
-            var latestPuForDrops = SupeyDeskScheduleTiming.EffectiveLatestPickupForFeasibility(c);
-            var startAtLastPU = arrivalAtLastPU > latestPuForDrops
-                ? arrivalAtLastPU : latestPuForDrops;
+            var startAtLastPU = c.PickupOrder.Count > 0
+                ? SupeyDispatchDriveClock.DepartureAfterLastPickup(c, c.PickupOrder, startAtFirstPU)
+                : startAtFirstPU;
 
-            // Walk through the drop sequence (deadline-ordered) accumulating the per-leg
-            // drive time. Each rider's deadline is checked at the moment we drop them.
-            var current = startAtLastPU;
-            bool feasible = true;
-            int worstLateTrip = -1;
-            double worstLateMinutes = 0;
-            for (int i = 0; i < c.DropoffOrder.Count; i++)
-            {
-                double legSec = i < c.DropoffLegSeconds.Count ? c.DropoffLegSeconds[i] : 0;
-                current = current.Add(TimeSpan.FromSeconds(legSec));
-
-                int tripIdx = c.DropoffOrder[i];
-                var trip = c.Trips[tripIdx];
-                var deadline = SupeyTripTimes.TryParseDO(trip);
-                var earliestDrop = SupeyDeskScheduleTiming.EarliestDropoffForFeasibility(trip);
-                if (!deadline.HasValue && !earliestDrop.HasValue) continue;
-
-                double tripDoCap = SupeyTripTimingPolicy.DoLateCapMinutes(trip);
-
-                if (earliestDrop.HasValue && current < earliestDrop.Value)
-                    feasible = false;
-
-                if (!deadline.HasValue) continue;
-
-                if (current >= deadline.Value.Add(TimeSpan.FromMinutes(tripDoCap)))
-                {
-                    double overrunMinutes = (current - deadline.Value).TotalMinutes;
-                    if (overrunMinutes > worstLateMinutes)
-                    {
-                        worstLateMinutes = overrunMinutes;
-                        worstLateTrip = tripIdx;
-                    }
-                    feasible = false;
-                }
-            }
-
-            return (feasible, current, worstLateTrip, worstLateMinutes);
+            var dropRun = SupeyDispatchDriveClock.ProjectDropRun(c, startAtLastPU);
+            return (dropRun.feasible, dropRun.end, dropRun.worstLateTrip, dropRun.worstLateMinutes);
         }
 
         /// <summary>
@@ -2289,11 +2254,11 @@ namespace Hiatme_Tool_Suite_v3
         {
             var startAtFirstPU = arrivalAtFirstPU > c.EffectiveEarliestPickup
                 ? arrivalAtFirstPU : c.EffectiveEarliestPickup;
-            double headSeconds = SupeyDeskScheduleTiming.HeadPickupSecondsForFeasibility(c);
-            var arrivalAtLastPU = startAtFirstPU.Add(TimeSpan.FromSeconds(headSeconds));
-            var latestPuForDrops = SupeyDeskScheduleTiming.EffectiveLatestPickupForFeasibility(c);
-            return arrivalAtLastPU > latestPuForDrops
-                ? arrivalAtLastPU : latestPuForDrops;
+            int firstPuIdx = c.PickupOrder.Count > 0 ? c.PickupOrder[0] : 0;
+            startAtFirstPU = SupeyDispatchDriveClock.AfterPickup(c, firstPuIdx, startAtFirstPU);
+            return c.PickupOrder.Count > 0
+                ? SupeyDispatchDriveClock.DepartureAfterLastPickup(c, c.PickupOrder, startAtFirstPU)
+                : startAtFirstPU;
         }
 
         // ----- Phase 6 -----
@@ -2578,9 +2543,10 @@ namespace Hiatme_Tool_Suite_v3
                         double legSec = j < g.DropoffLegSeconds.Count ? g.DropoffLegSeconds[j] : 0;
                         stepCurrent = stepCurrent.Add(TimeSpan.FromSeconds(legSec));
                         var trip = g.Trips[g.DropoffOrder[j]];
-                        var deadline = SupeyTripTimes.TryParseDO(trip);
-                        if (!deadline.HasValue) continue;
-                        double slackMin = (deadline.Value - stepCurrent).TotalMinutes;
+                        SupeyDispatchDriveClock.DropWindow(trip, out TimeSpan sched, out _, out TimeSpan latest);
+                        if (sched <= TimeSpan.Zero) continue;
+                        double slackMin = (latest - stepCurrent).TotalMinutes;
+                        stepCurrent = SupeyDispatchDriveClock.AfterDropoff(trip, stepCurrent);
                         if (slackMin < tightestMinutes)
                         {
                             tightestMinutes = slackMin;

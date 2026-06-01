@@ -43,6 +43,12 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>Build-level warnings that aren't tied to a specific driver (e.g. a roster home that won't geocode).</summary>
         public List<SupeyWarning> BuildWarnings { get; } = new List<SupeyWarning>();
 
+        /// <summary>True when one or more driver days were rejected after full-shift simulation (trips moved to reserves).</summary>
+        public bool HasInfeasibleDriverRejection { get; set; }
+
+        /// <summary>Drivers whose on-screen plan was quarantined — day could not meet PU/DO windows in order.</summary>
+        public List<string> InfeasibleDriverNames { get; } = new List<string>();
+
         /// <summary>Trip numbers that already received a reserve failure warning (dedupes Pass C re-cluster).</summary>
         internal HashSet<string> ReserveWarnedTripNumbers { get; } =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);

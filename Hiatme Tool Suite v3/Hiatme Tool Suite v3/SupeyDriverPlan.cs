@@ -71,6 +71,12 @@ namespace Hiatme_Tool_Suite_v3
 
         public List<SupeyWarning> Warnings { get; } = new List<SupeyWarning>();
 
+        /// <summary>Full-shift simulation failed PU/DO windows — schedule stays on screen for editing, not dispatch-ready.</summary>
+        public bool DayInfeasible { get; set; }
+
+        /// <summary>Short reason(s) from post-build gate (e.g. Group 12 → Group 13 impossible).</summary>
+        public string DayInfeasibleSummary { get; set; } = "";
+
         /// <summary>Per-trip projected times after phase 8 (trip # → timing).</summary>
         public Dictionary<string, SupeyTripProjectedTiming> TripTimings { get; } =
             new Dictionary<string, SupeyTripProjectedTiming>(StringComparer.OrdinalIgnoreCase);

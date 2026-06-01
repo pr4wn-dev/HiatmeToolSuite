@@ -195,8 +195,11 @@ namespace Hiatme_Tool_Suite_v3
                 if (!leg.Ok) return false;
 
                 var arrival = current.Add(TimeSpan.FromSeconds(leg.Seconds));
-                double puCap = LegPuLateCapMinutes(c);
-                if (arrival > SupeyClusterTimeSplit.MinPickupTime(c).Add(TimeSpan.FromMinutes(puCap)))
+                if (!SupeyClusterRouting.IsValidVisitOrder(c.PickupOrder, c.Trips.Count))
+                    return false;
+                if (!await SupeyClusterRouting.PickupOrderMeetsScheduledWindowsAsync(
+                        c, new System.Collections.Generic.List<int>(c.PickupOrder), token, loc, arrival)
+                    .ConfigureAwait(false))
                     return false;
                 var (ok, end, _, _) = ProjectClusterFeasibility(c, arrival);
                 if (!ok) return false;

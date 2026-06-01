@@ -288,6 +288,9 @@
     <Compile Include="SupeyBuildEngineLabel.cs" />
     <Compile Include="SupeyClusterRouting.cs" />
     <Compile Include="SupeyClusterRouting.OsrmTour.cs" />
+    <Compile Include="SupeyClusterRouteBuilder.cs" />
+    <Compile Include="SupeyDispatchDriveClock.cs" />
+    <Compile Include="SupeyClusterRouteAudit.cs" />
     <Compile Include="SupeyClusterDisplayOrder.cs" />
     <Compile Include="SupeyRouteNoteFormatter.cs" />
     <Compile Include="SupeyRouteStopNumbers.cs" />
@@ -318,6 +321,8 @@
     <Compile Include="SupeySchedulePostBuild.cs" />
     <Compile Include="SupeyScheduleDeskOrder.cs" />
     <Compile Include="SupeyScheduleOrderAudit.cs" />
+    <Compile Include="SupeyScheduleAlgorithm.FeasibilityGate.cs" />
+    <Compile Include="SupeyDriverDayFeasibilityGate.cs" />
     <Compile Include="SupeyWarningsUtil.cs" />
     <Compile Include="SupeyTripLegConsistency.cs" />
     <Compile Include="SupeyPartnerLegHarmonizer.cs" />

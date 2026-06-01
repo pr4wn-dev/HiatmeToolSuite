@@ -48,8 +48,7 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         /// <summary>
-        /// Hubward collection: visit PU cities from far side of drop hub back toward hub (dispatch path).
-        /// All PUs in a city while you are there; within city by scheduled PU time.
+        /// Visit each PU city once, in earliest-scheduled-PU order; within city by drive-in toward drop hub.
         /// </summary>
         internal static async Task<List<int>> BuildPickupOrderByCityBlocksAsync(
             SupeyTripCluster c, GeoPoint? routeStart, CancellationToken token)
@@ -78,46 +77,26 @@ namespace Hiatme_Tool_Suite_v3
             GeoPoint approach = routeStart.HasValue && SupeyOsrmLegs.IsRoutable(routeStart.Value)
                 ? routeStart.Value
                 : c.PickupCentroid;
+            TimeSpan clockAtApproach = c.EffectiveEarliestPickup;
 
             var cityKeys = new List<string>(byCity.Keys);
             if (cityKeys.Count == 1)
             {
-                await SortIndicesBestDriveInTownAsync(c, byCity[cityKeys[0]], approach, hub, token)
+                clockAtApproach = await SortIndicesBestDriveInTownAsync(
+                    c, byCity[cityKeys[0]], approach, hub, clockAtApproach, token)
                     .ConfigureAwait(false);
                 result.AddRange(byCity[cityKeys[0]]);
                 return result;
             }
 
-            // Cities far from the shared drop area first, then closer — no leave-town-and-return.
-            var cityRank = new List<(string city, double farMeters)>();
-            foreach (string city in cityKeys)
-            {
-                double far = 0;
-                foreach (int idx in byCity[city])
-                {
-                    if (idx < 0 || idx >= c.PickupPoints.Count) continue;
-                    var m = await RoadMetersAsync(c.PickupPoints[idx], hub, token).ConfigureAwait(false);
-                    if (m.HasValue && m.Value > far)
-                        far = m.Value;
-                }
-                cityRank.Add((city, far));
-            }
+            var cityRank = await OrderCitiesForPickupWindowsAsync(
+                cityKeys, byCity, c, approach, token).ConfigureAwait(false);
 
-            cityRank.Sort((a, b) =>
+            foreach (var city in cityRank)
             {
-                int cmp = b.farMeters.CompareTo(a.farMeters);
-                if (cmp != 0) return cmp;
-                return string.Compare(a.city, b.city, StringComparison.OrdinalIgnoreCase);
-            });
-
-            if (routeStart.HasValue && SupeyOsrmLegs.IsRoutable(routeStart.Value))
-                cityRank = await ReorderCitiesFromVanPositionAsync(
-                    cityRank, byCity, c, routeStart.Value, token).ConfigureAwait(false);
-
-            foreach (var entry in cityRank)
-            {
-                var town = byCity[entry.city];
-                await SortIndicesBestDriveInTownAsync(c, town, approach, hub, token)
+                var town = byCity[city];
+                clockAtApproach = await SortIndicesBestDriveInTownAsync(
+                    c, town, approach, hub, clockAtApproach, token)
                     .ConfigureAwait(false);
                 result.AddRange(town);
                 if (town.Count > 0)
@@ -130,62 +109,78 @@ namespace Hiatme_Tool_Suite_v3
             return result;
         }
 
-        /// <summary>Order PUs in town along drive from <paramref name="approach"/> toward <paramref name="hub"/> (no hop-back).</summary>
-        private static async Task SortIndicesBestDriveInTownAsync(
+        /// <summary>Shortest feasible drive in town; strict PU order only when appointments are 20+ min apart.</summary>
+        private static async Task<TimeSpan> SortIndicesBestDriveInTownAsync(
             SupeyTripCluster c,
             List<int> indices,
             GeoPoint approach,
             GeoPoint hub,
+            TimeSpan clockAtApproach,
             CancellationToken token)
         {
-            if (indices == null || indices.Count <= 1) return;
-
-            SortIndicesByCorridorProjection(c, indices, approach, hub);
+            if (indices == null || indices.Count <= 1)
+                return clockAtApproach;
 
             if (indices.Count <= 7)
             {
-                var best = await FindBestPickupPermutationAsync(c, indices, approach, hub, token)
+                var best = await FindBestPickupPermutationAsync(
+                    c, indices, approach, hub, clockAtApproach, token)
                     .ConfigureAwait(false);
                 if (best != null && best.Count == indices.Count)
                 {
                     indices.Clear();
                     indices.AddRange(best);
+                    return await DepartureAfterOrderedTownAsync(
+                        c, indices, approach, clockAtApproach, token).ConfigureAwait(false);
                 }
             }
-        }
 
-        /// <summary>Progress along approach→hub axis (pass-through), then PU time.</summary>
-        private static void SortIndicesByCorridorProjection(
-            SupeyTripCluster c,
-            List<int> indices,
-            GeoPoint approach,
-            GeoPoint hub)
-        {
-            double dx = hub.Lng - approach.Lng;
-            double dy = hub.Lat - approach.Lat;
-            double len2 = dx * dx + dy * dy;
-            if (len2 < 1e-12)
+            var greedy = await GreedyDriveOrderInTownAsync(
+                c, indices, approach, hub, clockAtApproach, token)
+                .ConfigureAwait(false);
+            if (greedy != null && greedy.Count == indices.Count)
             {
-                indices.Sort((a, b) => ScheduledPickup(c, a).CompareTo(ScheduledPickup(c, b)));
-                return;
+                indices.Clear();
+                indices.AddRange(greedy);
             }
-
-            indices.Sort((a, b) =>
-            {
-                double pa = CorridorProjection(c.PickupPoints[a], approach, dx, dy, len2);
-                double pb = CorridorProjection(c.PickupPoints[b], approach, dx, dy, len2);
-                int cmp = pa.CompareTo(pb);
-                if (cmp != 0) return cmp;
-                cmp = ScheduledPickup(c, a).CompareTo(ScheduledPickup(c, b));
-                return cmp != 0 ? cmp : a.CompareTo(b);
-            });
+            return await DepartureAfterOrderedTownAsync(
+                c, indices, approach, clockAtApproach, token).ConfigureAwait(false);
         }
 
-        private static double CorridorProjection(GeoPoint p, GeoPoint origin, double dx, double dy, double len2)
+        private static async Task<TimeSpan> DepartureAfterOrderedTownAsync(
+            SupeyTripCluster c,
+            List<int> ordered,
+            GeoPoint approach,
+            TimeSpan clockAtApproach,
+            CancellationToken token)
         {
-            double px = p.Lng - origin.Lng;
-            double py = p.Lat - origin.Lat;
-            return (px * dx + py * dy) / len2;
+            if (ordered == null || ordered.Count == 0)
+                return clockAtApproach;
+            var arriveFirst = await EstimateArrivalAtTownFirstAsync(
+                c, ordered, approach, clockAtApproach, token).ConfigureAwait(false);
+            return SupeyDispatchDriveClock.DepartureAfterLastPickup(c, ordered, arriveFirst);
+        }
+
+        /// <summary>Earlier rider must be picked up first when PU times are 20+ minutes apart (same town).</summary>
+        private static bool MustBePickedUpBefore(SupeyTripCluster c, int earlierIdx, int laterIdx)
+        {
+            TimeSpan gap = ScheduledPickup(c, laterIdx) - ScheduledPickup(c, earlierIdx);
+            return gap >= TimeSpan.FromMinutes(SupeyClusterRouteBuilder.PickupPrecedenceMinutes);
+        }
+
+        private static bool PermutationRespectsPuPrecedence(SupeyTripCluster c, List<int> visitOrder)
+        {
+            for (int i = 0; i < visitOrder.Count; i++)
+            {
+                for (int j = i + 1; j < visitOrder.Count; j++)
+                {
+                    int first = visitOrder[i];
+                    int second = visitOrder[j];
+                    if (MustBePickedUpBefore(c, second, first))
+                        return false;
+                }
+            }
+            return true;
         }
 
         private sealed class PickupPermutationSearch
@@ -200,14 +195,60 @@ namespace Hiatme_Tool_Suite_v3
             List<int> indices,
             GeoPoint approach,
             GeoPoint hub,
+            TimeSpan clockAtApproach,
             CancellationToken token)
         {
             var search = new PickupPermutationSearch();
             var current = new List<int>(indices.Count);
             var used = new bool[indices.Count];
-            await TryPermutationDriveAsync(c, indices, used, 0, approach, hub, token, current, search)
+            await TryPermutationDriveAsync(
+                c, indices, used, 0, approach, hub, clockAtApproach, token, current, search)
                 .ConfigureAwait(false);
-            return search.BestOrder;
+
+            if (search.BestOrder != null && search.BestOrder.Count == indices.Count)
+                return search.BestOrder;
+
+            return await GreedyDriveOrderInTownAsync(
+                c, indices, approach, hub, clockAtApproach, token).ConfigureAwait(false);
+        }
+
+        /// <summary>NN chain toward hub — never appointment-clock sort as fallback.</summary>
+        private static async Task<List<int>> GreedyDriveOrderInTownAsync(
+            SupeyTripCluster c,
+            List<int> indices,
+            GeoPoint approach,
+            GeoPoint hub,
+            TimeSpan clockAtApproach,
+            CancellationToken token)
+        {
+            var remaining = new List<int>(indices);
+            var ordered = new List<int>(indices.Count);
+            GeoPoint pos = approach;
+            TimeSpan clock = await EstimateArrivalAtTownFirstAsync(
+                c, indices, approach, clockAtApproach, token).ConfigureAwait(false);
+
+            while (remaining.Count > 0)
+            {
+                int best = -1;
+                double bestM = double.MaxValue;
+                foreach (int cand in remaining)
+                {
+                    var m = await RoadMetersAsync(pos, c.PickupPoints[cand], token).ConfigureAwait(false);
+                    if (!m.HasValue) continue;
+                    if (m.Value < bestM) { bestM = m.Value; best = cand; }
+                }
+                if (best < 0) { ordered.AddRange(remaining); break; }
+                ordered.Add(best);
+                remaining.Remove(best);
+                var sec = await RoadSecondsAsync(pos, c.PickupPoints[best], token).ConfigureAwait(false);
+                if (sec.HasValue)
+                {
+                    clock = clock.Add(TimeSpan.FromSeconds(sec.Value));
+                    clock = ClockAfterPickupArrival(c, best, clock);
+                }
+                pos = c.PickupPoints[best];
+            }
+            return ordered;
         }
 
         private static async Task TryPermutationDriveAsync(
@@ -217,22 +258,21 @@ namespace Hiatme_Tool_Suite_v3
             int depth,
             GeoPoint approach,
             GeoPoint hub,
+            TimeSpan clockAtApproach,
             CancellationToken token,
             List<int> current,
             PickupPermutationSearch search)
         {
             if (depth >= pool.Count)
             {
-                double dx = hub.Lng - approach.Lng;
-                double dy = hub.Lat - approach.Lat;
-                double len2 = dx * dx + dy * dy;
+                if (!PermutationRespectsPuPrecedence(c, current))
+                    return;
+
                 double total = 0;
                 bool feasible = true;
-                bool corridorOk = len2 >= 1e-12;
-                double prevProj = 0;
                 GeoPoint pos = approach;
-                TimeSpan clock = await EstimateClockEnteringTownAsync(c, pool, approach, token)
-                    .ConfigureAwait(false);
+                TimeSpan clock = await EstimateArrivalAtTownFirstAsync(
+                    c, current, approach, clockAtApproach, token).ConfigureAwait(false);
 
                 for (int i = 0; i < current.Count; i++)
                 {
@@ -242,19 +282,10 @@ namespace Hiatme_Tool_Suite_v3
                     if (!legM.HasValue || !legS.HasValue) { feasible = false; break; }
                     total += legM.Value;
                     clock = clock.Add(TimeSpan.FromSeconds(legS.Value));
-                    var scheduled = ScheduledPickup(c, idx);
-                    if (clock < scheduled) clock = scheduled;
                     if (!PickupFeasibleAt(c, idx, clock)) feasible = false;
-                    if (corridorOk)
-                    {
-                        double proj = CorridorProjection(c.PickupPoints[idx], approach, dx, dy, len2);
-                        if (proj < prevProj - 1e-6) corridorOk = false;
-                        prevProj = proj;
-                    }
+                    clock = ClockAfterPickupArrival(c, idx, clock);
                     pos = c.PickupPoints[idx];
                 }
-
-                if (!corridorOk) feasible = false;
 
                 if (current.Count > 0)
                 {
@@ -279,7 +310,8 @@ namespace Hiatme_Tool_Suite_v3
                 if (used[i]) continue;
                 used[i] = true;
                 current.Add(pool[i]);
-                await TryPermutationDriveAsync(c, pool, used, depth + 1, approach, hub, token, current, search)
+                await TryPermutationDriveAsync(
+                    c, pool, used, depth + 1, approach, hub, clockAtApproach, token, current, search)
                     .ConfigureAwait(false);
                 current.RemoveAt(current.Count - 1);
                 used[i] = false;
@@ -293,81 +325,115 @@ namespace Hiatme_Tool_Suite_v3
             return SupeyTripTimes.TryParsePU(c.Trips[idx]) ?? c.EarliestPickup;
         }
 
-        private static bool PickupFeasibleAt(SupeyTripCluster c, int idx, TimeSpan arrive)
-        {
-            var scheduled = ScheduledPickup(c, idx);
-            double cap = 16;
-            foreach (var trip in c.Trips)
-            {
-                string tn = trip?.TripNumber ?? "";
-                if (tn.Length > 0 && char.ToUpperInvariant(tn[tn.Length - 1]) == 'A')
-                {
-                    cap = 16;
-                    break;
-                }
-            }
-            return arrive <= scheduled.Add(TimeSpan.FromMinutes(cap));
-        }
+        private static bool PickupFeasibleAt(SupeyTripCluster c, int idx, TimeSpan arrive) =>
+            SupeyDispatchDriveClock.FitsPickupWindow(c, idx, arrive);
 
-        private static async Task<TimeSpan> EstimateClockEnteringTownAsync(
+        private static TimeSpan ClockAfterPickupArrival(SupeyTripCluster c, int idx, TimeSpan arrive) =>
+            SupeyDispatchDriveClock.AfterPickup(c, idx, arrive);
+
+        /// <summary>Drive arrival at first index in town — not anchored to scheduled PU time.</summary>
+        private static async Task<TimeSpan> EstimateArrivalAtTownFirstAsync(
             SupeyTripCluster c,
             List<int> indices,
             GeoPoint approach,
+            TimeSpan clockAtApproach,
             CancellationToken token)
         {
-            TimeSpan minPu = TimeSpan.MaxValue;
-            foreach (int idx in indices)
-            {
-                var pu = ScheduledPickup(c, idx);
-                if (pu < minPu) minPu = pu;
-            }
-            if (minPu == TimeSpan.MaxValue)
-                minPu = c.EffectiveEarliestPickup;
+            if (indices == null || indices.Count == 0)
+                return clockAtApproach;
 
-            int nearest = indices[0];
+            int firstIdx = indices[0];
             double? bestM = null;
             foreach (int idx in indices)
             {
                 if (idx < 0 || idx >= c.PickupPoints.Count) continue;
                 var m = await RoadMetersAsync(approach, c.PickupPoints[idx], token).ConfigureAwait(false);
                 if (!m.HasValue) continue;
-                if (!bestM.HasValue || m.Value < bestM.Value) { bestM = m; nearest = idx; }
+                if (!bestM.HasValue || m.Value < bestM.Value) { bestM = m; firstIdx = idx; }
             }
-            var sec = await RoadSecondsAsync(approach, c.PickupPoints[nearest], token).ConfigureAwait(false);
-            var arrive = minPu;
+
+            TimeSpan arrive = clockAtApproach;
+            var sec = await RoadSecondsAsync(approach, c.PickupPoints[firstIdx], token).ConfigureAwait(false);
             if (sec.HasValue)
-            {
-                var driveArrive = c.EffectiveEarliestPickup.Add(TimeSpan.FromSeconds(sec.Value));
-                if (driveArrive > arrive) arrive = driveArrive;
-            }
-            return arrive;
+                arrive = clockAtApproach.Add(TimeSpan.FromSeconds(sec.Value));
+            return SupeyDispatchDriveClock.ArrivalAtPickup(c, firstIdx, arrive);
         }
 
-        /// <summary>Van already in the corridor: visit cities on the drive from here toward hub.</summary>
-        private static async Task<List<(string city, double farMeters)>> ReorderCitiesFromVanPositionAsync(
-            List<(string city, double farMeters)> cityRank,
+        /// <summary>City order: earliest PU window first; ties broken by OSRM drive from current position.</summary>
+        private static async Task<List<string>> OrderCitiesForPickupWindowsAsync(
+            List<string> cityKeys,
             Dictionary<string, List<int>> byCity,
             SupeyTripCluster c,
-            GeoPoint routeStart,
+            GeoPoint approach,
             CancellationToken token)
         {
-            var scored = new List<(string city, double farMeters, double fromVan)>();
-            foreach (var entry in cityRank)
+            var remaining = new List<string>(cityKeys);
+            var ordered = new List<string>(cityKeys.Count);
+            GeoPoint pos = approach;
+
+            while (remaining.Count > 0)
             {
-                var cent = CityCentroid(byCity[entry.city], c);
-                var m = await RoadMetersAsync(routeStart, cent, token).ConfigureAwait(false);
-                scored.Add((entry.city, entry.farMeters, m ?? double.MaxValue));
+                TimeSpan bestEarliest = TimeSpan.MaxValue;
+                foreach (string city in remaining)
+                {
+                    TimeSpan min = EarliestPickupInCity(c, byCity[city]);
+                    if (min < bestEarliest) bestEarliest = min;
+                }
+
+                var tier = new List<string>();
+                foreach (string city in remaining)
+                {
+                    if (EarliestPickupInCity(c, byCity[city]) == bestEarliest)
+                        tier.Add(city);
+                }
+
+                string pick;
+                if (tier.Count == 1)
+                    pick = tier[0];
+                else
+                    pick = await PickNearestCityFromApproachAsync(tier, byCity, c, pos, token)
+                        .ConfigureAwait(false);
+
+                ordered.Add(pick);
+                remaining.Remove(pick);
+                pos = CityCentroid(byCity[pick], c);
             }
-            scored.Sort((a, b) =>
+
+            return ordered;
+        }
+
+        private static TimeSpan EarliestPickupInCity(SupeyTripCluster c, List<int> indices)
+        {
+            TimeSpan min = TimeSpan.MaxValue;
+            foreach (int idx in indices)
             {
-                int cmp = a.fromVan.CompareTo(b.fromVan);
-                if (cmp != 0) return cmp;
-                return b.farMeters.CompareTo(a.farMeters);
-            });
-            var outList = new List<(string city, double farMeters)>(scored.Count);
-            foreach (var s in scored)
-                outList.Add((s.city, s.farMeters));
-            return outList;
+                var pu = ScheduledPickup(c, idx);
+                if (pu < min) min = pu;
+            }
+            return min == TimeSpan.MaxValue ? c.EffectiveEarliestPickup : min;
+        }
+
+        private static async Task<string> PickNearestCityFromApproachAsync(
+            List<string> tier,
+            Dictionary<string, List<int>> byCity,
+            SupeyTripCluster c,
+            GeoPoint approach,
+            CancellationToken token)
+        {
+            string best = tier[0];
+            double bestM = double.MaxValue;
+            foreach (string city in tier)
+            {
+                var cent = CityCentroid(byCity[city], c);
+                var m = await RoadMetersAsync(approach, cent, token).ConfigureAwait(false);
+                if (!m.HasValue) continue;
+                if (m.Value < bestM)
+                {
+                    bestM = m.Value;
+                    best = city;
+                }
+            }
+            return best;
         }
 
         private static GeoPoint CityCentroid(List<int> indices, SupeyTripCluster c)
@@ -660,8 +726,11 @@ namespace Hiatme_Tool_Suite_v3
             int lastPuIdx = c.PickupOrder[c.PickupOrder.Count - 1];
             if (lastPuIdx < 0 || lastPuIdx >= c.PickupPoints.Count) lastPuIdx = 0;
             var currentPt = c.PickupPoints[lastPuIdx];
-            var currentTime = c.EffectiveLatestPickup.Add(
-                TimeSpan.FromSeconds(await PickupChainSecondsAsync(c, token).ConfigureAwait(false)));
+            int firstPuIdx = c.PickupOrder[0];
+            TimeSpan firstArrive = await EstimateArrivalAtTownFirstAsync(
+                c, c.PickupOrder, c.PickupCentroid, c.EffectiveEarliestPickup, token).ConfigureAwait(false);
+            var currentTime = SupeyDispatchDriveClock.DepartureAfterLastPickup(
+                c, c.PickupOrder, firstArrive);
 
             while (remaining.Count > 0)
             {
@@ -673,8 +742,7 @@ namespace Hiatme_Tool_Suite_v3
                         .ConfigureAwait(false);
                     if (!legSec.HasValue) continue;
                     var arrive = currentTime.Add(TimeSpan.FromSeconds(legSec.Value));
-                    var deadline = SupeyTripTimes.TryParseDO(c.Trips[cand]);
-                    if (deadline.HasValue && deadline.Value > TimeSpan.Zero && arrive >= deadline.Value)
+                    if (!SupeyDispatchDriveClock.FitsDropWindow(c.Trips[cand], arrive))
                         continue;
                     var d = await RoadMetersAsync(currentPt, c.DropoffPoints[cand], token).ConfigureAwait(false);
                     if (!d.HasValue) continue;
@@ -694,7 +762,10 @@ namespace Hiatme_Tool_Suite_v3
                 }
                 var hop = await RoadSecondsAsync(currentPt, c.DropoffPoints[best], token).ConfigureAwait(false);
                 if (hop.HasValue)
+                {
                     currentTime = currentTime.Add(TimeSpan.FromSeconds(hop.Value));
+                    currentTime = SupeyDispatchDriveClock.AfterDropoff(c.Trips[best], currentTime);
+                }
                 currentPt = c.DropoffPoints[best];
                 c.DropoffOrder.Add(best);
                 remaining.Remove(best);
@@ -831,64 +902,51 @@ namespace Hiatme_Tool_Suite_v3
             return total;
         }
 
-        private const double ALegPuLateMaxMinutes = 14.0;
-        private const double BcLegPuLateMaxMinutes = 29.0;
-
-        private static double LegPuLateCapMinutes(SupeyTripCluster cluster)
-        {
-            double cap = BcLegPuLateMaxMinutes;
-            if (cluster?.Trips == null) return cap;
-            foreach (var t in cluster.Trips)
-            {
-                string tn = t?.TripNumber ?? "";
-                if (tn.Length > 0 && char.ToUpperInvariant(tn[tn.Length - 1]) == 'A')
-                {
-                    cap = ALegPuLateMaxMinutes;
-                    break;
-                }
-            }
-            return cap;
-        }
-
-        /// <summary>Simulate OSRM drive along <paramref name="puOrder"/>; each PU must be reachable on time.</summary>
+        /// <summary>
+        /// Simulate OSRM drive along <paramref name="puOrder"/>; each PU must land in desk window.
+        /// <paramref name="arrivalAtFirstPickup"/> is the real time at stop 1 (deadhead) — not forced on-time/early.
+        /// </summary>
         internal static async Task<bool> PickupOrderMeetsScheduledWindowsAsync(
             SupeyTripCluster c,
             List<int> puOrder,
             CancellationToken token,
-            GeoPoint? routeStart)
+            GeoPoint? routeStart,
+            TimeSpan? arrivalAtFirstPickup = null)
         {
             if (c == null || puOrder == null || puOrder.Count == 0) return true;
             if (puOrder.Count == 1) return true;
             if (c.PickupPoints == null || c.PickupPoints.Count < c.Trips.Count)
                 return false;
 
-            double puCap = LegPuLateCapMinutes(c) + 2.0;
             int firstIdx = puOrder[0];
-            var firstScheduled = SupeyDeskScheduleTiming.ScheduledPickupForBuild(c.Trips[firstIdx]);
-            if (firstScheduled == TimeSpan.Zero)
-                firstScheduled = SupeyTripTimes.TryParsePU(c.Trips[firstIdx]) ?? c.EarliestPickup;
-
             TimeSpan current;
             GeoPoint pos;
-            if (routeStart.HasValue && SupeyOsrmLegs.IsRoutable(routeStart.Value))
+            if (arrivalAtFirstPickup.HasValue)
+            {
+                current = arrivalAtFirstPickup.Value;
+                pos = c.PickupPoints[firstIdx];
+            }
+            else if (routeStart.HasValue && SupeyOsrmLegs.IsRoutable(routeStart.Value))
             {
                 var toFirst = await RoadSecondsAsync(routeStart.Value, c.PickupPoints[firstIdx], token)
                     .ConfigureAwait(false);
                 if (!toFirst.HasValue) return false;
-                current = firstScheduled.Subtract(TimeSpan.FromSeconds(toFirst.Value));
-                if (current < c.EffectiveEarliestPickup)
-                    current = c.EffectiveEarliestPickup;
-                current = current.Add(TimeSpan.FromSeconds(toFirst.Value));
+                current = await EstimateArrivalAtTownFirstAsync(
+                    c, puOrder, routeStart.Value, c.EffectiveEarliestPickup, token)
+                    .ConfigureAwait(false);
                 pos = c.PickupPoints[firstIdx];
             }
             else
             {
-                current = firstScheduled;
+                current = await EstimateArrivalAtTownFirstAsync(
+                    c, puOrder, c.PickupCentroid, c.EffectiveEarliestPickup, token)
+                    .ConfigureAwait(false);
                 pos = c.PickupPoints[firstIdx];
             }
 
-            if (current > firstScheduled.Add(TimeSpan.FromMinutes(puCap)))
+            if (!PickupFeasibleAt(c, firstIdx, current))
                 return false;
+            current = ClockAfterPickupArrival(c, firstIdx, current);
 
             for (int step = 1; step < puOrder.Count; step++)
             {
@@ -897,13 +955,9 @@ namespace Hiatme_Tool_Suite_v3
                 var leg = await RoadSecondsAsync(pos, c.PickupPoints[idx], token).ConfigureAwait(false);
                 if (!leg.HasValue) return false;
                 current = current.Add(TimeSpan.FromSeconds(leg.Value));
-                var scheduled = SupeyDeskScheduleTiming.ScheduledPickupForBuild(c.Trips[idx]);
-                if (scheduled == TimeSpan.Zero)
-                    scheduled = SupeyTripTimes.TryParsePU(c.Trips[idx]) ?? c.EarliestPickup;
-                if (current < scheduled)
-                    current = scheduled;
-                if (current > scheduled.Add(TimeSpan.FromMinutes(puCap)))
+                if (!PickupFeasibleAt(c, idx, current))
                     return false;
+                current = ClockAfterPickupArrival(c, idx, current);
                 pos = c.PickupPoints[idx];
             }
             return true;
@@ -914,42 +968,24 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (doOrder == null || doOrder.Count == 0)
                 return true;
+            if (puOrder == null || puOrder.Count == 0)
+                return true;
 
-            var start = c.EffectiveLatestPickup;
-            int lastPu = puOrder != null && puOrder.Count > 0 ? puOrder[puOrder.Count - 1] : 0;
-            double headSec = 0;
-            if (puOrder != null && puOrder.Count > 1)
-            {
-                for (int i = 1; i < puOrder.Count; i++)
-                {
-                    var leg = await RoadSecondsAsync(
-                        c.PickupPoints[puOrder[i - 1]],
-                        c.PickupPoints[puOrder[i]], token).ConfigureAwait(false);
-                    if (!leg.HasValue) return false;
-                    headSec += leg.Value;
-                }
-            }
-            var current = start.Add(TimeSpan.FromSeconds(headSec));
+            int lastPu = puOrder[puOrder.Count - 1];
+            TimeSpan firstArrive = await EstimateArrivalAtTownFirstAsync(
+                c, puOrder, c.PickupCentroid, c.EffectiveEarliestPickup, token).ConfigureAwait(false);
+            TimeSpan depart = SupeyDispatchDriveClock.DepartureAfterLastPickup(c, puOrder, firstArrive);
             var puToDo = await RoadSecondsAsync(
                 c.PickupPoints[lastPu], c.DropoffPoints[doOrder[0]], token).ConfigureAwait(false);
             if (!puToDo.HasValue) return false;
-            current = current.Add(TimeSpan.FromSeconds(puToDo.Value));
-            for (int i = 0; i < doOrder.Count; i++)
-            {
-                int tripIdx = doOrder[i];
-                var deadline = SupeyTripTimes.TryParseDO(c.Trips[tripIdx]);
-                if (deadline.HasValue && deadline.Value > TimeSpan.Zero && current >= deadline.Value)
-                    return false;
-                if (i + 1 < doOrder.Count)
-                {
-                    var hop = await RoadSecondsAsync(
-                        c.DropoffPoints[doOrder[i]], c.DropoffPoints[doOrder[i + 1]], token)
-                        .ConfigureAwait(false);
-                    if (!hop.HasValue) return false;
-                    current = current.Add(TimeSpan.FromSeconds(hop.Value));
-                }
-            }
-            return true;
+            depart = depart.Add(TimeSpan.FromSeconds(puToDo.Value));
+
+            var scratch = new SupeyTripCluster();
+            CopyTourContext(c, scratch);
+            scratch.DropoffOrder.Clear();
+            scratch.DropoffOrder.AddRange(doOrder);
+            var result = SupeyDispatchDriveClock.ProjectDropRun(scratch, depart);
+            return result.feasible;
         }
 
         public static async Task ApplySharedDropHubLegTimesAsync(SupeyTripCluster c, CancellationToken token)

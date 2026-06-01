@@ -35,54 +35,20 @@ namespace Hiatme_Tool_Suite_v3
             if (cluster == null || cluster.Trips.Count == 0) return false;
 
             if (cluster.PickupOrder.Count == 0 || cluster.DropoffOrder.Count == 0)
-                await SupeyClusterRouting.OptimizeClusterTourAsync(cluster, token).ConfigureAwait(false);
+                await SupeyClusterRouteBuilder.ApplyRoadRouteAsync(cluster, token, null).ConfigureAwait(false);
 
             await PopulateClusterPolylineAsync(cluster, token).ConfigureAwait(false);
             return cluster.Trips.Count == 1
                 || (!cluster.IsStraightLineFallback && cluster.IntraClusterDriveSeconds > 0);
         }
 
-        private async Task<bool> IsPickupSequenceFeasibleAsync(SupeyTripCluster c, CancellationToken token)
+        private Task<bool> IsPickupSequenceFeasibleAsync(SupeyTripCluster c, CancellationToken token)
         {
-            if (c == null || c.Trips.Count <= 1) return true;
-            if (c.PickupPoints == null || c.PickupPoints.Count < c.Trips.Count)
-                return false;
-
-            var order = SupeyClusterRouting.IsValidVisitOrder(c.PickupOrder, c.Trips.Count)
-                ? new List<int>(c.PickupOrder)
-                : SupeyClusterRouting.BuildPickupOrderByPuTimePublic(c);
-            if (order.Count == 0) return false;
-
-            int firstIdx = order[0];
-            var firstPu = SupeyDeskScheduleTiming.ScheduledPickupForBuild(c.Trips[firstIdx]);
-            if (firstPu == TimeSpan.Zero)
-                firstPu = SupeyTripTimes.TryParsePU(c.Trips[firstIdx]) ?? c.EarliestPickup;
-
-            var current = firstPu;
-            GeoPoint pos = c.PickupPoints[firstIdx];
-
-            for (int step = 1; step < order.Count; step++)
-            {
-                int idx = order[step];
-                var leg = await GetDriveLegAsync(pos, c.PickupPoints[idx], token).ConfigureAwait(false);
-                if (!leg.FromOsrm) return false;
-
-                current = current.Add(TimeSpan.FromSeconds(leg.Seconds));
-                var scheduled = SupeyDeskScheduleTiming.ScheduledPickupForBuild(c.Trips[idx]);
-                if (scheduled == TimeSpan.Zero)
-                    scheduled = SupeyTripTimes.TryParsePU(c.Trips[idx]) ?? c.EarliestPickup;
-
-                if (current < scheduled)
-                    current = scheduled;
-
-                double puCap = LegPuLateCapMinutes(c) + 2.0;
-                if (current > scheduled.Add(TimeSpan.FromMinutes(puCap)))
-                    return false;
-
-                pos = c.PickupPoints[idx];
-            }
-
-            return true;
+            if (c == null || c.Trips.Count <= 1) return Task.FromResult(true);
+            if (!SupeyClusterRouting.IsValidVisitOrder(c.PickupOrder, c.Trips.Count))
+                return Task.FromResult(false);
+            return SupeyClusterRouting.PickupOrderMeetsScheduledWindowsAsync(
+                c, new List<int>(c.PickupOrder), token, routeStart: null);
         }
 
         private async Task<List<SupeyTripCluster>> EnforcePickupSequenceFeasibilityAsync(
