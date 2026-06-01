@@ -49,9 +49,18 @@ namespace Hiatme_Tool_Suite_v3
         private readonly Dictionary<string, List<SupeyDraggableMarker>> _tripMarkers =
             new Dictionary<string, List<SupeyDraggableMarker>>(StringComparer.OrdinalIgnoreCase);
 
-        private Panel _mileageHud;
-        private Label _lblGroupMileage;
-        private Label _lblTripMileage;
+        private static readonly Font MileageValueFont = new Font("Segoe UI Semibold", 22f);
+        private static readonly Color MileageCardBack = Color.FromArgb(34, 38, 34);
+
+        private Panel _mileageHudHost;
+        private Panel _groupMileageCard;
+        private Panel _tripMileageCard;
+        private Label _groupMileageTitle;
+        private Label _groupMileageValue;
+        private Label _groupMileageDetail;
+        private Label _tripMileageTitle;
+        private Label _tripMileageValue;
+        private Label _tripMileageDetail;
 
         public SupeyMapWorkspace()
         {
@@ -284,7 +293,7 @@ namespace Hiatme_Tool_Suite_v3
             CenterOnMaineHub();
         }
 
-        /// <summary>Schedule Builder: panel labels for selected group route miles and trip PU→DO miles.</summary>
+        /// <summary>Schedule Builder: separate panels for group tour miles and trip PU→DO miles.</summary>
         public void SetMileageHud(
             SupeyTripCluster group,
             MCDownloadedTrip trip,
@@ -292,40 +301,49 @@ namespace Hiatme_Tool_Suite_v3
             double? tripMeters,
             bool tripApprox)
         {
-            if (_mileageHud == null || group == null)
+            if (_mileageHudHost == null || group == null)
             {
                 ClearMileageHud();
                 return;
             }
 
-            string groupSuffix = group.IsStraightLineFallback ? " (est.)" : "";
-            _lblGroupMileage.Text = "Group " + group.GroupNumber + " route · "
-                + SupeyTripTimes.FormatMiles(groupMeters) + groupSuffix;
+            _groupMileageTitle.Text = "Group Mileage";
+            _groupMileageValue.ForeColor = SupeyTheme.AccentPrimary;
+            _groupMileageValue.Text = SupeyTripTimes.FormatMiles(groupMeters);
+            _groupMileageDetail.Text = "Group " + group.GroupNumber
+                + (group.IsStraightLineFallback ? " · estimated straight-line" : " · road route");
 
             if (trip != null)
             {
                 string tn = (trip.TripNumber ?? "").Trim();
-                if (tripMeters.HasValue)
-                {
-                    string tripSuffix = tripApprox ? " (est.)" : "";
-                    _lblTripMileage.Text = "Trip " + tn + " PU→DO · "
-                        + SupeyTripTimes.FormatMiles(tripMeters.Value) + tripSuffix;
-                }
-                else
-                    _lblTripMileage.Text = "Trip " + tn + " PU→DO · —";
-                _lblTripMileage.Visible = true;
+                _tripMileageTitle.Text = "Trip Mileage";
+                _tripMileageValue.Text = tripMeters.HasValue
+                    ? SupeyTripTimes.FormatMiles(tripMeters.Value)
+                    : "—";
+                _tripMileageValue.ForeColor = tripMeters.HasValue
+                    ? SupeyTheme.AccentPrimary
+                    : SupeyTheme.TextMuted;
+                _tripMileageDetail.Text = string.IsNullOrEmpty(tn)
+                    ? "Pickup → dropoff"
+                    : tn + " · PU → DO"
+                    + (tripApprox ? " · estimated" : "");
+                _tripMileageCard.Visible = true;
             }
             else
-                _lblTripMileage.Visible = false;
+            {
+                _tripMileageCard.Visible = false;
+            }
 
-            _mileageHud.Visible = true;
-            _mileageHud.BringToFront();
+            _groupMileageCard.Visible = true;
+            _mileageHudHost.Visible = true;
+            _mileageHudHost.BringToFront();
+            PositionMileageHudHost();
         }
 
         public void ClearMileageHud()
         {
-            if (_mileageHud != null)
-                _mileageHud.Visible = false;
+            if (_mileageHudHost != null)
+                _mileageHudHost.Visible = false;
         }
 
         /// <summary>PU/DO positions from markers currently on the map (after ShowDriverPlan).</summary>
@@ -361,11 +379,10 @@ namespace Hiatme_Tool_Suite_v3
 
         private void BuildMileageHud()
         {
-            _mileageHud = new Panel
+            _mileageHudHost = new Panel
             {
                 AutoSize = true,
-                BackColor = SupeyTheme.SurfaceElevated,
-                Padding = new Padding(10, 8, 12, 8),
+                BackColor = Color.Transparent,
                 Location = new Point(12, 12),
                 Visible = false,
             };
@@ -375,30 +392,113 @@ namespace Hiatme_Tool_Suite_v3
                 AutoSize = true,
                 FlowDirection = FlowDirection.TopDown,
                 WrapContents = false,
-                BackColor = SupeyTheme.SurfaceElevated,
+                BackColor = Color.Transparent,
+                Padding = new Padding(0),
             };
 
-            _lblGroupMileage = new Label
+            _groupMileageCard = CreateMileageCard(
+                "Group Mileage",
+                out _groupMileageTitle,
+                out _groupMileageValue,
+                out _groupMileageDetail);
+            _tripMileageCard = CreateMileageCard(
+                "Trip Mileage",
+                out _tripMileageTitle,
+                out _tripMileageValue,
+                out _tripMileageDetail);
+            _tripMileageCard.Margin = new Padding(0, 8, 0, 0);
+            _tripMileageCard.Visible = false;
+
+            stack.Controls.Add(_groupMileageCard);
+            stack.Controls.Add(_tripMileageCard);
+            _mileageHudHost.Controls.Add(stack);
+            Controls.Add(_mileageHudHost);
+            Resize += (s, e) => PositionMileageHudHost();
+        }
+
+        private void PositionMileageHudHost()
+        {
+            if (_mileageHudHost == null) return;
+            _mileageHudHost.Location = new Point(12, 12);
+            _mileageHudHost.BringToFront();
+        }
+
+        private static Panel CreateMileageCard(
+            string defaultTitle,
+            out Label title,
+            out Label value,
+            out Label detail)
+        {
+            var card = new Panel
             {
-                AutoSize = true,
-                ForeColor = Color.Gainsboro,
-                Font = new Font("Segoe UI Semibold", 9f),
-                BackColor = SupeyTheme.SurfaceElevated,
+                Width = 180,
+                Height = 92,
+                BackColor = MileageCardBack,
+                Margin = new Padding(0),
             };
-            _lblTripMileage = new Label
+            card.Paint += MileageCard_Paint;
+
+            var stripe = new Panel
             {
-                AutoSize = true,
-                ForeColor = Color.FromArgb(200, 200, 200),
-                Font = new Font("Segoe UI", 9f),
-                BackColor = SupeyTheme.SurfaceElevated,
-                Margin = new Padding(0, 4, 0, 0),
-                Visible = false,
+                Dock = DockStyle.Left,
+                Width = 4,
+                BackColor = SupeyTheme.AccentStripe,
             };
 
-            stack.Controls.Add(_lblGroupMileage);
-            stack.Controls.Add(_lblTripMileage);
-            _mileageHud.Controls.Add(stack);
-            Controls.Add(_mileageHud);
+            var body = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 3,
+                BackColor = MileageCardBack,
+                Padding = new Padding(10, 8, 10, 8),
+            };
+            body.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            body.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            body.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+            title = new Label
+            {
+                Text = defaultTitle,
+                AutoSize = true,
+                ForeColor = SupeyTheme.TextSecondary,
+                Font = SupeyTheme.SubHeaderFont,
+                BackColor = MileageCardBack,
+                Margin = new Padding(0, 0, 0, 2),
+            };
+            value = new Label
+            {
+                Text = "0.0 mi",
+                AutoSize = true,
+                ForeColor = SupeyTheme.AccentPrimary,
+                Font = MileageValueFont,
+                BackColor = MileageCardBack,
+                Margin = new Padding(0, 0, 0, 2),
+            };
+            detail = new Label
+            {
+                Text = "",
+                AutoSize = true,
+                MaximumSize = new Size(156, 0),
+                ForeColor = SupeyTheme.TextMuted,
+                Font = SupeyTheme.CaptionFont,
+                BackColor = MileageCardBack,
+            };
+
+            body.Controls.Add(title, 0, 0);
+            body.Controls.Add(value, 0, 1);
+            body.Controls.Add(detail, 0, 2);
+            card.Controls.Add(stripe);
+            card.Controls.Add(body);
+            return card;
+        }
+
+        private static void MileageCard_Paint(object sender, PaintEventArgs e)
+        {
+            var card = sender as Panel;
+            if (card == null) return;
+            using (var pen = new Pen(SupeyTheme.BorderSubtle))
+                e.Graphics.DrawRectangle(pen, 0, 0, card.Width - 1, card.Height - 1);
         }
 
         /// <summary>
