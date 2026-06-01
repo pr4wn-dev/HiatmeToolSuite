@@ -264,6 +264,7 @@
       <DependentUpon>DriverLocationMapForm.cs</DependentUpon>
     </Compile>
     <Compile Include="DriverMarkerToolTip.cs" />
+    <Compile Include="SupeyMapMarkerToolTip.cs" />
     <Compile Include="TripCardControl.cs">
       <SubType>Component</SubType>
     </Compile>

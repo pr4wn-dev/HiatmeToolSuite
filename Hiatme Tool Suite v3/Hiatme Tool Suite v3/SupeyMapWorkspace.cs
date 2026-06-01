@@ -547,11 +547,8 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     var pos = new PointLatLng(pu.Lat, pu.Lng);
                     allPts.Add(pos);
-                    var marker = new SupeyDraggableMarker(pos, GMarkerGoogleType.green_small)
-                    {
-                        ToolTipText = "PU · " + key + " · " + (trip.ClientFullName ?? ""),
-                        ToolTipMode = MarkerTooltipMode.OnMouseOver,
-                    };
+                    var marker = new SupeyDraggableMarker(pos, GMarkerGoogleType.green_small);
+                    ApplyTripEndpointTooltip(marker, trip, isPickup: true, groupColor: null);
                     overlay.Markers.Add(marker);
                     RegisterTripMarker(trip, marker);
                 }
@@ -561,11 +558,8 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     var pos = new PointLatLng(dof.Lat, dof.Lng);
                     allPts.Add(pos);
-                    var marker = new SupeyDraggableMarker(pos, GMarkerGoogleType.red_small)
-                    {
-                        ToolTipText = "DO · " + key + " · " + (trip.ClientFullName ?? ""),
-                        ToolTipMode = MarkerTooltipMode.OnMouseOver,
-                    };
+                    var marker = new SupeyDraggableMarker(pos, GMarkerGoogleType.red_small);
+                    ApplyTripEndpointTooltip(marker, trip, isPickup: false, groupColor: null);
                     overlay.Markers.Add(marker);
                     RegisterTripMarker(trip, marker);
                 }
@@ -713,11 +707,12 @@ namespace Hiatme_Tool_Suite_v3
             {
                 _homeOverlay = new GMapOverlay("home");
                 var home = new GMarkerGoogle(new PointLatLng(plan.HomeGeo.Value.Lat, plan.HomeGeo.Value.Lng),
-                    GMarkerGoogleType.blue_dot)
-                {
-                    ToolTipText = (plan.Driver?.Name ?? "Driver") + " home",
-                    ToolTipMode = MarkerTooltipMode.OnMouseOver,
-                };
+                    GMarkerGoogleType.blue_dot);
+                ApplyThemedMarkerTooltip(
+                    home,
+                    (plan.Driver?.Name ?? "Driver") + " · Home",
+                    new[] { "Driver start / end location" },
+                    Color.FromArgb(100, 150, 220));
                 _homeOverlay.Markers.Add(home);
                 _map.Overlays.Add(_homeOverlay);
             }
@@ -773,10 +768,9 @@ namespace Hiatme_Tool_Suite_v3
                         new PointLatLng(pt.Lat, pt.Lng), GMarkerGoogleType.green_small)
                     {
                         RouteStopNumber = stop,
-                        ToolTipText = FormatRouteStopTooltip(g, stop, totalStops, "PU", trip),
-                        ToolTipMode = MarkerTooltipMode.OnMouseOver,
                         Tag = BuildMarkerInfo(trip, "Pickup", true, p => g.PickupPoints[idx] = p),
                     };
+                    ApplyRouteStopTooltip(marker, g, stop, totalStops, isPickup: true, trip);
                     overlay.Markers.Add(marker);
                     RegisterTripMarker(trip, marker);
                 }
@@ -793,10 +787,9 @@ namespace Hiatme_Tool_Suite_v3
                         new PointLatLng(pt.Lat, pt.Lng), GMarkerGoogleType.red_small)
                     {
                         RouteStopNumber = stop,
-                        ToolTipText = FormatRouteStopTooltip(g, stop, totalStops, "DO", trip),
-                        ToolTipMode = MarkerTooltipMode.OnMouseOver,
                         Tag = BuildMarkerInfo(trip, "Dropoff", false, p => g.DropoffPoints[idx] = p),
                     };
+                    ApplyRouteStopTooltip(marker, g, stop, totalStops, isPickup: false, trip);
                     overlay.Markers.Add(marker);
                     RegisterTripMarker(trip, marker);
                 }
@@ -1060,22 +1053,88 @@ namespace Hiatme_Tool_Suite_v3
 
         public void RefitToCurrentPlan() => FitToPlan();
 
-        private static string FormatRouteStopTooltip(
+        private static readonly Color PickupTooltipAccent = Color.FromArgb(120, 170, 95);
+        private static readonly Color DropoffTooltipAccent = Color.FromArgb(200, 95, 95);
+
+        private void ApplyThemedMarkerTooltip(
+            GMapMarker marker,
+            string title,
+            IEnumerable<string> detailLines,
+            Color accentColor)
+        {
+            if (marker == null) return;
+            var detail = new List<string>();
+            if (detailLines != null)
+            {
+                foreach (var line in detailLines)
+                {
+                    if (!string.IsNullOrWhiteSpace(line))
+                        detail.Add(line.Trim());
+                }
+            }
+
+            marker.ToolTipText = title ?? "";
+            marker.ToolTipMode = MarkerTooltipMode.OnMouseOver;
+            marker.ToolTip = new SupeyMapMarkerToolTip(marker, SupeyTheme.SubHeaderFont, SupeyTheme.CaptionFont)
+            {
+                Title = title ?? "",
+                Detail = detail,
+                AccentColor = accentColor,
+            };
+        }
+
+        private void ApplyRouteStopTooltip(
+            GMapMarker marker,
             SupeyTripCluster g,
             int stop,
             int totalStops,
-            string leg,
+            bool isPickup,
             MCDownloadedTrip trip)
         {
-            string stopLine = totalStops > 0
-                ? "Stop " + stop + " of " + totalStops + " (route order) · "
-                : "";
-            return stopLine + "Group " + g.GroupNumber + " · " + leg +
-                " (right-click to fix geocode)\n" +
-                (trip?.ClientFullName ?? "") + "\n" +
-                (leg == "PU"
-                    ? (trip?.PUStreet ?? "") + ", " + (trip?.PUCity ?? "") + "\nPU: " + (trip?.PUTime ?? "")
-                    : (trip?.DOStreet ?? "") + ", " + (trip?.DOCITY ?? "") + "\nDO: " + (trip?.DOTime ?? ""));
+            string leg = isPickup ? "Pickup" : "Dropoff";
+            string title = leg + " · Group " + (g?.GroupNumber ?? 0);
+            var detail = BuildTripTooltipDetail(trip, isPickup, totalStops > 0 ? stop : 0, totalStops);
+            Color accent = g != null ? g.GroupColor : (isPickup ? PickupTooltipAccent : DropoffTooltipAccent);
+            ApplyThemedMarkerTooltip(marker, title, detail, accent);
+        }
+
+        private void ApplyTripEndpointTooltip(
+            GMapMarker marker,
+            MCDownloadedTrip trip,
+            bool isPickup,
+            Color? groupColor)
+        {
+            string title = (isPickup ? "Pickup" : "Dropoff");
+            if (!string.IsNullOrWhiteSpace(trip?.TripNumber))
+                title += " · " + trip.TripNumber.Trim();
+            var detail = BuildTripTooltipDetail(trip, isPickup, 0, 0);
+            Color accent = groupColor ?? (isPickup ? PickupTooltipAccent : DropoffTooltipAccent);
+            ApplyThemedMarkerTooltip(marker, title, detail, accent);
+        }
+
+        private static List<string> BuildTripTooltipDetail(
+            MCDownloadedTrip trip,
+            bool isPickup,
+            int stop,
+            int totalStops)
+        {
+            var detail = new List<string>();
+            if (totalStops > 0 && stop > 0)
+                detail.Add("Stop " + stop + " of " + totalStops + " on group route");
+            if (!string.IsNullOrWhiteSpace(trip?.ClientFullName))
+                detail.Add(trip.ClientFullName.Trim());
+            string street = (isPickup ? trip?.PUStreet : trip?.DOStreet) ?? "";
+            string city = (isPickup ? trip?.PUCity : trip?.DOCITY) ?? "";
+            string addr = string.IsNullOrWhiteSpace(street)
+                ? city.Trim()
+                : string.IsNullOrWhiteSpace(city) ? street.Trim() : street.Trim() + ", " + city.Trim();
+            if (!string.IsNullOrWhiteSpace(addr))
+                detail.Add(addr);
+            string time = isPickup ? trip?.PUTime : trip?.DOTime;
+            if (!string.IsNullOrWhiteSpace(time))
+                detail.Add((isPickup ? "PU" : "DO") + " " + time.Trim());
+            detail.Add("Right-click to fix geocode");
+            return detail;
         }
 
         private static SupeyMapMarkerInfo BuildMarkerInfo(
