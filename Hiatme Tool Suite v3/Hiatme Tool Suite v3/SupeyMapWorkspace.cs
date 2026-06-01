@@ -238,6 +238,94 @@ namespace Hiatme_Tool_Suite_v3
             _legendHost.Visible = false;
         }
 
+        /// <summary>
+        /// Read-only map for Schedule Builder preview: PU/DO pins for one driver tab (or Reserves).
+        /// Geocodes must be resolved by the host before calling; missing endpoints are skipped.
+        /// </summary>
+        public void ShowScheduleBuilderTrips(
+            string tabTitle,
+            IReadOnlyList<MCDownloadedTrip> trips,
+            IReadOnlyDictionary<string, GeoPoint> pickupByTrip,
+            IReadOnlyDictionary<string, GeoPoint> dropoffByTrip,
+            int paletteIndex)
+        {
+            _currentPlan = null;
+            _map.Overlays.Clear();
+            _groupOverlays.Clear();
+            _groupCheckboxes.Clear();
+            _legend.Controls.Clear();
+            _deadheadToggle = null;
+            _deadheadOverlay = null;
+            _homeOverlay = null;
+            _tripMarkers.Clear();
+            _focusOverlay = null;
+            _legendHost.Visible = false;
+
+            if (trips == null || trips.Count == 0)
+            {
+                _emptyLabel.Text = string.IsNullOrWhiteSpace(tabTitle)
+                    ? "No trips — click BUILD."
+                    : tabTitle + " has no trips.";
+                _emptyLabel.Visible = true;
+                _map.Refresh();
+                return;
+            }
+
+            var overlay = new GMapOverlay("fs-tab");
+            var allPts = new List<PointLatLng>();
+
+            foreach (var trip in trips)
+            {
+                if (trip == null) continue;
+                string key = (trip.TripNumber ?? "").Trim();
+                if (string.IsNullOrEmpty(key)) continue;
+
+                if (pickupByTrip != null && pickupByTrip.TryGetValue(key, out var pu)
+                    && !(pu.Lat == 0 && pu.Lng == 0))
+                {
+                    var pos = new PointLatLng(pu.Lat, pu.Lng);
+                    allPts.Add(pos);
+                    var marker = new SupeyDraggableMarker(pos, GMarkerGoogleType.green_small)
+                    {
+                        ToolTipText = "PU · " + key + " · " + (trip.ClientFullName ?? ""),
+                        ToolTipMode = MarkerTooltipMode.OnMouseOver,
+                    };
+                    overlay.Markers.Add(marker);
+                    RegisterTripMarker(trip, marker);
+                }
+
+                if (dropoffByTrip != null && dropoffByTrip.TryGetValue(key, out var dof)
+                    && !(dof.Lat == 0 && dof.Lng == 0))
+                {
+                    var pos = new PointLatLng(dof.Lat, dof.Lng);
+                    allPts.Add(pos);
+                    var marker = new SupeyDraggableMarker(pos, GMarkerGoogleType.red_small)
+                    {
+                        ToolTipText = "DO · " + key + " · " + (trip.ClientFullName ?? ""),
+                        ToolTipMode = MarkerTooltipMode.OnMouseOver,
+                    };
+                    overlay.Markers.Add(marker);
+                    RegisterTripMarker(trip, marker);
+                }
+            }
+
+            if (allPts.Count == 0)
+            {
+                _emptyLabel.Text = tabTitle + " — no geocoded stops yet.";
+                _emptyLabel.Visible = true;
+                _map.Refresh();
+                SetSupeyStatusOnHost?.Invoke(_emptyLabel.Text);
+                return;
+            }
+
+            _emptyLabel.Visible = false;
+            _map.Overlays.Add(overlay);
+            FitPoints(allPts, zoomSingle: 13, zoomMulti: 11);
+            _map.Refresh();
+            SetSupeyStatusOnHost?.Invoke(
+                tabTitle + " · " + trips.Count + " trip(s) · " + allPts.Count + " pin(s)");
+        }
+
         /// <summary>Fit map to one group's PU/DO pins (route header row selected).</summary>
         public void FocusGroup(SupeyTripCluster group)
         {

@@ -22,7 +22,7 @@ namespace Hiatme_Tool_Suite_v3
         private const int LVM_FIRST = 0x1000;
         private const int LVM_GETHEADER = LVM_FIRST + 31;
 
-        private static readonly Color HeaderBackground = ColorTranslator.FromHtml("#333333");
+        private static readonly Color HeaderBackground = SupeyTheme.ListHeader;
 
         private static readonly Dictionary<ListView, ListViewHeaderEmptyAreaPainter> _attached
             = new Dictionary<ListView, ListViewHeaderEmptyAreaPainter>();

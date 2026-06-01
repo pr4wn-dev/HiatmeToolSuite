@@ -147,8 +147,8 @@
             this.materialCard15 = new MaterialSkin.Controls.MaterialCard();
             this.sbstatuslbl = new MaterialSkin.Controls.MaterialLabel();
             this.materialCard14 = new MaterialSkin.Controls.MaterialCard();
-            this.pictureBox2 = new System.Windows.Forms.PictureBox();
             this.fsbdatepicker = new Hiatme_Tool_Suite_v3.RJDatePicker();
+            this.fsExportHintLbl = new System.Windows.Forms.Label();
             this.fsbtn = new MaterialSkin.Controls.MaterialButton();
             this.tabPageSupey = new System.Windows.Forms.TabPage();
             this.tabPage7 = new System.Windows.Forms.TabPage();
@@ -260,7 +260,6 @@
             this.tabPage6.SuspendLayout();
             this.materialCard15.SuspendLayout();
             this.materialCard14.SuspendLayout();
-            ((System.ComponentModel.ISupportInitialize)(this.pictureBox2)).BeginInit();
             this.tabPage7.SuspendLayout();
             this.materialCard17.SuspendLayout();
             this.materialCard16.SuspendLayout();
@@ -1638,7 +1637,7 @@
             | System.Windows.Forms.AnchorStyles.Left) 
             | System.Windows.Forms.AnchorStyles.Right)));
             this.materialCard14.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(255)))), ((int)(((byte)(255)))), ((int)(((byte)(255)))));
-            this.materialCard14.Controls.Add(this.pictureBox2);
+            this.materialCard14.Controls.Add(this.fsExportHintLbl);
             this.materialCard14.Controls.Add(this.fsbdatepicker);
             this.materialCard14.Controls.Add(this.fsbtn);
             this.materialCard14.Depth = 0;
@@ -1651,51 +1650,52 @@
             this.materialCard14.Size = new System.Drawing.Size(1477, 707);
             this.materialCard14.TabIndex = 0;
             // 
-            // pictureBox2
-            // 
-            this.pictureBox2.Anchor = System.Windows.Forms.AnchorStyles.None;
-            this.pictureBox2.BackgroundImage = ((System.Drawing.Image)(resources.GetObject("pictureBox2.BackgroundImage")));
-            this.pictureBox2.BackgroundImageLayout = System.Windows.Forms.ImageLayout.Stretch;
-            this.pictureBox2.Location = new System.Drawing.Point(455, 75);
-            this.pictureBox2.Name = "pictureBox2";
-            this.pictureBox2.Size = new System.Drawing.Size(547, 500);
-            this.pictureBox2.TabIndex = 0;
-            this.pictureBox2.TabStop = false;
-            // 
             // fsbdatepicker
             // 
-            this.fsbdatepicker.Anchor = System.Windows.Forms.AnchorStyles.None;
+            this.fsbdatepicker.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left)));
             this.fsbdatepicker.BorderColor = System.Drawing.Color.Black;
             this.fsbdatepicker.BorderSize = 2;
-            this.fsbdatepicker.Font = new System.Drawing.Font("Microsoft Sans Serif", 9.75F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
-            this.fsbdatepicker.Location = new System.Drawing.Point(549, 585);
-            this.fsbdatepicker.MinimumSize = new System.Drawing.Size(4, 35);
+            this.fsbdatepicker.Font = new System.Drawing.Font("Segoe UI", 9.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.fsbdatepicker.Location = new System.Drawing.Point(16, 16);
+            this.fsbdatepicker.MinimumSize = new System.Drawing.Size(4, 30);
             this.fsbdatepicker.Name = "fsbdatepicker";
-            this.fsbdatepicker.Size = new System.Drawing.Size(288, 35);
+            this.fsbdatepicker.Size = new System.Drawing.Size(232, 30);
             this.fsbdatepicker.SkinColor = System.Drawing.Color.FromArgb(((int)(((byte)(64)))), ((int)(((byte)(64)))), ((int)(((byte)(64)))));
             this.fsbdatepicker.TabIndex = 2;
             this.fsbdatepicker.TextColor = System.Drawing.Color.White;
             // 
+            // fsExportHintLbl
+            // 
+            this.fsExportHintLbl.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left) 
+            | System.Windows.Forms.AnchorStyles.Right)));
+            this.fsExportHintLbl.AutoSize = false;
+            this.fsExportHintLbl.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.fsExportHintLbl.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(96)))), ((int)(((byte)(96)))), ((int)(((byte)(96)))));
+            this.fsExportHintLbl.Location = new System.Drawing.Point(16, 52);
+            this.fsExportHintLbl.Name = "fsExportHintLbl";
+            this.fsExportHintLbl.Size = new System.Drawing.Size(720, 36);
+            this.fsExportHintLbl.TabIndex = 3;
+            this.fsExportHintLbl.Text = "Checking export mode…";
+            // 
             // fsbtn
             // 
-            this.fsbtn.Anchor = System.Windows.Forms.AnchorStyles.None;
+            this.fsbtn.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left)));
             this.fsbtn.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
             this.fsbtn.Density = MaterialSkin.Controls.MaterialButton.MaterialButtonDensity.Default;
             this.fsbtn.Depth = 0;
             this.fsbtn.HighEmphasis = true;
             this.fsbtn.Icon = null;
-            this.fsbtn.Location = new System.Drawing.Point(844, 584);
-            this.fsbtn.Margin = new System.Windows.Forms.Padding(4, 6, 4, 6);
+            this.fsbtn.Location = new System.Drawing.Point(260, 15);
+            this.fsbtn.Margin = new System.Windows.Forms.Padding(0);
             this.fsbtn.MouseState = MaterialSkin.MouseState.HOVER;
             this.fsbtn.Name = "fsbtn";
             this.fsbtn.NoAccentTextColor = System.Drawing.Color.Empty;
-            this.fsbtn.Size = new System.Drawing.Size(64, 36);
+            this.fsbtn.Size = new System.Drawing.Size(96, 32);
             this.fsbtn.TabIndex = 1;
             this.fsbtn.Text = "Build";
             this.fsbtn.Type = MaterialSkin.Controls.MaterialButton.MaterialButtonType.Contained;
             this.fsbtn.UseAccentColor = false;
             this.fsbtn.UseVisualStyleBackColor = true;
-            this.fsbtn.Click += new System.EventHandler(this.fsbtn_Click);
             // 
             // tabPageSupey
             // 
@@ -2574,7 +2574,6 @@
             this.materialCard15.PerformLayout();
             this.materialCard14.ResumeLayout(false);
             this.materialCard14.PerformLayout();
-            ((System.ComponentModel.ISupportInitialize)(this.pictureBox2)).EndInit();
             this.tabPage7.ResumeLayout(false);
             this.materialCard17.ResumeLayout(false);
             this.materialCard17.PerformLayout();
@@ -2722,7 +2721,7 @@
         private MaterialSkin.Controls.MaterialCard materialCard15;
         private MaterialSkin.Controls.MaterialButton fsbtn;
         private RJDatePicker fsbdatepicker;
-        private System.Windows.Forms.PictureBox pictureBox2;
+        private System.Windows.Forms.Label fsExportHintLbl;
         private MaterialSkin.Controls.MaterialLabel sbstatuslbl;
         private System.Windows.Forms.TabPage tabPageSupey;
         private System.Windows.Forms.TabPage tabPage7;

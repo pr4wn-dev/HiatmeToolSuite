@@ -139,6 +139,7 @@ namespace Hiatme_Tool_Suite_v3
             InitializeMCLoginHandler();
             InitializeHiatmeLoginHandler();
             InitializeComponent();;
+            InitializeScheduleBuilderTab();
             ApplyHiddenToolTabs();
             // Tabs added after the designer-baked ImageStream need their icon injected before the first tab strip paint.
             RegisterRuntimeTabIcons();
@@ -4171,68 +4172,6 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
-        //Full schedule builder
-        private async void fsbtn_Click(object sender, EventArgs e)
-        {
-            loadinggifhandler_showscreen();
-            fsbdatepicker.Enabled = false;
-            fsbtn.Enabled = false;
-            string dayname = fsbdatepicker.Value.DayOfWeek.ToString();
-            string day = fsbdatepicker.Value.Day.ToString();
-            string nameofmonth = fsbdatepicker.Value.ToString("MMMM");
-            string month = fsbdatepicker.Value.Month.ToString();
-            string year = fsbdatepicker.Value.Year.ToString();
-
-            try
-            {
-                await SetLoadingGifLabel("Checking connections");
-                if (!await EnsureModivcareSessionAsync())
-                {
-                    loadinggifhandler_hidescreen();
-                    fsbtn.Enabled = true;
-                    fsbdatepicker.Enabled = true;
-                    sbstatuslbl.Text = "Status: Modivcare sign-in required.";
-                    return;
-                }
-                fsbuilder = new FullScheduleBuilder(dayname, day, nameofmonth, month, year);
-                fsbuilder.UpdateLoadingScreen += loadinggifhandler_update;
-                fsbuilder.ShowLoadingScreen += loadinggifhandler_showscreen;
-                fsbuilder.HideLoadingScreen += loadinggifhandler_hidescreen;
-                await fsbuilder.BuildFullSchedule(fsbdatepicker.Value, mcLoginHandler);
-            }
-            catch (ScheduleBuilderException ex)
-            {
-                loadinggifhandler_hidescreen();
-                fsbtn.Enabled = true;
-                fsbdatepicker.Enabled = true;
-                MessageBox.Show(
-                    this,
-                    "Schedule build stopped before the workbook was finished.\n\n" + ex.Message,
-                    "Schedule Builder",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Warning);
-                sbstatuslbl.Text = "Status: Schedule build failed. See message for details.";
-                return;
-            }
-            catch (Exception ex)
-            {
-                loadinggifhandler_hidescreen();
-                fsbtn.Enabled = true;
-                fsbdatepicker.Enabled = true;
-                MessageBox.Show(
-                    "Unexpected error while building schedule.\n\n" + ex.Message,
-                    "Schedule Builder Error",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Error);
-                sbstatuslbl.Text = "Status: Schedule build failed.";
-                return;
-            }
-            fsbtn.Enabled = true;
-            fsbdatepicker.Enabled = true;
-            //await SetLoadingGifLabel("Finalizing");
-            //loadinggifhandler_hidescreen();
-        }
-
         //Auto Ass
         private async void aaloadbtn_Click(object sender, EventArgs e)
         {
@@ -5013,11 +4952,8 @@ namespace Hiatme_Tool_Suite_v3
                     // VerifyDriverTripsInfo(drivertriplist);
                 }
             }
-            if (hiatmeTabControl.SelectedTab == hiatmeTabControl.TabPages["tabPage6"])//your specific tabname
-            {
-                sbstatuslbl.Text = "Status: To build a schedule, select a date and click 'BUILD'. Follow the prompt to save in a desired location.";
-
-            }
+            if (hiatmeTabControl.SelectedTab == tabPage6 && sbstatuslbl != null)
+                sbstatuslbl.Text = "Status: Pick a date and click BUILD — driver tabs load below.";
 
         }
         private void listView_ColumnClick(object sender, ColumnClickEventArgs e)

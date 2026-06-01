@@ -150,6 +150,8 @@
     <Compile Include="MainValues.cs" />
     <Compile Include="MCDriverTab.cs" />
     <Compile Include="FullScheduleBuilder.cs" />
+    <Compile Include="ScheduleBuilderPreviewLine.cs" />
+    <Compile Include="ScheduleBuilderTemplateSlots.cs" />
     <Compile Include="MCCalculateAccuracies.cs" />
     <Compile Include="TimeCorrectionAccuracySnapshot.cs" />
     <Compile Include="TimeCorrectionBatchHistoryStore.cs" />
@@ -157,6 +159,9 @@
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="Form1.Designer.cs">
+      <DependentUpon>Form1.cs</DependentUpon>
+    </Compile>
+    <Compile Include="Form1.ScheduleBuilder.cs">
       <DependentUpon>Form1.cs</DependentUpon>
     </Compile>
     <Compile Include="FİleManager.cs">

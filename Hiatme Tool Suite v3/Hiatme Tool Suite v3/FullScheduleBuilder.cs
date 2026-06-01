@@ -80,6 +80,28 @@ namespace Hiatme_Tool_Suite_v3
         public string Year { get; set; }
 
         public IDictionary<string, List<MCDownloadedTrip>> driverTripList;
+
+        private readonly Dictionary<string, List<SupeyTemplateSlot>> _driverTemplateSlots =
+            new Dictionary<string, List<SupeyTemplateSlot>>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Per-driver preview rows in template order (gaps + matched trips).</summary>
+        public IReadOnlyDictionary<string, List<ScheduleBuilderPreviewLine>> PreviewDriverLines { get; private set; } =
+            new Dictionary<string, List<ScheduleBuilderPreviewLine>>();
+
+        /// <summary>Per-driver matched trips after <see cref="BuildPreviewAsync"/> (trips only, no gaps).</summary>
+        public IReadOnlyDictionary<string, List<MCDownloadedTrip>> PreviewDriverTrips
+        {
+            get
+            {
+                if (driverTripList == null)
+                    return new Dictionary<string, List<MCDownloadedTrip>>();
+                return new Dictionary<string, List<MCDownloadedTrip>>(driverTripList);
+            }
+        }
+
+        /// <summary>Downloaded trips that did not match any template row.</summary>
+        public List<MCDownloadedTrip> PreviewReserves { get; private set; } = new List<MCDownloadedTrip>();
+
         public FullScheduleBuilder(string dayname, string daynumber, string monthname, string monthnumber, string year)
         {
             NameOfDay = dayname;
@@ -127,41 +149,23 @@ namespace Hiatme_Tool_Suite_v3
                     "—");
             }
         }
-        public async Task BuildFullSchedule(DateTime modcdate, MCLoginHandler modcLoginHandler)
+        /// <summary>Download, match templates, and fill preview data — no Excel export.</summary>
+        public async Task BuildPreviewAsync(DateTime modcdate, MCLoginHandler modcLoginHandler)
         {
             try
             {
-                await DownloadMCTrips(modcdate, modcLoginHandler);
+                await DownloadMCTrips(modcdate, modcLoginHandler).ConfigureAwait(false);
 
                 if (MCTripList == null || !MCTripList.Any())
                 {
-                    throw new ScheduleBuilderException("DownloadMCTrips", null, null, null, 0, new InvalidOperationException("No trips were downloaded. Check your Modivcare connection and date."));
+                    throw new ScheduleBuilderException("DownloadMCTrips", null, null, null, 0,
+                        new InvalidOperationException("No trips were downloaded. Check your Modivcare connection and date."));
                 }
 
-                await AsyncUpdateLoadingScreen("Loading template files");
+                await AsyncUpdateLoadingScreen("Loading template files").ConfigureAwait(false);
                 LoadTemplateFiles();
-
-                if (TripsFound == null || !TripsFound.Any())
-                {
-                    var dayDir = Path.Combine(AppContext.BaseDirectory, NameOfDay);
-                    throw new ScheduleBuilderException(
-                        "BuildTempCsvFiles",
-                        dayDir,
-                        NameOfDay,
-                        null,
-                        0,
-                        new InvalidOperationException(
-                            "No Modivcare trips matched your template rows for " + NameOfDay + ".\n\n" +
-                            "Common causes:\n" +
-                            "• Wrong weekday folder (templates must be under the same day name as the service date, e.g. Friday).\n" +
-                            "• Client name, PU/DO street or city, or PU/DO times differ between template CSV and today's download.\n" +
-                            "• Template CSV was built from a different route pattern than today's trips.\n\n" +
-                            "Calendar month/year in the template date column is ignored.\n" +
-                            "Template folder used:\n" + dayDir),
-                        "Match uses: client name, PU street & city, DO street & city, PU time, DO time (not trip #).");
-                }
-
-                await CreateWorkbookAsync();
+                EnsureMatchedTripsOrThrow();
+                PreviewReserves = BuildReservesList();
             }
             catch (ScheduleBuilderException)
             {
@@ -169,8 +173,60 @@ namespace Hiatme_Tool_Suite_v3
             }
             catch (Exception ex)
             {
-                throw new ScheduleBuilderException("BuildFullSchedule", null, null, null, 0, ex);
+                throw new ScheduleBuilderException("BuildPreview", null, null, null, 0, ex);
             }
+        }
+
+        public async Task BuildFullSchedule(DateTime modcdate, MCLoginHandler modcLoginHandler)
+        {
+            await BuildPreviewAsync(modcdate, modcLoginHandler).ConfigureAwait(false);
+            await CreateWorkbookAsync().ConfigureAwait(false);
+        }
+
+        private void EnsureMatchedTripsOrThrow()
+        {
+            if (TripsFound != null && TripsFound.Any())
+                return;
+
+            var dayDir = Path.Combine(AppContext.BaseDirectory, NameOfDay);
+            throw new ScheduleBuilderException(
+                "BuildTempCsvFiles",
+                dayDir,
+                NameOfDay,
+                null,
+                0,
+                new InvalidOperationException(
+                    "No Modivcare trips matched your template rows for " + NameOfDay + ".\n\n" +
+                    "Common causes:\n" +
+                    "• Wrong weekday folder (templates must be under the same day name as the service date, e.g. Friday).\n" +
+                    "• Client name, PU/DO street or city, or PU/DO times differ between template CSV and today's download.\n" +
+                    "• Template CSV was built from a different route pattern than today's trips.\n\n" +
+                    "Calendar month/year in the template date column is ignored.\n" +
+                    "Template folder used:\n" + dayDir),
+                "Match uses: client name, PU street & city, DO street & city, PU time, DO time (not trip #).");
+        }
+
+        private List<MCDownloadedTrip> BuildReservesList()
+        {
+            var reserves = new List<MCDownloadedTrip>();
+            if (MCTripList == null || TripsFound == null)
+                return reserves;
+
+            foreach (var dled in MCTripList)
+            {
+                bool found = false;
+                foreach (var t in TripsFound)
+                {
+                    if (t.TripNumber == dled.TripNumber)
+                    {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found)
+                    reserves.Add(dled);
+            }
+            return reserves;
         }
         private const string CsvColumnLegend =
             "Each trip row must have 14 values in order: A Trip#, B Date, C Client name, D PU street, E PU city, F PU phone, G PU time, H DO street, I DO city, J DO phone, K DO time, L Age, M Miles, N Comments.";
@@ -195,7 +251,8 @@ namespace Hiatme_Tool_Suite_v3
                         "—");
                 }
 
-                driverTripList = new Dictionary<string, List<MCDownloadedTrip>>();
+                _driverTemplateSlots.Clear();
+                driverTripList = null;
                 var filePaths = Directory.GetFiles(dayDir, "*.csv");
                 if (filePaths.Length == 0)
                 {
@@ -234,7 +291,7 @@ namespace Hiatme_Tool_Suite_v3
                     }
                 }
 
-                if (driverTripList.Count == 0)
+                if (_driverTemplateSlots.Count == 0)
                 {
                     throw new ScheduleBuilderException(
                         "LoadTemplateFiles",
@@ -263,50 +320,59 @@ namespace Hiatme_Tool_Suite_v3
         private void BuildTempCsvFiles()
         {
             TripsFound = new List<MCDownloadedTrip>();
-            if (driverTripList == null)
+            if (_driverTemplateSlots == null || _driverTemplateSlots.Count == 0)
             {
                 throw new ScheduleBuilderException("BuildTempCsvFiles", null, null, null, 0, new InvalidOperationException("No templates for chosen day. Create templates on the Templates tab first."), "—");
             }
+
+            driverTripList = new Dictionary<string, List<MCDownloadedTrip>>(StringComparer.OrdinalIgnoreCase);
+            var previewByDriver = new Dictionary<string, List<ScheduleBuilderPreviewLine>>(StringComparer.OrdinalIgnoreCase);
+            var matchedLiveTripNumbers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
             try
             {
-                foreach (KeyValuePair<string, List<MCDownloadedTrip>> templatetriplist in driverTripList)
+                foreach (var kv in _driverTemplateSlots.OrderBy(k => k.Key, StringComparer.OrdinalIgnoreCase))
                 {
-                    List<MCDownloadedTrip> confirmedtrips = new List<MCDownloadedTrip>();
-                    string driverName = templatetriplist.Key;
-                    int templateTripIndex = 0;
-                    foreach (MCDownloadedTrip templatetrip in templatetriplist.Value)
-                    {
-                        templateTripIndex++;
-                        try
-                        {
-                            foreach (MCDownloadedTrip mcdownloadedtrip in MCTripList)
-                            {
-                                if (TemplateTripMatchRules.TripsMatch(templatetrip, mcdownloadedtrip))
-                                {
-                                    confirmedtrips.Add(mcdownloadedtrip);
-                                    TripsFound.Add(mcdownloadedtrip);
-                                }
-                            }
-                        }
-                        catch (ScheduleBuilderException)
-                        {
-                            throw;
-                        }
-                        catch (Exception ex)
-                        {
-                            throw new ScheduleBuilderException(
-                                "BuildTempCsvFiles.MatchTemplateTrip",
-                                null,
-                                driverName,
-                                templatetrip?.TripNumber,
-                                0,
-                                ex,
-                                "Template trip #" + templateTripIndex + " for this driver (compare to row in " + driverName + ".csv)");
-                        }
-                    }
+                    string driverName = kv.Key;
+                    var collapsed = ScheduleBuilderTemplateSlots.CollapseConsecutiveGaps(kv.Value);
+                    List<ScheduleBuilderPreviewLine> previewLines;
                     try
                     {
-                        SaveTripListToCSVFile(confirmedtrips, templatetriplist.Key);
+                        previewLines = ScheduleBuilderTemplateSlots.BuildPreviewLines(
+                            collapsed, MCTripList, matchedLiveTripNumbers);
+                    }
+                    catch (ScheduleBuilderException)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        throw new ScheduleBuilderException(
+                            "BuildTempCsvFiles.MatchTemplateTrip",
+                            null,
+                            driverName,
+                            null,
+                            0,
+                            ex,
+                            "Matching template rows for driver " + driverName);
+                    }
+
+                    previewByDriver[driverName] = previewLines;
+
+                    var confirmedtrips = new List<MCDownloadedTrip>();
+                    foreach (var line in previewLines)
+                    {
+                        if (line?.Kind != ScheduleBuilderPreviewLine.LineKind.Trip || line.Trip == null)
+                            continue;
+                        confirmedtrips.Add(line.Trip);
+                        TripsFound.Add(line.Trip);
+                    }
+
+                    driverTripList[driverName] = confirmedtrips;
+
+                    try
+                    {
+                        SaveTripListToCSVFile(confirmedtrips, driverName);
                     }
                     catch (ScheduleBuilderException) { throw; }
                     catch (Exception ex)
@@ -321,6 +387,8 @@ namespace Hiatme_Tool_Suite_v3
                             "Working folder: " + TemplateBuilder.GetTemplateTempDirectory());
                     }
                 }
+
+                PreviewDriverLines = previewByDriver;
                 CreateMReservesCSVFile();
             }
             catch (ScheduleBuilderException) { throw; }
@@ -410,9 +478,13 @@ namespace Hiatme_Tool_Suite_v3
                 if (File.Exists(filename))
                 {
                     string actualfilename = Path.GetFileNameWithoutExtension(filename);
-                    if (driverTripList.ContainsKey(actualfilename))
+                    if (_driverTemplateSlots.ContainsKey(actualfilename))
                         return;
-                    driverTripList.Add(actualfilename, GetTripListFromCSVFile(filename, false));
+                    GetTripListFromCSVFile(filename, false);
+                    var slots = SupeyTemplateCsvLoader.LoadSlotsFromFile(filename);
+                    if (slots == null || slots.Count == 0)
+                        return;
+                    _driverTemplateSlots.Add(actualfilename, slots);
                     //Console.WriteLine("List added: " + actualfilename);
                 }
                 else
@@ -571,8 +643,27 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
+        /// <summary>True when Excel COM automation can run on this PC (Office installed, bitness matches).</summary>
+        internal static bool IsExcelAvailable()
+        {
+            try
+            {
+                return Type.GetTypeFromProgID("Excel.Application") != null;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         public async Task CreateWorkbookAsync()
         {
+            if (!IsExcelAvailable())
+            {
+                await ExportCsvSchedulePackageAsync().ConfigureAwait(false);
+                return;
+            }
+
             object misValue = System.Reflection.Missing.Value;
             Microsoft.Office.Interop.Excel.Application xlApp = null;
             Microsoft.Office.Interop.Excel.Workbook newWorkbook = null;
@@ -726,6 +817,8 @@ namespace Hiatme_Tool_Suite_v3
                 Marshal.ReleaseComObject(xlApp);
 
                 System.Diagnostics.Process.Start(path);
+                LastExportPath = path;
+                LastExportWasCsv = false;
                 await AsyncUpdateLoadingScreen("Finalizing process..");
                 HideLoadingScreen();
             }
@@ -764,10 +857,8 @@ namespace Hiatme_Tool_Suite_v3
                     comEx.HResult == unchecked((int)0x80040154))
                 {
                     inner = new InvalidOperationException(
-                        "Excel could not be started (Class not registered).\n\n" +
-                        "• Install Microsoft Excel on this PC.\n" +
-                        "• Use the same bitness as this app (32-bit Office for 32-bit app, 64-bit for 64-bit).\n\n" +
-                        "Original error: " + ex.Message,
+                        "Excel could not be started on this PC.\n\n" +
+                        "Use Export CSVs (this machine has no Excel), or install Excel and rebuild as a workbook.",
                         ex);
                 }
 
@@ -781,6 +872,87 @@ namespace Hiatme_Tool_Suite_v3
                     "Building or saving the final .xlsx from the CSV files in Template Temps");
             }
         }
+
+        /// <summary>
+        /// When Excel is not installed: copy per-driver CSVs from Template Temps into a folder the user picks
+        /// (same data as the workbook step — open or merge into .xlsx on a PC that has Excel).
+        /// </summary>
+        private async Task ExportCsvSchedulePackageAsync()
+        {
+            var tempDir = TemplateBuilder.GetTemplateTempDirectory();
+            if (!Directory.Exists(tempDir))
+            {
+                HideLoadingScreen();
+                throw new ScheduleBuilderException(
+                    "ExportCsvSchedulePackage",
+                    tempDir,
+                    null,
+                    null,
+                    0,
+                    new DirectoryNotFoundException(
+                        "The working folder for schedule CSV files does not exist:\n" + tempDir),
+                    "—");
+            }
+
+            var fileList = Directory.EnumerateFiles(tempDir, "*.csv").ToList();
+            if (fileList.Count == 0)
+            {
+                HideLoadingScreen();
+                throw new ScheduleBuilderException(
+                    "ExportCsvSchedulePackage",
+                    tempDir,
+                    null,
+                    null,
+                    0,
+                    new InvalidOperationException(
+                        "There are no driver CSV files to export.\n\n" +
+                        "Template matching may have failed — check templates and try again.\n\n" + tempDir),
+                    "—");
+            }
+
+            await AsyncUpdateLoadingScreen("Choose folder for driver CSV files");
+            string defaultFolderName = "Schedule for " + NameOfMonth + " " + Day + " " + Year;
+            string destRoot;
+            using (var folderDlg = new FolderBrowserDialog())
+            {
+                folderDlg.Description = "Export schedule — one .csv per driver tab (+ Reserves if any).";
+                folderDlg.ShowNewFolderButton = true;
+                folderDlg.SelectedPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+                if (folderDlg.ShowDialog() != DialogResult.OK)
+                {
+                    HideLoadingScreen();
+                    return;
+                }
+                destRoot = folderDlg.SelectedPath;
+            }
+
+            string destDir = Path.Combine(destRoot, defaultFolderName);
+            Directory.CreateDirectory(destDir);
+            await AsyncUpdateLoadingScreen("Copying " + fileList.Count + " CSV file(s)…");
+            foreach (var src in fileList)
+            {
+                string name = Path.GetFileName(src);
+                File.Copy(src, Path.Combine(destDir, name), overwrite: true);
+            }
+
+            HideLoadingScreen();
+            try
+            {
+                System.Diagnostics.Process.Start("explorer.exe", destDir);
+            }
+            catch
+            {
+                /* ignore */
+            }
+
+            LastExportPath = destDir;
+            LastExportWasCsv = true;
+        }
+
+        /// <summary>Set after a successful export (workbook path or CSV folder).</summary>
+        internal string LastExportPath { get; private set; }
+
+        internal bool LastExportWasCsv { get; private set; }
 
 
 
