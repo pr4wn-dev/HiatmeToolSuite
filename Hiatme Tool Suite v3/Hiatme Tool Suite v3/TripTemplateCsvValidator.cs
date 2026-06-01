@@ -32,6 +32,42 @@ namespace Hiatme_Tool_Suite_v3
             @"^\s*\d{1,2}:\d{2}(:\d{2})?(\s*[AP]M)?\s*$",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
+        private static readonly Regex TripTimeExtract = new Regex(
+            @"(\d{1,2}:\d{2}(?::\d{2})?(?:\s*[AP]M)?)",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+        /// <summary>Modivcare trip # pattern, e.g. 1-8008-A.</summary>
+        private static readonly Regex ModivcareTripNumber = new Regex(
+            @"^\d+\s*-\s*\d+(\s*-\s*[ABCabc])?\s*$",
+            RegexOptions.CultureInvariant);
+
+        public static bool IsLikelyModivcareTripNumber(string tripNumber)
+        {
+            if (string.IsNullOrWhiteSpace(tripNumber))
+                return false;
+            return ModivcareTripNumber.IsMatch(tripNumber.Replace("\"", "").Trim());
+        }
+
+        /// <summary>Dispatcher label in column A (e.g. GAS UP) with no trip fields in B–N.</summary>
+        public static bool IsDispatcherNoteRow(string[] rowValues)
+        {
+            if (rowValues == null || rowValues.Length == 0)
+                return false;
+
+            string Cell(int i) => i < rowValues.Length ? (rowValues[i] ?? "").Replace("\"", "").Trim() : "";
+            string trip = Cell(0);
+            if (string.IsNullOrEmpty(trip) || IsLikelyModivcareTripNumber(trip))
+                return false;
+
+            for (int i = 1; i < 14; i++)
+            {
+                if (!string.IsNullOrWhiteSpace(Cell(i)))
+                    return false;
+            }
+
+            return true;
+        }
+
         public static string ColumnLetterFromIndex(int index0)
         {
             if (index0 < 0 || index0 > 25)
@@ -118,6 +154,9 @@ namespace Hiatme_Tool_Suite_v3
             if (rowValues == null || rowValues.Length == 0)
                 return true;
 
+            if (IsDispatcherNoteRow(rowValues))
+                return true;
+
             if (IsTemplateInstructionRow(rowValues))
                 return true;
 
@@ -187,8 +226,8 @@ namespace Hiatme_Tool_Suite_v3
 
             string date = Cell(1);
             string client = Cell(2);
-            string puTime = Cell(6);
-            string doTime = Cell(10);
+            string puTime = NormalizeTimeField(Cell(6));
+            string doTime = NormalizeTimeField(Cell(10));
             string miles = Cell(12);
 
             if (string.IsNullOrEmpty(date))
@@ -223,6 +262,20 @@ namespace Hiatme_Tool_Suite_v3
         private static bool LooksLikeTripTime(string s)
         {
             return !string.IsNullOrWhiteSpace(s) && TripTimeLike.IsMatch(s);
+        }
+
+        /// <summary>Strip accidental trailing text from Excel cells (e.g. "12:00:00 AM fsfser3" → "12:00:00 AM").</summary>
+        public static string NormalizeTimeField(string raw)
+        {
+            var s = (raw ?? "").Replace("\"", "").Trim();
+            if (s.Length == 0)
+                return "";
+            if (LooksLikeTripTime(s))
+                return s;
+            var m = TripTimeExtract.Match(s);
+            if (m.Success && LooksLikeTripTime(m.Groups[1].Value.Trim()))
+                return m.Groups[1].Value.Trim();
+            return s;
         }
 
         private static bool IsPlausibleServiceDate(string raw)

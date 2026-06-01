@@ -172,12 +172,15 @@
     </Compile>
     <Compile Include="Form1.ScheduleBuilder.cs">
       <DependentUpon>Form1.cs</DependentUpon>
+      <SubType>Form</SubType>
     </Compile>
     <Compile Include="Form1.ScheduleBuilder.Rules.cs">
       <DependentUpon>Form1.cs</DependentUpon>
+      <SubType>Form</SubType>
     </Compile>
     <Compile Include="Form1.ScheduleBuilder.ContextMenu.cs">
       <DependentUpon>Form1.cs</DependentUpon>
+      <SubType>Form</SubType>
     </Compile>
     <Compile Include="ScheduleBuilderBannedClients.cs" />
     <Compile Include="FİleManager.cs">

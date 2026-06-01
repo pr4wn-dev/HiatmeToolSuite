@@ -278,33 +278,11 @@ namespace Hiatme_Tool_Suite_v3
 
                 AutoSize = true,
 
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+
                 BackColor = SupeyTheme.SurfaceHeader,
 
                 Padding = new Padding(12, 12, 0, 0),
-
-                Width = 720,
-
-            };
-
-
-
-            var rightFlow = new FlowLayoutPanel
-
-            {
-
-                Dock = DockStyle.Right,
-
-                FlowDirection = FlowDirection.RightToLeft,
-
-                WrapContents = false,
-
-                AutoSize = true,
-
-                BackColor = SupeyTheme.SurfaceHeader,
-
-                Padding = new Padding(0, 12, 12, 0),
-
-                Width = 720,
 
             };
 
@@ -396,7 +374,7 @@ namespace Hiatme_Tool_Suite_v3
 
                 Kind = SupeyButton.Variant.Secondary,
 
-                Size = new Size(148, 30),
+                Size = new Size(160, 30),
 
                 Margin = new Padding(0, 1, 0, 0),
 
@@ -422,11 +400,9 @@ namespace Hiatme_Tool_Suite_v3
 
                 Text = "Ready",
 
-                AutoSize = false,
+                Dock = DockStyle.Fill,
 
-                Width = 520,
-
-                Height = 28,
+                AutoEllipsis = true,
 
                 ForeColor = SupeyTheme.TextSecondary,
 
@@ -436,7 +412,7 @@ namespace Hiatme_Tool_Suite_v3
 
                 Font = SupeyTheme.BodyFont,
 
-                Margin = new Padding(0, 3, 0, 0),
+                Padding = new Padding(8, 14, 12, 0),
 
             };
 
@@ -458,37 +434,11 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-            rightFlow.Controls.Add(_fsToolbarStatusLbl);
-
-
-
-            _fsToolbarPanel.Controls.Add(rightFlow);
-
-            _fsToolbarPanel.Controls.Add(leftFlow);
-
             _fsToolbarPanel.Controls.Add(divider);
 
-            _fsToolbarPanel.Resize += (s, e) => LayoutFsToolbarStatusWidth();
+            _fsToolbarPanel.Controls.Add(_fsToolbarStatusLbl);
 
-            LayoutFsToolbarStatusWidth();
-
-        }
-
-
-
-        private void LayoutFsToolbarStatusWidth()
-
-        {
-
-            if (_fsToolbarPanel == null || _fsToolbarStatusLbl == null) return;
-
-            int pad = 12;
-
-            int reservedLeft = 640;
-
-            int w = Math.Max(180, _fsToolbarPanel.ClientSize.Width - reservedLeft - pad);
-
-            _fsToolbarStatusLbl.Width = w;
+            _fsToolbarPanel.Controls.Add(leftFlow);
 
         }
 
@@ -1660,7 +1610,7 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-            var tabNames = driverNames.Concat(new[] { "Reserves" }).ToList();
+            var tabNames = new[] { "Reserves" }.Concat(driverNames).ToList();
 
             RebuildFsDriverTabs(tabNames);
 
@@ -1670,9 +1620,13 @@ namespace Hiatme_Tool_Suite_v3
 
                 SelectFsDriverTab("Reserves");
 
+            else if (driverNames.Count > 0)
+
+                SelectFsDriverTab(driverNames[0]);
+
             else if (tabNames.Count > 0)
 
-                SelectFsDriverTab(tabNames[0]);
+                SelectFsDriverTab("Reserves");
 
             else
 

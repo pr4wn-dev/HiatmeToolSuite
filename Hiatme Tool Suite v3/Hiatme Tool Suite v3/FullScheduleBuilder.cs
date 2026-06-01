@@ -903,6 +903,9 @@ namespace Hiatme_Tool_Suite_v3
                     if (TripTemplateCsvValidator.IsLikelyHeaderRow(rowForValidate))
                         continue;
 
+                    if (TripTemplateCsvValidator.IsTemplateGapRow(rowForValidate))
+                        continue;
+
                     if (TripTemplateCsvValidator.IsPlaceholderTripNumber(rowValues[0]))
                         continue;
 
@@ -932,11 +935,11 @@ namespace Hiatme_Tool_Suite_v3
                     mCTrip.PUStreet = rowValues[3].Replace("\"", string.Empty);
                     mCTrip.PUCity = rowValues[4].Replace("\"", string.Empty);
                     mCTrip.PUTelephone = rowValues[5].Replace("\"", string.Empty);
-                    mCTrip.PUTime = rowValues[6].Replace("\"", string.Empty);
+                    mCTrip.PUTime = TripTemplateCsvValidator.NormalizeTimeField(rowValues[6]);
                     mCTrip.DOStreet = rowValues[7].Replace("\"", string.Empty);
                     mCTrip.DOCITY = rowValues[8].Replace("\"", string.Empty);
                     mCTrip.DOTelephone = rowValues[9].Replace("\"", string.Empty);
-                    mCTrip.DOTime = rowValues[10].Replace("\"", string.Empty);
+                    mCTrip.DOTime = TripTemplateCsvValidator.NormalizeTimeField(rowValues[10]);
                     mCTrip.Age = rowValues[11].Replace("\"", string.Empty);
                     mCTrip.Miles = rowValues[12].Replace("\"", string.Empty);
                     mCTrip.Comments = rowValues[13].Replace("\"", string.Empty);
