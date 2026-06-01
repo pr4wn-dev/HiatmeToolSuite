@@ -14,8 +14,10 @@ function Find-AiagentEnv {
     $repoRoot = (Get-Item $projectDir).Parent.Parent.FullName
     $candidates = @(
         (Join-Path $repoRoot "AIagent\.env"),
+        (Join-Path (Split-Path $repoRoot -Parent) "AIagent\.env"),
         "F:\Projects\AIagent\.env",
-        "C:\Users\megap\AIagent\.env"
+        "C:\Projects\AIagent\.env",
+        (Join-Path $env:USERPROFILE "AIagent\.env")
     )
     foreach ($p in $candidates) {
         if (Test-Path $p) { return $p }

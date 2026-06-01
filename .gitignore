@@ -46,6 +46,10 @@ Server/node_modules/
 # Local OSRM map data (large; build via tools/osrm/scripts)
 tools/osrm/data/
 
+# Python helper scripts
+scripts/__pycache__/
+*.pyc
+
 # Misc
 *.log
 *.cache
