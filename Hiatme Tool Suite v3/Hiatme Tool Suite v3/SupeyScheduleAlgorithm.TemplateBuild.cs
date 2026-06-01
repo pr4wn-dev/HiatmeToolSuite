@@ -89,6 +89,12 @@ namespace Hiatme_Tool_Suite_v3
                         || result.Reserves.Contains(t))
                         continue;
 
+                    if (SupeyWillCallPickup.IsPickupWillCall(t))
+                    {
+                        SupeyReserveBuckets.AddToReserves(result, t);
+                        continue;
+                    }
+
                     if (!tripGeo.TryGetValue(t, out var g) || !g.Complete)
                     {
                         SupeyReserveBuckets.AddToReserves(result, t);
@@ -139,6 +145,7 @@ namespace Hiatme_Tool_Suite_v3
                 SupeyReserveBuckets.AddToReserves(result, t);
             }
 
+            SupeyWillCallPickup.EnforceOnResult(result, trips);
             progress?.Report("Template build complete.");
             return result;
         }

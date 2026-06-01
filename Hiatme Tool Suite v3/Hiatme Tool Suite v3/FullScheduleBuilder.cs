@@ -8,6 +8,7 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Web.UI;
 using System.Windows.Forms;
@@ -99,8 +100,28 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
-        /// <summary>Downloaded trips that did not match any template row.</summary>
+        /// <summary>Downloaded trips that did not match any template row (excludes no-go reroutes).</summary>
         public List<MCDownloadedTrip> PreviewReserves { get; private set; } = new List<MCDownloadedTrip>();
+
+        /// <summary>Unassigned no-go trips — reroute to Modivcare. Trips on a driver template stay on that driver (exceptions).</summary>
+        public List<MCDownloadedTrip> PreviewReservesReroute { get; private set; } = new List<MCDownloadedTrip>();
+
+        /// <summary>Banned clients (name + age) — not placed on driver tabs.</summary>
+        public List<MCDownloadedTrip> PreviewReservesBanned { get; private set; } = new List<MCDownloadedTrip>();
+
+        /// <summary>00:00 PU will calls — top of Reserves; not kept on driver tabs after BUILD.</summary>
+        public List<MCDownloadedTrip> PreviewReservesWillCalls { get; private set; } = new List<MCDownloadedTrip>();
+
+        /// <summary>Downloaded will-call trips (00:00 PU and/or WILL CALL in comments).</summary>
+        public int WillCallsInDownloadCount { get; private set; }
+
+        public int WillCallsPuMidnightInDownloadCount { get; private set; }
+
+        public int WillCallsCommentInDownloadCount { get; private set; }
+
+        private readonly List<MCDownloadedTrip> _bannedPulledFromDrivers = new List<MCDownloadedTrip>();
+
+        private readonly List<MCDownloadedTrip> _willCallPulledFromDrivers = new List<MCDownloadedTrip>();
 
         public FullScheduleBuilder(string dayname, string daynumber, string monthname, string monthnumber, string year)
         {
@@ -162,10 +183,13 @@ namespace Hiatme_Tool_Suite_v3
                         new InvalidOperationException("No trips were downloaded. Check your Modivcare connection and date."));
                 }
 
+                await AsyncUpdateLoadingScreen("Loading rules").ConfigureAwait(false);
+                await RefreshNoGoAreasAsync().ConfigureAwait(false);
+                ScheduleBuilderBannedClients.ReloadCache();
+
                 await AsyncUpdateLoadingScreen("Loading template files").ConfigureAwait(false);
                 LoadTemplateFiles();
                 EnsureMatchedTripsOrThrow();
-                PreviewReserves = BuildReservesList();
             }
             catch (ScheduleBuilderException)
             {
@@ -206,27 +230,280 @@ namespace Hiatme_Tool_Suite_v3
                 "Match uses: client name, PU street & city, DO street & city, PU time, DO time (not trip #).");
         }
 
-        private List<MCDownloadedTrip> BuildReservesList()
+        private static async Task RefreshNoGoAreasAsync()
         {
-            var reserves = new List<MCDownloadedTrip>();
-            if (MCTripList == null || TripsFound == null)
-                return reserves;
-
-            foreach (var dled in MCTripList)
+            try
             {
-                bool found = false;
-                foreach (var t in TripsFound)
+                var ai = HiatmeAiSettings.Load();
+                if (HiatmeGeoSettings.UseServer)
                 {
-                    if (t.TripNumber == dled.TripNumber)
-                    {
-                        found = true;
-                        break;
-                    }
+                    await SupeyOutOfArea.TrySyncLocalFileToServerAsync(ai, CancellationToken.None)
+                        .ConfigureAwait(false);
+                    var areas = await HiatmeAiClient.GetOutOfAreaAsync(ai, CancellationToken.None)
+                        .ConfigureAwait(false);
+                    SupeyOutOfArea.SetCachedAreas(areas);
+                    SupeyOutOfArea.TrySaveLocalFallback(areas);
                 }
-                if (!found)
-                    reserves.Add(dled);
+                else
+                    SupeyOutOfArea.SetCachedAreas(SupeyOutOfArea.LoadLocalFallback());
             }
-            return reserves;
+            catch
+            {
+                SupeyOutOfArea.SetCachedAreas(SupeyOutOfArea.LoadLocalFallback());
+            }
+        }
+
+        private static void EnsureScheduleBuilderRulesLoaded()
+        {
+            ScheduleBuilderBannedClients.ReloadCache();
+            if (SupeyOutOfArea.CachedAreas == null || SupeyOutOfArea.CachedAreas.Count == 0)
+                SupeyOutOfArea.SetCachedAreas(SupeyOutOfArea.LoadLocalFallback());
+        }
+
+        private void SplitReserveBuckets()
+        {
+            EnsureScheduleBuilderRulesLoaded();
+
+            var reroute = new List<MCDownloadedTrip>();
+            var banned = new List<MCDownloadedTrip>();
+            var willCalls = new List<MCDownloadedTrip>();
+            var reserves = new List<MCDownloadedTrip>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            void AddToBucket(MCDownloadedTrip trip)
+            {
+                if (trip == null) return;
+                string tn = (trip.TripNumber ?? "").Trim();
+                if (tn.Length > 0)
+                {
+                    if (!seen.Add(tn)) return;
+                }
+                switch (ScheduleBuilderReserveBuckets.Classify(trip))
+                {
+                    case ScheduleBuilderReserveBuckets.ReserveBucket.Banned:
+                        banned.Add(trip);
+                        break;
+                    case ScheduleBuilderReserveBuckets.ReserveBucket.Reroute:
+                        reroute.Add(trip);
+                        break;
+                    case ScheduleBuilderReserveBuckets.ReserveBucket.WillCall:
+                        willCalls.Add(trip);
+                        break;
+                    default:
+                        reserves.Add(trip);
+                        break;
+                }
+            }
+
+            foreach (var t in _bannedPulledFromDrivers)
+                AddToBucket(t);
+            foreach (var t in _willCallPulledFromDrivers)
+                AddToBucket(t);
+
+            if (MCTripList != null)
+            {
+                foreach (var dled in MCTripList)
+                {
+                    if (dled == null) continue;
+                    string tn = (dled.TripNumber ?? "").Trim();
+                    if (tn.Length > 0 && seen.Contains(tn)) continue;
+
+                    // On a driver tab: no-go may stay; banned + 00:00 PU will-calls always go to Reserves.
+                    if (TripStillOnDriverAssignment(dled))
+                    {
+                        var bucket = ScheduleBuilderReserveBuckets.Classify(dled);
+                        if (bucket == ScheduleBuilderReserveBuckets.ReserveBucket.Banned
+                            || bucket == ScheduleBuilderReserveBuckets.ReserveBucket.WillCall)
+                        {
+                            RemoveTripFromFound(dled);
+                            AddToBucket(dled);
+                        }
+                        continue;
+                    }
+
+                    AddToBucket(dled);
+                }
+            }
+
+            FinalizeWillCallReserves(willCalls, reserves, seen);
+
+            if (MCTripList != null)
+            {
+                ScheduleBuilderReserveBuckets.CountWillCallsInDownload(
+                    MCTripList,
+                    out int wcTotal,
+                    out int wcPu,
+                    out int wcCmt);
+                WillCallsInDownloadCount = wcTotal;
+                WillCallsPuMidnightInDownloadCount = wcPu;
+                WillCallsCommentInDownloadCount = wcCmt;
+            }
+            else
+                WillCallsInDownloadCount = WillCallsPuMidnightInDownloadCount = WillCallsCommentInDownloadCount = 0;
+
+            PreviewReservesReroute = reroute;
+            PreviewReservesBanned = banned;
+            PreviewReservesWillCalls = willCalls;
+            PreviewReserves = reserves;
+        }
+
+        /// <summary>
+        /// Every downloaded 00:00-PU trip (not banned / no-go) lands in Will calls and is off driver tabs.
+        /// </summary>
+        private void FinalizeWillCallReserves(
+            List<MCDownloadedTrip> willCalls,
+            List<MCDownloadedTrip> reserves,
+            HashSet<string> seen)
+        {
+            if (MCTripList == null) return;
+
+            foreach (var t in MCTripList)
+            {
+                if (t == null || !ScheduleBuilderReserveBuckets.IsWillCallTrip(t)) continue;
+                if (ScheduleBuilderReserveBuckets.Classify(t) != ScheduleBuilderReserveBuckets.ReserveBucket.WillCall)
+                    continue;
+
+                RemoveTripFromFound(t);
+
+                string tn = (t.TripNumber ?? "").Trim();
+                reserves.RemoveAll(x =>
+                    x != null && (string.IsNullOrEmpty(tn)
+                        || string.Equals(x.TripNumber, tn, StringComparison.OrdinalIgnoreCase)));
+
+                if (tn.Length > 0)
+                {
+                    if (seen.Contains(tn))
+                    {
+                        for (int i = 0; i < willCalls.Count; i++)
+                        {
+                            if (willCalls[i] != null
+                                && string.Equals(willCalls[i].TripNumber, tn, StringComparison.OrdinalIgnoreCase))
+                            {
+                                willCalls[i] = t;
+                                break;
+                            }
+                        }
+                        continue;
+                    }
+                    seen.Add(tn);
+                }
+
+                willCalls.Add(t);
+            }
+        }
+
+        /// <summary>00:00-PU trips must not remain on driver tabs after BUILD (Reserves → Will calls).</summary>
+        private void RemoveWillCallsFromDriverPreview()
+        {
+            var dict = PreviewDriverLines as Dictionary<string, List<ScheduleBuilderPreviewLine>>;
+            if (dict == null) return;
+            foreach (var kv in dict.ToList())
+            {
+                var kept = new List<ScheduleBuilderPreviewLine>();
+                foreach (var line in kv.Value ?? Enumerable.Empty<ScheduleBuilderPreviewLine>())
+                {
+                    if (line?.Kind == ScheduleBuilderPreviewLine.LineKind.Trip
+                        && line.Trip != null
+                        && ScheduleBuilderReserveBuckets.IsWillCallPickup(line.Trip))
+                        continue;
+                    kept.Add(line);
+                }
+                dict[kv.Key] = kept;
+            }
+        }
+
+        private bool TripStillOnDriverAssignment(MCDownloadedTrip trip)
+        {
+            if (trip == null || TripsFound == null) return false;
+            string tn = (trip.TripNumber ?? "").Trim();
+            if (tn.Length == 0) return false;
+            foreach (var t in TripsFound)
+            {
+                if (t != null && string.Equals(t.TripNumber, tn, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+            return false;
+        }
+
+        private void RemoveRuleBlockedTripsFromDriverAssignments(
+            IDictionary<string, List<ScheduleBuilderPreviewLine>> previewByDriver,
+            IDictionary<string, List<MCDownloadedTrip>> driverTrips)
+        {
+            EnsureScheduleBuilderRulesLoaded();
+            _bannedPulledFromDrivers.Clear();
+            _willCallPulledFromDrivers.Clear();
+            if (previewByDriver == null || TripsFound == null) return;
+
+            foreach (var kv in previewByDriver.ToList())
+            {
+                var keptLines = new List<ScheduleBuilderPreviewLine>();
+                var keptTrips = new List<MCDownloadedTrip>();
+                foreach (var line in kv.Value ?? Enumerable.Empty<ScheduleBuilderPreviewLine>())
+                {
+                    if (line?.Kind == ScheduleBuilderPreviewLine.LineKind.Trip && line.Trip != null)
+                    {
+                        switch (ScheduleBuilderReserveBuckets.Classify(line.Trip))
+                        {
+                            case ScheduleBuilderReserveBuckets.ReserveBucket.Banned:
+                                _bannedPulledFromDrivers.Add(line.Trip);
+                                RemoveTripFromFound(line.Trip);
+                                continue;
+                            case ScheduleBuilderReserveBuckets.ReserveBucket.WillCall:
+                                _willCallPulledFromDrivers.Add(line.Trip);
+                                RemoveTripFromFound(line.Trip);
+                                continue;
+                        }
+                    }
+                    keptLines.Add(line);
+                    if (line?.Kind == ScheduleBuilderPreviewLine.LineKind.Trip && line.Trip != null)
+                        keptTrips.Add(line.Trip);
+                }
+                previewByDriver[kv.Key] = keptLines;
+                if (driverTrips != null)
+                    driverTrips[kv.Key] = keptTrips;
+            }
+        }
+
+        private void RewriteDriverCsvsAfterRuleStrip()
+        {
+            if (driverTripList == null) return;
+            foreach (var kv in driverTripList.ToList())
+            {
+                try
+                {
+                    SaveTripListToCSVFile(kv.Value ?? new List<MCDownloadedTrip>(), kv.Key);
+                }
+                catch (ScheduleBuilderException) { throw; }
+                catch (Exception ex)
+                {
+                    throw new ScheduleBuilderException(
+                        "SaveTripListToCSVFile",
+                        null,
+                        kv.Key,
+                        null,
+                        0,
+                        new IOException("Could not rewrite CSV after applying banned-client rules for \"" + kv.Key + "\".\n\n" + ex.Message, ex),
+                        "Working folder: " + TemplateBuilder.GetTemplateTempDirectory());
+                }
+            }
+        }
+
+        private void RemoveTripFromFound(MCDownloadedTrip trip)
+        {
+            if (trip == null || TripsFound == null) return;
+            string tn = (trip.TripNumber ?? "").Trim();
+            for (int i = TripsFound.Count - 1; i >= 0; i--)
+            {
+                var t = TripsFound[i];
+                if (t == null) continue;
+                if (ReferenceEquals(t, trip)
+                    || (!string.IsNullOrEmpty(tn)
+                        && string.Equals(t.TripNumber, tn, StringComparison.OrdinalIgnoreCase)))
+                {
+                    TripsFound.RemoveAt(i);
+                    break;
+                }
+            }
         }
         private const string CsvColumnLegend =
             "Each trip row must have 14 values in order: A Trip#, B Date, C Client name, D PU street, E PU city, F PU phone, G PU time, H DO street, I DO city, J DO phone, K DO time, L Age, M Miles, N Comments.";
@@ -388,7 +665,11 @@ namespace Hiatme_Tool_Suite_v3
                     }
                 }
 
+                RemoveRuleBlockedTripsFromDriverAssignments(previewByDriver, driverTripList);
                 PreviewDriverLines = previewByDriver;
+                RewriteDriverCsvsAfterRuleStrip();
+                SplitReserveBuckets();
+                RemoveWillCallsFromDriverPreview();
                 CreateMReservesCSVFile();
             }
             catch (ScheduleBuilderException) { throw; }
@@ -401,22 +682,11 @@ namespace Hiatme_Tool_Suite_v3
         {
             try
             {
-                List<MCDownloadedTrip> reservetrips = new List<MCDownloadedTrip>();
-                foreach (MCDownloadedTrip dledmctrip in MCTripList)
-                {
-                    bool tripfound = false;
-                    foreach (MCDownloadedTrip foundtrip in TripsFound)
-                    {
-                        if (foundtrip.TripNumber == dledmctrip.TripNumber)
-                        {
-                            tripfound = true;
-                        }
-                    }
-                    if (!tripfound)
-                    {
-                        reservetrips.Add(dledmctrip);
-                    }
-                }
+                var reservetrips = new List<MCDownloadedTrip>();
+                if (PreviewReservesWillCalls != null) reservetrips.AddRange(PreviewReservesWillCalls);
+                if (PreviewReserves != null) reservetrips.AddRange(PreviewReserves);
+                if (PreviewReservesReroute != null) reservetrips.AddRange(PreviewReservesReroute);
+                if (PreviewReservesBanned != null) reservetrips.AddRange(PreviewReservesBanned);
                 SaveTripListToCSVFile(reservetrips, "Reserves");
             }
             catch (ScheduleBuilderException) { throw; }

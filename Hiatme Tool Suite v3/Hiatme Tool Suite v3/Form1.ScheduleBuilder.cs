@@ -56,6 +56,8 @@ namespace Hiatme_Tool_Suite_v3
 
         private SupeyButton _fsSaveBtn;
 
+        private bool _fsHasPreview;
+
         private bool _fsPreviewUiReady;
 
         private bool _fsDefaultSplitApplied;
@@ -68,6 +70,10 @@ namespace Hiatme_Tool_Suite_v3
 
         private int _fsMapRefreshGen;
 
+        private bool _fsMapOsrmPrimed;
+
+        private bool _fsCenterMaineAfterBuild;
+
 
 
         private readonly Dictionary<string, List<ScheduleBuilderPreviewLine>> _fsLinesByTab =
@@ -76,13 +82,57 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-        private sealed class FsPreviewGapTag
+        private readonly Dictionary<string, List<SupeyTripCluster>> _fsGroupsByTab =
+
+            new Dictionary<string, List<SupeyTripCluster>>(StringComparer.OrdinalIgnoreCase);
+
+
+
+        private sealed class FsPreviewGapTag { }
+
+
+
+        private sealed class FsPreviewSectionHeaderTag
 
         {
 
-            public string NoteText { get; }
+            public string Title { get; }
 
-            public FsPreviewGapTag(string noteText) => NoteText = noteText ?? "";
+            public FsPreviewSectionHeaderTag(string title) => Title = title ?? "";
+
+        }
+
+
+
+        private sealed class FsPreviewNoteTag
+
+        {
+
+            public SupeyTripCluster Group { get; }
+
+            public FsPreviewNoteTag(SupeyTripCluster g) => Group = g;
+
+        }
+
+
+
+        private sealed class FsPreviewTripTag
+
+        {
+
+            public SupeyTripCluster Group { get; }
+
+            public MCDownloadedTrip Trip { get; }
+
+            public FsPreviewTripTag(SupeyTripCluster g, MCDownloadedTrip t)
+
+            {
+
+                Group = g;
+
+                Trip = t;
+
+            }
 
         }
 
@@ -220,7 +270,7 @@ namespace Hiatme_Tool_Suite_v3
 
                 Padding = new Padding(12, 12, 0, 0),
 
-                Width = 620,
+                Width = 720,
 
             };
 
@@ -326,7 +376,10 @@ namespace Hiatme_Tool_Suite_v3
 
             var saveTip = new ToolTip { AutoPopDelay = 12000, InitialDelay = 400 };
 
-            saveTip.SetToolTip(_fsSaveBtn, "Save as Excel workbook — coming soon.");
+            _fsSaveBtn.Click += fsSaveBtn_Click;
+
+            saveTip.SetToolTip(_fsSaveBtn,
+                "Export Excel workbook, or a folder of driver CSVs if Excel is not installed. Does not require the office AI server.");
 
 
 
@@ -500,17 +553,13 @@ namespace Hiatme_Tool_Suite_v3
 
             _fsMap = new SupeyMapWorkspace { Dock = DockStyle.Fill };
 
-            _fsMap.SetSupeyStatusOnHost = msg =>
+            _fsMap.CenterOnMaineHub();
 
-            {
+            _fsMap.SetSupeyStatusOnHost = null;
 
-                if (!string.IsNullOrWhiteSpace(msg))
+            BuildFsRulesWorkspaceDock();
 
-                    SetScheduleBuilderStatus(msg);
-
-            };
-
-            _fsMainSplit.Panel1.Controls.Add(_fsMap);
+            _fsMainSplit.Panel1.Controls.Add(_fsMapWorkPanel);
 
 
 
@@ -654,6 +703,10 @@ namespace Hiatme_Tool_Suite_v3
 
             ListViewHeaderEmptyAreaPainter.Attach(_fsTripsLv);
 
+            BuildFsTripsContextMenu();
+
+            _fsTripsLv.MouseUp += FsTripsLv_MouseUp_ShowContextMenu;
+
 
 
             _fsTripsLv.SelectedIndexChanged += (s, e) =>
@@ -664,9 +717,19 @@ namespace Hiatme_Tool_Suite_v3
 
                 var item = _fsTripsLv.SelectedItems[0];
 
-                if (item.Tag is FsPreviewGapTag) return;
+                if (item.Tag is FsPreviewGapTag || item.Tag is FsPreviewNoteTag
 
-                var trip = item.Tag as MCDownloadedTrip;
+                    || item.Tag is FsPreviewSectionHeaderTag) return;
+
+                MCDownloadedTrip trip = null;
+
+                if (item.Tag is FsPreviewTripTag rowTag)
+
+                    trip = rowTag.Trip;
+
+                else
+
+                    trip = item.Tag as MCDownloadedTrip;
 
                 if (trip != null)
 
@@ -824,19 +887,39 @@ namespace Hiatme_Tool_Suite_v3
 
             bool isGap = e.Item?.Tag is FsPreviewGapTag;
 
-            Color rowBg = isGap ? SupeyTheme.SurfaceHeader : (sel ? SupeyTheme.ListSelected : SupeyTheme.ListBody);
+            bool isSection = e.Item?.Tag is FsPreviewSectionHeaderTag;
+
+            bool isNote = e.Item?.Tag is FsPreviewNoteTag;
+
+            var noteTag = e.Item?.Tag as FsPreviewNoteTag;
+
+            Color rowBg = sel ? SupeyTheme.ListSelected : SupeyTheme.ListBody;
+
+            if (!sel && isSection)
+
+                rowBg = SupeyTheme.SurfaceHeader;
+
+            else if (!sel && isGap)
+
+                rowBg = SupeyTheme.ListBody;
+
+            else if (!sel && isNote && noteTag?.Group != null)
+
+                rowBg = FsRouteHeaderBackColor(noteTag.Group.GroupColor);
 
             Color fill = rowBg;
 
-            if (!isGap && !sel && e.ColumnIndex == 0 && e.Item != null
+            if (!sel && isNote && noteTag?.Group != null && e.ColumnIndex == 0)
 
-                && e.Item.BackColor != Color.Empty && e.Item.BackColor != SupeyTheme.ListBody)
+                fill = noteTag.Group.GroupColor;
 
-            {
+            else if (!sel && !isGap && !isNote && e.ColumnIndex == 0
 
-                fill = e.Item.BackColor;
+                && e.SubItem != null && e.SubItem.BackColor != Color.Empty
 
-            }
+                && e.SubItem.BackColor != SupeyTheme.ListBody)
+
+                fill = e.SubItem.BackColor;
 
 
 
@@ -848,15 +931,13 @@ namespace Hiatme_Tool_Suite_v3
 
             Color textColor = sel ? SupeyTheme.ListSelectedText : SupeyTheme.ListText;
 
-            if (isGap && !sel && e.ColumnIndex == 2)
+            if (!sel && isSection && e.ColumnIndex == 2)
 
-                textColor = SupeyTheme.TextSecondary;
+                textColor = SupeyTheme.TextPrimary;
 
+            Font drawFont = isSection && e.ColumnIndex == 2
 
-
-            Font drawFont = isGap && e.ColumnIndex == 2 && (e.Item?.Tag as FsPreviewGapTag)?.NoteText?.Length > 0
-
-                ? new Font(_fsTripsLv.Font, FontStyle.Italic)
+                ? new Font(_fsTripsLv.Font, FontStyle.Bold)
 
                 : _fsTripsLv.Font;
 
@@ -1058,6 +1139,8 @@ namespace Hiatme_Tool_Suite_v3
 
             _fsTripsLv.Columns.Clear();
 
+            _fsTripsLv.Columns.Add("Grp", 40);
+
             _fsTripsLv.Columns.Add("Trip #", 90);
 
             _fsTripsLv.Columns.Add("Date", 72);
@@ -1088,9 +1171,11 @@ namespace Hiatme_Tool_Suite_v3
 
         {
 
-            SetScheduleBuilderStatus("Building schedule…");
+            SetScheduleBuilderStatus("Checking connections…");
 
-            loadinggifhandler_showscreen();
+            _fsHasPreview = false;
+
+            if (_fsSaveBtn != null) _fsSaveBtn.Enabled = false;
 
             if (fsbdatepicker != null) fsbdatepicker.Enabled = false;
 
@@ -1112,19 +1197,17 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
+            void OnBuildStatus(string text) => SetScheduleBuilderStatus(text);
+
+
+
             try
 
             {
 
-                await SetLoadingGifLabel("Checking connections");
-
                 if (!await EnsureModivcareSessionAsync())
 
                 {
-
-                    loadinggifhandler_hidescreen();
-
-                    EnableScheduleBuilderInputs(true);
 
                     SetScheduleBuilderStatus("Modivcare sign-in required.");
 
@@ -1136,11 +1219,7 @@ namespace Hiatme_Tool_Suite_v3
 
                 fsbuilder = new FullScheduleBuilder(dayname, day, nameofmonth, month, year);
 
-                fsbuilder.UpdateLoadingScreen += loadinggifhandler_update;
-
-                fsbuilder.ShowLoadingScreen += loadinggifhandler_showscreen;
-
-                fsbuilder.HideLoadingScreen += loadinggifhandler_hidescreen;
+                fsbuilder.UpdateLoadingScreen += OnBuildStatus;
 
 
 
@@ -1154,19 +1233,57 @@ namespace Hiatme_Tool_Suite_v3
 
                     l => l.Count(x => x?.Kind == ScheduleBuilderPreviewLine.LineKind.Trip));
 
+                _fsHasPreview = true;
+
+                if (_fsSaveBtn != null) _fsSaveBtn.Enabled = true;
+
+                int rer = fsbuilder.PreviewReservesReroute?.Count ?? 0;
+
+                int res = fsbuilder.PreviewReserves?.Count ?? 0;
+
+                int ban = fsbuilder.PreviewReservesBanned?.Count ?? 0;
+
+                int wc = fsbuilder.PreviewReservesWillCalls?.Count ?? 0;
+
+                int wcDl = fsbuilder.WillCallsInDownloadCount;
+                int wcCmt = fsbuilder.WillCallsCommentInDownloadCount;
+
+                string resMsg = res + " reserve" + (res == 1 ? "" : "s");
+
+                if (wc > 0)
+
+                    resMsg += ", " + wc + " will call" + (wc == 1 ? "" : "s");
+
+                else if (wcDl > 0)
+
+                    resMsg += " (0 will calls placed — " + wcDl + " in download";
+
+                if (wcDl > 0 && wc == 0)
+                {
+                    if (wcCmt > 0)
+                        resMsg += ", incl. " + wcCmt + " WILL CALL in comments";
+                    resMsg += "; check banned / driver tabs)";
+                }
+
+                if (rer > 0)
+
+                    resMsg += ", " + rer + " reroute" + (rer == 1 ? "" : "s");
+
+                if (ban > 0)
+
+                    resMsg += ", " + ban + " banned";
+
                 SetScheduleBuilderStatus("Built — " + drivers + " driver tab(s), "
 
-                    + trips + " trip(s), " + fsbuilder.PreviewReserves.Count + " reserve(s).");
+                    + trips + " trip(s), " + resMsg
+
+                    + ". Rules panel: no-go & banned clients. Click SAVE SCHEDULE when ready.");
 
             }
 
             catch (ScheduleBuilderException ex)
 
             {
-
-                loadinggifhandler_hidescreen();
-
-                EnableScheduleBuilderInputs(true);
 
                 MessageBox.Show(this,
 
@@ -1180,17 +1297,11 @@ namespace Hiatme_Tool_Suite_v3
 
                 SetScheduleBuilderStatus("Build failed — see message.");
 
-                return;
-
             }
 
             catch (Exception ex)
 
             {
-
-                loadinggifhandler_hidescreen();
-
-                EnableScheduleBuilderInputs(true);
 
                 MessageBox.Show(this,
 
@@ -1204,15 +1315,19 @@ namespace Hiatme_Tool_Suite_v3
 
                 SetScheduleBuilderStatus("Build failed.");
 
-                return;
-
             }
 
+            finally
 
+            {
 
-            loadinggifhandler_hidescreen();
+                if (fsbuilder != null)
 
-            EnableScheduleBuilderInputs(true);
+                    fsbuilder.UpdateLoadingScreen -= OnBuildStatus;
+
+                EnableScheduleBuilderInputs(true);
+
+            }
 
         }
 
@@ -1242,6 +1357,8 @@ namespace Hiatme_Tool_Suite_v3
 
             _fsLinesByTab.Clear();
 
+            _fsGroupsByTab.Clear();
+
             _fsTripsLv.Items.Clear();
 
 
@@ -1264,19 +1381,15 @@ namespace Hiatme_Tool_Suite_v3
 
             var reserves = builder.PreviewReserves ?? new List<MCDownloadedTrip>();
 
-            _fsLinesByTab["Reserves"] = reserves
+            var reroutes = builder.PreviewReservesReroute ?? new List<MCDownloadedTrip>();
 
-                .Select(t => new ScheduleBuilderPreviewLine
+            var banned = builder.PreviewReservesBanned ?? new List<MCDownloadedTrip>();
 
-                {
+            var willCalls = builder.PreviewReservesWillCalls ?? new List<MCDownloadedTrip>();
 
-                    Kind = ScheduleBuilderPreviewLine.LineKind.Trip,
+            _fsLinesByTab["Reserves"] = ScheduleBuilderReserveBuckets.BuildReservePreviewLines(
 
-                    Trip = t,
-
-                })
-
-                .ToList();
+                reserves, reroutes, banned, willCalls, builder.WillCallsInDownloadCount);
 
 
 
@@ -1284,13 +1397,23 @@ namespace Hiatme_Tool_Suite_v3
 
             RebuildFsDriverTabs(tabNames);
 
-            if (tabNames.Count > 0)
+            _fsCenterMaineAfterBuild = true;
+
+            if (willCalls.Count > 0)
+
+                SelectFsDriverTab("Reserves");
+
+            else if (tabNames.Count > 0)
 
                 SelectFsDriverTab(tabNames[0]);
 
             else
 
+            {
                 _fsActiveDriverTab = null;
+                _fsMap?.CenterOnMaineHub();
+                _fsCenterMaineAfterBuild = false;
+            }
 
         }
 
@@ -1302,7 +1425,7 @@ namespace Hiatme_Tool_Suite_v3
 
             if (_fsMap == null || string.IsNullOrWhiteSpace(_fsActiveDriverTab)) return;
 
-
+            _fsMap.CenterOnMaineHub();
 
             string tabName = _fsActiveDriverTab;
 
@@ -1324,9 +1447,7 @@ namespace Hiatme_Tool_Suite_v3
 
             {
 
-                _fsMap.ShowScheduleBuilderTrips(tabName, Array.Empty<MCDownloadedTrip>(),
-
-                    null, null, 1);
+                _fsMap.Clear();
 
                 return;
 
@@ -1354,9 +1475,8 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-                var pu = await AddressGeocoder.ResolveTripEndpointAsync(trip.PUStreet, trip.PUCity, CancellationToken.None)
-
-                    .ConfigureAwait(true);
+                var pu = await ScheduleBuilderMapGeocode.ResolveEndpointAsync(
+                    trip.PUStreet, trip.PUCity, CancellationToken.None).ConfigureAwait(true);
 
                 if (pu.HasValue)
 
@@ -1364,9 +1484,8 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-                var dof = await AddressGeocoder.ResolveTripEndpointAsync(trip.DOStreet, trip.DOCITY, CancellationToken.None)
-
-                    .ConfigureAwait(true);
+                var dof = await ScheduleBuilderMapGeocode.ResolveEndpointAsync(
+                    trip.DOStreet, trip.DOCITY, CancellationToken.None).ConfigureAwait(true);
 
                 if (dof.HasValue)
 
@@ -1380,11 +1499,202 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-            int palette = GetFsDriverTabPaletteIndex(tabName);
+            if (!_fsGroupsByTab.TryGetValue(tabName, out var groups) || groups == null)
+
+                groups = new List<SupeyTripCluster>();
 
 
 
-            _fsMap.ShowScheduleBuilderTrips(tabName, trips, pickup, dropoff, palette);
+            foreach (var g in groups)
+
+            {
+
+                if (g == null) continue;
+
+                ScheduleBuilderPreviewGroups.ApplyGeocodes(g, pickup, dropoff);
+
+            }
+
+            if (!_fsMapOsrmPrimed)
+            {
+                SetScheduleBuilderStatus(tabName + " map · connecting to road routing…");
+                try
+                {
+                    await OsrmBootstrap.EnsureForBuildAsync(HiatmeAiSettings.Load(), null, CancellationToken.None)
+                        .ConfigureAwait(true);
+                    _fsMapOsrmPrimed = true;
+                }
+                catch
+                {
+                    // Map still works with straight-line fallback per group.
+                }
+            }
+
+            if (gen != _fsMapRefreshGen) return;
+
+            SetScheduleBuilderStatus(tabName + " map · loading road routes…");
+            var routeCounts = await ScheduleBuilderPreviewGroups.BuildOsrmRoutePolylinesAsync(
+                groups, CancellationToken.None).ConfigureAwait(true);
+
+            if (gen != _fsMapRefreshGen) return;
+
+
+
+            var plan = new SupeyDriverPlan
+
+            {
+
+                Driver = new SupeyDriverProfile { Name = tabName },
+
+            };
+
+            plan.Groups.AddRange(groups);
+
+            bool centerMaineAfterBuild = _fsCenterMaineAfterBuild;
+            if (centerMaineAfterBuild)
+                _fsCenterMaineAfterBuild = false;
+
+            _fsMap.ShowDriverPlan(plan, autoFitViewport: !centerMaineAfterBuild);
+
+            if (centerMaineAfterBuild || !SupeyMapWorkspace.HasValidMapPins(plan))
+                _fsMap.CenterOnMaineHub();
+
+
+
+            int pinCount = pickup.Count + dropoff.Count;
+
+            int grpCount = groups.Count;
+
+            if (pinCount > 0)
+            {
+                string routes = routeCounts.roadGroups > 0 && routeCounts.straightGroups > 0
+                    ? routeCounts.roadGroups + " road, " + routeCounts.straightGroups + " straight fallback"
+                    : routeCounts.straightGroups > 0
+                        ? routeCounts.straightGroups + " straight (OSRM unavailable)"
+                        : "road routes";
+                SetScheduleBuilderStatus(tabName + " map · " + grpCount + " group(s), "
+                    + pinCount + " pin(s), " + routes + ".");
+            }
+
+            else if (!HiatmeGeoSettings.UseServer && HiatmeGeoSettings.ServerOnly)
+
+                SetScheduleBuilderStatus(tabName + " map · no pins (office server offline — BUILD/SAVE still work).");
+
+            else
+
+                SetScheduleBuilderStatus(tabName + " map · no pins (geocode cache empty — BUILD/SAVE still work).");
+
+        }
+
+
+
+        private async void fsSaveBtn_Click(object sender, EventArgs e)
+
+        {
+
+            if (fsbuilder == null || !_fsHasPreview)
+
+            {
+
+                SetScheduleBuilderStatus("Build the schedule first, then click SAVE SCHEDULE.");
+
+                return;
+
+            }
+
+
+
+            void OnSaveStatus(string text) => SetScheduleBuilderStatus(text ?? "Saving…");
+
+
+
+            fsbuilder.UpdateLoadingScreen += OnSaveStatus;
+
+            if (fsbdatepicker != null) fsbdatepicker.Enabled = false;
+
+            if (_fsBuildBtn != null) _fsBuildBtn.Enabled = false;
+
+            if (_fsSaveBtn != null) _fsSaveBtn.Enabled = false;
+
+
+
+            try
+
+            {
+
+                SetScheduleBuilderStatus("Preparing export…");
+
+                await fsbuilder.CreateWorkbookAsync().ConfigureAwait(true);
+
+
+
+                if (!string.IsNullOrEmpty(fsbuilder.LastExportPath))
+
+                {
+
+                    SetScheduleBuilderStatus(fsbuilder.LastExportWasCsv
+
+                        ? "Saved CSV package — " + fsbuilder.LastExportPath
+
+                        : "Saved workbook — " + fsbuilder.LastExportPath);
+
+                }
+
+                else
+
+                    SetScheduleBuilderStatus("Save cancelled.");
+
+            }
+
+            catch (ScheduleBuilderException ex)
+
+            {
+
+                MessageBox.Show(this,
+
+                    "Could not save the schedule.\n\n" + ex.Message,
+
+                    "Schedule Builder",
+
+                    MessageBoxButtons.OK,
+
+                    MessageBoxIcon.Warning);
+
+                SetScheduleBuilderStatus("Save failed — see message.");
+
+            }
+
+            catch (Exception ex)
+
+            {
+
+                MessageBox.Show(this,
+
+                    "Unexpected error while saving.\n\n" + ex.Message,
+
+                    "Schedule Builder",
+
+                    MessageBoxButtons.OK,
+
+                    MessageBoxIcon.Error);
+
+                SetScheduleBuilderStatus("Save failed.");
+
+            }
+
+            finally
+
+            {
+
+                fsbuilder.UpdateLoadingScreen -= OnSaveStatus;
+
+                EnableScheduleBuilderInputs(true);
+
+                if (_fsHasPreview && _fsSaveBtn != null)
+
+                    _fsSaveBtn.Enabled = true;
+
+            }
 
         }
 
@@ -1436,21 +1746,65 @@ namespace Hiatme_Tool_Suite_v3
 
             {
 
-                lines = ScheduleBuilderTemplateSlots.CollapseConsecutivePreviewGaps(lines);
-
-                foreach (var line in lines)
+                if (tabName.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
 
                 {
+
+                    ShowFsReservesTab(lines);
+
+                    _fsTripsLv.EndUpdate();
+
+                    ListViewMinWidthEnforcer.ScheduleRecompute(_fsTripsLv);
+
+                    return;
+
+                }
+
+                lines = ScheduleBuilderTemplateSlots.CollapseConsecutivePreviewGaps(lines);
+
+                var groups = ScheduleBuilderPreviewGroups.BuildFromPreviewLines(lines);
+
+                _fsGroupsByTab[tabName] = groups;
+
+                SupeyTripCluster lastHeaderGroup = null;
+
+                for (int li = 0; li < lines.Count; li++)
+
+                {
+
+                    var line = lines[li];
 
                     if (line == null) continue;
 
                     if (line.Kind == ScheduleBuilderPreviewLine.LineKind.Gap)
 
-                        AddFsPreviewGapRow(line.GapNoteText);
+                    {
 
-                    else if (line.Trip != null)
+                        lastHeaderGroup = null;
 
-                        _fsTripsLv.Items.Add(CreateFsTripListItem(line.Trip));
+                        AddFsTemplateGapRow();
+
+                        continue;
+
+                    }
+
+                    if (line.Trip == null) continue;
+
+                    var g = FindFsGroupForTrip(groups, line.Trip);
+
+                    if (g == null) continue;
+
+                    if (!ReferenceEquals(g, lastHeaderGroup))
+
+                    {
+
+                        AddFsGroupNoteRow(g);
+
+                        lastHeaderGroup = g;
+
+                    }
+
+                    _fsTripsLv.Items.Add(CreateFsTripListItem(g, line.Trip));
 
                 }
 
@@ -1464,29 +1818,82 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-        private void AddFsPreviewGapRow(string noteText)
+        private void ShowFsReservesTab(List<ScheduleBuilderPreviewLine> lines)
 
         {
 
-            string note = (noteText ?? "").Trim();
+            var reservers = new List<MCDownloadedTrip>();
 
-            var lvi = new ListViewItem(new[] { "", "", note, "", "", "", "", "", "", "", "" });
+            var reroutes = new List<MCDownloadedTrip>();
 
-            lvi.UseItemStyleForSubItems = false;
+            var banned = new List<MCDownloadedTrip>();
 
-            lvi.SubItems[0].BackColor = SupeyTheme.SurfaceHeader;
+            var willCalls = new List<MCDownloadedTrip>();
 
-            if (note.Length > 0)
+            foreach (var line in lines ?? Enumerable.Empty<ScheduleBuilderPreviewLine>())
 
             {
 
-                lvi.SubItems[2].ForeColor = SupeyTheme.TextSecondary;
+                if (line == null) continue;
 
-                lvi.Font = new Font(_fsTripsLv.Font, FontStyle.Italic);
+                if (line.Kind == ScheduleBuilderPreviewLine.LineKind.SectionHeader)
+
+                {
+
+                    AddFsReservesSectionHeader(line.SectionTitle);
+
+                    continue;
+
+                }
+
+                if (line.Kind == ScheduleBuilderPreviewLine.LineKind.Trip && line.Trip != null)
+
+                {
+
+                    if (line.ReserveBandColor == ScheduleBuilderReserveBuckets.BannedBand)
+
+                        banned.Add(line.Trip);
+
+                    else if (line.ReserveBandColor == ScheduleBuilderReserveBuckets.RerouteBand)
+
+                        reroutes.Add(line.Trip);
+
+                    else if (line.ReserveBandColor == ScheduleBuilderReserveBuckets.WillCallBand)
+
+                        willCalls.Add(line.Trip);
+
+                    else
+
+                        reservers.Add(line.Trip);
+
+                    AddFsReserveTripListItem(line.Trip, line.ReserveBandColor);
+
+                }
 
             }
 
-            lvi.Tag = new FsPreviewGapTag(note);
+            _fsGroupsByTab["Reserves"] = ScheduleBuilderReserveBuckets.BuildMapGroups(
+                reservers, reroutes, banned, willCalls);
+
+        }
+
+
+
+        private void AddFsReservesSectionHeader(string title)
+
+        {
+
+            var lvi = new ListViewItem(new[] { "—", "", title ?? "", "", "", "", "", "", "", "", "", "" });
+
+            lvi.UseItemStyleForSubItems = false;
+
+            lvi.Font = new Font(_fsTripsLv.Font, FontStyle.Bold);
+
+            lvi.SubItems[0].BackColor = SupeyTheme.SurfaceHeader;
+
+            lvi.SubItems[2].ForeColor = SupeyTheme.TextPrimary;
+
+            lvi.Tag = new FsPreviewSectionHeaderTag(title);
 
             _fsTripsLv.Items.Add(lvi);
 
@@ -1494,13 +1901,21 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-        private ListViewItem CreateFsTripListItem(MCDownloadedTrip trip)
+        private void AddFsReserveTripListItem(MCDownloadedTrip trip, Color? bandColor)
 
         {
 
-            var lvi = new ListViewItem(trip.TripNumber ?? "");
+            if (trip == null) return;
 
-            lvi.Tag = trip;
+            Color band = bandColor ?? ScheduleBuilderReserveBuckets.ReserversBand;
+
+            var lvi = new ListViewItem("—");
+
+            lvi.UseItemStyleForSubItems = false;
+
+            lvi.SubItems[0].BackColor = band;
+
+            lvi.SubItems.Add(trip.TripNumber ?? "");
 
             lvi.SubItems.Add(trip.Date ?? "");
 
@@ -1522,21 +1937,157 @@ namespace Hiatme_Tool_Suite_v3
 
             lvi.SubItems.Add(trip.Comments ?? "");
 
-            try
+            lvi.Tag = new FsPreviewTripTag(null, trip);
+
+            _fsTripsLv.Items.Add(lvi);
+
+        }
+
+
+
+        private static SupeyTripCluster FindFsGroupForTrip(List<SupeyTripCluster> groups, MCDownloadedTrip trip)
+
+        {
+
+            if (groups == null || trip == null) return null;
+
+            string tn = (trip.TripNumber ?? "").Trim();
+
+            foreach (var g in groups)
 
             {
 
-                lvi.BackColor = trip.GetColor();
+                if (g?.Trips == null) continue;
+
+                foreach (var t in g.Trips)
+
+                {
+
+                    if (ReferenceEquals(t, trip)
+
+                        || (!string.IsNullOrEmpty(tn)
+
+                            && string.Equals(t?.TripNumber, tn, StringComparison.OrdinalIgnoreCase)))
+
+                        return g;
+
+                }
 
             }
 
-            catch
+            return null;
+
+        }
+
+
+
+        private static Color FsRouteHeaderBackColor(Color groupColor)
+
+        {
+
+            int r = Math.Max(0, groupColor.R - 48);
+
+            int gr = Math.Max(0, groupColor.G - 48);
+
+            int b = Math.Max(0, groupColor.B - 48);
+
+            return Color.FromArgb(255, r, gr, b);
+
+        }
+
+
+
+        private void AddFsTemplateGapRow()
+
+        {
+
+            var lvi = new ListViewItem(new[] { "", "", "", "", "", "", "", "", "", "", "", "" });
+
+            lvi.UseItemStyleForSubItems = false;
+
+            lvi.BackColor = SupeyTheme.ListBody;
+
+            for (int c = 0; c < lvi.SubItems.Count; c++)
+
+                lvi.SubItems[c].BackColor = SupeyTheme.ListBody;
+
+            lvi.Tag = new FsPreviewGapTag();
+
+            _fsTripsLv.Items.Add(lvi);
+
+        }
+
+
+
+        private void AddFsGroupNoteRow(SupeyTripCluster g)
+
+        {
+
+            if (g == null) return;
+
+            var lvi = new ListViewItem(g.GroupNumber.ToString());
+
+            lvi.UseItemStyleForSubItems = false;
+
+            lvi.SubItems[0].BackColor = g.GroupColor;
+
+            for (int c = 1; c <= 11; c++)
+
+                lvi.SubItems.Add("");
+
+            for (int c = 1; c < lvi.SubItems.Count; c++)
+
+                lvi.SubItems[c].BackColor = FsRouteHeaderBackColor(g.GroupColor);
+
+            lvi.Tag = new FsPreviewNoteTag(g);
+
+            _fsTripsLv.Items.Add(lvi);
+
+        }
+
+
+
+        private ListViewItem CreateFsTripListItem(SupeyTripCluster g, MCDownloadedTrip trip)
+
+        {
+
+            string grp = g != null ? g.GroupNumber.ToString() : "";
+
+            var lvi = new ListViewItem(grp);
+
+            lvi.UseItemStyleForSubItems = false;
+
+            if (g != null)
 
             {
 
-                /* ignore */
+                lvi.SubItems[0].BackColor = g.GroupColor;
 
             }
+
+            lvi.Tag = g != null ? (object)new FsPreviewTripTag(g, trip) : trip;
+
+            lvi.SubItems.Add(trip.TripNumber ?? "");
+
+            lvi.SubItems.Add(trip.Date ?? "");
+
+            lvi.SubItems.Add(trip.ClientFullName ?? "");
+
+            lvi.SubItems.Add(FormatTimeOnly(trip.PUTime));
+
+            lvi.SubItems.Add(trip.PUStreet ?? "");
+
+            lvi.SubItems.Add(trip.PUCity ?? "");
+
+            lvi.SubItems.Add(FormatTimeOnly(trip.DOTime));
+
+            lvi.SubItems.Add(trip.DOStreet ?? "");
+
+            lvi.SubItems.Add(trip.DOCITY ?? "");
+
+            lvi.SubItems.Add(trip.Miles ?? "");
+
+            lvi.SubItems.Add(trip.Comments ?? "");
 
             return lvi;
 

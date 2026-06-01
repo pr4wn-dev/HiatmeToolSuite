@@ -2781,6 +2781,8 @@ namespace Hiatme_Tool_Suite_v3
             if (_supeyResult.TotalReserveCount > 0)
             {
                 string resLabel = "Reserves · " + _supeyResult.TotalReserveCount + " trip(s)";
+                if (_supeyResult.ReservesWillCalls.Count > 0)
+                    resLabel += " (" + _supeyResult.ReservesWillCalls.Count + " will call)";
                 if (_supeyResult.ReservesReroute.Count > 0)
                     resLabel += " (" + _supeyResult.ReservesReroute.Count + " reroute)";
                 _supeyPreviewDriverCb.Items.Add(new SupeyPreviewItem(null, resLabel));
@@ -2814,6 +2816,19 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (_supeyPreviewDriverCb == null || _supeyPreviewDriverCb.Items.Count == 0) return;
             int pick = 0;
+            if (_supeyResult?.ReservesWillCalls?.Count > 0)
+            {
+                for (int i = 0; i < _supeyPreviewDriverCb.Items.Count; i++)
+                {
+                    var pi = _supeyPreviewDriverCb.Items[i] as SupeyPreviewItem;
+                    if (pi != null && pi.Kind == SupeyPreviewItem.ItemKind.Reserves)
+                    {
+                        pick = i;
+                        _supeyPreviewDriverCb.SelectedIndex = pick;
+                        return;
+                    }
+                }
+            }
             for (int i = 0; i < _supeyPreviewDriverCb.Items.Count; i++)
             {
                 var pi = _supeyPreviewDriverCb.Items[i] as SupeyPreviewItem;
@@ -3502,7 +3517,10 @@ namespace Hiatme_Tool_Suite_v3
         {
             SetSupeyToolbarBusy(false, null);
             if (_supeyResult != null)
+            {
                 SupeyWarningsUtil.StripTimingFromBuild(_supeyResult);
+                SupeyWillCallPickup.EnforceOnResult(_supeyResult, _supeyLoadedTrips);
+            }
             BindSupeyPreview();
             _supeyLastTemplateCompare = SupeyTemplateCompare.Run(_supeyResult, hints);
             if (_supeyTemplateCompareLbl != null)

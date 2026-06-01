@@ -5,12 +5,8 @@ namespace Hiatme_Tool_Suite_v3
     /// <summary>Routes unassigned trips into Will calls, Reservers, or Reroutes lists on <see cref="SupeyScheduleResult"/>.</summary>
     internal static class SupeyReserveBuckets
     {
-        public static bool IsWillCall(MCDownloadedTrip t)
-        {
-            if (t == null) return false;
-            string pu = (t.PUTime ?? "").Replace(" ", "");
-            return pu == "00:00" || pu == "00:00:00" || pu == "12:00AM" || pu == "12:00:00AM";
-        }
+        /// <summary>Will-call = Modivcare scheduled pickup time is 00:00 (see <see cref="SupeyWillCallPickup"/>).</summary>
+        public static bool IsWillCall(MCDownloadedTrip t) => SupeyWillCallPickup.IsPickupWillCall(t);
 
         public static void AddToReserves(SupeyScheduleResult result, MCDownloadedTrip trip)
         {

@@ -269,10 +269,12 @@ namespace Hiatme_Tool_Suite_v3
                 }
             }
 
-            // Out-of-service-area → reroute reserves (shared list from office panel).
+            // Will calls (00:00 PU) and out-of-service-area trips never auto-assign.
             var routableTrips = new List<MCDownloadedTrip>(trips.Count);
             foreach (var t in trips)
             {
+                if (SupeyWillCallPickup.IsInAnyReserveList(result, t)) continue;
+
                 string ooa = SupeyOutOfArea.MatchTrip(t);
                 if (ooa != null)
                 {
@@ -285,12 +287,18 @@ namespace Hiatme_Tool_Suite_v3
                         "\" — reroute to Modivcare (not auto-assigned)."));
                     continue;
                 }
+
+                if (SupeyWillCallPickup.IsPickupWillCall(t))
+                {
+                    SupeyReserveBuckets.AddToReserves(result, t);
+                    continue;
+                }
             }
 
             // Trips that didn't geocode go straight to Reserves with a warning.
             foreach (var t in trips)
             {
-                if (result.ReservesReroute.Contains(t)) continue;
+                if (SupeyWillCallPickup.IsInAnyReserveList(result, t)) continue;
                 if (!tripGeo[t].Complete)
                 {
                     SupeyReserveBuckets.AddToReserves(result, t);
@@ -479,6 +487,7 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             foreach (var p in driverPlans) result.DriverPlans.Add(p);
+            SupeyWillCallPickup.EnforceOnResult(result, trips);
             progress?.Report("Build complete.");
             return result;
         }

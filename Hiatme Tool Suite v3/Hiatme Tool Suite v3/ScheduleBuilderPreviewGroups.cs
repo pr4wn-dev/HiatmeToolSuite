@@ -1,0 +1,185 @@
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace Hiatme_Tool_Suite_v3
+{
+    /// <summary>
+    /// Template-order trip batches (between gap rows) as <see cref="SupeyTripCluster"/> groups
+    /// for Schedule Builder list coloring and map legend/routes.
+    /// </summary>
+    internal static class ScheduleBuilderPreviewGroups
+    {
+        public static List<SupeyTripCluster> BuildFromPreviewLines(IEnumerable<ScheduleBuilderPreviewLine> lines)
+        {
+            var groups = new List<SupeyTripCluster>();
+            if (lines == null) return groups;
+
+            SupeyTripCluster current = null;
+            int groupNum = 0;
+            foreach (var line in lines)
+            {
+                if (line == null) continue;
+                if (line.Kind == ScheduleBuilderPreviewLine.LineKind.Gap)
+                {
+                    current = null;
+                    continue;
+                }
+                if (line.Kind != ScheduleBuilderPreviewLine.LineKind.Trip || line.Trip == null)
+                    continue;
+
+                if (current == null)
+                {
+                    groupNum++;
+                    current = new SupeyTripCluster
+                    {
+                        GroupNumber = groupNum,
+                        GroupColor = SupeyGroupPalette.For(groupNum),
+                    };
+                    groups.Add(current);
+                }
+                current.Trips.Add(line.Trip);
+            }
+
+            foreach (var g in groups)
+                FinalizePickupWindow(g);
+            return groups;
+        }
+
+        internal static void FinalizePickupWindowPublic(SupeyTripCluster g) => FinalizePickupWindow(g);
+
+        public static void ApplyGeocodes(
+            SupeyTripCluster g,
+            IReadOnlyDictionary<string, GeoPoint> pickupByTrip,
+            IReadOnlyDictionary<string, GeoPoint> dropoffByTrip)
+        {
+            if (g == null) return;
+            g.PickupPoints.Clear();
+            g.DropoffPoints.Clear();
+            foreach (var t in g.Trips)
+            {
+                string key = (t?.TripNumber ?? "").Trim();
+                GeoPoint pu = default;
+                GeoPoint dof = default;
+                if (!string.IsNullOrEmpty(key))
+                {
+                    if (pickupByTrip != null && pickupByTrip.TryGetValue(key, out var p))
+                        pu = p;
+                    if (dropoffByTrip != null && dropoffByTrip.TryGetValue(key, out var d))
+                        dof = d;
+                }
+                g.PickupPoints.Add(pu);
+                g.DropoffPoints.Add(dof);
+            }
+        }
+
+        /// <summary>PU stops in trip order, then DO stops — same waypoint order as Supey cluster tours.</summary>
+        public static List<GeoPoint> CollectDeskRouteWaypoints(SupeyTripCluster g)
+        {
+            var waypoints = new List<GeoPoint>();
+            if (g == null) return waypoints;
+            int n = Math.Min(g.Trips.Count, Math.Min(g.PickupPoints.Count, g.DropoffPoints.Count));
+            for (int i = 0; i < n; i++)
+                AddWaypointIfValid(waypoints, g.PickupPoints[i]);
+            for (int i = 0; i < n; i++)
+                AddWaypointIfValid(waypoints, g.DropoffPoints[i]);
+            return waypoints;
+        }
+
+        /// <summary>Desk preview routes via OSRM (solid on map); straight dashed fallback when routing fails.</summary>
+        public static async Task<(int roadGroups, int straightGroups)> BuildOsrmRoutePolylinesAsync(
+            IEnumerable<SupeyTripCluster> groups, CancellationToken token)
+        {
+            int road = 0, straight = 0;
+            if (groups == null) return (0, 0);
+            foreach (var g in groups)
+            {
+                if (g == null) continue;
+                token.ThrowIfCancellationRequested();
+                if (await PopulateGroupOsrmRouteAsync(g, token).ConfigureAwait(false))
+                    road++;
+                else if (g.RoutePolyline.Count >= 2)
+                    straight++;
+            }
+            return (road, straight);
+        }
+
+        /// <summary>Straight PU→DO preview only (no OSRM).</summary>
+        public static void BuildDeskRoutePolylines(IEnumerable<SupeyTripCluster> groups)
+        {
+            if (groups == null) return;
+            foreach (var g in groups)
+            {
+                if (g == null) continue;
+                ApplyStraightLineRoute(g, CollectDeskRouteWaypoints(g));
+            }
+        }
+
+        private static async Task<bool> PopulateGroupOsrmRouteAsync(SupeyTripCluster g, CancellationToken token)
+        {
+            g.RoutePolyline.Clear();
+            var waypoints = CollectDeskRouteWaypoints(g);
+            if (waypoints.Count < 2)
+            {
+                g.IsStraightLineFallback = false;
+                return false;
+            }
+
+            var route = await SupeyOsrmLegs.RouteAsync(waypoints, token).ConfigureAwait(false);
+            if (route.Ok && !route.IsStraightLineFallback && route.Polyline != null && route.Polyline.Count >= 2)
+            {
+                g.RoutePolyline.AddRange(route.Polyline);
+                g.IsStraightLineFallback = false;
+                return true;
+            }
+
+            ApplyStraightLineRoute(g, waypoints);
+            return false;
+        }
+
+        private static void ApplyStraightLineRoute(SupeyTripCluster g, List<GeoPoint> waypoints)
+        {
+            g.RoutePolyline.Clear();
+            if (waypoints == null || waypoints.Count < 2)
+            {
+                g.IsStraightLineFallback = false;
+                return;
+            }
+            foreach (var p in waypoints)
+                g.RoutePolyline.Add(p);
+            g.IsStraightLineFallback = true;
+        }
+
+        private static void FinalizePickupWindow(SupeyTripCluster g)
+        {
+            if (g?.Trips == null || g.Trips.Count == 0) return;
+            TimeSpan earliest = TimeSpan.MaxValue;
+            TimeSpan latest = TimeSpan.MinValue;
+            foreach (var t in g.Trips)
+            {
+                var pu = SupeyTripTimes.TryParsePU(t);
+                if (!pu.HasValue) continue;
+                if (pu.Value < earliest) earliest = pu.Value;
+                if (pu.Value > latest) latest = pu.Value;
+            }
+            if (earliest == TimeSpan.MaxValue) return;
+            g.EarliestPickup = earliest;
+            g.LatestPickup = latest == TimeSpan.MinValue ? earliest : latest;
+        }
+
+        private static void AddWaypointIfValid(List<GeoPoint> waypoints, GeoPoint p)
+        {
+            if (p.Lat == 0 && p.Lng == 0) return;
+            if (waypoints.Count > 0)
+            {
+                var last = waypoints[waypoints.Count - 1];
+                if (Math.Abs(last.Lat - p.Lat) < 1e-6 && Math.Abs(last.Lng - p.Lng) < 1e-6)
+                    return;
+            }
+            waypoints.Add(p);
+        }
+
+    }
+}

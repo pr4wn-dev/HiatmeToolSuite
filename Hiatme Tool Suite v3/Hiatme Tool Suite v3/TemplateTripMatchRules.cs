@@ -210,6 +210,16 @@ namespace Hiatme_Tool_Suite_v3
 
         {
 
+            // Live download still shows 00:00 PU while template row may have been updated to a real time.
+
+            if (ScheduleBuilderReserveBuckets.IsWillCallTrip(live))
+
+                return true;
+
+            if (IsWildcardTemplatePu(template?.PUTime))
+
+                return true;
+
             var tp = SupeyTripTimes.TryParsePU(template);
 
             var lp = SupeyTripTimes.TryParsePU(live);
@@ -219,6 +229,18 @@ namespace Hiatme_Tool_Suite_v3
                 return tp.Value == lp.Value;
 
             return LegacyTimeStringEq(template?.PUTime, live?.PUTime);
+
+        }
+
+        /// <summary>Template will-call rows often keep 00:00 PU when the live trip still has 00:00.</summary>
+
+        private static bool IsWildcardTemplatePu(string raw)
+
+        {
+
+            string n = NormTimeRaw(raw);
+
+            return n.Length == 0 || string.Equals(n, "00:00", StringComparison.OrdinalIgnoreCase);
 
         }
 

@@ -110,8 +110,13 @@ namespace Hiatme_Tool_Suite_v3
             string status;
             if (HiatmeGeoSettings.UseServer)
             {
+                bool pushed = await SupeyOutOfArea.TrySyncLocalFileToServerAsync(_supeyAiSettings)
+                    .ConfigureAwait(true);
                 areas = await HiatmeAiClient.GetOutOfAreaAsync(_supeyAiSettings).ConfigureAwait(true);
+                SupeyOutOfArea.TrySaveLocalFallback(areas);
                 status = areas.Count + " area(s) from office server.";
+                if (pushed)
+                    status += " Offline edits synced.";
             }
             else
             {
@@ -180,16 +185,20 @@ namespace Hiatme_Tool_Suite_v3
             }
             if (!HiatmeGeoSettings.UseServer)
             {
-                MessageBox.Show(this,
-                    "Office panel is offline — list updated in memory for this session only.\n\n" +
-                    "Connect to the server and Save again so all desks see the change.",
-                    "No-go areas", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                if (SupeyOutOfArea.TrySaveLocalFallback(areas))
+                    SetSupeyStatus("No-go areas saved locally — will sync to the server when the panel is online.");
+                else
+                    MessageBox.Show(this, "Could not write local no-go file.", "No-go areas",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 SupeyOutOfArea.SetCachedAreas(areas);
                 return;
             }
             bool ok = await HiatmeAiClient.SetOutOfAreaAsync(_supeyAiSettings, areas).ConfigureAwait(true);
             if (ok)
+            {
+                SupeyOutOfArea.TrySaveLocalFallback(areas);
                 SetSupeyStatus("No-go areas saved — all desks will use this list on BUILD.");
+            }
             else
                 MessageBox.Show(this,
                     "Could not save to the office server. Check panel URL and try Refresh.",

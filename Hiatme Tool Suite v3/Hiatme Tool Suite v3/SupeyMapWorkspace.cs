@@ -27,6 +27,11 @@ namespace Hiatme_Tool_Suite_v3
     /// </remarks>
     internal sealed class SupeyMapWorkspace : UserControl
     {
+        /// <summary>Lewiston/Auburn corridor — default viewport for Maine dispatch maps.</summary>
+        public static readonly PointLatLng MaineLewistonCenter = new PointLatLng(44.1004, -70.2148);
+
+        public const int MaineDefaultZoom = 12;
+
         private readonly GMapControl _map;
         private readonly FlowLayoutPanel _legend;
         private readonly Panel _legendHost;
@@ -43,8 +48,6 @@ namespace Hiatme_Tool_Suite_v3
         private SupeyDriverPlan _currentPlan;
         private readonly Dictionary<string, List<SupeyDraggableMarker>> _tripMarkers =
             new Dictionary<string, List<SupeyDraggableMarker>>(StringComparer.OrdinalIgnoreCase);
-        private GMapOverlay _focusOverlay;
-
         public SupeyMapWorkspace()
         {
             DoubleBuffered = true;
@@ -65,7 +68,8 @@ namespace Hiatme_Tool_Suite_v3
                 DragButton = MouseButtons.Left,
                 BackColor = Color.FromArgb(30, 30, 30),
             };
-            _map.Position = new PointLatLng(39.7589, -84.1916); // Dayton OH centroid — neutral starting point.
+            _map.Position = MaineLewistonCenter;
+            _map.Zoom = MaineDefaultZoom;
 
             _legend = new FlowLayoutPanel
             {
@@ -221,6 +225,41 @@ namespace Hiatme_Tool_Suite_v3
             _map.Refresh();
         }
 
+        /// <summary>Center map on the Lewiston/Auburn service area (Schedule Builder after BUILD, empty states).</summary>
+        public void CenterOnMaineHub(int? zoom = null)
+        {
+            void Apply()
+            {
+                _map.Position = MaineLewistonCenter;
+                _map.Zoom = zoom ?? MaineDefaultZoom;
+                _map.Refresh();
+            }
+            if (InvokeRequired)
+                BeginInvoke((Action)Apply);
+            else
+                Apply();
+        }
+
+        internal static bool IsValidGeoPoint(GeoPoint p) =>
+            Math.Abs(p.Lat) >= 0.01 || Math.Abs(p.Lng) >= 0.01;
+
+        internal static bool HasValidMapPins(SupeyDriverPlan plan)
+        {
+            if (plan == null) return false;
+            if (plan.HomeGeo.HasValue && IsValidGeoPoint(plan.HomeGeo.Value))
+                return true;
+            if (plan.Groups == null) return false;
+            foreach (var g in plan.Groups)
+            {
+                if (g == null) continue;
+                foreach (var p in g.PickupPoints)
+                    if (IsValidGeoPoint(p)) return true;
+                foreach (var p in g.DropoffPoints)
+                    if (IsValidGeoPoint(p)) return true;
+            }
+            return false;
+        }
+
         /// <summary>Clears the map + legend so the host can show "no driver selected" state.</summary>
         public void Clear()
         {
@@ -233,9 +272,9 @@ namespace Hiatme_Tool_Suite_v3
             _deadheadToggle = null;
             _currentPlan = null;
             _tripMarkers.Clear();
-            _focusOverlay = null;
             _emptyLabel.Visible = true;
             _legendHost.Visible = false;
+            CenterOnMaineHub();
         }
 
         /// <summary>
@@ -258,7 +297,6 @@ namespace Hiatme_Tool_Suite_v3
             _deadheadOverlay = null;
             _homeOverlay = null;
             _tripMarkers.Clear();
-            _focusOverlay = null;
             _legendHost.Visible = false;
 
             if (trips == null || trips.Count == 0)
@@ -267,7 +305,7 @@ namespace Hiatme_Tool_Suite_v3
                     ? "No trips — click BUILD."
                     : tabTitle + " has no trips.";
                 _emptyLabel.Visible = true;
-                _map.Refresh();
+                CenterOnMaineHub();
                 return;
             }
 
@@ -313,7 +351,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 _emptyLabel.Text = tabTitle + " — no geocoded stops yet.";
                 _emptyLabel.Visible = true;
-                _map.Refresh();
+                CenterOnMaineHub();
                 SetSupeyStatusOnHost?.Invoke(_emptyLabel.Text);
                 return;
             }
@@ -344,34 +382,20 @@ namespace Hiatme_Tool_Suite_v3
             _map.Refresh();
         }
 
-        /// <summary>Center map on a trip's PU/DO pins (from list selection).</summary>
+        /// <summary>Pan/zoom map to a trip's existing PU/DO pins (from list selection).</summary>
         public void FocusTrip(MCDownloadedTrip trip)
         {
             if (trip == null || string.IsNullOrWhiteSpace(trip.TripNumber))
                 return;
-            if (_focusOverlay != null)
-            {
-                _map.Overlays.Remove(_focusOverlay);
-                _focusOverlay = null;
-            }
             if (!_tripMarkers.TryGetValue(trip.TripNumber.Trim(), out var markers) || markers.Count == 0)
             {
                 SetSupeyStatusOnHost?.Invoke("No map pins for trip " + trip.TripNumber + " — geocode may be missing.");
                 return;
             }
 
-            _focusOverlay = new GMapOverlay("focus");
-            var pts = new List<PointLatLng>();
+            var pts = new List<PointLatLng>(markers.Count);
             foreach (var m in markers)
-            {
                 pts.Add(m.Position);
-                _focusOverlay.Markers.Add(new GMarkerGoogle(m.Position, GMarkerGoogleType.yellow_pushpin)
-                {
-                    ToolTipText = "Selected · " + (m.Tag as SupeyMapMarkerInfo)?.EndpointLabel,
-                    ToolTipMode = MarkerTooltipMode.Always,
-                });
-            }
-            _map.Overlays.Add(_focusOverlay);
             FitPoints(pts, zoomSingle: 14, zoomMulti: 12);
             _map.Refresh();
         }
@@ -381,7 +405,17 @@ namespace Hiatme_Tool_Suite_v3
 
         private void FitPoints(List<PointLatLng> pts, int zoomSingle, int zoomMulti)
         {
-            if (pts == null || pts.Count == 0) return;
+            if (pts == null || pts.Count == 0)
+            {
+                CenterOnMaineHub();
+                return;
+            }
+            pts = pts.Where(p => IsValidGeoPoint(new GeoPoint(p.Lat, p.Lng))).ToList();
+            if (pts.Count == 0)
+            {
+                CenterOnMaineHub();
+                return;
+            }
             if (pts.Count == 1)
             {
                 _map.Position = pts[0];
@@ -416,7 +450,7 @@ namespace Hiatme_Tool_Suite_v3
         /// or driver change; on refresh for the same driver, prior group visibility is restored
         /// (including single-group focus after drag/route updates). Auto-fits to visible groups.
         /// </summary>
-        public void ShowDriverPlan(SupeyDriverPlan plan)
+        public void ShowDriverPlan(SupeyDriverPlan plan, bool autoFitViewport = true)
         {
             // Post-build may reorder plan.Groups on another thread; snapshot before draw.
             var groups = plan?.Groups != null ? new List<SupeyTripCluster>(plan.Groups) : new List<SupeyTripCluster>();
@@ -429,7 +463,6 @@ namespace Hiatme_Tool_Suite_v3
             _groupCheckboxes.Clear();
             _legend.Controls.Clear();
             _tripMarkers.Clear();
-            _focusOverlay = null;
 
             if (plan == null || (!plan.HomeGeo.HasValue && plan.Groups.Count == 0))
             {
@@ -550,7 +583,8 @@ namespace Hiatme_Tool_Suite_v3
 
             AddDeadheadToggle();
             ApplyLegendVisibility(plan, legendSnap);
-            FitToPlan();
+            if (autoFitViewport)
+                FitToPlan();
             _map.Refresh();
         }
 
@@ -766,16 +800,22 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (_currentPlan == null) return;
             var pts = new List<PointLatLng>();
-            if (_currentPlan.HomeGeo.HasValue)
+            if (_currentPlan.HomeGeo.HasValue && IsValidGeoPoint(_currentPlan.HomeGeo.Value))
                 pts.Add(new PointLatLng(_currentPlan.HomeGeo.Value.Lat, _currentPlan.HomeGeo.Value.Lng));
             foreach (var g in _currentPlan.Groups)
             {
                 if (_groupCheckboxes.TryGetValue(g.GroupNumber, out var cb) && !cb.Checked)
                     continue;
-                foreach (var p in g.PickupPoints) pts.Add(new PointLatLng(p.Lat, p.Lng));
-                foreach (var p in g.DropoffPoints) pts.Add(new PointLatLng(p.Lat, p.Lng));
+                foreach (var p in g.PickupPoints)
+                    if (IsValidGeoPoint(p)) pts.Add(new PointLatLng(p.Lat, p.Lng));
+                foreach (var p in g.DropoffPoints)
+                    if (IsValidGeoPoint(p)) pts.Add(new PointLatLng(p.Lat, p.Lng));
             }
-            if (pts.Count == 0) return;
+            if (pts.Count == 0)
+            {
+                CenterOnMaineHub();
+                return;
+            }
             if (pts.Count == 1)
             {
                 _map.Position = pts[0];

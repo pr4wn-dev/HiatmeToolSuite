@@ -138,6 +138,7 @@ namespace Hiatme_Tool_Suite_v3
                     + "(e.g. 1-38262-A). Rebuild or Send the AI to fix."));
             }
 
+            SupeyWillCallPickup.EnforceOnResult(result, allTrips);
             return result;
         }
 

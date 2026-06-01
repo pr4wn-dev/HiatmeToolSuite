@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Configuration;
 using System.IO;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
 
 namespace Hiatme_Tool_Suite_v3
@@ -76,10 +78,103 @@ namespace Hiatme_Tool_Suite_v3
                 || area.IndexOf(city, StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
+        /// <summary>Primary on-disk copy used when the office panel is offline.</summary>
+        public static string PrimaryLocalConfigPath =>
+            Path.Combine(AppContext.BaseDirectory ?? "", "hiatme_config", "out_of_area.json");
+
+        /// <summary>Persist list to <see cref="PrimaryLocalConfigPath"/> and refresh cache.</summary>
+        public static bool TrySaveLocalFallback(IList<string> areas)
+        {
+            var norm = NormalizeAreas(areas);
+            SetCachedAreas(norm);
+            try
+            {
+                string path = PrimaryLocalConfigPath;
+                string dir = Path.GetDirectoryName(path);
+                if (!string.IsNullOrEmpty(dir))
+                    Directory.CreateDirectory(dir);
+                var root = new JObject
+                {
+                    ["areas"] = new JArray(norm),
+                };
+                File.WriteAllText(path, root.ToString(Newtonsoft.Json.Formatting.Indented));
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>Reads only <see cref="PrimaryLocalConfigPath"/> (no built-in defaults).</summary>
+        public static bool TryReadLocalConfigFile(out List<string> areas)
+        {
+            areas = new List<string>();
+            try
+            {
+                string path = PrimaryLocalConfigPath;
+                if (!File.Exists(path)) return false;
+                var root = JObject.Parse(File.ReadAllText(path));
+                var arr = root["areas"] as JArray;
+                if (arr == null || arr.Count == 0) return false;
+                var list = new List<string>();
+                foreach (var t in arr)
+                {
+                    var s = (t?.ToString() ?? "").Trim();
+                    if (s.Length > 0) list.Add(s);
+                }
+                areas = NormalizeAreas(list);
+                return areas.Count > 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        public static bool AreasEqual(IList<string> a, IList<string> b)
+        {
+            var left = new HashSet<string>(NormalizeAreas(a), StringComparer.OrdinalIgnoreCase);
+            var right = new HashSet<string>(NormalizeAreas(b), StringComparer.OrdinalIgnoreCase);
+            return left.SetEquals(right);
+        }
+
+        /// <summary>
+        /// When the office panel is online, push the on-disk local list to the server if it differs
+        /// (e.g. edits made while offline). Returns true if a push was performed.
+        /// </summary>
+        public static async Task<bool> TrySyncLocalFileToServerAsync(
+            HiatmeAiSettings settings,
+            CancellationToken cancellationToken = default)
+        {
+            if (!HiatmeGeoSettings.UseServer || settings == null) return false;
+            if (!TryReadLocalConfigFile(out var local)) return false;
+
+            IList<string> server;
+            try
+            {
+                server = await HiatmeAiClient.GetOutOfAreaAsync(settings, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch
+            {
+                return false;
+            }
+
+            if (AreasEqual(local, server)) return false;
+            return await HiatmeAiClient.SetOutOfAreaAsync(settings, local, cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         public static List<string> LoadLocalFallback()
         {
+            if (TryReadLocalConfigFile(out var fromPrimary) && fromPrimary.Count > 0)
+                return fromPrimary;
+
             foreach (var path in LocalFallbackPaths())
             {
+                if (string.Equals(path, PrimaryLocalConfigPath, StringComparison.OrdinalIgnoreCase))
+                    continue;
                 try
                 {
                     if (!File.Exists(path)) continue;
