@@ -116,6 +116,20 @@ namespace Hiatme_Tool_Suite_v3
             if (string.IsNullOrWhiteSpace(raw)) return null;
             string s = raw.Trim();
 
+            // Excel .xlsx load can leave clock times as fraction-of-day decimals (e.g. 0.375 = 9:00 AM).
+            if (double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out double dayFraction)
+                && dayFraction >= 0 && dayFraction < 1.0)
+            {
+                try
+                {
+                    return TimeSpan.FromDays(dayFraction);
+                }
+                catch
+                {
+                    /* fall through */
+                }
+            }
+
             // Some Modivcare exports drop the colon ("0830", "1430"). Re-insert before parsing.
             if (s.Length == 4 && int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out _))
                 s = s.Substring(0, 2) + ":" + s.Substring(2, 2);

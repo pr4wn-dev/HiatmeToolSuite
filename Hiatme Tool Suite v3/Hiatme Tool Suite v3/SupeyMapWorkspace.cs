@@ -768,6 +768,7 @@ namespace Hiatme_Tool_Suite_v3
                         new PointLatLng(pt.Lat, pt.Lng), GMarkerGoogleType.green_small)
                     {
                         RouteStopNumber = stop,
+                        BadgeAccentColor = g.GroupColor,
                         Tag = BuildMarkerInfo(trip, "Pickup", true, p => g.PickupPoints[idx] = p),
                     };
                     ApplyRouteStopTooltip(marker, g, stop, totalStops, isPickup: true, trip);
@@ -787,6 +788,7 @@ namespace Hiatme_Tool_Suite_v3
                         new PointLatLng(pt.Lat, pt.Lng), GMarkerGoogleType.red_small)
                     {
                         RouteStopNumber = stop,
+                        BadgeAccentColor = g.GroupColor,
                         Tag = BuildMarkerInfo(trip, "Dropoff", false, p => g.DropoffPoints[idx] = p),
                     };
                     ApplyRouteStopTooltip(marker, g, stop, totalStops, isPickup: false, trip);

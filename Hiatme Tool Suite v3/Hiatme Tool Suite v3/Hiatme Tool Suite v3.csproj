@@ -154,6 +154,10 @@
     <Compile Include="ScheduleBuilderTemplateSlots.cs" />
     <Compile Include="ScheduleBuilderMapGeocode.cs" />
     <Compile Include="ScheduleBuilderMapMileage.cs" />
+    <Compile Include="ScheduleBuilderScheduleLoad.cs" />
+    <Compile Include="ScheduleBuilderGroupInference.cs" />
+    <Compile Include="ScheduleBuilderLoadDateResolver.cs" />
+    <Compile Include="ScheduleBuilderXlsxReader.cs" />
     <Compile Include="ScheduleBuilderPreviewGroups.cs" />
     <Compile Include="ScheduleBuilderReserveBands.cs" />
     <Compile Include="ScheduleBuilderReviewExport.cs" />

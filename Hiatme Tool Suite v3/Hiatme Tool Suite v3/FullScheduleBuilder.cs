@@ -131,6 +131,17 @@ namespace Hiatme_Tool_Suite_v3
             Month = monthnumber;
             Year = year;
         }
+
+        public static FullScheduleBuilder FromServiceDate(DateTime serviceDate)
+        {
+            var d = serviceDate.Date;
+            return new FullScheduleBuilder(
+                d.DayOfWeek.ToString(),
+                d.Day.ToString(),
+                d.ToString("MMMM"),
+                d.Month.ToString(),
+                d.Year.ToString());
+        }
         private async Task AsyncUpdateLoadingScreen(string txt)
         {
             UpdateLoadingScreen(txt);
@@ -205,6 +216,59 @@ namespace Hiatme_Tool_Suite_v3
         {
             await BuildPreviewAsync(modcdate, modcLoginHandler).ConfigureAwait(false);
             await CreateWorkbookAsync().ConfigureAwait(false);
+        }
+
+        /// <summary>Populate preview from a saved CSV package or workbook (no Modivcare download).</summary>
+        public void ApplyLoadedSchedule(ScheduleBuilderLoadResult load)
+        {
+            if (load == null)
+                throw new ArgumentNullException(nameof(load));
+
+            EnsureScheduleBuilderRulesLoaded();
+
+            var driverLines = new Dictionary<string, List<ScheduleBuilderPreviewLine>>(
+                StringComparer.OrdinalIgnoreCase);
+            foreach (var kv in load.DriverLines)
+                driverLines[kv.Key] = kv.Value ?? new List<ScheduleBuilderPreviewLine>();
+            PreviewDriverLines = driverLines;
+
+            driverTripList = new Dictionary<string, List<MCDownloadedTrip>>(
+                StringComparer.OrdinalIgnoreCase);
+            foreach (var kv in load.DriverTrips)
+                driverTripList[kv.Key] = kv.Value ?? new List<MCDownloadedTrip>();
+
+            TripsFound = load.AllTrips != null
+                ? new List<MCDownloadedTrip>(load.AllTrips)
+                : new List<MCDownloadedTrip>();
+            MCTripList = TripsFound;
+
+            ScheduleBuilderScheduleLoad.ApplyReserveBuckets(
+                load,
+                out var reservers,
+                out var reroutes,
+                out var banned,
+                out var willCalls);
+
+            PreviewReserves = reservers;
+            PreviewReservesReroute = reroutes;
+            PreviewReservesBanned = banned;
+            PreviewReservesWillCalls = willCalls;
+
+            if (MCTripList != null)
+            {
+                ScheduleBuilderReserveBuckets.CountWillCallsInDownload(
+                    MCTripList,
+                    out int wcTotal,
+                    out int wcPu,
+                    out int wcCmt);
+                WillCallsInDownloadCount = wcTotal;
+                WillCallsPuMidnightInDownloadCount = wcPu;
+                WillCallsCommentInDownloadCount = wcCmt;
+            }
+            else
+                WillCallsInDownloadCount = WillCallsPuMidnightInDownloadCount = WillCallsCommentInDownloadCount = 0;
+
+            RemoveWillCallsFromDriverPreview();
         }
 
         private void EnsureMatchedTripsOrThrow()

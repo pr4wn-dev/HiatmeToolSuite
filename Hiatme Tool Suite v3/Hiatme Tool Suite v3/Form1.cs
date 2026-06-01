@@ -3078,6 +3078,12 @@ namespace Hiatme_Tool_Suite_v3
         private static string FormatTimeOnly(string value)
         {
             if (string.IsNullOrWhiteSpace(value)) return value ?? string.Empty;
+            var parsed = SupeyTripTimes.TryParse(value);
+            if (parsed.HasValue)
+            {
+                return DateTime.Today.Add(parsed.Value)
+                    .ToString("h:mm tt", System.Globalization.CultureInfo.InvariantCulture);
+            }
             if (DateTime.TryParse(value, System.Globalization.CultureInfo.CurrentCulture,
                     System.Globalization.DateTimeStyles.None, out var dt))
             {

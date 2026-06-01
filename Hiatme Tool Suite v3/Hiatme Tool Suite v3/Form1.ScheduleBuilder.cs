@@ -4,6 +4,8 @@ using System.Collections.Generic;
 
 using System.Drawing;
 
+using System.IO;
+
 using System.Linq;
 
 using System.Threading;
@@ -53,6 +55,8 @@ namespace Hiatme_Tool_Suite_v3
         private Label _fsToolbarStatusLbl;
 
         private SupeyButton _fsBuildBtn;
+
+        private SupeyButton _fsLoadBtn;
 
         private SupeyButton _fsSaveBtn;
 
@@ -366,6 +370,24 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
+            _fsLoadBtn = new SupeyButton
+
+            {
+
+                Text = "LOAD",
+
+                Kind = SupeyButton.Variant.Secondary,
+
+                Size = new Size(96, 30),
+
+                Margin = new Padding(0, 1, 6, 0),
+
+            };
+
+            _fsLoadBtn.Click += fsLoadBtn_Click;
+
+
+
             _fsSaveBtn = new SupeyButton
 
             {
@@ -388,6 +410,9 @@ namespace Hiatme_Tool_Suite_v3
 
             saveTip.SetToolTip(_fsSaveBtn,
                 "Export Excel workbook, or a folder of driver CSVs if Excel is not installed. Does not require the office AI server.");
+
+            saveTip.SetToolTip(_fsLoadBtn,
+                "Open a saved .xlsx workbook or driver .csv (Excel not required). Date is read from the file name or trip dates and sets the date picker.");
 
 
 
@@ -426,6 +451,8 @@ namespace Hiatme_Tool_Suite_v3
             leftFlow.Controls.Add(MakeFsToolbarSeparator());
 
             leftFlow.Controls.Add(_fsBuildBtn);
+
+            leftFlow.Controls.Add(_fsLoadBtn);
 
             leftFlow.Controls.Add(_fsSaveBtn);
 
@@ -1149,6 +1176,260 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
+        private async void fsLoadBtn_Click(object sender, EventArgs e)
+
+        {
+
+            using (var dlg = new OpenFileDialog())
+
+            {
+
+                dlg.Title = "Load saved schedule";
+
+                dlg.Filter =
+
+                    "Schedule|*.xlsx;*.xls;*.csv|Excel workbook|*.xlsx;*.xls|CSV (pick any file in the folder)|*.csv|All files|*.*";
+
+                dlg.CheckFileExists = true;
+
+                if (dlg.ShowDialog(this) != DialogResult.OK)
+
+                    return;
+
+
+
+                string path = dlg.FileName;
+
+                string ext = (Path.GetExtension(path) ?? "").ToLowerInvariant();
+
+
+
+                _fsHasPreview = false;
+
+                if (_fsSaveBtn != null) _fsSaveBtn.Enabled = false;
+
+                if (fsbdatepicker != null) fsbdatepicker.Enabled = false;
+
+                if (_fsBuildBtn != null) _fsBuildBtn.Enabled = false;
+
+                if (_fsLoadBtn != null) _fsLoadBtn.Enabled = false;
+
+
+
+                try
+
+                {
+
+                    SetScheduleBuilderStatus("Loading schedule…");
+
+                    ScheduleBuilderLoadResult load;
+
+                    if (ext == ".xlsx" || ext == ".xls")
+
+                        load = await ScheduleBuilderScheduleLoad.LoadFromWorkbookAsync(path)
+
+                            .ConfigureAwait(true);
+
+                    else if (ext == ".csv")
+
+                    {
+
+                        string folder = Path.GetDirectoryName(path);
+
+                        load = ScheduleBuilderScheduleLoad.LoadFromFolder(folder, path);
+
+                    }
+
+                    else
+
+                    {
+
+                        MessageBox.Show(this,
+
+                            "Choose an Excel workbook (.xlsx) or a driver .csv file.",
+
+                            "Schedule Builder",
+
+                            MessageBoxButtons.OK,
+
+                            MessageBoxIcon.Information);
+
+                        return;
+
+                    }
+
+
+
+                    if (load == null || load.DriverLines.Count == 0)
+
+                    {
+
+                        MessageBox.Show(this,
+
+                            "No driver tabs found in that file or folder.\n\n"
+
+                            + "Expected one .csv per driver (same names as templates), or an Excel workbook with driver sheets.",
+
+                            "Schedule Builder",
+
+                            MessageBoxButtons.OK,
+
+                            MessageBoxIcon.Warning);
+
+                        SetScheduleBuilderStatus("Load found no driver tabs.");
+
+                        return;
+
+                    }
+
+
+
+                    DateTime serviceDate = load.ServiceDate ?? DateTime.Today;
+
+                    if (load.ServiceDate.HasValue && fsbdatepicker != null)
+
+                        fsbdatepicker.Value = load.ServiceDate.Value;
+
+                    fsbuilder = FullScheduleBuilder.FromServiceDate(serviceDate);
+
+                    fsbuilder.ApplyLoadedSchedule(load);
+
+                    BindScheduleBuilderPreview(fsbuilder);
+
+
+
+                    int drivers = fsbuilder.PreviewDriverLines.Count;
+
+                    int trips = fsbuilder.PreviewDriverLines.Values.Sum(
+
+                        l => l.Count(x => x?.Kind == ScheduleBuilderPreviewLine.LineKind.Trip));
+
+                    _fsHasPreview = true;
+
+                    if (_fsSaveBtn != null) _fsSaveBtn.Enabled = true;
+
+
+
+                    string groupingSummary = SummarizeLoadGroupingNotes(load.DriverGroupingNotes);
+
+                    int res = fsbuilder.PreviewReserves?.Count ?? 0;
+
+                    int rer = fsbuilder.PreviewReservesReroute?.Count ?? 0;
+
+                    int ban = fsbuilder.PreviewReservesBanned?.Count ?? 0;
+
+                    int wc = fsbuilder.PreviewReservesWillCalls?.Count ?? 0;
+
+
+
+                    string dateMsg = load.ServiceDate.HasValue
+
+                        ? serviceDate.ToString("dddd, MMMM d, yyyy")
+
+                          + " (from " + load.ServiceDateSource + ")"
+
+                        : serviceDate.ToString("dddd, MMMM d, yyyy")
+
+                          + " (date not in file — using today for templates)";
+
+
+
+                    SetScheduleBuilderStatus(
+
+                        "Loaded " + dateMsg + " — " + drivers + " driver tab(s), " + trips + " trip(s)"
+
+                        + (res + rer + ban + wc > 0
+
+                            ? ", reserves " + res + (wc > 0 ? ", " + wc + " will call(s)" : "")
+
+                              + (rer > 0 ? ", " + rer + " reroute(s)" : "")
+
+                              + (ban > 0 ? ", " + ban + " banned" : "")
+
+                            : "")
+
+                        + ". Groups: " + groupingSummary + ".");
+
+                }
+
+                catch (InvalidOperationException ex)
+
+                {
+
+                    MessageBox.Show(this,
+
+                        ex.Message,
+
+                        "Schedule Builder",
+
+                        MessageBoxButtons.OK,
+
+                        MessageBoxIcon.Warning);
+
+                    SetScheduleBuilderStatus("Load failed.");
+
+                }
+
+                catch (Exception ex)
+
+                {
+
+                    MessageBox.Show(this,
+
+                        "Could not load the schedule.\n\n" + ex.Message,
+
+                        "Schedule Builder",
+
+                        MessageBoxButtons.OK,
+
+                        MessageBoxIcon.Error);
+
+                    SetScheduleBuilderStatus("Load failed.");
+
+                }
+
+                finally
+
+                {
+
+                    EnableScheduleBuilderInputs(true);
+
+                }
+
+            }
+
+        }
+
+
+
+        private static string SummarizeLoadGroupingNotes(
+
+            IReadOnlyDictionary<string, string> notesByTab)
+
+        {
+
+            if (notesByTab == null || notesByTab.Count == 0)
+
+                return "unknown";
+
+            var groups = notesByTab.Values
+
+                .Where(n => !string.IsNullOrWhiteSpace(n))
+
+                .GroupBy(n => n.Trim(), StringComparer.OrdinalIgnoreCase)
+
+                .OrderByDescending(g => g.Count())
+
+                .Select(g => g.Count() + "× " + g.Key)
+
+                .ToList();
+
+            return groups.Count > 0 ? string.Join("; ", groups) : "unknown";
+
+        }
+
+
+
         private async void fsBuildBtn_Click(object sender, EventArgs e)
 
         {
@@ -1162,6 +1443,8 @@ namespace Hiatme_Tool_Suite_v3
             if (fsbdatepicker != null) fsbdatepicker.Enabled = false;
 
             if (_fsBuildBtn != null) _fsBuildBtn.Enabled = false;
+
+            if (_fsLoadBtn != null) _fsLoadBtn.Enabled = false;
 
             if (_fsSaveBtn != null) _fsSaveBtn.Enabled = false;
 
@@ -1322,6 +1605,8 @@ namespace Hiatme_Tool_Suite_v3
             if (fsbdatepicker != null) fsbdatepicker.Enabled = enabled;
 
             if (_fsBuildBtn != null) _fsBuildBtn.Enabled = enabled;
+
+            if (_fsLoadBtn != null) _fsLoadBtn.Enabled = enabled;
 
         }
 
@@ -1763,6 +2048,8 @@ namespace Hiatme_Tool_Suite_v3
             if (fsbdatepicker != null) fsbdatepicker.Enabled = false;
 
             if (_fsBuildBtn != null) _fsBuildBtn.Enabled = false;
+
+            if (_fsLoadBtn != null) _fsLoadBtn.Enabled = false;
 
             if (_fsSaveBtn != null) _fsSaveBtn.Enabled = false;
 
