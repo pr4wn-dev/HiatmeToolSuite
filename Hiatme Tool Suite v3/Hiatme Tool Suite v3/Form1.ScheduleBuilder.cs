@@ -50,7 +50,11 @@ namespace Hiatme_Tool_Suite_v3
 
         private SupeyListView _fsTripsLv;
 
-        private MaterialButton _fsSaveBtn;
+        private Label _fsToolbarStatusLbl;
+
+        private SupeyButton _fsBuildBtn;
+
+        private SupeyButton _fsSaveBtn;
 
         private bool _fsPreviewUiReady;
 
@@ -126,9 +130,7 @@ namespace Hiatme_Tool_Suite_v3
 
             _fsPreviewUiReady = true;
 
-            if (sbstatuslbl != null)
-
-                sbstatuslbl.Text = "Status: Pick a date and click BUILD.";
+            SetScheduleBuilderStatus("Ready. Pick a service date and click BUILD.");
 
         }
 
@@ -156,35 +158,9 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-            materialCard15.Dock = DockStyle.Bottom;
+            if (materialCard15 != null)
 
-            materialCard15.Height = 36;
-
-            materialCard15.Margin = new Padding(0);
-
-            materialCard15.Padding = new Padding(12, 8, 12, 8);
-
-            materialCard15.BackColor = SupeyTheme.SurfaceStatusBar;
-
-            materialCard15.Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
-
-
-
-            if (sbstatuslbl != null)
-
-            {
-
-                sbstatuslbl.Dock = DockStyle.Fill;
-
-                sbstatuslbl.AutoSize = false;
-
-                sbstatuslbl.ForeColor = SupeyTheme.TextSecondary;
-
-                sbstatuslbl.BackColor = SupeyTheme.SurfaceStatusBar;
-
-                sbstatuslbl.Font = SupeyTheme.BodyFont;
-
-            }
+                materialCard15.Visible = false;
 
         }
 
@@ -193,6 +169,12 @@ namespace Hiatme_Tool_Suite_v3
         private void BuildFsToolbar()
 
         {
+
+            if (fsbtn != null) fsbtn.Visible = false;
+
+            if (fsExportHintLbl != null) fsExportHintLbl.Visible = false;
+
+
 
             _fsToolbarPanel = new Panel
 
@@ -203,6 +185,8 @@ namespace Hiatme_Tool_Suite_v3
                 Height = 56,
 
                 BackColor = SupeyTheme.SurfaceHeader,
+
+                Padding = new Padding(0),
 
             };
 
@@ -220,19 +204,83 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
+            var leftFlow = new FlowLayoutPanel
+
+            {
+
+                Dock = DockStyle.Left,
+
+                FlowDirection = FlowDirection.LeftToRight,
+
+                WrapContents = false,
+
+                AutoSize = true,
+
+                BackColor = SupeyTheme.SurfaceHeader,
+
+                Padding = new Padding(12, 12, 0, 0),
+
+                Width = 620,
+
+            };
+
+
+
+            var rightFlow = new FlowLayoutPanel
+
+            {
+
+                Dock = DockStyle.Right,
+
+                FlowDirection = FlowDirection.RightToLeft,
+
+                WrapContents = false,
+
+                AutoSize = true,
+
+                BackColor = SupeyTheme.SurfaceHeader,
+
+                Padding = new Padding(0, 12, 12, 0),
+
+                Width = 720,
+
+            };
+
+
+
+            var dateLabel = new Label
+
+            {
+
+                Text = "Service date",
+
+                AutoSize = true,
+
+                ForeColor = SupeyTheme.TextSecondary,
+
+                BackColor = SupeyTheme.SurfaceHeader,
+
+                Font = SupeyTheme.CaptionFont,
+
+                Margin = new Padding(0, 8, 10, 0),
+
+            };
+
+
+
             if (fsbdatepicker != null)
 
             {
 
-                fsbdatepicker.Parent = _fsToolbarPanel;
+                fsbdatepicker.Margin = new Padding(0);
 
-                fsbdatepicker.Anchor = AnchorStyles.None;
-
-                fsbdatepicker.Location = new Point(12, 13);
+                fsbdatepicker.Size = new Size(232, 30);
 
                 fsbdatepicker.BorderColor = SupeyTheme.BorderSubtle;
 
                 fsbdatepicker.BorderSize = 1;
+
+                fsbdatepicker.Font = new Font("Segoe UI", 9.5f);
 
                 fsbdatepicker.SkinColor = SupeyTheme.SurfaceElevated;
 
@@ -242,83 +290,163 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-            if (fsbtn != null)
+            _fsBuildBtn = new SupeyButton
 
             {
 
-                fsbtn.Parent = _fsToolbarPanel;
+                Text = "BUILD",
 
-                fsbtn.Text = "BUILD";
+                Kind = SupeyButton.Variant.Primary,
 
-                fsbtn.Anchor = AnchorStyles.None;
+                Size = new Size(96, 30),
 
-                fsbtn.Location = new Point(256, 12);
+                Margin = new Padding(0, 1, 6, 0),
 
-                fsbtn.Size = new Size(96, 32);
+            };
 
-                fsbtn.Click -= fsBuildBtn_Click;
-
-                fsbtn.Click += fsBuildBtn_Click;
-
-            }
+            _fsBuildBtn.Click += fsBuildBtn_Click;
 
 
 
-            _fsSaveBtn = new MaterialButton
+            _fsSaveBtn = new SupeyButton
 
             {
 
                 Text = "SAVE SCHEDULE",
 
-                Anchor = AnchorStyles.None,
+                Kind = SupeyButton.Variant.Secondary,
 
-                Location = new Point(360, 12),
+                Size = new Size(148, 30),
 
-                Size = new Size(148, 32),
+                Margin = new Padding(0, 1, 0, 0),
 
                 Enabled = false,
 
-                HighEmphasis = false,
-
-                Depth = 0,
-
-                Type = MaterialButton.MaterialButtonType.Outlined,
-
             };
 
-            var saveTip = new ToolTip();
+            var saveTip = new ToolTip { AutoPopDelay = 12000, InitialDelay = 400 };
 
             saveTip.SetToolTip(_fsSaveBtn, "Save as Excel workbook — coming soon.");
 
-            _fsToolbarPanel.Controls.Add(_fsSaveBtn);
 
 
-
-            if (fsExportHintLbl != null)
+            _fsToolbarStatusLbl = new Label
 
             {
 
-                fsExportHintLbl.Parent = _fsToolbarPanel;
+                Text = "Ready",
 
-                fsExportHintLbl.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+                AutoSize = false,
 
-                fsExportHintLbl.Location = new Point(520, 18);
+                Width = 520,
 
-                fsExportHintLbl.Size = new Size(600, 22);
+                Height = 28,
 
-                fsExportHintLbl.ForeColor = SupeyTheme.TextMuted;
+                ForeColor = SupeyTheme.TextSecondary,
 
-                fsExportHintLbl.BackColor = SupeyTheme.SurfaceHeader;
+                BackColor = SupeyTheme.SurfaceHeader,
 
-                fsExportHintLbl.Font = SupeyTheme.CaptionFont;
+                TextAlign = ContentAlignment.MiddleRight,
 
-                fsExportHintLbl.Text = "BUILD loads trips by driver tab. SAVE workbook — not wired yet.";
+                Font = SupeyTheme.BodyFont,
+
+                Margin = new Padding(0, 3, 0, 0),
+
+            };
+
+
+
+            leftFlow.Controls.Add(dateLabel);
+
+            if (fsbdatepicker != null)
+
+                leftFlow.Controls.Add(fsbdatepicker);
+
+            leftFlow.Controls.Add(MakeFsToolbarSeparator());
+
+            leftFlow.Controls.Add(_fsBuildBtn);
+
+            leftFlow.Controls.Add(_fsSaveBtn);
+
+
+
+            rightFlow.Controls.Add(_fsToolbarStatusLbl);
+
+
+
+            _fsToolbarPanel.Controls.Add(rightFlow);
+
+            _fsToolbarPanel.Controls.Add(leftFlow);
+
+            _fsToolbarPanel.Controls.Add(divider);
+
+            _fsToolbarPanel.Resize += (s, e) => LayoutFsToolbarStatusWidth();
+
+            LayoutFsToolbarStatusWidth();
+
+        }
+
+
+
+        private void LayoutFsToolbarStatusWidth()
+
+        {
+
+            if (_fsToolbarPanel == null || _fsToolbarStatusLbl == null) return;
+
+            int pad = 12;
+
+            int reservedLeft = 640;
+
+            int w = Math.Max(180, _fsToolbarPanel.ClientSize.Width - reservedLeft - pad);
+
+            _fsToolbarStatusLbl.Width = w;
+
+        }
+
+
+
+        private static Panel MakeFsToolbarSeparator()
+
+        {
+
+            return new Panel
+
+            {
+
+                Width = 1,
+
+                Height = 24,
+
+                BackColor = SupeyTheme.Divider,
+
+                Margin = new Padding(4, 6, 12, 0),
+
+            };
+
+        }
+
+
+
+        private void SetScheduleBuilderStatus(string text)
+
+        {
+
+            if (_fsToolbarStatusLbl == null) return;
+
+            if (InvokeRequired)
+
+            {
+
+                try { BeginInvoke((Action)(() => SetScheduleBuilderStatus(text))); }
+
+                catch { /* form closing */ }
+
+                return;
 
             }
 
-
-
-            _fsToolbarPanel.Controls.Add(divider);
+            _fsToolbarStatusLbl.Text = text ?? "";
 
         }
 
@@ -376,9 +504,9 @@ namespace Hiatme_Tool_Suite_v3
 
             {
 
-                if (sbstatuslbl != null && !string.IsNullOrWhiteSpace(msg))
+                if (!string.IsNullOrWhiteSpace(msg))
 
-                    sbstatuslbl.Text = "Status: " + msg;
+                    SetScheduleBuilderStatus(msg);
 
             };
 
@@ -960,11 +1088,13 @@ namespace Hiatme_Tool_Suite_v3
 
         {
 
+            SetScheduleBuilderStatus("Building schedule…");
+
             loadinggifhandler_showscreen();
 
             if (fsbdatepicker != null) fsbdatepicker.Enabled = false;
 
-            if (fsbtn != null) fsbtn.Enabled = false;
+            if (_fsBuildBtn != null) _fsBuildBtn.Enabled = false;
 
             if (_fsSaveBtn != null) _fsSaveBtn.Enabled = false;
 
@@ -996,9 +1126,7 @@ namespace Hiatme_Tool_Suite_v3
 
                     EnableScheduleBuilderInputs(true);
 
-                    if (sbstatuslbl != null)
-
-                        sbstatuslbl.Text = "Status: Modivcare sign-in required.";
+                    SetScheduleBuilderStatus("Modivcare sign-in required.");
 
                     return;
 
@@ -1020,21 +1148,15 @@ namespace Hiatme_Tool_Suite_v3
 
                 BindScheduleBuilderPreview(fsbuilder);
 
-                if (sbstatuslbl != null)
+                int drivers = fsbuilder.PreviewDriverLines.Count;
 
-                {
+                int trips = fsbuilder.PreviewDriverLines.Values.Sum(
 
-                    int drivers = fsbuilder.PreviewDriverLines.Count;
+                    l => l.Count(x => x?.Kind == ScheduleBuilderPreviewLine.LineKind.Trip));
 
-                    int trips = fsbuilder.PreviewDriverLines.Values.Sum(
+                SetScheduleBuilderStatus("Built — " + drivers + " driver tab(s), "
 
-                        l => l.Count(x => x?.Kind == ScheduleBuilderPreviewLine.LineKind.Trip));
-
-                    sbstatuslbl.Text = "Status: Built — " + drivers + " driver tab(s), "
-
-                        + trips + " trip(s), " + fsbuilder.PreviewReserves.Count + " reserve(s).";
-
-                }
+                    + trips + " trip(s), " + fsbuilder.PreviewReserves.Count + " reserve(s).");
 
             }
 
@@ -1056,9 +1178,7 @@ namespace Hiatme_Tool_Suite_v3
 
                     MessageBoxIcon.Warning);
 
-                if (sbstatuslbl != null)
-
-                    sbstatuslbl.Text = "Status: Build failed — see message.";
+                SetScheduleBuilderStatus("Build failed — see message.");
 
                 return;
 
@@ -1082,9 +1202,7 @@ namespace Hiatme_Tool_Suite_v3
 
                     MessageBoxIcon.Error);
 
-                if (sbstatuslbl != null)
-
-                    sbstatuslbl.Text = "Status: Build failed.";
+                SetScheduleBuilderStatus("Build failed.");
 
                 return;
 
@@ -1106,7 +1224,7 @@ namespace Hiatme_Tool_Suite_v3
 
             if (fsbdatepicker != null) fsbdatepicker.Enabled = enabled;
 
-            if (fsbtn != null) fsbtn.Enabled = enabled;
+            if (_fsBuildBtn != null) _fsBuildBtn.Enabled = enabled;
 
         }
 

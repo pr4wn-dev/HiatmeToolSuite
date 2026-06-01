@@ -4952,8 +4952,8 @@ namespace Hiatme_Tool_Suite_v3
                     // VerifyDriverTripsInfo(drivertriplist);
                 }
             }
-            if (hiatmeTabControl.SelectedTab == tabPage6 && sbstatuslbl != null)
-                sbstatuslbl.Text = "Status: Pick a date and click BUILD — driver tabs load below.";
+            if (hiatmeTabControl.SelectedTab == tabPage6)
+                SetScheduleBuilderStatus("Ready. Pick a service date and click BUILD.");
 
         }
         private void listView_ColumnClick(object sender, ColumnClickEventArgs e)
