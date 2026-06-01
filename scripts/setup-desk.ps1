@@ -68,4 +68,5 @@ Write-Host "Before BUILD / LOAD:" -ForegroundColor Yellow
 Write-Host "  - Copy weekday template folders (Monday, Tuesday, ...) beside the exe or install dir."
 Write-Host "  - Sign in to Modivcare once for BUILD (LOAD does not need Modivcare)."
 Write-Host ""
-Write-Host "Server docs: https://github.com/pr4wn-dev/AIagent/blob/main/docs/DEPLOY-NEW-SERVER.md"
+Write-Host "Deployment doc: docs\DEPLOYMENT.md"
+Write-Host "AIagent server: https://github.com/pr4wn-dev/AIagent/blob/main/docs/DEPLOY-NEW-SERVER.md"

@@ -16,7 +16,7 @@ Clone both on the **server** (AIagent only) and on **each desk** (Tool Suite; po
 ## New office server
 
 1. **AI host** — follow [AIagent: DEPLOY-NEW-SERVER](https://github.com/pr4wn-dev/AIagent/blob/main/docs/DEPLOY-NEW-SERVER.md) or run `bootstrap-new-server.ps1`.
-2. **Desks** — [DEPLOY.md](DEPLOY.md) in this repo (`setup-desk.ps1`).
+2. **Desks** — [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) (`setup-desk.ps1`).
 
 ## Build Tool Suite from source
 
@@ -44,7 +44,8 @@ Config files are **gitignored** (contain API token):
 
 | Path | Topic |
 |------|--------|
-| [DEPLOY.md](DEPLOY.md) | Desk + server wiring checklist |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Desk + server wiring checklist |
+| [DEPLOY.md](DEPLOY.md) | Short link to the doc above |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Legacy XAMPP / client-server plan |
 | `Hiatme Tool Suite v3/release/README.md` | In-app updater |
 | `tools/osrm/README.md` | OSRM scripts (duplicate of AIagent; use server host) |
