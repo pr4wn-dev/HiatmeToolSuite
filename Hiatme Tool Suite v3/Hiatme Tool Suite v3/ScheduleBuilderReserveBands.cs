@@ -57,19 +57,11 @@ namespace Hiatme_Tool_Suite_v3
 
         }
 
-        /// <summary>00:00 PU (legacy Analyzer) or Modivcare comments contain WILL CALL.</summary>
+        /// <summary>Will call = scheduled pickup is midnight only (00:00 / 12:00 AM).</summary>
 
-        public static bool IsWillCallTrip(MCDownloadedTrip trip)
+        public static bool IsWillCallTrip(MCDownloadedTrip trip) =>
 
-        {
-
-            if (trip == null) return false;
-
-            if (SupeyWillCallPickup.IsPickupWillCall(trip)) return true;
-
-            return HasWillCallComment(trip.Comments);
-
-        }
+            SupeyWillCallPickup.IsPickupWillCall(trip);
 
         /// <summary>Legacy name — use <see cref="IsWillCallTrip"/>.</summary>
 
@@ -111,15 +103,19 @@ namespace Hiatme_Tool_Suite_v3
 
             {
 
-                if (!IsWillCallTrip(t)) continue;
-
-                total++;
-
                 if (SupeyWillCallPickup.IsPickupWillCall(t))
+
+                {
+
+                    total++;
 
                     puMidnight++;
 
-                else
+                    continue;
+
+                }
+
+                if (HasWillCallComment(t?.Comments))
 
                     commentOnly++;
 

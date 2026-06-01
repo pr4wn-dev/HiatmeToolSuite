@@ -212,7 +212,7 @@ namespace Hiatme_Tool_Suite_v3
 
             // Live download still shows 00:00 PU while template row may have been updated to a real time.
 
-            if (ScheduleBuilderReserveBuckets.IsWillCallTrip(live))
+            if (SupeyWillCallPickup.IsPickupWillCall(live))
 
                 return true;
 

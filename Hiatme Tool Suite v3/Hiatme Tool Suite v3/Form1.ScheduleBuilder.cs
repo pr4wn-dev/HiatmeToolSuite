@@ -1261,8 +1261,8 @@ namespace Hiatme_Tool_Suite_v3
                 if (wcDl > 0 && wc == 0)
                 {
                     if (wcCmt > 0)
-                        resMsg += ", incl. " + wcCmt + " WILL CALL in comments";
-                    resMsg += "; check banned / driver tabs)";
+                        resMsg += "; " + wcCmt + " have WILL CALL comment (need 00:00/12AM PU)";
+                    resMsg += " — check banned / driver tabs)";
                 }
 
                 if (rer > 0)
@@ -1425,15 +1425,29 @@ namespace Hiatme_Tool_Suite_v3
 
             if (_fsMap == null || string.IsNullOrWhiteSpace(_fsActiveDriverTab)) return;
 
-            _fsMap.CenterOnMaineHub();
-
             string tabName = _fsActiveDriverTab;
+
+            int gen = Interlocked.Increment(ref _fsMapRefreshGen);
+
+            _fsMap.Clear();
+
+            if (tabName.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
+
+            {
+
+                SetScheduleBuilderStatus("Reserves · list only (no map pins).");
+
+                _fsMap.CenterOnMaineHub();
+
+                return;
+
+            }
 
             if (string.IsNullOrEmpty(tabName) || !_fsLinesByTab.TryGetValue(tabName, out var lines))
 
             {
 
-                _fsMap.Clear();
+                _fsMap.CenterOnMaineHub();
 
                 return;
 
@@ -1447,15 +1461,11 @@ namespace Hiatme_Tool_Suite_v3
 
             {
 
-                _fsMap.Clear();
+                _fsMap.CenterOnMaineHub();
 
                 return;
 
             }
-
-
-
-            int gen = Interlocked.Increment(ref _fsMapRefreshGen);
 
             var pickup = new Dictionary<string, GeoPoint>(StringComparer.OrdinalIgnoreCase);
 
@@ -1538,7 +1548,8 @@ namespace Hiatme_Tool_Suite_v3
 
             if (gen != _fsMapRefreshGen) return;
 
-
+            if (!string.Equals(tabName, _fsActiveDriverTab, StringComparison.OrdinalIgnoreCase))
+                return;
 
             var plan = new SupeyDriverPlan
 
@@ -1553,6 +1564,8 @@ namespace Hiatme_Tool_Suite_v3
             bool centerMaineAfterBuild = _fsCenterMaineAfterBuild;
             if (centerMaineAfterBuild)
                 _fsCenterMaineAfterBuild = false;
+
+            if (gen != _fsMapRefreshGen) return;
 
             _fsMap.ShowDriverPlan(plan, autoFitViewport: !centerMaineAfterBuild);
 
@@ -1872,8 +1885,7 @@ namespace Hiatme_Tool_Suite_v3
 
             }
 
-            _fsGroupsByTab["Reserves"] = ScheduleBuilderReserveBuckets.BuildMapGroups(
-                reservers, reroutes, banned, willCalls);
+            _fsGroupsByTab["Reserves"] = new List<SupeyTripCluster>();
 
         }
 

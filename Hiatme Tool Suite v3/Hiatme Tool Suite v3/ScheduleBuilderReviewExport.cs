@@ -103,7 +103,7 @@ namespace Hiatme_Tool_Suite_v3
                         if (line?.Kind != ScheduleBuilderPreviewLine.LineKind.Trip || line.Trip == null)
                             continue;
                         onDrivers++;
-                        if (ScheduleBuilderReserveBuckets.IsWillCallTrip(line.Trip))
+                        if (SupeyWillCallPickup.IsPickupWillCall(line.Trip))
                             wcOnDrivers++;
                     }
                 }
@@ -123,9 +123,9 @@ namespace Hiatme_Tool_Suite_v3
             sb.AppendLine("Downloaded from Modivcare: " + dl + " trip(s)");
             sb.AppendLine("On driver tabs: " + onDrivers + " trip(s)"
                 + (wcOnDrivers > 0 ? " — WARNING: " + wcOnDrivers + " will-call trip(s) still on drivers" : ""));
-            sb.AppendLine("Will calls = 00:00 **pickup (PU)** and/or **WILL CALL** in Modivcare comments.");
+            sb.AppendLine("Will calls = 00:00 / 12:00 AM **pickup (PU)** only (WILL CALL in comments does not count).");
             sb.AppendLine("Reserves — Will calls: " + wc + " (in download: " + wcDl
-                + " = " + wcPu + " with 00:00 PU, " + wcCmt + " comment-only)");
+                + " with midnight PU" + (wcCmt > 0 ? "; " + wcCmt + " trip(s) have WILL CALL comment but non-midnight PU" : "") + ")");
             if (doMidnight > 0)
             {
                 sb.AppendLine("Also: " + doMidnight + " trip(s) with 00:00 **dropoff (DO)** (B/C return legs — not counted as will calls).");
@@ -267,15 +267,10 @@ namespace Hiatme_Tool_Suite_v3
             sb.Append(Sanitize(t.TripNumber)).Append('\t')
               .Append(Sanitize(t.ClientFullName)).Append('\t')
               .Append(Sanitize(t.PUTime));
-            if (ScheduleBuilderReserveBuckets.IsWillCallTrip(t))
-            {
-                sb.Append(" [will-call");
-                if (SupeyWillCallPickup.IsPickupWillCall(t))
-                    sb.Append(":00:00-PU");
-                else if (ScheduleBuilderReserveBuckets.HasWillCallComment(t.Comments))
-                    sb.Append(":comment");
-                sb.Append("]");
-            }
+            if (SupeyWillCallPickup.IsPickupWillCall(t))
+                sb.Append(" [will-call:midnight-PU]");
+            else if (ScheduleBuilderReserveBuckets.HasWillCallComment(t.Comments))
+                sb.Append(" [WILL CALL comment — not midnight PU]");
             sb.Append('\t')
               .Append(Sanitize(t.PUStreet)).Append('\t')
               .Append(Sanitize(t.PUCity)).Append('\t')

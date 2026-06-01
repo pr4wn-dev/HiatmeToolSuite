@@ -10,7 +10,7 @@ namespace Hiatme_Tool_Suite_v3
 
     /// <summary>
 
-    /// Modivcare will-call = scheduled <b>pickup</b> is midnight (00:00). Matches legacy Analyzer
+    /// Modivcare will-call = scheduled <b>pickup</b> is midnight (00:00 or 12:00 AM). Matches legacy Analyzer
 
     /// (<c>PUTime.Replace(" ", "") == "00:00"</c>) plus batch time normalization.
 
@@ -75,11 +75,18 @@ namespace Hiatme_Tool_Suite_v3
 
                 || string.Equals(compact, "00:00:00", StringComparison.OrdinalIgnoreCase)
 
-                || string.Equals(compact, "0:00:00", StringComparison.OrdinalIgnoreCase))
+                || string.Equals(compact, "0:00:00", StringComparison.OrdinalIgnoreCase)
+
+                || string.Equals(compact, "12:00AM", StringComparison.OrdinalIgnoreCase)
+
+                || string.Equals(compact, "12:00:00AM", StringComparison.OrdinalIgnoreCase))
 
                 return true;
 
-
+            string trimmed = puTime.Trim();
+            if (trimmed.Equals("12:00 AM", StringComparison.OrdinalIgnoreCase)
+                || trimmed.Equals("12:00AM", StringComparison.OrdinalIgnoreCase))
+                return true;
 
             string norm = MCTimeCorrection.NormalizeBatchTime(puTime);
 
