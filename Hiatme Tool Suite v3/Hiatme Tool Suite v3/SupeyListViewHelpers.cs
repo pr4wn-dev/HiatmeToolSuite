@@ -163,9 +163,15 @@ namespace Hiatme_Tool_Suite_v3
         public static void DrawSubItemCellBackground(DrawListViewSubItemEventArgs e, Color background)
         {
             if (e == null) return;
+            DrawSubItemCellBackground(e, background, e.Bounds);
+        }
+
+        public static void DrawSubItemCellBackground(DrawListViewSubItemEventArgs e, Color background, Rectangle bounds)
+        {
+            if (e == null) return;
             e.DrawDefault = false;
             using (var brush = new SolidBrush(background))
-                e.Graphics.FillRectangle(brush, e.Bounds);
+                e.Graphics.FillRectangle(brush, bounds);
         }
 
         /// <summary>

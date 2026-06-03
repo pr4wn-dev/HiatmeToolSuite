@@ -159,6 +159,8 @@
     <Compile Include="ScheduleBuilderLoadDateResolver.cs" />
     <Compile Include="ScheduleBuilderXlsxReader.cs" />
     <Compile Include="ScheduleBuilderPreviewGroups.cs" />
+    <Compile Include="ScheduleBuilderPreviewDrag.cs" />
+    <Compile Include="ScheduleBuilderPreviewTags.cs" />
     <Compile Include="ScheduleBuilderReserveBands.cs" />
     <Compile Include="ScheduleBuilderReviewExport.cs" />
     <Compile Include="MCCalculateAccuracies.cs" />
@@ -179,6 +181,10 @@
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="Form1.ScheduleBuilder.ContextMenu.cs">
+      <DependentUpon>Form1.cs</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Form1.ScheduleBuilder.Drag.cs">
       <DependentUpon>Form1.cs</DependentUpon>
       <SubType>Form</SubType>
     </Compile>

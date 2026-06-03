@@ -100,56 +100,6 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-        private sealed class FsPreviewGapTag { }
-
-
-
-        private sealed class FsPreviewSectionHeaderTag
-
-        {
-
-            public string Title { get; }
-
-            public FsPreviewSectionHeaderTag(string title) => Title = title ?? "";
-
-        }
-
-
-
-        private sealed class FsPreviewNoteTag
-
-        {
-
-            public SupeyTripCluster Group { get; }
-
-            public FsPreviewNoteTag(SupeyTripCluster g) => Group = g;
-
-        }
-
-
-
-        private sealed class FsPreviewTripTag
-
-        {
-
-            public SupeyTripCluster Group { get; }
-
-            public MCDownloadedTrip Trip { get; }
-
-            public FsPreviewTripTag(SupeyTripCluster g, MCDownloadedTrip t)
-
-            {
-
-                Group = g;
-
-                Trip = t;
-
-            }
-
-        }
-
-
-
         private void InitializeScheduleBuilderTab()
 
         {
@@ -682,8 +632,6 @@ namespace Hiatme_Tool_Suite_v3
 
             host.Controls.Add(_fsDriverTabStrip);
 
-
-
             ListViewMinWidthEnforcer.Attach(_fsTripsLv);
 
             ListViewHeaderEmptyAreaPainter.Attach(_fsTripsLv);
@@ -691,6 +639,10 @@ namespace Hiatme_Tool_Suite_v3
             BuildFsTripsContextMenu();
 
             _fsTripsLv.MouseUp += FsTripsLv_MouseUp_ShowContextMenu;
+
+            WireFsTripsListDragDrop();
+
+            _fsTripsLv.PostPaintItems = FsTripsPostPaintDragCursor;
 
 
 
@@ -842,6 +794,34 @@ namespace Hiatme_Tool_Suite_v3
 
         {
 
+            if (FsTripsIsDragSourceRow(e.Item))
+            {
+                var faint = Color.FromArgb(120, SupeyTheme.ListBody);
+                SupeyListViewHelpers.DrawSubItemCellBackground(e, faint);
+                SupeyListViewHelpers.DrawCellGridLines(e.Graphics, e.Bounds);
+                return;
+            }
+
+            if (FsTripsIsDragMergeTargetRow(e.Item))
+            {
+                FsTripsPaintDragMergeCell(e);
+                return;
+            }
+
+
+
+            int bump = FsTripsGetDragBumpPixels(e.Item?.Index ?? -1);
+
+            var cellBounds = bump > 0
+
+                ? new Rectangle(e.Bounds.X, e.Bounds.Y + bump, e.Bounds.Width, e.Bounds.Height)
+
+                : e.Bounds;
+
+            FsTripsPaintDragDecorations(e.Graphics, e.Item, e.ColumnIndex, cellBounds, bump);
+
+
+
             bool sel = e.Item != null && e.Item.Selected;
 
             bool isGap = e.Item?.Tag is FsPreviewGapTag;
@@ -882,11 +862,11 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-            SupeyListViewHelpers.DrawSubItemCellBackground(e, fill);
+            SupeyListViewHelpers.DrawSubItemCellBackground(e, fill, cellBounds);
 
 
 
-            var bounds = new Rectangle(e.Bounds.Left + 6, e.Bounds.Top, e.Bounds.Width - 6, e.Bounds.Height);
+            var bounds = new Rectangle(cellBounds.Left + 6, cellBounds.Top, cellBounds.Width - 6, cellBounds.Height);
 
             Color textColor = sel ? SupeyTheme.ListSelectedText : SupeyTheme.ListText;
 
@@ -908,7 +888,7 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-            SupeyListViewHelpers.DrawCellGridLines(e.Graphics, e.Bounds);
+            SupeyListViewHelpers.DrawCellGridLines(e.Graphics, cellBounds);
 
         }
 
@@ -1616,11 +1596,8 @@ namespace Hiatme_Tool_Suite_v3
 
             _fsCenterMaineAfterBuild = true;
 
-            if (willCalls.Count > 0)
-
-                SelectFsDriverTab("Reserves");
-
-            else if (driverNames.Count > 0)
+            // First driver tab (right of Reserves) so the map loads route groups, not an empty reserves view.
+            if (driverNames.Count > 0)
 
                 SelectFsDriverTab(driverNames[0]);
 
