@@ -310,5 +310,77 @@ namespace Hiatme_Tool_Suite_v3
             if (ReferenceEquals(a, b)) return true;
             return string.Equals(a.TripNumber, b.TripNumber, StringComparison.OrdinalIgnoreCase);
         }
+
+        /// <summary>Reorder trip lines inside one gap-delimited group (1-based group number).</summary>
+        internal static bool ApplyTripOrderToGroup(
+            IList<ScheduleBuilderPreviewLine> lines,
+            int groupNumber,
+            IReadOnlyList<int> tripOrderIndices)
+        {
+            if (lines == null || groupNumber <= 0 || tripOrderIndices == null || tripOrderIndices.Count == 0)
+                return false;
+
+            if (!TryFindGroupTripLineIndices(lines, groupNumber, out var tripLineIndices))
+                return false;
+            if (tripLineIndices.Count != tripOrderIndices.Count)
+                return false;
+
+            var tripLines = new List<ScheduleBuilderPreviewLine>(tripLineIndices.Count);
+            foreach (int idx in tripLineIndices)
+                tripLines.Add(lines[idx]);
+
+            for (int pos = 0; pos < tripOrderIndices.Count; pos++)
+            {
+                int from = tripOrderIndices[pos];
+                if (from < 0 || from >= tripLines.Count)
+                    return false;
+                lines[tripLineIndices[pos]] = tripLines[from];
+            }
+
+            return true;
+        }
+
+        private static bool TryFindGroupTripLineIndices(
+            IList<ScheduleBuilderPreviewLine> lines,
+            int groupNumber,
+            out List<int> tripLineIndices)
+        {
+            tripLineIndices = new List<int>();
+            if (lines == null || groupNumber <= 0) return false;
+
+            int groupCount = 0;
+            int segStart = -1;
+            for (int i = 0; i <= lines.Count; i++)
+            {
+                bool boundary = i == lines.Count
+                    || lines[i].Kind == ScheduleBuilderPreviewLine.LineKind.Gap
+                    || lines[i].Kind == ScheduleBuilderPreviewLine.LineKind.SectionHeader;
+
+                if (boundary && segStart >= 0)
+                {
+                    groupCount++;
+                    if (groupCount == groupNumber)
+                    {
+                        for (int j = segStart; j < i; j++)
+                        {
+                            if (lines[j]?.Kind == ScheduleBuilderPreviewLine.LineKind.SectionHeader)
+                                continue;
+                            if (lines[j]?.Kind == ScheduleBuilderPreviewLine.LineKind.Trip)
+                                tripLineIndices.Add(j);
+                        }
+                        return tripLineIndices.Count > 0;
+                    }
+                    segStart = -1;
+                }
+
+                if (i < lines.Count && lines[i].Kind == ScheduleBuilderPreviewLine.LineKind.Trip)
+                {
+                    if (segStart < 0)
+                        segStart = i;
+                }
+            }
+
+            return false;
+        }
     }
 }

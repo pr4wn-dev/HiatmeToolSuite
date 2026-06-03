@@ -106,9 +106,15 @@ namespace Hiatme_Tool_Suite_v3
 
             BuildFsSettingsWorkspaceDock();
 
+            BuildFsDriversWorkspaceDock();
+
 
 
             _fsMapWorkPanel.Controls.Add(_fsMap);
+
+            _fsMapWorkPanel.Controls.Add(_fsDriversSplitter);
+
+            _fsMapWorkPanel.Controls.Add(_fsDriversCollapsible);
 
             _fsMapWorkPanel.Controls.Add(_fsSettingsSplitter);
 

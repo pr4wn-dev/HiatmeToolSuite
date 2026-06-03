@@ -78,7 +78,7 @@ namespace Hiatme_Tool_Suite_v3
                     continue;
                 foreach (var item in overlay.Markers)
                 {
-                    if (item is SupeyDraggableMarker dm && dm.IsVisible && dm.IsMouseOver)
+                    if (item is SupeyDraggableMarker dm && dm.AllowDrag && dm.IsVisible && dm.IsMouseOver)
                         return dm;
                 }
             }

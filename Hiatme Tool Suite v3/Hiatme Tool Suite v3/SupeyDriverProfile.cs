@@ -18,6 +18,12 @@ namespace Hiatme_Tool_Suite_v3
     internal sealed class SupeyDriverProfile
     {
         public string Name { get; set; } = "";
+
+        /// <summary>
+        /// Schedule Builder driver tab when it differs from <see cref="Name"/> (template tab vs WellRyde full name).
+        /// </summary>
+        public string ScheduleTabKey { get; set; } = "";
+
         public string HomeStreet { get; set; } = "";
         public string HomeCity { get; set; } = "";
         public string HomeState { get; set; } = "";

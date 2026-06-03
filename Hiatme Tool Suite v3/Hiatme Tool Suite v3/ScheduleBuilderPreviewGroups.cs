@@ -78,27 +78,51 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>PU stops in trip order, then DO stops — same waypoint order as Supey cluster tours.</summary>
         public static List<GeoPoint> CollectDeskRouteWaypoints(SupeyTripCluster g)
         {
+            return CollectDeskRouteWaypoints(g, null, null);
+        }
+
+        /// <summary>Optional home (or other) bookends prepended/appended to the desk tour.</summary>
+        public static List<GeoPoint> CollectDeskRouteWaypoints(
+            SupeyTripCluster g, GeoPoint? routeStart, GeoPoint? routeEnd)
+        {
             var waypoints = new List<GeoPoint>();
             if (g == null) return waypoints;
+            AddWaypointIfValid(waypoints, routeStart);
             int n = Math.Min(g.Trips.Count, Math.Min(g.PickupPoints.Count, g.DropoffPoints.Count));
             for (int i = 0; i < n; i++)
                 AddWaypointIfValid(waypoints, g.PickupPoints[i]);
             for (int i = 0; i < n; i++)
                 AddWaypointIfValid(waypoints, g.DropoffPoints[i]);
+            AddWaypointIfValid(waypoints, routeEnd);
             return waypoints;
         }
 
         /// <summary>Desk preview routes via OSRM (solid on map); straight dashed fallback when routing fails.</summary>
-        public static async Task<(int roadGroups, int straightGroups)> BuildOsrmRoutePolylinesAsync(
+        public static Task<(int roadGroups, int straightGroups)> BuildOsrmRoutePolylinesAsync(
             IEnumerable<SupeyTripCluster> groups, CancellationToken token)
+        {
+            return BuildOsrmRoutePolylinesAsync(groups, null, token);
+        }
+
+        /// <summary>
+        /// When <paramref name="homeGeo"/> is set: home starts the first group route and ends the last
+        /// (both for a single-group day) — no separate deadhead overlay.
+        /// </summary>
+        public static async Task<(int roadGroups, int straightGroups)> BuildOsrmRoutePolylinesAsync(
+            IEnumerable<SupeyTripCluster> groups, GeoPoint? homeGeo, CancellationToken token)
         {
             int road = 0, straight = 0;
             if (groups == null) return (0, 0);
-            foreach (var g in groups)
+            var list = groups as IList<SupeyTripCluster> ?? new List<SupeyTripCluster>(groups);
+            int count = list.Count;
+            for (int i = 0; i < count; i++)
             {
+                var g = list[i];
                 if (g == null) continue;
                 token.ThrowIfCancellationRequested();
-                if (await PopulateGroupOsrmRouteAsync(g, token).ConfigureAwait(false))
+                ScheduleBuilderDriverMapRouting.ResolveHomeRouteBookends(
+                    i, count, homeGeo, out GeoPoint? routeStart, out GeoPoint? routeEnd);
+                if (await PopulateGroupOsrmRouteAsync(g, token, routeStart, routeEnd).ConfigureAwait(false))
                     road++;
                 else if (g.RoutePolyline.Count >= 2)
                     straight++;
@@ -117,10 +141,11 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
-        private static async Task<bool> PopulateGroupOsrmRouteAsync(SupeyTripCluster g, CancellationToken token)
+        private static async Task<bool> PopulateGroupOsrmRouteAsync(
+            SupeyTripCluster g, CancellationToken token, GeoPoint? routeStart = null, GeoPoint? routeEnd = null)
         {
             g.RoutePolyline.Clear();
-            var waypoints = CollectDeskRouteWaypoints(g);
+            var waypoints = CollectDeskRouteWaypoints(g, routeStart, routeEnd);
             if (waypoints.Count < 2)
             {
                 g.IsStraightLineFallback = false;
@@ -169,6 +194,12 @@ namespace Hiatme_Tool_Suite_v3
             if (earliest == TimeSpan.MaxValue) return;
             g.EarliestPickup = earliest;
             g.LatestPickup = latest == TimeSpan.MinValue ? earliest : latest;
+        }
+
+        private static void AddWaypointIfValid(List<GeoPoint> waypoints, GeoPoint? point)
+        {
+            if (!point.HasValue) return;
+            AddWaypointIfValid(waypoints, point.Value);
         }
 
         private static void AddWaypointIfValid(List<GeoPoint> waypoints, GeoPoint p)

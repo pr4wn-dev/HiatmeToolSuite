@@ -776,19 +776,29 @@ namespace Hiatme_Tool_Suite_v3
                 _legendHost.Visible = true;
             }
 
-            // Home overlay (single marker, always on).
-            if (plan.HomeGeo.HasValue)
+            // Home marker (overlay added last so it sits above trip pins).
+            if (plan.HomeGeo.HasValue && IsValidGeoPoint(plan.HomeGeo.Value))
             {
                 _homeOverlay = new GMapOverlay("home");
-                var home = new GMarkerGoogle(new PointLatLng(plan.HomeGeo.Value.Lat, plan.HomeGeo.Value.Lng),
-                    GMarkerGoogleType.blue_dot);
+                var homeAccent = Color.FromArgb(100, 150, 220);
+                var home = new SupeyDraggableMarker(
+                    new PointLatLng(plan.HomeGeo.Value.Lat, plan.HomeGeo.Value.Lng),
+                    GMarkerGoogleType.blue_pushpin)
+                {
+                    BadgeText = "home",
+                    BadgeAccentColor = homeAccent,
+                    AllowDrag = false,
+                };
                 ApplyThemedMarkerTooltip(
                     home,
                     (plan.Driver?.Name ?? "Driver") + " · Home",
                     new[] { "Driver start / end location" },
-                    Color.FromArgb(100, 150, 220));
+                    homeAccent);
                 _homeOverlay.Markers.Add(home);
-                _map.Overlays.Add(_homeOverlay);
+            }
+            else
+            {
+                _homeOverlay = null;
             }
 
             // Dead-head overlay — drawn first (under groups).
@@ -875,6 +885,9 @@ namespace Hiatme_Tool_Suite_v3
                 _map.Overlays.Add(overlay);
                 AddLegendRow(g);
             }
+
+            if (_homeOverlay != null)
+                _map.Overlays.Add(_homeOverlay);
 
             AddDeadheadToggle();
             ApplyLegendVisibility(plan, legendSnap);

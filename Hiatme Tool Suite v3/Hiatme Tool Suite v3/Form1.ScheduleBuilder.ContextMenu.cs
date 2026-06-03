@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace Hiatme_Tool_Suite_v3
@@ -13,7 +16,9 @@ namespace Hiatme_Tool_Suite_v3
         private ToolStripMenuItem _fsTripsCtxCopyForAi;
         private ToolStripMenuItem _fsTripsCtxCopyCurrentTab;
         private ToolStripMenuItem _fsTripsCtxCopySelectedTrip;
+        private ToolStripMenuItem _fsTripsCtxAutoSortGroup;
         private MCDownloadedTrip _fsTripsCtxTrip;
+        private SupeyTripCluster _fsTripsCtxGroup;
 
         private void BuildFsTripsContextMenu()
         {
@@ -82,8 +87,21 @@ namespace Hiatme_Tool_Suite_v3
             };
             _fsTripsCtxCopySelectedTrip.Click += (s, e) => FsCopySelectedTripToClipboard();
 
+            _fsTripsCtxAutoSortGroup = new ToolStripMenuItem("Auto-sort group for best route efficiency")
+            {
+                BackColor = DarkContextMenuRenderer.Background,
+                ForeColor = DarkContextMenuRenderer.ForeColor,
+            };
+            _fsTripsCtxAutoSortGroup.Click += (s, e) =>
+            {
+                if (_fsTripsCtxGroup != null)
+                    _ = FsAutoSortGroupForEfficiencyAsync(_fsTripsCtxGroup);
+            };
+
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxBanClient);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxUnbanClient);
+            _fsTripsCtxMenu.Items.Add(new ToolStripSeparator());
+            _fsTripsCtxMenu.Items.Add(_fsTripsCtxAutoSortGroup);
             _fsTripsCtxMenu.Items.Add(new ToolStripSeparator());
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxFocusMap);
             _fsTripsCtxMenu.Items.Add(new ToolStripSeparator());
@@ -98,9 +116,19 @@ namespace Hiatme_Tool_Suite_v3
 
             var hit = _fsTripsLv.HitTest(e.Location);
             _fsTripsCtxTrip = null;
+            _fsTripsCtxGroup = null;
             if (hit.Item != null)
             {
-                _fsTripsCtxTrip = GetFsTripFromListItem(hit.Item);
+                if (hit.Item.Tag is FsPreviewNoteTag noteTag)
+                    _fsTripsCtxGroup = noteTag.Group;
+                else if (hit.Item.Tag is FsPreviewTripTag tripTag)
+                {
+                    _fsTripsCtxTrip = tripTag.Trip;
+                    _fsTripsCtxGroup = tripTag.Group;
+                }
+                else
+                    _fsTripsCtxTrip = GetFsTripFromListItem(hit.Item);
+
                 if (_fsTripsCtxTrip != null)
                 {
                     hit.Item.Selected = true;
@@ -110,15 +138,33 @@ namespace Hiatme_Tool_Suite_v3
 
             bool hasTrip = _fsTripsCtxTrip != null;
             bool isBanned = hasTrip && ScheduleBuilderBannedClients.IsBanned(_fsTripsCtxTrip);
+            bool isReserves = _fsActiveDriverTab != null
+                && _fsActiveDriverTab.Equals("Reserves", StringComparison.OrdinalIgnoreCase);
+            bool canSortGroup = _fsHasPreview
+                && !isReserves
+                && _fsTripsCtxGroup != null
+                && _fsTripsCtxGroup.Trips != null
+                && _fsTripsCtxGroup.Trips.Count >= 2;
 
             bool hasBuild = _fsHasPreview && fsbuilder != null;
 
             _fsTripsCtxBanClient.Enabled = hasTrip;
             _fsTripsCtxUnbanClient.Enabled = hasTrip && isBanned;
             _fsTripsCtxFocusMap.Enabled = hasTrip;
+            _fsTripsCtxAutoSortGroup.Enabled = canSortGroup;
             _fsTripsCtxCopyForAi.Enabled = hasBuild;
             _fsTripsCtxCopyCurrentTab.Enabled = hasBuild;
             _fsTripsCtxCopySelectedTrip.Enabled = hasTrip;
+
+            if (canSortGroup)
+            {
+                _fsTripsCtxAutoSortGroup.Text = "Auto-sort group "
+                    + _fsTripsCtxGroup.GroupNumber + " for best route efficiency (100%)";
+            }
+            else
+            {
+                _fsTripsCtxAutoSortGroup.Text = "Auto-sort group for best route efficiency (100%)";
+            }
 
             if (hasTrip)
             {
@@ -199,6 +245,120 @@ namespace Hiatme_Tool_Suite_v3
             {
                 MessageBox.Show(this, "Could not copy to clipboard:\n\n" + ex.Message, "Schedule Builder",
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+
+        private async Task FsAutoSortGroupForEfficiencyAsync(SupeyTripCluster group)
+        {
+            if (group?.Trips == null || group.Trips.Count < 2) return;
+            if (string.IsNullOrWhiteSpace(_fsActiveDriverTab)
+                || _fsActiveDriverTab.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
+                return;
+
+            string tab = _fsActiveDriverTab;
+            if (!_fsLinesByTab.TryGetValue(tab, out var lines) || lines == null)
+                return;
+
+            int groupNumber = group.GroupNumber;
+            MCDownloadedTrip ctxTrip = _fsTripsCtxTrip;
+
+            SetScheduleBuilderStatus("Group " + groupNumber + " · finding best trip order…");
+
+            EnsureFsDriverRosterLoaded();
+            var driverProfile = ScheduleBuilderDriverMapRouting.FindProfileForScheduleTab(
+                _supeyRoster, tab);
+            GeoPoint? homeGeo = null;
+            if (driverProfile != null)
+            {
+                try
+                {
+                    await HiatmeGeoSettings.RefreshConnectivityAsync(
+                        HiatmeAiSettings.Load(), CancellationToken.None).ConfigureAwait(true);
+                }
+                catch { }
+
+                homeGeo = await ScheduleBuilderDriverMapRouting.ResolveHomeGeoAsync(
+                    driverProfile, CancellationToken.None).ConfigureAwait(true);
+            }
+
+            var dayPosition = ScheduleBuilderDriverMapRouting.GroupDayPosition.Middle;
+            if (_fsGroupsByTab.TryGetValue(tab, out var tabGroups) && tabGroups != null)
+            {
+                int groupIndex = FindFsGroupIndex(tabGroups, group);
+                dayPosition = ScheduleBuilderDriverMapRouting.ResolveDayPosition(
+                    groupIndex, tabGroups.Count);
+            }
+
+            if (homeGeo.HasValue && !SupeyMapWorkspace.IsValidGeoPoint(homeGeo.Value))
+                homeGeo = null;
+
+            var (bestOrder, scorePercent, alreadyOptimal, approx) =
+                await ScheduleBuilderMapMileage.FindBestTripOrderAsync(
+                    group, homeGeo, dayPosition, CancellationToken.None).ConfigureAwait(true);
+
+            if (bestOrder == null || bestOrder.Count == 0)
+            {
+                SetScheduleBuilderStatus("Group " + group.GroupNumber
+                    + " · could not sort (trips need geocoded PU/DO pins).");
+                return;
+            }
+
+            if (alreadyOptimal)
+            {
+                FsSelectGroupInListView(groupNumber);
+                FsTripsLv_SelectionChangedUpdateMap();
+                SetScheduleBuilderStatus("Group " + groupNumber
+                    + " is already at 100% route efficiency.");
+                return;
+            }
+
+            if (!ScheduleBuilderPreviewDrag.ApplyTripOrderToGroup(
+                    lines, groupNumber, bestOrder))
+            {
+                SetScheduleBuilderStatus("Group " + groupNumber + " · could not apply sort.");
+                return;
+            }
+
+            lines = ScheduleBuilderTemplateSlots.CollapseConsecutivePreviewGaps(lines);
+            FsCommitPreviewLinesForTab(tab, lines);
+
+            ShowFsTripsForTab(tab);
+            await RefreshFsMapForCurrentTabAsync().ConfigureAwait(true);
+
+            if (ctxTrip != null)
+                SelectFsTripInListView(ctxTrip);
+            else
+                FsSelectGroupInListView(groupNumber);
+            FsTripsLv_SelectionChangedUpdateMap();
+
+            string scoreText = scorePercent.HasValue
+                ? scorePercent.Value.ToString("0") + "% route efficiency"
+                : "sorted";
+            if (approx)
+                scoreText += " (approx)";
+            SetScheduleBuilderStatus("Group " + groupNumber + " auto-sorted · " + scoreText + ".");
+        }
+
+        private void FsCommitPreviewLinesForTab(string tab, List<ScheduleBuilderPreviewLine> lines)
+        {
+            _fsLinesByTab[tab] = lines;
+
+            if (fsbuilder?.PreviewDriverLines != null)
+            {
+                var dict = fsbuilder.PreviewDriverLines as Dictionary<string, List<ScheduleBuilderPreviewLine>>;
+                if (dict != null)
+                    dict[tab] = lines;
+            }
+
+            if (fsbuilder?.driverTripList != null)
+            {
+                var trips = new List<MCDownloadedTrip>();
+                foreach (var line in lines)
+                {
+                    if (line?.Kind == ScheduleBuilderPreviewLine.LineKind.Trip && line.Trip != null)
+                        trips.Add(line.Trip);
+                }
+                fsbuilder.driverTripList[tab] = trips;
             }
         }
     }

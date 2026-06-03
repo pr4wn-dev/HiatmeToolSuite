@@ -235,15 +235,34 @@ namespace Hiatme_Tool_Suite_v3
         /// 100 = current trip list order is the shortest PU-then-DO tour for this group;
         /// lower = drag-reordering trips would save road miles.
         /// </summary>
+        public static Task<(double? scorePercent, double currentMeters, double bestMeters, bool approx)> ComputeGroupEfficiencyAsync(
+            SupeyTripCluster group,
+            CancellationToken token)
+        {
+            return ComputeGroupEfficiencyAsync(
+                group,
+                null,
+                ScheduleBuilderDriverMapRouting.GroupDayPosition.Middle,
+                token);
+        }
+
+        /// <summary>
+        /// When <paramref name="dayPosition"/> is first/last/sole, includes home→first PU / last DO→home in totals.
+        /// </summary>
         public static async Task<(double? scorePercent, double currentMeters, double bestMeters, bool approx)> ComputeGroupEfficiencyAsync(
             SupeyTripCluster group,
+            GeoPoint? homeGeo,
+            ScheduleBuilderDriverMapRouting.GroupDayPosition dayPosition,
             CancellationToken token)
         {
             if (group?.Trips == null || group.Trips.Count == 0)
                 return (null, 0, 0, false);
 
             int n = group.Trips.Count;
-            if (n == 1)
+            bool includeHome = homeGeo.HasValue && IsValid(homeGeo.Value)
+                && dayPosition != ScheduleBuilderDriverMapRouting.GroupDayPosition.Middle;
+
+            if (n == 1 && !includeHome)
             {
                 var solo = await ResolveGroupRouteMetersAsync(group, token).ConfigureAwait(false);
                 double m = solo.meters;
@@ -253,8 +272,7 @@ namespace Hiatme_Tool_Suite_v3
             if (!HasRoutableEndpoints(group, n))
                 return (null, 0, 0, false);
 
-            var currentPu = IdentityOrder(n);
-            var currentDo = IdentityOrder(n);
+            var currentOrder = IdentityOrder(n);
 
             SupeyClusterOsrmTable table = null;
             try
@@ -267,30 +285,148 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             bool approx = table == null || group.IsStraightLineFallback;
-            double? currentMeters = TourMetersForOrder(group, currentPu, currentDo, table);
+            double? currentMeters = await TotalMetersForOrderAsync(
+                group, currentOrder, table, homeGeo, dayPosition, token).ConfigureAwait(false);
             if (!currentMeters.HasValue || currentMeters.Value <= 0)
                 return (null, 0, 0, true);
 
             double bestMeters = currentMeters.Value;
+            List<int> bestOrder = new List<int>(currentOrder);
             var tripOrders = n <= MaxExactPermutationTrips
                 ? AllPermutations(n)
                 : BuildLinkedTripOrderCandidates(group, n);
             foreach (var tripOrder in tripOrders)
             {
-                var m = TourMetersForOrder(group, tripOrder, tripOrder, table);
+                var m = await TotalMetersForOrderAsync(
+                    group, tripOrder, table, homeGeo, dayPosition, token).ConfigureAwait(false);
                 if (!m.HasValue)
                 {
                     approx = true;
                     continue;
                 }
-                if (m.Value < bestMeters)
+                if (m.Value < bestMeters - 0.5)
+                {
                     bestMeters = m.Value;
+                    bestOrder = tripOrder;
+                }
             }
 
             SupeyClusterOsrmTable.Clear();
 
             double score = Math.Min(100, Math.Round(100.0 * bestMeters / currentMeters.Value, 0));
             return (score, currentMeters.Value, bestMeters, approx);
+        }
+
+        /// <summary>Shortest PU-then-DO trip index order for a group (same search as route efficiency).</summary>
+        public static async Task<(List<int> bestOrder, double? scorePercent, bool alreadyOptimal, bool approx)> FindBestTripOrderAsync(
+            SupeyTripCluster group,
+            GeoPoint? homeGeo,
+            ScheduleBuilderDriverMapRouting.GroupDayPosition dayPosition,
+            CancellationToken token)
+        {
+            if (group?.Trips == null || group.Trips.Count < 2)
+                return (null, null, true, false);
+
+            int n = group.Trips.Count;
+            if (!HasRoutableEndpoints(group, n))
+                return (null, null, false, false);
+
+            var currentOrder = IdentityOrder(n);
+
+            SupeyClusterOsrmTable table = null;
+            try
+            {
+                table = await SupeyClusterOsrmTable.BuildAsync(group, token).ConfigureAwait(false);
+            }
+            catch { }
+
+            bool approx = table == null || group.IsStraightLineFallback;
+            double? currentMeters = await TotalMetersForOrderAsync(
+                group, currentOrder, table, homeGeo, dayPosition, token).ConfigureAwait(false);
+            if (!currentMeters.HasValue || currentMeters.Value <= 0)
+            {
+                SupeyClusterOsrmTable.Clear();
+                return (null, null, false, true);
+            }
+
+            double bestMeters = currentMeters.Value;
+            List<int> bestOrder = new List<int>(currentOrder);
+            var tripOrders = n <= MaxExactPermutationTrips
+                ? AllPermutations(n)
+                : BuildLinkedTripOrderCandidates(group, n);
+            foreach (var tripOrder in tripOrders)
+            {
+                var m = await TotalMetersForOrderAsync(
+                    group, tripOrder, table, homeGeo, dayPosition, token).ConfigureAwait(false);
+                if (!m.HasValue)
+                {
+                    approx = true;
+                    continue;
+                }
+                if (m.Value < bestMeters - 0.5)
+                {
+                    bestMeters = m.Value;
+                    bestOrder = tripOrder;
+                }
+            }
+
+            SupeyClusterOsrmTable.Clear();
+
+            bool alreadyOptimal = OrdersEqual(bestOrder, currentOrder);
+            double score = Math.Min(100, Math.Round(100.0 * bestMeters / currentMeters.Value, 0));
+            return (bestOrder, score, alreadyOptimal, approx);
+        }
+
+        private static bool OrdersEqual(IReadOnlyList<int> a, IReadOnlyList<int> b)
+        {
+            if (a == null || b == null || a.Count != b.Count) return false;
+            for (int i = 0; i < a.Count; i++)
+            {
+                if (a[i] != b[i]) return false;
+            }
+            return true;
+        }
+
+        private static async Task<double?> TotalMetersForOrderAsync(
+            SupeyTripCluster group,
+            List<int> tripOrder,
+            SupeyClusterOsrmTable table,
+            GeoPoint? homeGeo,
+            ScheduleBuilderDriverMapRouting.GroupDayPosition dayPosition,
+            CancellationToken token)
+        {
+            double? tour = TourMetersForOrder(group, tripOrder, tripOrder, table);
+            if (!tour.HasValue) return null;
+
+            double total = tour.Value;
+            if (!homeGeo.HasValue || !IsValid(homeGeo.Value)
+                || dayPosition == ScheduleBuilderDriverMapRouting.GroupDayPosition.Middle)
+                return total;
+
+            if (dayPosition == ScheduleBuilderDriverMapRouting.GroupDayPosition.First
+                || dayPosition == ScheduleBuilderDriverMapRouting.GroupDayPosition.Sole)
+            {
+                GeoPoint pu = ScheduleBuilderDriverMapRouting.PickupForTripIndex(group, tripOrder[0]);
+                var toFirst = await LegMetersAsync(homeGeo.Value, pu, token).ConfigureAwait(false);
+                if (toFirst.meters.HasValue)
+                    total += toFirst.meters.Value;
+                else
+                    total += HaversineMeters(homeGeo.Value, pu);
+            }
+
+            if (dayPosition == ScheduleBuilderDriverMapRouting.GroupDayPosition.Last
+                || dayPosition == ScheduleBuilderDriverMapRouting.GroupDayPosition.Sole)
+            {
+                int lastIdx = tripOrder[tripOrder.Count - 1];
+                GeoPoint dof = ScheduleBuilderDriverMapRouting.DropoffForTripIndex(group, lastIdx);
+                var toHome = await LegMetersAsync(dof, homeGeo.Value, token).ConfigureAwait(false);
+                if (toHome.meters.HasValue)
+                    total += toHome.meters.Value;
+                else
+                    total += HaversineMeters(dof, homeGeo.Value);
+            }
+
+            return total;
         }
 
         private static bool HasRoutableEndpoints(SupeyTripCluster group, int n)

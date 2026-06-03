@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace Hiatme_Tool_Suite_v3
@@ -307,10 +309,49 @@ namespace Hiatme_Tool_Suite_v3
 
             ShowFsTripsForTab(tab);
             SelectFsTripInListView(movedTrip);
-            _ = RefreshFsMapForCurrentTabAsync();
+            _ = RefreshFsMapAndMileageHudAsync();
             SetScheduleBuilderStatus(_fsTripDragMerge
                 ? "Merged trip into group — map updating…"
                 : "Moved trip — map updating…");
+        }
+
+        private async Task RefreshFsMapAndMileageHudAsync()
+        {
+            await RefreshFsMapForCurrentTabAsync().ConfigureAwait(true);
+            FsTripsLv_SelectionChangedUpdateMap();
+        }
+
+        internal void FsSelectGroupInListView(int groupNumber)
+        {
+            if (_fsTripsLv == null || groupNumber <= 0) return;
+
+            foreach (ListViewItem item in _fsTripsLv.Items)
+            {
+                if (item.Tag is FsPreviewNoteTag note
+                    && note.Group != null
+                    && note.Group.GroupNumber == groupNumber)
+                {
+                    _fsTripsLv.SelectedItems.Clear();
+                    item.Selected = true;
+                    item.Focused = true;
+                    item.EnsureVisible();
+                    return;
+                }
+            }
+
+            foreach (ListViewItem item in _fsTripsLv.Items)
+            {
+                if (item.Tag is FsPreviewTripTag row
+                    && row.Group != null
+                    && row.Group.GroupNumber == groupNumber)
+                {
+                    _fsTripsLv.SelectedItems.Clear();
+                    item.Selected = true;
+                    item.Focused = true;
+                    item.EnsureVisible();
+                    return;
+                }
+            }
         }
 
         private void SelectFsTripInListView(MCDownloadedTrip trip)

@@ -1234,6 +1234,10 @@ namespace Hiatme_Tool_Suite_v3
 
                     fsbuilder.ApplyLoadedSchedule(load);
 
+                    var driverSync = await SyncFsDriversDuringBuildAsync(
+                        fsbuilder.PreviewDriverLines.Keys,
+                        SetScheduleBuilderStatus).ConfigureAwait(true);
+
                     BindScheduleBuilderPreview(fsbuilder);
 
 
@@ -1288,7 +1292,8 @@ namespace Hiatme_Tool_Suite_v3
 
                             : "")
 
-                        + ". Groups: " + groupingSummary + ".");
+                        + ". Groups: " + groupingSummary + "."
+                        + FormatFsDriverSyncNote(driverSync));
 
                 }
 
@@ -1430,6 +1435,10 @@ namespace Hiatme_Tool_Suite_v3
 
                 await fsbuilder.BuildPreviewAsync(fsbdatepicker.Value, mcLoginHandler).ConfigureAwait(true);
 
+                var driverSync = await SyncFsDriversDuringBuildAsync(
+                    fsbuilder.PreviewDriverLines.Keys,
+                    OnBuildStatus).ConfigureAwait(true);
+
                 BindScheduleBuilderPreview(fsbuilder);
 
                 int drivers = fsbuilder.PreviewDriverLines.Count;
@@ -1482,7 +1491,9 @@ namespace Hiatme_Tool_Suite_v3
 
                     + trips + " trip(s), " + resMsg
 
-                    + ". Rules panel: no-go & banned clients. Click SAVE SCHEDULE when ready.");
+                    + "." + FormatFsDriverSyncNote(driverSync)
+
+                    + " Rules panel: no-go & banned clients. Click SAVE SCHEDULE when ready.");
 
             }
 
@@ -1753,24 +1764,44 @@ namespace Hiatme_Tool_Suite_v3
 
             if (gen != _fsMapRefreshGen) return;
 
-            SetScheduleBuilderStatus(tabName + " map · loading road routes…");
-            var routeCounts = await ScheduleBuilderPreviewGroups.BuildOsrmRoutePolylinesAsync(
-                groups, CancellationToken.None).ConfigureAwait(true);
+            EnsureFsDriverRosterLoaded();
+            var driverProfile = ScheduleBuilderDriverMapRouting.FindProfileForScheduleTab(_supeyRoster, tabName);
+            if (driverProfile != null && string.IsNullOrWhiteSpace(driverProfile.ScheduleTabKey))
+                driverProfile.ScheduleTabKey = tabName;
 
+            try
+            {
+                await HiatmeGeoSettings.RefreshConnectivityAsync(HiatmeAiSettings.Load(), CancellationToken.None)
+                    .ConfigureAwait(true);
+            }
+            catch { }
+
+            GeoPoint? homeGeo = null;
+            if (driverProfile != null)
+            {
+                homeGeo = await ScheduleBuilderDriverMapRouting.ResolveHomeGeoAsync(
+                    driverProfile, CancellationToken.None).ConfigureAwait(true);
+            }
             if (gen != _fsMapRefreshGen) return;
 
             if (!string.Equals(tabName, _fsActiveDriverTab, StringComparison.OrdinalIgnoreCase))
                 return;
 
+            SetScheduleBuilderStatus(tabName + " map · loading road routes…");
+            var routeCounts = await ScheduleBuilderPreviewGroups.BuildOsrmRoutePolylinesAsync(
+                groups, homeGeo, CancellationToken.None).ConfigureAwait(true);
+
+            if (gen != _fsMapRefreshGen) return;
+
             var plan = new SupeyDriverPlan
-
             {
-
-                Driver = new SupeyDriverProfile { Name = tabName },
-
+                Driver = driverProfile ?? new SupeyDriverProfile { Name = tabName, ScheduleTabKey = tabName },
             };
-
             plan.Groups.AddRange(groups);
+            if (homeGeo.HasValue && SupeyMapWorkspace.IsValidGeoPoint(homeGeo.Value))
+                plan.HomeGeo = homeGeo;
+
+            if (gen != _fsMapRefreshGen) return;
 
             bool centerMaineAfterBuild = _fsCenterMaineAfterBuild;
             if (centerMaineAfterBuild)
@@ -1801,7 +1832,9 @@ namespace Hiatme_Tool_Suite_v3
                         ? routeCounts.straightGroups + " straight (OSRM unavailable)"
                         : "road routes";
                 SetScheduleBuilderStatus(tabName + " map · " + grpCount + " group(s), "
-                    + pinCount + " pin(s), " + routes + ".");
+                    + pinCount + " pin(s), " + routes
+                    + (plan.HomeGeo.HasValue ? ", home pin" : FormatFsHomePinHint(driverProfile, tabName))
+                    + ".");
             }
 
             else if (!HiatmeGeoSettings.UseServer && HiatmeGeoSettings.ServerOnly)
@@ -1918,6 +1951,9 @@ namespace Hiatme_Tool_Suite_v3
 
             if (_fsMap == null || group == null) return;
 
+            group = FsResolveLiveGroup(group);
+            if (group == null) return;
+
             int gen = Interlocked.Increment(ref _fsMileageHudGen);
 
             double? tripMeters = null;
@@ -1962,8 +1998,27 @@ namespace Hiatme_Tool_Suite_v3
 
             }
 
+            EnsureFsDriverRosterLoaded();
+            var driverProfile = ScheduleBuilderDriverMapRouting.FindProfileForScheduleTab(
+                _supeyRoster, _fsActiveDriverTab);
+            GeoPoint? homeGeo = null;
+            var dayPosition = ScheduleBuilderDriverMapRouting.GroupDayPosition.Middle;
+            if (driverProfile != null
+                && _fsGroupsByTab.TryGetValue(_fsActiveDriverTab, out var tabGroups)
+                && tabGroups != null)
+            {
+                homeGeo = await ScheduleBuilderDriverMapRouting.ResolveHomeGeoAsync(
+                    driverProfile, CancellationToken.None).ConfigureAwait(true);
+                int groupIndex = FindFsGroupIndex(tabGroups, group);
+                dayPosition = ScheduleBuilderDriverMapRouting.ResolveDayPosition(
+                    groupIndex, tabGroups.Count);
+            }
+
             var efficiency = await ScheduleBuilderMapMileage.ComputeGroupEfficiencyAsync(
-                group, CancellationToken.None).ConfigureAwait(true);
+                group,
+                homeGeo,
+                dayPosition,
+                CancellationToken.None).ConfigureAwait(true);
 
             double groupMeters = efficiency.currentMeters > 0
                 ? efficiency.currentMeters
@@ -2006,6 +2061,21 @@ namespace Hiatme_Tool_Suite_v3
                 efficiency.approx,
                 routeChangeMeters);
 
+        }
+
+
+
+        /// <summary>Map/list rebuild creates new cluster objects — always use the live row from the current tab.</summary>
+        private SupeyTripCluster FsResolveLiveGroup(SupeyTripCluster group)
+        {
+            if (group == null || string.IsNullOrWhiteSpace(_fsActiveDriverTab))
+                return group;
+            if (!_fsGroupsByTab.TryGetValue(_fsActiveDriverTab, out var groups) || groups == null)
+                return group;
+            int idx = FindFsGroupIndex(groups, group);
+            if (idx >= 0 && idx < groups.Count)
+                return groups[idx];
+            return group;
         }
 
 
@@ -2394,6 +2464,17 @@ namespace Hiatme_Tool_Suite_v3
         }
 
 
+
+        private static int FindFsGroupIndex(List<SupeyTripCluster> groups, SupeyTripCluster group)
+        {
+            if (groups == null || group == null) return -1;
+            for (int i = 0; i < groups.Count; i++)
+            {
+                if (ReferenceEquals(groups[i], group)) return i;
+                if (groups[i] != null && groups[i].GroupNumber == group.GroupNumber) return i;
+            }
+            return -1;
+        }
 
         private static SupeyTripCluster FindFsGroupForTrip(List<SupeyTripCluster> groups, MCDownloadedTrip trip)
 
