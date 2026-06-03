@@ -86,6 +86,12 @@ namespace Hiatme_Tool_Suite_v3
 
         private int _fsMileageHudGen;
 
+        private double? _fsPreMoveGroupMeters;
+
+        private MCDownloadedTrip _fsPreMoveTripRef;
+
+        private bool _fsPreserveRouteChangeBaseline;
+
 
 
         private readonly Dictionary<string, List<ScheduleBuilderPreviewLine>> _fsLinesByTab =
@@ -1814,6 +1820,18 @@ namespace Hiatme_Tool_Suite_v3
 
         {
 
+            if (!_fsPreserveRouteChangeBaseline)
+
+            {
+
+                _fsPreMoveGroupMeters = null;
+
+                _fsPreMoveTripRef = null;
+
+            }
+
+            _fsPreserveRouteChangeBaseline = false;
+
             if (_fsMap == null) return;
 
             if (_fsTripsLv == null || _fsTripsLv.SelectedItems.Count == 0
@@ -1902,8 +1920,6 @@ namespace Hiatme_Tool_Suite_v3
 
             int gen = Interlocked.Increment(ref _fsMileageHudGen);
 
-            double groupMeters = ScheduleBuilderMapMileage.GroupRouteMeters(group);
-
             double? tripMeters = null;
 
             bool tripApprox = false;
@@ -1946,6 +1962,31 @@ namespace Hiatme_Tool_Suite_v3
 
             }
 
+            var efficiency = await ScheduleBuilderMapMileage.ComputeGroupEfficiencyAsync(
+                group, CancellationToken.None).ConfigureAwait(true);
+
+            double groupMeters = efficiency.currentMeters > 0
+                ? efficiency.currentMeters
+                : ScheduleBuilderMapMileage.GroupRouteMeters(group);
+
+            double? routeChangeMeters = null;
+
+            if (trip != null && _fsPreMoveGroupMeters.HasValue && _fsPreMoveTripRef != null
+
+                && (ReferenceEquals(trip, _fsPreMoveTripRef)
+
+                    || (!string.IsNullOrEmpty(trip.TripNumber)
+
+                        && string.Equals(trip.TripNumber, _fsPreMoveTripRef.TripNumber,
+
+                            StringComparison.OrdinalIgnoreCase))))
+
+            {
+
+                routeChangeMeters = groupMeters - _fsPreMoveGroupMeters.Value;
+
+            }
+
             if (gen != _fsMileageHudGen) return;
 
             if (string.IsNullOrWhiteSpace(_fsActiveDriverTab)
@@ -1954,7 +1995,42 @@ namespace Hiatme_Tool_Suite_v3
 
                 return;
 
-            _fsMap.SetMileageHud(group, trip, groupMeters, tripMeters, tripApprox);
+            _fsMap.SetMileageHud(
+                group,
+                trip,
+                groupMeters,
+                tripMeters,
+                tripApprox,
+                efficiency.scorePercent,
+                efficiency.currentMeters,
+                efficiency.approx,
+                routeChangeMeters);
+
+        }
+
+
+
+        private void FsSnapshotPreMoveGroupMeters(string tab, MCDownloadedTrip trip, bool merge, MCDownloadedTrip mergeTargetTrip)
+
+        {
+
+            _fsPreMoveTripRef = trip;
+
+            _fsPreMoveGroupMeters = null;
+
+            if (!_fsGroupsByTab.TryGetValue(tab, out var groups))
+
+                return;
+
+            SupeyTripCluster baselineGroup = merge && mergeTargetTrip != null
+
+                ? FindFsGroupForTrip(groups, mergeTargetTrip)
+
+                : FindFsGroupForTrip(groups, trip);
+
+            if (baselineGroup != null)
+
+                _fsPreMoveGroupMeters = ScheduleBuilderMapMileage.GroupRouteMeters(baselineGroup);
 
         }
 

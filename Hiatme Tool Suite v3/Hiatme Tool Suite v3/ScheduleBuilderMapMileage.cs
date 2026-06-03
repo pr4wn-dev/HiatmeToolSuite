@@ -204,6 +204,204 @@ namespace Hiatme_Tool_Suite_v3
 
         }
 
+        /// <summary>OSRM group tour when preview miles are missing (matches map routing).</summary>
+        public static async Task<(double meters, bool approx)> ResolveGroupRouteMetersAsync(
+            SupeyTripCluster group,
+            CancellationToken token)
+        {
+            if (group == null) return (0, false);
+
+            if (group.IntraClusterMeters > 0)
+                return (group.IntraClusterMeters, group.IsStraightLineFallback);
+
+            var waypoints = ScheduleBuilderPreviewGroups.CollectDeskRouteWaypoints(group);
+            if (waypoints.Count < 2)
+                return (0, false);
+
+            var route = await SupeyOsrmLegs.RouteAsync(waypoints, token).ConfigureAwait(false);
+            if (route.Ok && route.TotalMeters > 0)
+                return (route.TotalMeters, route.IsStraightLineFallback);
+
+            double sum = 0;
+            for (int i = 1; i < waypoints.Count; i++)
+                sum += HaversineMeters(waypoints[i - 1], waypoints[i]);
+            return (sum, true);
+        }
+
+        /// <summary>Enumerate every trip order; above this use a bounded candidate set.</summary>
+        private const int MaxExactPermutationTrips = 8;
+
+        /// <summary>
+        /// 100 = current trip list order is the shortest PU-then-DO tour for this group;
+        /// lower = drag-reordering trips would save road miles.
+        /// </summary>
+        public static async Task<(double? scorePercent, double currentMeters, double bestMeters, bool approx)> ComputeGroupEfficiencyAsync(
+            SupeyTripCluster group,
+            CancellationToken token)
+        {
+            if (group?.Trips == null || group.Trips.Count == 0)
+                return (null, 0, 0, false);
+
+            int n = group.Trips.Count;
+            if (n == 1)
+            {
+                var solo = await ResolveGroupRouteMetersAsync(group, token).ConfigureAwait(false);
+                double m = solo.meters;
+                return (m > 0 ? (double?)100 : null, m, m, solo.approx);
+            }
+
+            if (!HasRoutableEndpoints(group, n))
+                return (null, 0, 0, false);
+
+            var currentPu = IdentityOrder(n);
+            var currentDo = IdentityOrder(n);
+
+            SupeyClusterOsrmTable table = null;
+            try
+            {
+                table = await SupeyClusterOsrmTable.BuildAsync(group, token).ConfigureAwait(false);
+            }
+            catch
+            {
+                // desk preview — fall back to haversine tour sums
+            }
+
+            bool approx = table == null || group.IsStraightLineFallback;
+            double? currentMeters = TourMetersForOrder(group, currentPu, currentDo, table);
+            if (!currentMeters.HasValue || currentMeters.Value <= 0)
+                return (null, 0, 0, true);
+
+            double bestMeters = currentMeters.Value;
+            var tripOrders = n <= MaxExactPermutationTrips
+                ? AllPermutations(n)
+                : BuildLinkedTripOrderCandidates(group, n);
+            foreach (var tripOrder in tripOrders)
+            {
+                var m = TourMetersForOrder(group, tripOrder, tripOrder, table);
+                if (!m.HasValue)
+                {
+                    approx = true;
+                    continue;
+                }
+                if (m.Value < bestMeters)
+                    bestMeters = m.Value;
+            }
+
+            SupeyClusterOsrmTable.Clear();
+
+            double score = Math.Min(100, Math.Round(100.0 * bestMeters / currentMeters.Value, 0));
+            return (score, currentMeters.Value, bestMeters, approx);
+        }
+
+        private static bool HasRoutableEndpoints(SupeyTripCluster group, int n)
+        {
+            for (int i = 0; i < n; i++)
+            {
+                if (i >= group.PickupPoints.Count || i >= group.DropoffPoints.Count)
+                    return false;
+                if (!IsValid(group.PickupPoints[i]) || !IsValid(group.DropoffPoints[i]))
+                    return false;
+            }
+            return true;
+        }
+
+        private static List<int> IdentityOrder(int n)
+        {
+            var order = new List<int>(n);
+            for (int i = 0; i < n; i++) order.Add(i);
+            return order;
+        }
+
+        private static List<List<int>> AllPermutations(int n)
+        {
+            var result = new List<List<int>>();
+            if (n <= 0) return result;
+            var work = IdentityOrder(n);
+            Permute(work, 0, result);
+            return result;
+        }
+
+        private static void Permute(List<int> items, int start, List<List<int>> output)
+        {
+            if (start >= items.Count)
+            {
+                output.Add(new List<int>(items));
+                return;
+            }
+            for (int i = start; i < items.Count; i++)
+            {
+                int tmp = items[start];
+                items[start] = items[i];
+                items[i] = tmp;
+                Permute(items, start + 1, output);
+                tmp = items[start];
+                items[start] = items[i];
+                items[i] = tmp;
+            }
+        }
+
+        private static List<List<int>> BuildLinkedTripOrderCandidates(SupeyTripCluster group, int n)
+        {
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            var list = new List<List<int>>();
+            void Add(List<int> order)
+            {
+                if (order == null || order.Count != n) return;
+                string key = string.Join(",", order);
+                if (seen.Add(key)) list.Add(order);
+            }
+
+            Add(IdentityOrder(n));
+            var reversed = IdentityOrder(n);
+            reversed.Reverse();
+            Add(reversed);
+            Add(SupeyClusterRouting.BuildPickupOrderByPuTimePublic(group));
+
+            var baseOrder = IdentityOrder(n);
+            for (int i = 0; i < n - 1; i++)
+            {
+                var swapped = new List<int>(baseOrder);
+                int tmp = swapped[i];
+                swapped[i] = swapped[i + 1];
+                swapped[i + 1] = tmp;
+                Add(swapped);
+            }
+            return list;
+        }
+
+        /// <summary>All PUs in <paramref name="puOrder"/>, then all DOs in <paramref name="doOrder"/>.</summary>
+        private static double? TourMetersForOrder(
+            SupeyTripCluster group,
+            List<int> puOrder,
+            List<int> doOrder,
+            SupeyClusterOsrmTable table)
+        {
+            if (table != null)
+            {
+                var matrixMeters = table.TourMeters(group, puOrder, doOrder);
+                if (matrixMeters.HasValue)
+                    return matrixMeters;
+            }
+
+            var path = SupeyOsrmLegs.BuildTourPath(group, puOrder, doOrder);
+            if (path.Count < 2) return null;
+
+            double sum = 0;
+            for (int i = 1; i < path.Count; i++)
+                sum += HaversineMeters(path[i - 1], path[i]);
+            return sum > 0 ? sum : (double?)null;
+        }
+
+        public static string FormatRouteChangeDelta(double deltaMeters)
+        {
+            if (Math.Abs(deltaMeters) < 160.934) // ~0.1 mi
+                return "No change from last move";
+            string mi = SupeyTripTimes.FormatMiles(Math.Abs(deltaMeters));
+            return deltaMeters > 0
+                ? "+" + mi + " vs before move"
+                : "−" + mi + " vs before move";
+        }
+
 
 
         private static bool IsValid(GeoPoint p) => !(p.Lat == 0 && p.Lng == 0);

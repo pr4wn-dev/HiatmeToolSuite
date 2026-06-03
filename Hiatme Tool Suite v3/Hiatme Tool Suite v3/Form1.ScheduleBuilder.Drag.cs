@@ -271,6 +271,11 @@ namespace Hiatme_Tool_Suite_v3
             if (string.IsNullOrWhiteSpace(_fsActiveDriverTab)) return;
 
             string tab = _fsActiveDriverTab;
+            MCDownloadedTrip movedTrip = _fsTripDragTag.Trip;
+
+            _fsPreserveRouteChangeBaseline = true;
+            FsSnapshotPreMoveGroupMeters(tab, movedTrip, _fsTripDragMerge, _fsTripDragDropTarget?.Trip);
+
             var lines = ScheduleBuilderPreviewDrag.ParseLinesFromListView(_fsTripsLv);
             ScheduleBuilderPreviewDrag.ApplyTripMove(
                 lines,
@@ -299,8 +304,6 @@ namespace Hiatme_Tool_Suite_v3
                 }
                 fsbuilder.driverTripList[tab] = trips;
             }
-
-            MCDownloadedTrip movedTrip = _fsTripDragTag.Trip;
 
             ShowFsTripsForTab(tab);
             SelectFsTripInListView(movedTrip);
