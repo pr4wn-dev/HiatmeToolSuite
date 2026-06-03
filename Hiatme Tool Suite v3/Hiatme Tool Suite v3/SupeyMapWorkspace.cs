@@ -32,10 +32,19 @@ namespace Hiatme_Tool_Suite_v3
 
         public const int MaineDefaultZoom = 12;
 
+        private const int GroupKeyPanelWidth = 272;
+
         private readonly GMapControl _map;
         private readonly FlowLayoutPanel _legend;
-        private readonly Panel _legendHost;
+        private readonly Panel _legendFooter;
+        private readonly SupeyCollapsiblePanel _groupKeyCollapsible;
         private readonly Label _emptyLabel;
+
+        /// <summary>Fixed-width dock on the workspace host (not inside the map). Not user-resizable.</summary>
+        public SupeyCollapsiblePanel GroupKeyPanel => _groupKeyCollapsible;
+
+        private static readonly Font GroupKeyTitleFont = new Font("Segoe UI Semibold", 9f);
+        private static readonly Font GroupKeyDetailFont = new Font("Segoe UI", 8.25f);
 
         // Per-group overlay registry — re-built fresh on every ShowDriverPlan call.
         private readonly Dictionary<int, GMapOverlay> _groupOverlays = new Dictionary<int, GMapOverlay>();
@@ -100,29 +109,29 @@ namespace Hiatme_Tool_Suite_v3
                 FlowDirection = FlowDirection.TopDown,
                 WrapContents = false,
                 AutoScroll = true,
-                BackColor = Color.FromArgb(45, 45, 45),
-                Padding = new Padding(8),
+                BackColor = SupeyTheme.Surface,
+                Padding = new Padding(0, 4, 0, 0),
+            };
+            _legend.Resize += (s, e) => RelayoutLegendRows();
+
+            _legendFooter = new Panel
+            {
+                Dock = DockStyle.Bottom,
+                Height = 36,
+                BackColor = SupeyTheme.Surface,
+                Padding = new Padding(0, 6, 0, 0),
             };
 
-            _legendHost = new Panel
+            _groupKeyCollapsible = new SupeyCollapsiblePanel
             {
+                Title = "Group key",
                 Dock = DockStyle.Right,
-                Width = 220,
-                BackColor = Color.FromArgb(45, 45, 45),
+                ExpandedWidth = GroupKeyPanelWidth,
+                MinExpandedWidth = GroupKeyPanelWidth,
+                MaxExpandedWidth = GroupKeyPanelWidth,
+                Expanded = true,
             };
-            var legendHeader = new Label
-            {
-                Dock = DockStyle.Top,
-                Height = 28,
-                Text = "Groups",
-                ForeColor = Color.Gainsboro,
-                BackColor = Color.FromArgb(35, 35, 35),
-                TextAlign = ContentAlignment.MiddleLeft,
-                Padding = new Padding(10, 0, 0, 0),
-                Font = new Font("Segoe UI Semibold", 9f),
-            };
-            _legendHost.Controls.Add(_legend);
-            _legendHost.Controls.Add(legendHeader);
+            BuildGroupKeyContentHost();
 
             // Empty-state composition: full-fill backdrop in the panel surface color, with
             // a centered "card" carrying a glyph + headline + sub-line. Reads like a
@@ -196,17 +205,70 @@ namespace Hiatme_Tool_Suite_v3
             };
 
             Controls.Add(_map);
-            Controls.Add(_legendHost);
             Controls.Add(_emptyLabel);
             BuildMileageHud();
             _emptyLabel.BringToFront();
-            // Until ShowDriverPlan is called the legend has nothing to show — keep the rail
-            // hidden so the user doesn't see an empty "Groups" panel pinned to the right edge.
-            _legendHost.Visible = false;
+            SetGroupKeyDockVisible(false);
 
             _map.OnMapZoomChanged += () => Invalidate();
             _map.OnMarkerClick += OnMarkerClick;
             SupeyMapMarkerDrag.EnsureWired(_map);
+        }
+
+        private void BuildGroupKeyContentHost()
+        {
+            var host = _groupKeyCollapsible.ContentPanel;
+            host.BackColor = SupeyTheme.Surface;
+            host.Padding = new Padding(10, 8, 10, 8);
+
+            var hint = new Label
+            {
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                MaximumSize = new Size(GroupKeyPanelWidth - 20, 0),
+                Text = "Show or hide groups on the map. Colors match trip list stripes and routes.",
+                ForeColor = SupeyTheme.TextMuted,
+                BackColor = SupeyTheme.Surface,
+                Font = new Font("Segoe UI", 8.75f),
+                Padding = new Padding(0, 0, 0, 8),
+            };
+
+            var footerDivider = new Panel
+            {
+                Dock = DockStyle.Bottom,
+                Height = 1,
+                BackColor = SupeyTheme.Divider,
+            };
+
+            host.Controls.Add(_legend);
+            host.Controls.Add(_legendFooter);
+            host.Controls.Add(footerDivider);
+            host.Controls.Add(hint);
+        }
+
+        private void SetGroupKeyDockVisible(bool visible)
+        {
+            _groupKeyCollapsible.Visible = visible;
+            if (!visible) return;
+            _groupKeyCollapsible.ApplyExpandedLayout();
+            RelayoutLegendRows();
+        }
+
+        private int GetLegendRowWidth() => Math.Max(160, _legend.ClientSize.Width - 4);
+
+        private void RelayoutLegendRows()
+        {
+            int w = GetLegendRowWidth();
+            foreach (Control c in _legend.Controls)
+            {
+                if (!(c is Panel row)) continue;
+                row.Width = w;
+                foreach (Control child in row.Controls)
+                {
+                    if (child is Label lbl && lbl.Anchor.HasFlag(AnchorStyles.Right))
+                        lbl.Width = Math.Max(80, w - lbl.Left - 4);
+                }
+            }
         }
 
         private void OnMarkerClick(GMapMarker item, MouseEventArgs e)
@@ -284,6 +346,13 @@ namespace Hiatme_Tool_Suite_v3
             return false;
         }
 
+        private void ClearLegend()
+        {
+            _legend.Controls.Clear();
+            _legendFooter.Controls.Clear();
+            _deadheadToggle = null;
+        }
+
         /// <summary>Clears the map + legend so the host can show "no driver selected" state.</summary>
         public void Clear()
         {
@@ -292,13 +361,12 @@ namespace Hiatme_Tool_Suite_v3
             _groupCheckboxes.Clear();
             _deadheadOverlay = null;
             _homeOverlay = null;
-            _legend.Controls.Clear();
-            _deadheadToggle = null;
+            ClearLegend();
             _currentPlan = null;
             _tripMarkers.Clear();
             ClearMileageHud();
             _emptyLabel.Visible = true;
-            _legendHost.Visible = false;
+            SetGroupKeyDockVisible(false);
             CenterOnMaineHub();
         }
 
@@ -590,12 +658,11 @@ namespace Hiatme_Tool_Suite_v3
             _map.Overlays.Clear();
             _groupOverlays.Clear();
             _groupCheckboxes.Clear();
-            _legend.Controls.Clear();
-            _deadheadToggle = null;
+            ClearLegend();
             _deadheadOverlay = null;
             _homeOverlay = null;
             _tripMarkers.Clear();
-            _legendHost.Visible = false;
+            SetGroupKeyDockVisible(false);
 
             if (trips == null || trips.Count == 0)
             {
@@ -753,7 +820,7 @@ namespace Hiatme_Tool_Suite_v3
             _map.Overlays.Clear();
             _groupOverlays.Clear();
             _groupCheckboxes.Clear();
-            _legend.Controls.Clear();
+            ClearLegend();
             _tripMarkers.Clear();
             ClearMileageHud();
 
@@ -761,19 +828,19 @@ namespace Hiatme_Tool_Suite_v3
             {
                 _emptyLabel.Text = "No driver selected.";
                 _emptyLabel.Visible = true;
-                _legendHost.Visible = false;
+                SetGroupKeyDockVisible(false);
                 return;
             }
             if (groups.Count == 0 && plan.HomeGeo.HasValue)
             {
                 _emptyLabel.Text = (plan.Driver?.Name ?? "Driver") + " has no assigned groups.";
                 _emptyLabel.Visible = true;
-                _legendHost.Visible = false;
+                SetGroupKeyDockVisible(false);
             }
             else
             {
                 _emptyLabel.Visible = false;
-                _legendHost.Visible = true;
+                SetGroupKeyDockVisible(true);
             }
 
             // Home marker (overlay added last so it sits above trip pins).
@@ -891,6 +958,7 @@ namespace Hiatme_Tool_Suite_v3
 
             AddDeadheadToggle();
             ApplyLegendVisibility(plan, legendSnap);
+            RelayoutLegendRows();
             if (autoFitViewport)
                 FitToPlan();
             _map.Refresh();
@@ -1023,71 +1091,87 @@ namespace Hiatme_Tool_Suite_v3
         private void AddLegendRow(SupeyTripCluster g)
         {
             Color groupColor = ResolveGroupDisplayColor(g);
+            int rowWidth = GetLegendRowWidth();
             var row = new Panel
             {
-                Width = _legend.ClientSize.Width - 20,
-                Height = 28,
-                BackColor = Color.FromArgb(45, 45, 45),
+                Width = rowWidth,
+                Height = 40,
+                BackColor = SupeyTheme.Surface,
+                Margin = new Padding(0, 0, 0, 2),
             };
-            var swatch = new Panel
-            {
-                BackColor = groupColor,
-                Width = 14,
-                Height = 14,
-                Location = new Point(28, 7),
-            };
+
             var cb = new CheckBox
             {
                 Checked = true,
-                Width = 22,
-                Location = new Point(0, 4),
+                Width = 20,
+                Height = 20,
+                Location = new Point(0, 10),
                 Tag = g.GroupNumber,
-                BackColor = Color.FromArgb(45, 45, 45),
-                ForeColor = Color.Gainsboro,
+                BackColor = SupeyTheme.Surface,
             };
             cb.CheckedChanged += OnGroupChecked;
-            double routeMi = g.IntraClusterMeters * 0.000621371;
-            string miText = routeMi > 0.05 ? " · " + routeMi.ToString("0.0") + " mi" : "";
-            var lbl = new Label
+
+            var swatch = new Panel
             {
-                Text = "Grp " + g.GroupNumber + " - " + g.RiderCount + (g.RiderCount == 1 ? " rider " : " riders ") +
-                       SupeyTripTimes.FormatTimeOfDay(g.EarliestPickup) + miText,
+                BackColor = groupColor,
+                Width = 4,
+                Height = 26,
+                Location = new Point(24, 7),
+            };
+
+            double routeMi = g.IntraClusterMeters * 0.000621371;
+            string miText = routeMi > 0.05 ? routeMi.ToString("0.0") + " mi" : "";
+            string riders = g.RiderCount + (g.RiderCount == 1 ? " rider" : " riders");
+            string timeText = SupeyTripTimes.FormatTimeOfDay(g.EarliestPickup);
+            string detail = riders + " · " + timeText
+                + (string.IsNullOrEmpty(miText) ? "" : " · " + miText)
+                + (g.IsStraightLineFallback ? " · est." : "");
+
+            var titleLbl = new Label
+            {
+                Text = "Group " + g.GroupNumber,
                 AutoSize = false,
-                Width = 160,
-                Height = 18,
-                Location = new Point(48, 5),
-                ForeColor = Color.Gainsboro,
-                Font = new Font("Segoe UI", 8.5f),
+                Location = new Point(34, 6),
+                Size = new Size(rowWidth - 38, 16),
+                ForeColor = SupeyTheme.TextPrimary,
+                Font = GroupKeyTitleFont,
                 TextAlign = ContentAlignment.MiddleLeft,
+                Anchor = AnchorStyles.Left | AnchorStyles.Top | AnchorStyles.Right,
+                AutoEllipsis = true,
+            };
+            var detailLbl = new Label
+            {
+                Text = detail,
+                AutoSize = false,
+                Location = new Point(34, 22),
+                Size = new Size(rowWidth - 38, 14),
+                ForeColor = SupeyTheme.TextMuted,
+                Font = GroupKeyDetailFont,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Anchor = AnchorStyles.Left | AnchorStyles.Top | AnchorStyles.Right,
+                AutoEllipsis = true,
             };
 
             row.Controls.Add(cb);
             row.Controls.Add(swatch);
-            row.Controls.Add(lbl);
+            row.Controls.Add(titleLbl);
+            row.Controls.Add(detailLbl);
             _legend.Controls.Add(row);
             _groupCheckboxes[g.GroupNumber] = cb;
         }
 
         private void AddDeadheadToggle()
         {
-            var row = new Panel
-            {
-                Width = _legend.ClientSize.Width - 20,
-                Height = 30,
-                BackColor = Color.FromArgb(45, 45, 45),
-                Margin = new Padding(0, 6, 0, 0),
-            };
+            _legendFooter.Controls.Clear();
             _deadheadToggle = new CheckBox
             {
-                Text = "Dead-heads",
+                Text = "Dead-head connectors",
                 Checked = true,
-                AutoSize = false,
-                Width = 160,
-                Height = 22,
-                Location = new Point(4, 4),
-                ForeColor = Color.Gainsboro,
-                BackColor = Color.FromArgb(45, 45, 45),
-                Font = new Font("Segoe UI", 8.75f),
+                Dock = DockStyle.Fill,
+                ForeColor = SupeyTheme.TextPrimary,
+                BackColor = SupeyTheme.Surface,
+                Font = new Font("Segoe UI", 9f),
+                Padding = new Padding(2, 0, 0, 0),
             };
             _deadheadToggle.CheckedChanged += (s, e) =>
             {
@@ -1095,8 +1179,7 @@ namespace Hiatme_Tool_Suite_v3
                 _deadheadOverlay.IsVisibile = _deadheadToggle.Checked;
                 _map.Refresh();
             };
-            row.Controls.Add(_deadheadToggle);
-            _legend.Controls.Add(row);
+            _legendFooter.Controls.Add(_deadheadToggle);
         }
 
         private void OnGroupChecked(object sender, EventArgs e)

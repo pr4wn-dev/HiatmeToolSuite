@@ -112,6 +112,8 @@ namespace Hiatme_Tool_Suite_v3
 
             _fsMapWorkPanel.Controls.Add(_fsMap);
 
+            _fsMapWorkPanel.Controls.Add(_fsMap.GroupKeyPanel);
+
             _fsMapWorkPanel.Controls.Add(_fsDriversSplitter);
 
             _fsMapWorkPanel.Controls.Add(_fsDriversCollapsible);
@@ -126,65 +128,14 @@ namespace Hiatme_Tool_Suite_v3
 
             _fsRulesCollapsible.ApplyExpandedLayout();
 
-        }
-
-
-
-        private static Splitter MakeFsDockSplitter(DockStyle dock, SupeyCollapsiblePanel target)
-
-        {
-
-            var s = new Splitter
-
-            {
-
-                Dock = dock,
-
-                Width = 4,
-
-                Height = 4,
-
-                BackColor = SupeyTheme.Divider,
-
-                MinSize = target?.MinExpandedWidth > 0 ? target.MinExpandedWidth : 180,
-
-                MinExtra = 280,
-
-                Cursor = Cursors.VSplit,
-
-                Visible = target?.Expanded ?? true,
-
-            };
-
-            s.MouseEnter += (sender, e) => { s.BackColor = SupeyTheme.BorderSubtle; };
-
-            s.MouseLeave += (sender, e) => { s.BackColor = SupeyTheme.Divider; };
-
-            if (target != null)
-
-            {
-
-                target.ExpandedChanged += (sender, e) => { s.Visible = target.Expanded; };
-
-                s.SplitterMoved += (sender, e) =>
-
-                {
-
-                    if (target.MinExpandedWidth > 0 && target.Width < target.MinExpandedWidth)
-
-                        target.Width = target.MinExpandedWidth;
-
-                    if (target.MaxExpandedWidth > 0 && target.Width > target.MaxExpandedWidth)
-
-                        target.Width = target.MaxExpandedWidth;
-
-                };
-
-            }
-
-            return s;
+            _fsMap.GroupKeyPanel.ApplyExpandedLayout();
 
         }
+
+
+
+        private static Splitter MakeFsDockSplitter(DockStyle dock, SupeyCollapsiblePanel target) =>
+            SupeyCollapsiblePanel.CreateDockSplitter(dock, target, minExtra: 280);
 
 
 

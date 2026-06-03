@@ -141,7 +141,12 @@ namespace Hiatme_Tool_Suite_v3
                 HideSelection = false,
                 MultiSelect = false,
                 Font = new Font("Archivo Medium", 10f),
+                OwnerDraw = true,
+                UseCompatibleStateImageBehavior = false,
             };
+            _fsDriversLv.DrawColumnHeader += FsDriversLv_DrawColumnHeader;
+            _fsDriversLv.DrawItem += FsDriversLv_DrawItem;
+            _fsDriversLv.DrawSubItem += FsDriversLv_DrawSubItem;
             _fsDriversLv.Columns.AddRange(new[]
             {
                 new ColumnHeader { Text = "Driver", Width = 120 },
@@ -615,6 +620,34 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             RefreshFsMapIfDriverTabActive();
+        }
+
+        private void FsDriversLv_DrawColumnHeader(object sender, DrawListViewColumnHeaderEventArgs e)
+        {
+            SupeyListViewHelpers.DrawColumnHeader(e);
+        }
+
+        private void FsDriversLv_DrawItem(object sender, DrawListViewItemEventArgs e)
+        {
+            SupeyListViewHelpers.SuppressDefaultDrawItem(e);
+        }
+
+        private void FsDriversLv_DrawSubItem(object sender, DrawListViewSubItemEventArgs e)
+        {
+            bool sel = e.Item != null && e.Item.Selected;
+            SupeyListViewHelpers.DrawSubItemCellBackground(e, sel ? SupeyTheme.ListSelected : SupeyTheme.ListBody);
+
+            var bounds = new Rectangle(e.Bounds.Left + 6, e.Bounds.Top, e.Bounds.Width - 6, e.Bounds.Height);
+            TextRenderer.DrawText(
+                e.Graphics,
+                e.SubItem?.Text ?? "",
+                _fsDriversLv?.Font ?? ListViewOwnerDrawFonts.Cell,
+                bounds,
+                sel ? SupeyTheme.ListSelectedText : SupeyTheme.ListText,
+                TextFormatFlags.Left | TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter
+                    | TextFormatFlags.WordEllipsis | TextFormatFlags.GlyphOverhangPadding);
+
+            SupeyListViewHelpers.DrawCellGridLines(e.Graphics, e.Bounds);
         }
     }
 }

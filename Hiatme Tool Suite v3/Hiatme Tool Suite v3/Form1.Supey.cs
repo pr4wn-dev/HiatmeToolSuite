@@ -623,6 +623,7 @@ namespace Hiatme_Tool_Suite_v3
             _supeyInfoSplitter = MakeDockSplitter(DockStyle.Right, _supeyRightCollapsible);
 
             workPanel.Controls.Add(_supeyMap);
+            workPanel.Controls.Add(_supeyMap.GroupKeyPanel);
             workPanel.Controls.Add(_supeyDriversSplitter);
             workPanel.Controls.Add(_supeyDriversCollapsible);
             workPanel.Controls.Add(_supeyAiSplitter);
@@ -632,6 +633,7 @@ namespace Hiatme_Tool_Suite_v3
             workPanel.Controls.Add(_supeyInfoSplitter);
             workPanel.Controls.Add(_supeyRightCollapsible);
             _supeyDriversCollapsible.ApplyExpandedLayout();
+            _supeyMap.GroupKeyPanel.ApplyExpandedLayout();
             _supeyMainSplit.Panel1.Controls.Add(workPanel);
 
             _supeyTripsCollapsible = new SupeyCollapsiblePanel

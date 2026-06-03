@@ -1,5 +1,7 @@
 using System;
 using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Drawing.Text;
 using System.Windows.Forms;
 
 namespace Hiatme_Tool_Suite_v3
@@ -73,6 +75,13 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         public int CollapsedThickness { get; set; } = HeaderHeight;
+
+        /// <summary>
+        /// Width when collapsed on Left/Right dock. Must exceed accent + chevron (35px) so the
+        /// title can render vertically on the rail — <see cref="CollapsedThickness"/> alone is
+        /// only tall enough for a top header row, not a readable side label.
+        /// </summary>
+        public int CollapsedRailWidth { get; set; } = 72;
 
         /// <summary>Lower bound for splitter-driven resizes when docked Left/Right. The splitter's
         /// MinExtra also enforces this from the other side, but we double-up here so direct
@@ -187,12 +196,26 @@ namespace Hiatme_Tool_Suite_v3
 
             Controls.Add(ContentPanel);
             Controls.Add(_header);
+
+            SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
+            Click += OnRailClick;
+        }
+
+        private void OnRailClick(object sender, EventArgs e)
+        {
+            if (!_expanded && (IsHorizontalDock() || Dock == DockStyle.Fill))
+                Expanded = true;
         }
 
         public string Title
         {
             get => _titleLabel.Text;
-            set => _titleLabel.Text = value ?? "";
+            set
+            {
+                _titleLabel.Text = value ?? "";
+                if (!_expanded && IsHorizontalDock())
+                    Invalidate();
+            }
         }
 
         public DockStyle PanelDock
@@ -228,9 +251,14 @@ namespace Hiatme_Tool_Suite_v3
             try
             {
                 ContentPanel.Visible = _expanded;
+                bool sideRail = IsHorizontalDock() && !_expanded;
+                // Fill-docked trips (split panel) and Top/Bottom keep the header strip when collapsed.
+                _header.Visible = _expanded || IsVerticalDock() || Dock == DockStyle.Fill;
+                Cursor = sideRail ? Cursors.Hand : Cursors.Default;
+
                 if (Dock == DockStyle.Left || Dock == DockStyle.Right)
                 {
-                    Width = _expanded ? ResolveExpandedWidth() : CollapsedThickness;
+                    Width = _expanded ? ResolveExpandedWidth() : CollapsedRailWidth;
                     _toggleBtn.Text = Dock == DockStyle.Left
                         ? (_expanded ? "◀" : "▶")
                         : (_expanded ? "▶" : "◀");
@@ -247,8 +275,63 @@ namespace Hiatme_Tool_Suite_v3
                     ContentPanel.Visible = _expanded;
                     _toggleBtn.Text = _expanded ? "▼" : "▲";
                 }
+
+                Invalidate();
             }
             finally { _applyingExpandedState = false; }
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            if (_expanded || !IsHorizontalDock())
+                return;
+            PaintCollapsedSideRail(e.Graphics);
+        }
+
+        private void PaintCollapsedSideRail(Graphics g)
+        {
+            if (g == null) return;
+
+            var bounds = ClientRectangle;
+            if (bounds.Width <= 0 || bounds.Height <= 0) return;
+
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
+
+            using (var bg = new SolidBrush(SupeyTheme.SurfaceHeader))
+                g.FillRectangle(bg, bounds);
+
+            using (var accent = new SolidBrush(SupeyTheme.AccentStripe))
+                g.FillRectangle(accent, bounds.Left, bounds.Top, 3, bounds.Height);
+
+            string chevron = Dock == DockStyle.Left ? "▶" : "◀";
+            var chevronRect = new Rectangle(bounds.Left + 3, bounds.Top + 4, bounds.Width - 3, HeaderHeight);
+            using (var chevronFont = new Font("Segoe UI", 10f, FontStyle.Bold))
+            {
+                TextRenderer.DrawText(g, chevron, chevronFont, chevronRect, SupeyTheme.TextSecondary,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            }
+
+            string title = (Title ?? "").Trim();
+            if (title.Length == 0) return;
+
+            var titleRect = new Rectangle(
+                bounds.Left + 8,
+                bounds.Top + HeaderHeight + 4,
+                bounds.Width - 10,
+                Math.Max(0, bounds.Height - HeaderHeight - 8));
+
+            using (var textBrush = new SolidBrush(SupeyTheme.TextPrimary))
+            using (var sf = new StringFormat(StringFormatFlags.DirectionVertical | StringFormatFlags.NoWrap)
+            {
+                Alignment = StringAlignment.Center,
+                LineAlignment = StringAlignment.Center,
+                Trimming = StringTrimming.EllipsisCharacter,
+            })
+            {
+                g.DrawString(title, SupeyTheme.HeaderFont, textBrush, titleRect, sf);
+            }
         }
 
         /// <summary>
@@ -282,6 +365,108 @@ namespace Hiatme_Tool_Suite_v3
             base.OnParentChanged(e);
             if (Parent != null && _expanded)
                 ApplyExpandedState();
+        }
+
+        /// <summary>
+        /// Draggable resize bar for a docked <see cref="SupeyCollapsiblePanel"/>. Hidden while
+        /// collapsed; clamps width/height to the panel's min/max expanded bounds.
+        /// </summary>
+        public static Splitter CreateDockSplitter(DockStyle dock, SupeyCollapsiblePanel target, int minExtra = 280)
+        {
+            var s = new Splitter
+            {
+                Dock = dock,
+                Width = 4,
+                Height = 4,
+                BackColor = SupeyTheme.Divider,
+                MinSize = target?.MinExpandedWidth > 0 ? target.MinExpandedWidth : 180,
+                MinExtra = minExtra,
+                Cursor = (dock == DockStyle.Left || dock == DockStyle.Right) ? Cursors.VSplit : Cursors.HSplit,
+                Visible = target?.Expanded ?? true,
+            };
+            s.MouseEnter += (sender, e) => { s.BackColor = SupeyTheme.BorderSubtle; };
+            s.MouseLeave += (sender, e) => { s.BackColor = SupeyTheme.Divider; };
+            if (target != null)
+            {
+                target.ExpandedChanged += (sender, e) =>
+                {
+                    if (target.Visible)
+                        s.Visible = target.Expanded;
+                };
+                SplitterEventHandler onResize = (sender, e) => ApplyDockSplitterResize(s, target, dock);
+                s.SplitterMoving += onResize;
+                s.SplitterMoved += onResize;
+            }
+            return s;
+        }
+
+        /// <summary>Width/height from splitter drag — avoids fighting WinForms split-target when siblings hide/show.</summary>
+        internal void ApplySplitterResize(int widthOrHeight)
+        {
+            int size = widthOrHeight;
+            if (Dock == DockStyle.Left || Dock == DockStyle.Right)
+            {
+                if (_minExpandedWidth > 0 && size < _minExpandedWidth) size = _minExpandedWidth;
+                if (_maxExpandedWidth > 0 && size > _maxExpandedWidth) size = _maxExpandedWidth;
+                if (!_expanded || Width == size && _expandedWidth == size) return;
+                _applyingExpandedState = true;
+                try
+                {
+                    _expandedWidth = size;
+                    Width = size;
+                }
+                finally { _applyingExpandedState = false; }
+            }
+            else if (Dock == DockStyle.Top || Dock == DockStyle.Bottom)
+            {
+                if (MinExpandedHeight > 0 && size < MinExpandedHeight) size = MinExpandedHeight;
+                if (!_expanded || Height == size && _expandedHeight == size) return;
+                _applyingExpandedState = true;
+                try
+                {
+                    _expandedHeight = size;
+                    Height = size;
+                }
+                finally { _applyingExpandedState = false; }
+            }
+        }
+
+        private static void ApplyDockSplitterResize(Splitter splitter, SupeyCollapsiblePanel target, DockStyle dock)
+        {
+            if (target?.Parent == null || !target.Visible || !target.Expanded) return;
+            var parent = target.Parent;
+            if (dock == DockStyle.Right)
+            {
+                int outer = SumOtherDockedWidth(parent, target, splitter, DockStyle.Right);
+                target.ApplySplitterResize(Math.Max(0, parent.ClientSize.Width - splitter.Left - outer));
+            }
+            else if (dock == DockStyle.Left)
+            {
+                int outer = SumOtherDockedWidth(parent, target, splitter, DockStyle.Left);
+                target.ApplySplitterResize(Math.Max(0, splitter.Right - outer));
+            }
+            else if (dock == DockStyle.Bottom)
+            {
+                int outer = SumOtherDockedWidth(parent, target, splitter, DockStyle.Bottom);
+                target.ApplySplitterResize(Math.Max(0, parent.ClientSize.Height - splitter.Top - outer));
+            }
+            else if (dock == DockStyle.Top)
+            {
+                int outer = SumOtherDockedWidth(parent, target, splitter, DockStyle.Top);
+                target.ApplySplitterResize(Math.Max(0, splitter.Bottom - outer));
+            }
+        }
+
+        private static int SumOtherDockedWidth(Control parent, SupeyCollapsiblePanel target, Splitter splitter, DockStyle dock)
+        {
+            int sum = 0;
+            foreach (Control c in parent.Controls)
+            {
+                if (ReferenceEquals(c, target) || ReferenceEquals(c, splitter) || !c.Visible || c.Dock != dock)
+                    continue;
+                sum += dock == DockStyle.Top || dock == DockStyle.Bottom ? c.Height : c.Width;
+            }
+            return sum;
         }
     }
 }
