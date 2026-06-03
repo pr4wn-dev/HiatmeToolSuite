@@ -300,11 +300,34 @@ namespace Hiatme_Tool_Suite_v3
                 fsbuilder.driverTripList[tab] = trips;
             }
 
+            MCDownloadedTrip movedTrip = _fsTripDragTag.Trip;
+
             ShowFsTripsForTab(tab);
+            SelectFsTripInListView(movedTrip);
             _ = RefreshFsMapForCurrentTabAsync();
             SetScheduleBuilderStatus(_fsTripDragMerge
                 ? "Merged trip into group — map updating…"
                 : "Moved trip — map updating…");
+        }
+
+        private void SelectFsTripInListView(MCDownloadedTrip trip)
+        {
+            if (_fsTripsLv == null || trip == null) return;
+
+            _fsTripsLv.SelectedItems.Clear();
+            foreach (ListViewItem item in _fsTripsLv.Items)
+            {
+                if (item.Tag is FsPreviewTripTag tag && tag.Trip != null
+                    && (ReferenceEquals(tag.Trip, trip)
+                        || (!string.IsNullOrEmpty(trip.TripNumber)
+                            && string.Equals(tag.Trip.TripNumber, trip.TripNumber, StringComparison.OrdinalIgnoreCase))))
+                {
+                    item.Selected = true;
+                    item.Focused = true;
+                    item.EnsureVisible();
+                    return;
+                }
+            }
         }
 
         internal bool FsTripsIsDragSourceRow(ListViewItem item)
