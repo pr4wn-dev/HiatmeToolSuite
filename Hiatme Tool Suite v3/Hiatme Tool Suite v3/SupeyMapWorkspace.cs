@@ -39,6 +39,11 @@ namespace Hiatme_Tool_Suite_v3
 
         // Per-group overlay registry — re-built fresh on every ShowDriverPlan call.
         private readonly Dictionary<int, GMapOverlay> _groupOverlays = new Dictionary<int, GMapOverlay>();
+
+        /// <summary>When false, map routes and badges use a neutral color (Schedule Builder setting).</summary>
+        public bool UseGroupRouteColors { get; set; } = true;
+
+        private static readonly Color NeutralRouteColor = Color.FromArgb(150, 150, 150);
         private readonly Dictionary<int, CheckBox> _groupCheckboxes = new Dictionary<int, CheckBox>();
 
         private GMapOverlay _deadheadOverlay;
@@ -739,6 +744,7 @@ namespace Hiatme_Tool_Suite_v3
             // Per-group overlays.
             foreach (var g in groups)
             {
+                Color groupColor = ResolveGroupDisplayColor(g);
                 var overlay = new GMapOverlay("group-" + g.GroupNumber);
                 var pts = new List<PointLatLng>(g.RoutePolyline.Count);
                 foreach (var p in g.RoutePolyline) pts.Add(new PointLatLng(p.Lat, p.Lng));
@@ -746,7 +752,7 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     var route = new GMapRoute(pts, "Group " + g.GroupNumber)
                     {
-                        Stroke = new Pen(g.GroupColor, 4f)
+                        Stroke = new Pen(groupColor, 4f)
                         {
                             DashStyle = g.IsStraightLineFallback ? DashStyle.Dash : DashStyle.Solid,
                         },
@@ -768,7 +774,7 @@ namespace Hiatme_Tool_Suite_v3
                         new PointLatLng(pt.Lat, pt.Lng), GMarkerGoogleType.green_small)
                     {
                         RouteStopNumber = stop,
-                        BadgeAccentColor = g.GroupColor,
+                        BadgeAccentColor = groupColor,
                         Tag = BuildMarkerInfo(trip, "Pickup", true, p => g.PickupPoints[idx] = p),
                     };
                     ApplyRouteStopTooltip(marker, g, stop, totalStops, isPickup: true, trip);
@@ -788,7 +794,7 @@ namespace Hiatme_Tool_Suite_v3
                         new PointLatLng(pt.Lat, pt.Lng), GMarkerGoogleType.red_small)
                     {
                         RouteStopNumber = stop,
-                        BadgeAccentColor = g.GroupColor,
+                        BadgeAccentColor = groupColor,
                         Tag = BuildMarkerInfo(trip, "Dropoff", false, p => g.DropoffPoints[idx] = p),
                     };
                     ApplyRouteStopTooltip(marker, g, stop, totalStops, isPickup: false, trip);
@@ -926,8 +932,15 @@ namespace Hiatme_Tool_Suite_v3
                 overlay.IsVisibile = visible;
         }
 
+        private Color ResolveGroupDisplayColor(SupeyTripCluster g)
+        {
+            if (g == null) return NeutralRouteColor;
+            return UseGroupRouteColors ? g.GroupColor : NeutralRouteColor;
+        }
+
         private void AddLegendRow(SupeyTripCluster g)
         {
+            Color groupColor = ResolveGroupDisplayColor(g);
             var row = new Panel
             {
                 Width = _legend.ClientSize.Width - 20,
@@ -936,7 +949,7 @@ namespace Hiatme_Tool_Suite_v3
             };
             var swatch = new Panel
             {
-                BackColor = g.GroupColor,
+                BackColor = groupColor,
                 Width = 14,
                 Height = 14,
                 Location = new Point(28, 7),
@@ -1096,7 +1109,7 @@ namespace Hiatme_Tool_Suite_v3
             string leg = isPickup ? "Pickup" : "Dropoff";
             string title = leg + " · Group " + (g?.GroupNumber ?? 0);
             var detail = BuildTripTooltipDetail(trip, isPickup, totalStops > 0 ? stop : 0, totalStops);
-            Color accent = g != null ? g.GroupColor : (isPickup ? PickupTooltipAccent : DropoffTooltipAccent);
+            Color accent = g != null ? ResolveGroupDisplayColor(g) : (isPickup ? PickupTooltipAccent : DropoffTooltipAccent);
             ApplyThemedMarkerTooltip(marker, title, detail, accent);
         }
 

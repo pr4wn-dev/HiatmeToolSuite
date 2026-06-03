@@ -104,6 +104,8 @@ namespace Hiatme_Tool_Suite_v3
 
         {
 
+            LoadFsScheduleBuilderSettings();
+
             if (_fsPreviewUiReady || materialCard14 == null || tabPage6 == null) return;
 
 
@@ -488,6 +490,8 @@ namespace Hiatme_Tool_Suite_v3
 
             _fsMap = new SupeyMapWorkspace { Dock = DockStyle.Fill };
 
+            _fsMap.UseGroupRouteColors = _fsShowGroupColors;
+
             _fsMap.CenterOnMaineHub();
 
             _fsMap.SetSupeyStatusOnHost = null;
@@ -842,17 +846,17 @@ namespace Hiatme_Tool_Suite_v3
 
                 rowBg = SupeyTheme.ListBody;
 
-            else if (!sel && isNote && noteTag?.Group != null)
+            else if (!sel && isNote && noteTag?.Group != null && FsShowGroupColorsEnabled)
 
                 rowBg = FsRouteHeaderBackColor(noteTag.Group.GroupColor);
 
             Color fill = rowBg;
 
-            if (!sel && isNote && noteTag?.Group != null && e.ColumnIndex == 0)
+            if (!sel && isNote && noteTag?.Group != null && e.ColumnIndex == 0 && FsShowGroupColorsEnabled)
 
                 fill = noteTag.Group.GroupColor;
 
-            else if (!sel && !isGap && !isNote && e.ColumnIndex == 0
+            else if (!sel && !isGap && !isNote && e.ColumnIndex == 0 && FsShowGroupColorsEnabled
 
                 && e.SubItem != null && e.SubItem.BackColor != Color.Empty
 
@@ -1768,6 +1772,8 @@ namespace Hiatme_Tool_Suite_v3
 
             if (gen != _fsMapRefreshGen) return;
 
+            _fsMap.UseGroupRouteColors = _fsShowGroupColors;
+
             _fsMap.ShowDriverPlan(plan, autoFitViewport: !centerMaineAfterBuild);
 
             if (centerMaineAfterBuild || !SupeyMapWorkspace.HasValidMapPins(plan))
@@ -2150,7 +2156,8 @@ namespace Hiatme_Tool_Suite_v3
 
                         lastHeaderGroup = null;
 
-                        AddFsTemplateGapRow();
+                        if (FsShowGapsEnabled)
+                            AddFsTemplateGapRow();
 
                         continue;
 
@@ -2162,15 +2169,15 @@ namespace Hiatme_Tool_Suite_v3
 
                     if (g == null) continue;
 
-                    if (!ReferenceEquals(g, lastHeaderGroup))
+                    if (FsShowGroupColorsEnabled && !ReferenceEquals(g, lastHeaderGroup))
 
                     {
 
                         AddFsGroupNoteRow(g);
 
-                        lastHeaderGroup = g;
-
                     }
+
+                    lastHeaderGroup = g;
 
                     _fsTripsLv.Items.Add(CreateFsTripListItem(g, line.Trip));
 
@@ -2424,7 +2431,7 @@ namespace Hiatme_Tool_Suite_v3
 
             lvi.UseItemStyleForSubItems = false;
 
-            if (g != null)
+            if (g != null && FsShowGroupColorsEnabled)
 
             {
 

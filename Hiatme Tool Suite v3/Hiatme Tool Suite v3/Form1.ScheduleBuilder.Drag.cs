@@ -417,17 +417,18 @@ namespace Hiatme_Tool_Suite_v3
             SupeyTripCluster grp,
             bool slotHighlight)
         {
+            bool useColors = FsShowGroupColorsEnabled;
             Color fill = SupeyTheme.ListBody;
-            if (columnIndex == 0 && grp != null)
+            if (useColors && columnIndex == 0 && grp != null)
                 fill = grp.GroupColor;
-            else if (columnIndex > 0 && grp != null && slotHighlight)
+            else if (useColors && columnIndex > 0 && grp != null && slotHighlight)
                 fill = FsRouteHeaderBackColor(grp.GroupColor);
 
             using (var br = new SolidBrush(fill))
                 g.FillRectangle(br, cellBounds);
 
             string text = _fsTripDragSourceItem.SubItems[columnIndex].Text ?? "";
-            if (columnIndex == 0 && grp != null)
+            if (useColors && columnIndex == 0 && grp != null)
                 text = grp.GroupNumber.ToString();
 
             var textRect = new Rectangle(cellBounds.Left + 6, cellBounds.Top, cellBounds.Width - 8, cellBounds.Height);

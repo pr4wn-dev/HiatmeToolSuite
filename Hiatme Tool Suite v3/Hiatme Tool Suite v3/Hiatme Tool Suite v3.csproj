@@ -180,6 +180,10 @@
       <DependentUpon>Form1.cs</DependentUpon>
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="Form1.ScheduleBuilder.Settings.cs">
+      <DependentUpon>Form1.cs</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="Form1.ScheduleBuilder.ContextMenu.cs">
       <DependentUpon>Form1.cs</DependentUpon>
       <SubType>Form</SubType>

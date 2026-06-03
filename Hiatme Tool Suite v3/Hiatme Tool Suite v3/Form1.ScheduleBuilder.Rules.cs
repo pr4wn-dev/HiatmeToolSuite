@@ -104,9 +104,15 @@ namespace Hiatme_Tool_Suite_v3
 
             _fsRulesSplitter = MakeFsDockSplitter(DockStyle.Right, _fsRulesCollapsible);
 
+            BuildFsSettingsWorkspaceDock();
+
 
 
             _fsMapWorkPanel.Controls.Add(_fsMap);
+
+            _fsMapWorkPanel.Controls.Add(_fsSettingsSplitter);
+
+            _fsMapWorkPanel.Controls.Add(_fsSettingsCollapsible);
 
             _fsMapWorkPanel.Controls.Add(_fsRulesSplitter);
 

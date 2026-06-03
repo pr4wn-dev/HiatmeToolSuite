@@ -154,5 +154,29 @@ namespace Hiatme_Tool_Suite_v3.Properties {
                 this["LastRunAssemblyVersion"] = value;
             }
         }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("False")]
+        public bool FsShowGaps {
+            get {
+                return ((bool)(this["FsShowGaps"]));
+            }
+            set {
+                this["FsShowGaps"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("False")]
+        public bool FsShowGroupColors {
+            get {
+                return ((bool)(this["FsShowGroupColors"]));
+            }
+            set {
+                this["FsShowGroupColors"] = value;
+            }
+        }
     }
 }
