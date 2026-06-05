@@ -21,6 +21,8 @@ namespace Hiatme_Tool_Suite_v3
         private SupeyButton _fsDriverRemoveBtn;
         private SupeyButton _fsDriverSaveBtn;
         private bool _fsDriverRosterLoaded;
+        private ContextMenuStrip _fsDriversCtxMenu;
+        private ToolStripMenuItem _fsDriversCtxGeocodeHome;
 
         private void BuildFsDriversWorkspaceDock()
         {
@@ -155,6 +157,9 @@ namespace Hiatme_Tool_Suite_v3
                 new ColumnHeader { Text = "Shift", Width = 90 },
             });
             _fsDriversLv.DoubleClick += async (s, e) => await OnFsDriverEditAsync();
+
+            BuildFsDriversContextMenu();
+            _fsDriversLv.MouseUp += FsDriversLv_MouseUp_ShowContextMenu;
 
             _fsDriversEmptyHint = new Label
             {
@@ -349,18 +354,25 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             reportStatus?.Invoke("Geocoding driver homes…");
-            foreach (string tab in tabs)
+            if (!HiatmeGeoSettings.UseServer && HiatmeGeoSettings.ServerOnly)
             {
-                var profile = ScheduleBuilderDriverMapRouting.FindProfileForScheduleTab(_supeyRoster, tab);
-                if (profile == null) continue;
-                try
+                reportStatus?.Invoke("Driver home geocode skipped — office server offline.");
+            }
+            else
+            {
+                foreach (string tab in tabs)
                 {
-                    var geo = await ScheduleBuilderDriverMapRouting.ResolveHomeGeoAsync(
-                        profile, CancellationToken.None).ConfigureAwait(false);
-                    if (geo.HasValue)
-                        result.HomesGeocoded++;
+                    var profile = ScheduleBuilderDriverMapRouting.FindProfileForScheduleTab(_supeyRoster, tab);
+                    if (profile == null) continue;
+                    try
+                    {
+                        var geo = await ScheduleBuilderDriverMapRouting.ResolveHomeGeoAsync(
+                            profile, CancellationToken.None).ConfigureAwait(false);
+                        if (geo.HasValue)
+                            result.HomesGeocoded++;
+                    }
+                    catch { }
                 }
-                catch { }
             }
 
             if (rosterChanged)
@@ -620,6 +632,72 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             RefreshFsMapIfDriverTabActive();
+        }
+
+        private void BuildFsDriversContextMenu()
+        {
+            _fsDriversCtxMenu = new ContextMenuStrip
+            {
+                Renderer = new DarkContextMenuRenderer(),
+                BackColor = DarkContextMenuRenderer.Background,
+                ForeColor = DarkContextMenuRenderer.ForeColor,
+            };
+
+            _fsDriversCtxGeocodeHome = new ToolStripMenuItem("Geocode driver home")
+            {
+                BackColor = DarkContextMenuRenderer.Background,
+                ForeColor = DarkContextMenuRenderer.ForeColor,
+            };
+            _fsDriversCtxGeocodeHome.Click += (s, e) =>
+            {
+                if (_fsDriversLv?.SelectedItems.Count > 0
+                    && _fsDriversLv.SelectedItems[0].Tag is SupeyDriverProfile profile)
+                    _ = FsGeocodeDriverHomeAsync(profile);
+            };
+
+            _fsDriversCtxMenu.Items.Add(_fsDriversCtxGeocodeHome);
+        }
+
+        private async void FsDriversLv_MouseUp_ShowContextMenu(object sender, MouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Right || _fsDriversLv == null) return;
+
+            var hit = _fsDriversLv.HitTest(e.Location);
+            if (hit.Item != null)
+            {
+                hit.Item.Selected = true;
+                hit.Item.Focused = true;
+            }
+
+            try
+            {
+                await ScheduleOsrmGate.ProbePreviewServicesAsync(
+                    HiatmeAiSettings.Load(), CancellationToken.None).ConfigureAwait(true);
+            }
+            catch { }
+
+            var profile = hit.Item?.Tag as SupeyDriverProfile;
+            bool hasHome = profile != null
+                && (!string.IsNullOrWhiteSpace(profile.HomeStreet)
+                    || !string.IsNullOrWhiteSpace(profile.HomeCity));
+            bool canGeocode = profile != null && hasHome && ScheduleOsrmGate.PreviewGeoOk;
+
+            _fsDriversCtxGeocodeHome.Enabled = canGeocode;
+            if (canGeocode)
+            {
+                _fsDriversCtxGeocodeHome.Text = "Geocode driver home — "
+                    + (profile.Name ?? "driver").Trim();
+            }
+            else if (profile != null && hasHome && !ScheduleOsrmGate.PreviewGeoOk)
+            {
+                _fsDriversCtxGeocodeHome.Text = "Geocode driver home (office server offline)";
+            }
+            else
+            {
+                _fsDriversCtxGeocodeHome.Text = "Geocode driver home";
+            }
+
+            _fsDriversCtxMenu.Show(_fsDriversLv, e.Location);
         }
 
         private void FsDriversLv_DrawColumnHeader(object sender, DrawListViewColumnHeaderEventArgs e)

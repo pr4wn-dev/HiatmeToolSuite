@@ -133,12 +133,31 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>Straight PU→DO preview only (no OSRM).</summary>
         public static void BuildDeskRoutePolylines(IEnumerable<SupeyTripCluster> groups)
         {
-            if (groups == null) return;
-            foreach (var g in groups)
+            BuildDeskRoutePolylines(groups, null);
+        }
+
+        /// <summary>
+        /// Straight-line group routes when OSRM is offline. Optional home bookends match the OSRM path.
+        /// </summary>
+        public static (int roadGroups, int straightGroups) BuildDeskRoutePolylines(
+            IEnumerable<SupeyTripCluster> groups, GeoPoint? homeGeo)
+        {
+            int straight = 0;
+            if (groups == null) return (0, 0);
+            var list = groups as IList<SupeyTripCluster> ?? new List<SupeyTripCluster>(groups);
+            int count = list.Count;
+            for (int i = 0; i < count; i++)
             {
+                var g = list[i];
                 if (g == null) continue;
-                ApplyStraightLineRoute(g, CollectDeskRouteWaypoints(g));
+                ScheduleBuilderDriverMapRouting.ResolveHomeRouteBookends(
+                    i, count, homeGeo, out GeoPoint? routeStart, out GeoPoint? routeEnd);
+                var waypoints = CollectDeskRouteWaypoints(g, routeStart, routeEnd);
+                ApplyStraightLineRoute(g, waypoints);
+                if (g.RoutePolyline.Count >= 2)
+                    straight++;
             }
+            return (0, straight);
         }
 
         private static async Task<bool> PopulateGroupOsrmRouteAsync(

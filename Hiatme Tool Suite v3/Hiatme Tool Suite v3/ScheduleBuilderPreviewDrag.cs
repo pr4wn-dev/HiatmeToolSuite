@@ -251,6 +251,38 @@ namespace Hiatme_Tool_Suite_v3
             return 0;
         }
 
+        internal static bool TryRemoveTrip(IList<ScheduleBuilderPreviewLine> lines, MCDownloadedTrip trip)
+        {
+            if (lines == null || trip == null) return false;
+            for (int i = 0; i < lines.Count; i++)
+            {
+                if (lines[i]?.Kind == ScheduleBuilderPreviewLine.LineKind.Trip
+                    && TripEquals(lines[i].Trip, trip))
+                {
+                    lines.RemoveAt(i);
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>Insert a trip line (e.g. after Cut) without removing it from the list first.</summary>
+        internal static void InsertTripLine(
+            IList<ScheduleBuilderPreviewLine> lines,
+            MCDownloadedTrip trip,
+            int insertBeforeLineIndex)
+        {
+            if (lines == null || trip == null) return;
+            if (FindTripLine(lines, trip) >= 0) return;
+
+            int insert = Math.Max(0, Math.Min(insertBeforeLineIndex, lines.Count));
+            lines.Insert(insert, new ScheduleBuilderPreviewLine
+            {
+                Kind = ScheduleBuilderPreviewLine.LineKind.Trip,
+                Trip = trip,
+            });
+        }
+
         internal static void ApplyTripMove(
             IList<ScheduleBuilderPreviewLine> lines,
             MCDownloadedTrip dragged,

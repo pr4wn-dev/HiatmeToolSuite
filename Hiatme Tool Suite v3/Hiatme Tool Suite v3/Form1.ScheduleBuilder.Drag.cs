@@ -9,6 +9,9 @@ namespace Hiatme_Tool_Suite_v3
 {
     public partial class Form1
     {
+        /// <summary>Trip list drag-and-drop reorder/merge — off until re-enabled.</summary>
+        private const bool FsTripDragDropEnabled = false;
+
         private bool _fsTripDragActive;
         private bool _fsTripDragPending;
         private Point _fsTripDragStartPt;
@@ -34,11 +37,12 @@ namespace Hiatme_Tool_Suite_v3
 
         private bool FsTripsAllowsTripDrag()
         {
-            if (!_fsHasPreview || _fsTripsLv == null) return false;
-            if (string.IsNullOrWhiteSpace(_fsActiveDriverTab)) return false;
-            if (_fsActiveDriverTab.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
-                return false;
-            return _fsLinesByTab.TryGetValue(_fsActiveDriverTab, out var lines)
+            return FsTripDragDropEnabled
+                && _fsHasPreview
+                && _fsTripsLv != null
+                && !string.IsNullOrWhiteSpace(_fsActiveDriverTab)
+                && !_fsActiveDriverTab.Equals("Reserves", StringComparison.OrdinalIgnoreCase)
+                && _fsLinesByTab.TryGetValue(_fsActiveDriverTab, out var lines)
                 && lines != null
                 && lines.Exists(l => l?.Kind == ScheduleBuilderPreviewLine.LineKind.Trip);
         }

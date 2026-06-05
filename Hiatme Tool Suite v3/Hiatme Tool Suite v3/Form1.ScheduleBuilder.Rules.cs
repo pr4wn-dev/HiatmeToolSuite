@@ -110,7 +110,11 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
+            BuildFsMapOfflineOverlay();
+
             _fsMapWorkPanel.Controls.Add(_fsMap);
+
+            _fsMapWorkPanel.Controls.Add(_fsMapOfflineOverlay);
 
             _fsMapWorkPanel.Controls.Add(_fsMap.GroupKeyPanel);
 

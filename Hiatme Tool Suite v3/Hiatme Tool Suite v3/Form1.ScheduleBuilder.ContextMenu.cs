@@ -17,6 +17,11 @@ namespace Hiatme_Tool_Suite_v3
         private ToolStripMenuItem _fsTripsCtxCopyCurrentTab;
         private ToolStripMenuItem _fsTripsCtxCopySelectedTrip;
         private ToolStripMenuItem _fsTripsCtxAutoSortGroup;
+        private ToolStripMenuItem _fsTripsCtxGeocodeDriverHome;
+        private ToolStripMenuItem _fsTripsCtxCutTrip;
+        private ToolStripMenuItem _fsTripsCtxInsertAbove;
+        private ToolStripMenuItem _fsTripsCtxInsertBelow;
+        private ToolStripMenuItem _fsTripsCtxClearCut;
         private MCDownloadedTrip _fsTripsCtxTrip;
         private SupeyTripCluster _fsTripsCtxGroup;
 
@@ -62,7 +67,7 @@ namespace Hiatme_Tool_Suite_v3
             };
             _fsTripsCtxFocusMap.Click += (s, e) =>
             {
-                if (_fsTripsCtxTrip != null && _fsMap != null)
+                if (_fsTripsCtxTrip != null && _fsMap != null && _fsMap.Visible)
                     _fsMap.FocusTrip(_fsTripsCtxTrip);
             };
 
@@ -98,10 +103,58 @@ namespace Hiatme_Tool_Suite_v3
                     _ = FsAutoSortGroupForEfficiencyAsync(_fsTripsCtxGroup);
             };
 
+            _fsTripsCtxGeocodeDriverHome = new ToolStripMenuItem("Geocode driver home")
+            {
+                BackColor = DarkContextMenuRenderer.Background,
+                ForeColor = DarkContextMenuRenderer.ForeColor,
+            };
+            _fsTripsCtxGeocodeDriverHome.Click += (s, e) =>
+            {
+                _ = FsGeocodeActiveTabDriverHomeAsync();
+            };
+
+            _fsTripsCtxCutTrip = new ToolStripMenuItem("Cut trip")
+            {
+                BackColor = DarkContextMenuRenderer.Background,
+                ForeColor = DarkContextMenuRenderer.ForeColor,
+            };
+            _fsTripsCtxCutTrip.Click += (s, e) => FsCutSelectedTrip();
+
+            _fsTripsCtxInsertAbove = new ToolStripMenuItem("Insert above")
+            {
+                BackColor = DarkContextMenuRenderer.Background,
+                ForeColor = DarkContextMenuRenderer.ForeColor,
+            };
+            _fsTripsCtxInsertAbove.Click += (s, e) => FsInsertCutTrip(below: false);
+
+            _fsTripsCtxInsertBelow = new ToolStripMenuItem("Insert below")
+            {
+                BackColor = DarkContextMenuRenderer.Background,
+                ForeColor = DarkContextMenuRenderer.ForeColor,
+            };
+            _fsTripsCtxInsertBelow.Click += (s, e) => FsInsertCutTrip(below: true);
+
+            _fsTripsCtxClearCut = new ToolStripMenuItem("Clear cut trip")
+            {
+                BackColor = DarkContextMenuRenderer.Background,
+                ForeColor = DarkContextMenuRenderer.ForeColor,
+            };
+            _fsTripsCtxClearCut.Click += (s, e) =>
+            {
+                FsClearCutTrip();
+                SetScheduleBuilderStatus("Cut trip cleared.");
+            };
+
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxBanClient);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxUnbanClient);
             _fsTripsCtxMenu.Items.Add(new ToolStripSeparator());
+            _fsTripsCtxMenu.Items.Add(_fsTripsCtxCutTrip);
+            _fsTripsCtxMenu.Items.Add(_fsTripsCtxInsertAbove);
+            _fsTripsCtxMenu.Items.Add(_fsTripsCtxInsertBelow);
+            _fsTripsCtxMenu.Items.Add(_fsTripsCtxClearCut);
+            _fsTripsCtxMenu.Items.Add(new ToolStripSeparator());
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxAutoSortGroup);
+            _fsTripsCtxMenu.Items.Add(_fsTripsCtxGeocodeDriverHome);
             _fsTripsCtxMenu.Items.Add(new ToolStripSeparator());
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxFocusMap);
             _fsTripsCtxMenu.Items.Add(new ToolStripSeparator());
@@ -110,13 +163,21 @@ namespace Hiatme_Tool_Suite_v3
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxCopySelectedTrip);
         }
 
-        private void FsTripsLv_MouseUp_ShowContextMenu(object sender, MouseEventArgs e)
+        private async void FsTripsLv_MouseUp_ShowContextMenu(object sender, MouseEventArgs e)
         {
             if (e.Button != MouseButtons.Right || _fsTripsLv == null) return;
+
+            try
+            {
+                await ScheduleOsrmGate.ProbePreviewServicesAsync(
+                    HiatmeAiSettings.Load(), CancellationToken.None).ConfigureAwait(true);
+            }
+            catch { }
 
             var hit = _fsTripsLv.HitTest(e.Location);
             _fsTripsCtxTrip = null;
             _fsTripsCtxGroup = null;
+            _fsTripsCtxHitItem = hit.Item;
             if (hit.Item != null)
             {
                 if (hit.Item.Tag is FsPreviewNoteTag noteTag)
@@ -147,23 +208,64 @@ namespace Hiatme_Tool_Suite_v3
                 && _fsTripsCtxGroup.Trips.Count >= 2;
 
             bool hasBuild = _fsHasPreview && fsbuilder != null;
+            bool canMoveTrips = hasBuild && !string.IsNullOrWhiteSpace(_fsActiveDriverTab);
+
+            EnsureFsDriverRosterLoaded();
+            var activeDriverProfile = ScheduleBuilderDriverMapRouting.FindProfileForScheduleTab(
+                _supeyRoster, _fsActiveDriverTab);
+            bool hasHomeAddress = activeDriverProfile != null
+                && (!string.IsNullOrWhiteSpace(activeDriverProfile.HomeStreet)
+                    || !string.IsNullOrWhiteSpace(activeDriverProfile.HomeCity));
+            bool canGeocodeDriverHome = !isReserves && hasHomeAddress && ScheduleOsrmGate.PreviewGeoOk;
+            bool canInsertCut = FsCanInsertCutTripAtContext();
+
+            _fsTripsCtxCutTrip.Enabled = hasTrip && canMoveTrips && !FsHasCutTrip;
+            _fsTripsCtxInsertAbove.Enabled = canInsertCut;
+            _fsTripsCtxInsertBelow.Enabled = canInsertCut;
+            _fsTripsCtxClearCut.Enabled = FsHasCutTrip;
+            _fsTripsCtxInsertAbove.Text = FsHasCutTrip
+                ? "Insert above" + FsCutTripMenuSuffix()
+                : "Insert above";
+            _fsTripsCtxInsertBelow.Text = FsHasCutTrip
+                ? "Insert below" + FsCutTripMenuSuffix()
+                : "Insert below";
 
             _fsTripsCtxBanClient.Enabled = hasTrip;
             _fsTripsCtxUnbanClient.Enabled = hasTrip && isBanned;
-            _fsTripsCtxFocusMap.Enabled = hasTrip;
-            _fsTripsCtxAutoSortGroup.Enabled = canSortGroup;
+            _fsTripsCtxFocusMap.Enabled = hasTrip
+                && _fsMap != null
+                && _fsMap.Visible
+                && ScheduleOsrmGate.PreviewRoutingOk;
+            _fsTripsCtxAutoSortGroup.Enabled = canSortGroup && ScheduleOsrmGate.PreviewRoutingOk;
+            _fsTripsCtxGeocodeDriverHome.Enabled = canGeocodeDriverHome;
             _fsTripsCtxCopyForAi.Enabled = hasBuild;
             _fsTripsCtxCopyCurrentTab.Enabled = hasBuild;
             _fsTripsCtxCopySelectedTrip.Enabled = hasTrip;
 
             if (canSortGroup)
             {
-                _fsTripsCtxAutoSortGroup.Text = "Auto-sort group "
-                    + _fsTripsCtxGroup.GroupNumber + " for best route efficiency (100%)";
+                _fsTripsCtxAutoSortGroup.Text = ScheduleOsrmGate.PreviewRoutingOk
+                    ? "Auto-sort group "
+                        + _fsTripsCtxGroup.GroupNumber + " for best route efficiency (100%)"
+                    : "Auto-sort group (road routing offline)";
             }
             else
             {
                 _fsTripsCtxAutoSortGroup.Text = "Auto-sort group for best route efficiency (100%)";
+            }
+
+            if (canGeocodeDriverHome && activeDriverProfile != null)
+            {
+                _fsTripsCtxGeocodeDriverHome.Text = "Geocode driver home — "
+                    + (activeDriverProfile.Name ?? _fsActiveDriverTab ?? "driver").Trim();
+            }
+            else if (!ScheduleOsrmGate.PreviewGeoOk && hasHomeAddress && !isReserves)
+            {
+                _fsTripsCtxGeocodeDriverHome.Text = "Geocode driver home (office server offline)";
+            }
+            else
+            {
+                _fsTripsCtxGeocodeDriverHome.Text = "Geocode driver home";
             }
 
             if (hasTrip)
@@ -182,6 +284,13 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             _fsTripsCtxMenu.Show(_fsTripsLv, e.Location);
+        }
+
+        private string FsCutTripMenuSuffix()
+        {
+            if (_fsCutTrip == null) return "";
+            string num = (_fsCutTrip.TripNumber ?? "").Trim();
+            return string.IsNullOrEmpty(num) ? "" : " (" + num + ")";
         }
 
         private void FsCopyScheduleForAiReviewToClipboard()
@@ -251,6 +360,11 @@ namespace Hiatme_Tool_Suite_v3
         private async Task FsAutoSortGroupForEfficiencyAsync(SupeyTripCluster group)
         {
             if (group?.Trips == null || group.Trips.Count < 2) return;
+            if (!ScheduleOsrmGate.PreviewRoutingOk)
+            {
+                SetScheduleBuilderStatus("Auto-sort unavailable — road routing (OSRM) is offline.");
+                return;
+            }
             if (string.IsNullOrWhiteSpace(_fsActiveDriverTab)
                 || _fsActiveDriverTab.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
                 return;
@@ -337,6 +451,58 @@ namespace Hiatme_Tool_Suite_v3
             if (approx)
                 scoreText += " (approx)";
             SetScheduleBuilderStatus("Group " + groupNumber + " auto-sorted · " + scoreText + ".");
+        }
+
+        private async Task FsGeocodeActiveTabDriverHomeAsync()
+        {
+            await FsGeocodeDriverHomeAsync(
+                ScheduleBuilderDriverMapRouting.FindProfileForScheduleTab(_supeyRoster, _fsActiveDriverTab),
+                _fsActiveDriverTab).ConfigureAwait(true);
+        }
+
+        internal async Task FsGeocodeDriverHomeAsync(SupeyDriverProfile profile, string tabLabel = null)
+        {
+            if (profile == null)
+            {
+                SetScheduleBuilderStatus("No driver roster match"
+                    + (string.IsNullOrWhiteSpace(tabLabel) ? "." : " for tab \"" + tabLabel.Trim() + "\"."));
+                return;
+            }
+
+            if (!ScheduleOsrmGate.PreviewGeoOk)
+            {
+                SetScheduleBuilderStatus("Geocode unavailable — office AI server is offline.");
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(profile.HomeStreet) && string.IsNullOrWhiteSpace(profile.HomeCity))
+            {
+                SetScheduleBuilderStatus((profile.Name ?? "Driver") + " has no home address in the roster.");
+                return;
+            }
+
+            string who = (profile.Name ?? tabLabel ?? "Driver").Trim();
+            SetScheduleBuilderStatus("Geocoding home for " + who + "…");
+
+            GeoPoint? geo;
+            try
+            {
+                geo = await ScheduleBuilderDriverMapRouting.ResolveHomeGeoAsync(
+                    profile, CancellationToken.None).ConfigureAwait(true);
+            }
+            catch
+            {
+                geo = null;
+            }
+
+            if (geo.HasValue && SupeyMapWorkspace.IsValidGeoPoint(geo.Value))
+            {
+                SetScheduleBuilderStatus(who + " · home geocoded.");
+                RefreshFsMapIfDriverTabActive();
+                return;
+            }
+
+            SetScheduleBuilderStatus(who + " · could not geocode home (check address or server).");
         }
 
         private void FsCommitPreviewLinesForTab(string tab, List<ScheduleBuilderPreviewLine> lines)

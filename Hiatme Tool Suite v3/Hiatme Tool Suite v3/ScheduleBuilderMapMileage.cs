@@ -156,6 +156,12 @@ namespace Hiatme_Tool_Suite_v3
 
         {
 
+            if (!ScheduleOsrmGate.PreviewRoutingOk)
+            {
+                double offline = HaversineMeters(pu, dof);
+                return (offline > 0 ? offline : (double?)null, true);
+            }
+
             var path = new List<GeoPoint> { pu, dof };
 
             var route = await SupeyOsrmLegs.RouteAsync(path, token).ConfigureAwait(false);
@@ -213,6 +219,9 @@ namespace Hiatme_Tool_Suite_v3
 
             if (group.IntraClusterMeters > 0)
                 return (group.IntraClusterMeters, group.IsStraightLineFallback);
+
+            if (!ScheduleOsrmGate.PreviewRoutingOk)
+                return (GroupRouteMeters(group), true);
 
             var waypoints = ScheduleBuilderPreviewGroups.CollectDeskRouteWaypoints(group);
             if (waypoints.Count < 2)
@@ -275,13 +284,16 @@ namespace Hiatme_Tool_Suite_v3
             var currentOrder = IdentityOrder(n);
 
             SupeyClusterOsrmTable table = null;
-            try
+            if (ScheduleOsrmGate.PreviewRoutingOk)
             {
-                table = await SupeyClusterOsrmTable.BuildAsync(group, token).ConfigureAwait(false);
-            }
-            catch
-            {
-                // desk preview — fall back to haversine tour sums
+                try
+                {
+                    table = await SupeyClusterOsrmTable.BuildAsync(group, token).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // desk preview — fall back to haversine tour sums
+                }
             }
 
             bool approx = table == null || group.IsStraightLineFallback;
@@ -334,11 +346,14 @@ namespace Hiatme_Tool_Suite_v3
             var currentOrder = IdentityOrder(n);
 
             SupeyClusterOsrmTable table = null;
-            try
+            if (ScheduleOsrmGate.PreviewRoutingOk)
             {
-                table = await SupeyClusterOsrmTable.BuildAsync(group, token).ConfigureAwait(false);
+                try
+                {
+                    table = await SupeyClusterOsrmTable.BuildAsync(group, token).ConfigureAwait(false);
+                }
+                catch { }
             }
-            catch { }
 
             bool approx = table == null || group.IsStraightLineFallback;
             double? currentMeters = await TotalMetersForOrderAsync(

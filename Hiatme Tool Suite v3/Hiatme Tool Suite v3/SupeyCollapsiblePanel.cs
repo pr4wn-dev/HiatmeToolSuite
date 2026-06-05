@@ -2,6 +2,7 @@ using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Text;
+using System.Reflection;
 using System.Windows.Forms;
 
 namespace Hiatme_Tool_Suite_v3
@@ -144,7 +145,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 Dock = DockStyle.Fill,
                 ForeColor = SupeyTheme.TextPrimary,
-                BackColor = Color.Transparent,
+                BackColor = SupeyTheme.SurfaceHeader,
                 Font = SupeyTheme.HeaderFont,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Padding = new Padding(10, 0, 0, 0),
@@ -160,7 +161,7 @@ namespace Hiatme_Tool_Suite_v3
                 Dock = DockStyle.Right,
                 Width = 32,
                 ForeColor = SupeyTheme.TextSecondary,
-                BackColor = Color.Transparent,
+                BackColor = SupeyTheme.SurfaceHeader,
                 Font = new Font("Segoe UI", 10f, FontStyle.Bold),
                 TextAlign = ContentAlignment.MiddleCenter,
                 Text = "◀",
@@ -197,8 +198,20 @@ namespace Hiatme_Tool_Suite_v3
             Controls.Add(ContentPanel);
             Controls.Add(_header);
 
+            EnableDoubleBuffered(_header);
             SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
             Click += OnRailClick;
+        }
+
+        private static void EnableDoubleBuffered(Control control)
+        {
+            if (control == null) return;
+            typeof(Control).InvokeMember(
+                "DoubleBuffered",
+                BindingFlags.SetProperty | BindingFlags.Instance | BindingFlags.NonPublic,
+                null,
+                control,
+                new object[] { true });
         }
 
         private void OnRailClick(object sender, EventArgs e)
@@ -281,12 +294,37 @@ namespace Hiatme_Tool_Suite_v3
             finally { _applyingExpandedState = false; }
         }
 
+        protected override void OnPaintBackground(PaintEventArgs e)
+        {
+            if (!_expanded && IsHorizontalDock())
+            {
+                using (var bg = new SolidBrush(SupeyTheme.SurfaceHeader))
+                    e.Graphics.FillRectangle(bg, ClientRectangle);
+                return;
+            }
+            base.OnPaintBackground(e);
+        }
+
         protected override void OnPaint(PaintEventArgs e)
         {
-            base.OnPaint(e);
             if (_expanded || !IsHorizontalDock())
+            {
+                base.OnPaint(e);
                 return;
-            PaintCollapsedSideRail(e.Graphics);
+            }
+
+            // Parent split drags often invalidate only a strip; repaint the whole rail so
+            // vertical title glyphs from the previous height are not left behind.
+            var state = e.Graphics.Save();
+            try
+            {
+                e.Graphics.SetClip(ClientRectangle);
+                PaintCollapsedSideRail(e.Graphics);
+            }
+            finally
+            {
+                e.Graphics.Restore(state);
+            }
         }
 
         private void PaintCollapsedSideRail(Graphics g)
@@ -343,7 +381,18 @@ namespace Hiatme_Tool_Suite_v3
         protected override void OnSizeChanged(EventArgs e)
         {
             base.OnSizeChanged(e);
-            if (_applyingExpandedState || !_expanded) return;
+            if (_applyingExpandedState) return;
+
+            if (!_expanded && IsHorizontalDock())
+            {
+                Invalidate(true);
+                return;
+            }
+
+            if (_header.Visible)
+                _header.Invalidate(true);
+
+            if (!_expanded) return;
             if (Dock == DockStyle.Left || Dock == DockStyle.Right)
             {
                 if (Width >= MinExpandedWidth) ExpandedWidth = Width;

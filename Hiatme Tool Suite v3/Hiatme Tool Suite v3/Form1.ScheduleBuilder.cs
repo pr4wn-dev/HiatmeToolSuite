@@ -36,6 +36,10 @@ namespace Hiatme_Tool_Suite_v3
 
         private SupeyMapWorkspace _fsMap;
 
+        private Panel _fsMapOfflineOverlay;
+
+        private Label _fsMapOfflineLbl;
+
         private SupeyCollapsiblePanel _fsTripsCollapsible;
 
         private Panel _fsDriverTabStrip;
@@ -74,7 +78,6 @@ namespace Hiatme_Tool_Suite_v3
 
         private int _fsMapRefreshGen;
 
-        private bool _fsMapOsrmPrimed;
 
         private bool _fsCenterMaineAfterBuild;
 
@@ -1654,21 +1657,39 @@ namespace Hiatme_Tool_Suite_v3
             _fsMapDropoffByTrip.Clear();
 
             if (tabName.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
-
             {
+                try
+                {
+                    await HiatmeGeoSettings.RefreshConnectivityAsync(HiatmeAiSettings.Load(), CancellationToken.None)
+                        .ConfigureAwait(true);
+                }
+                catch { }
 
-                SetScheduleBuilderStatus("Reserves · list only (no map pins).");
+                var (reservesRoutingOk, reservesRoutingDetail) = await ScheduleOsrmGate.ProbePreviewRoutingAsync(
+                    HiatmeAiSettings.Load(), CancellationToken.None).ConfigureAwait(true);
 
-                _fsMap.CenterOnMaineHub();
+                if (gen != _fsMapRefreshGen) return;
+
+                if (reservesRoutingOk)
+                {
+                    SetFsMapPreviewAvailable(true, showGroupKey: false);
+                    SetScheduleBuilderStatus("Reserves · list only (no map pins).");
+                    _fsMap.CenterOnMaineHub();
+                }
+                else
+                {
+                    SetFsMapPreviewAvailable(false, reservesRoutingDetail, showGroupKey: false);
+                    SetScheduleBuilderStatus("Reserves · list only · map hidden (road routing offline).");
+                }
 
                 return;
-
             }
 
             if (string.IsNullOrEmpty(tabName) || !_fsLinesByTab.TryGetValue(tabName, out var lines))
 
             {
 
+                SetFsMapPreviewAvailable(ScheduleOsrmGate.PreviewRoutingOk, showGroupKey: false);
                 _fsMap.CenterOnMaineHub();
 
                 return;
@@ -1680,14 +1701,33 @@ namespace Hiatme_Tool_Suite_v3
             var trips = CollectFsMapTrips(lines);
 
             if (trips.Count == 0)
-
             {
-
+                SetFsMapPreviewAvailable(ScheduleOsrmGate.PreviewRoutingOk, showGroupKey: false);
                 _fsMap.CenterOnMaineHub();
-
                 return;
-
             }
+
+            try
+            {
+                await HiatmeGeoSettings.RefreshConnectivityAsync(HiatmeAiSettings.Load(), CancellationToken.None)
+                    .ConfigureAwait(true);
+            }
+            catch { }
+
+            var (routingOk, routingDetail) = await ScheduleOsrmGate.ProbePreviewRoutingAsync(
+                HiatmeAiSettings.Load(), CancellationToken.None).ConfigureAwait(true);
+
+            if (gen != _fsMapRefreshGen) return;
+
+            if (!routingOk)
+            {
+                SetFsMapPreviewAvailable(false, routingDetail, showGroupKey: false);
+                SetScheduleBuilderStatus(tabName
+                    + " · map hidden (road routing offline — trip list still works).");
+                return;
+            }
+
+            SetFsMapPreviewAvailable(true);
 
             var pickup = new Dictionary<string, GeoPoint>(StringComparer.OrdinalIgnoreCase);
 
@@ -1747,34 +1787,12 @@ namespace Hiatme_Tool_Suite_v3
 
             }
 
-            if (!_fsMapOsrmPrimed)
-            {
-                SetScheduleBuilderStatus(tabName + " map · connecting to road routing…");
-                try
-                {
-                    await OsrmBootstrap.EnsureForBuildAsync(HiatmeAiSettings.Load(), null, CancellationToken.None)
-                        .ConfigureAwait(true);
-                    _fsMapOsrmPrimed = true;
-                }
-                catch
-                {
-                    // Map still works with straight-line fallback per group.
-                }
-            }
-
             if (gen != _fsMapRefreshGen) return;
 
             EnsureFsDriverRosterLoaded();
             var driverProfile = ScheduleBuilderDriverMapRouting.FindProfileForScheduleTab(_supeyRoster, tabName);
             if (driverProfile != null && string.IsNullOrWhiteSpace(driverProfile.ScheduleTabKey))
                 driverProfile.ScheduleTabKey = tabName;
-
-            try
-            {
-                await HiatmeGeoSettings.RefreshConnectivityAsync(HiatmeAiSettings.Load(), CancellationToken.None)
-                    .ConfigureAwait(true);
-            }
-            catch { }
 
             GeoPoint? homeGeo = null;
             if (driverProfile != null)
@@ -1849,6 +1867,51 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
+        private void BuildFsMapOfflineOverlay()
+        {
+            _fsMapOfflineOverlay = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = SupeyTheme.SurfaceBase,
+                Visible = false,
+            };
+            _fsMapOfflineLbl = new Label
+            {
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleCenter,
+                ForeColor = SupeyTheme.TextSecondary,
+                Font = new Font("Segoe UI", 10f),
+            };
+            _fsMapOfflineOverlay.Controls.Add(_fsMapOfflineLbl);
+        }
+
+        private void SetFsMapPreviewAvailable(bool available, string routingDetail = null, bool showGroupKey = true)
+        {
+            if (_fsMap == null) return;
+
+            _fsMap.Visible = available;
+            if (_fsMap.GroupKeyPanel != null)
+                _fsMap.GroupKeyPanel.Visible = available && showGroupKey;
+
+            if (_fsMapOfflineOverlay == null) return;
+
+            _fsMapOfflineOverlay.Visible = !available;
+            if (!available)
+            {
+                _fsMap.Clear();
+                _fsMap.ClearMileageHud();
+                if (_fsMap.GroupKeyPanel != null)
+                    _fsMap.GroupKeyPanel.Visible = false;
+                string detail = string.IsNullOrWhiteSpace(routingDetail)
+                    ? ScheduleOsrmGate.PreviewRoutingDetail
+                    : routingDetail;
+                _fsMapOfflineLbl.Text =
+                    "Map preview requires road routing (OSRM).\r\n\r\n"
+                    + "Start the office AI server and Maine OSRM, then switch tabs to refresh.\r\n\r\n"
+                    + detail;
+            }
+        }
+
         private void FsTripsLv_SelectionChangedUpdateMap()
 
         {
@@ -1865,7 +1928,7 @@ namespace Hiatme_Tool_Suite_v3
 
             _fsPreserveRouteChangeBaseline = false;
 
-            if (_fsMap == null) return;
+            if (_fsMap == null || !_fsMap.Visible || !ScheduleOsrmGate.PreviewRoutingOk) return;
 
             if (_fsTripsLv == null || _fsTripsLv.SelectedItems.Count == 0
 

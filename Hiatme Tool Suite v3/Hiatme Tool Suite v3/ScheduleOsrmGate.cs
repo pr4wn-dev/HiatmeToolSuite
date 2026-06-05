@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -6,6 +7,115 @@ namespace Hiatme_Tool_Suite_v3
     /// <summary>BUILD requires office server OSRM (Maine graph on the AI panel host).</summary>
     internal static class ScheduleOsrmGate
     {
+        private static readonly TimeSpan PreviewProbeCacheTtl = TimeSpan.FromSeconds(30);
+        private static DateTime _previewProbedUtc = DateTime.MinValue;
+        private static bool _previewRoutingOk;
+        private static string _previewRoutingDetail = "";
+        private static bool _previewGeoOk;
+        private static string _previewGeoDetail = "";
+
+        /// <summary>Last desk-preview routing probe (map + mileage HUD). Updated by <see cref="ProbePreviewServicesAsync"/>.</summary>
+        public static bool PreviewRoutingOk => _previewRoutingOk;
+
+        public static string PreviewRoutingDetail => _previewRoutingDetail ?? "";
+
+        /// <summary>Office panel geocode (or local dev fallback). Updated by <see cref="ProbePreviewServicesAsync"/>.</summary>
+        public static bool PreviewGeoOk => _previewGeoOk;
+
+        public static string PreviewGeoDetail => _previewGeoDetail ?? "";
+
+        public static void InvalidatePreviewRoutingProbe() => InvalidatePreviewServicesProbe();
+
+        public static void InvalidatePreviewServicesProbe()
+        {
+            _previewProbedUtc = DateTime.MinValue;
+        }
+
+        /// <summary>
+        /// Quick probe for Schedule Builder desk preview — no Docker bootstrap or per-group route attempts.
+        /// </summary>
+        public static async Task<(bool RoutingOk, string RoutingDetail)> ProbePreviewRoutingAsync(
+            HiatmeAiSettings aiSettings,
+            CancellationToken cancellationToken = default)
+        {
+            var probe = await ProbePreviewServicesAsync(aiSettings, cancellationToken).ConfigureAwait(false);
+            return (probe.RoutingOk, probe.RoutingDetail);
+        }
+
+        public static async Task<(bool RoutingOk, string RoutingDetail, bool GeoOk, string GeoDetail)>
+            ProbePreviewServicesAsync(
+            HiatmeAiSettings aiSettings,
+            CancellationToken cancellationToken = default)
+        {
+            if (DateTime.UtcNow - _previewProbedUtc < PreviewProbeCacheTtl)
+                return (_previewRoutingOk, _previewRoutingDetail, _previewGeoOk, _previewGeoDetail);
+
+            aiSettings = aiSettings ?? HiatmeAiSettings.Load();
+            bool routingOk;
+            string routingDetail;
+            bool geoOk;
+            string geoDetail;
+
+            if (aiSettings.UseServerGeo)
+            {
+                HiatmeGeoSettings.Refresh();
+                if (HiatmeGeoSettings.ServerOnly && !HiatmeGeoSettings.UseServer)
+                {
+                    geoOk = false;
+                    geoDetail = HiatmeGeoSettings.ServerRequiredMessage;
+                    routingOk = false;
+                    routingDetail = geoDetail;
+                }
+                else if (!await HiatmeGeoSettings.RefreshConnectivityAsync(aiSettings, cancellationToken)
+                    .ConfigureAwait(false))
+                {
+                    geoOk = false;
+                    geoDetail = HiatmeGeoSettings.ServerRequiredMessage;
+                    routingOk = false;
+                    routingDetail = geoDetail;
+                }
+                else
+                {
+                    geoOk = true;
+                    geoDetail = "Office AI panel OK";
+                    var server = await HiatmeGeoClient.GetStatusAsync(aiSettings, cancellationToken)
+                        .ConfigureAwait(false);
+                    if (server != null && server.OsrmLocalOk)
+                    {
+                        routingOk = true;
+                        routingDetail = "Server OSRM OK (" + (server.OsrmActiveEndpoint ?? "local") + ")";
+                    }
+                    else
+                    {
+                        routingOk = false;
+                        routingDetail = "Maine OSRM on the office AI server is not available.";
+                    }
+                }
+            }
+            else
+            {
+                geoOk = true;
+                geoDetail = "Local geocode allowed";
+                if (await OsrmSettings.TryHealthCheckAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    routingOk = true;
+                    routingDetail = "Local OSRM OK";
+                }
+                else
+                {
+                    routingOk = false;
+                    routingDetail = OsrmSettings.LocalOfflineHint;
+                }
+            }
+
+            _previewGeoOk = geoOk;
+            _previewGeoDetail = geoDetail ?? "";
+            _previewRoutingOk = routingOk;
+            _previewRoutingDetail = routingDetail ?? "";
+            _previewProbedUtc = DateTime.UtcNow;
+            return (routingOk, _previewRoutingDetail, geoOk, _previewGeoDetail);
+        }
+
         public static async Task<(bool Ok, string Detail)> CheckAsync(
             HiatmeAiSettings aiSettings,
             CancellationToken cancellationToken = default)
