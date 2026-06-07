@@ -1698,27 +1698,39 @@ namespace Hiatme_Tool_Suite_v3
                 return;
             }
 
+            bool mapLoadingActive = false;
             try
             {
-                await HiatmeGeoSettings.RefreshConnectivityAsync(HiatmeAiSettings.Load(), CancellationToken.None)
-                    .ConfigureAwait(true);
-            }
-            catch { }
+                _fsMap.PushMapLoading("Loading map…");
+                mapLoadingActive = true;
+                await Task.Yield();
 
-            var (routingOk, routingDetail) = await ScheduleOsrmGate.ProbePreviewRoutingAsync(
-                HiatmeAiSettings.Load(), CancellationToken.None).ConfigureAwait(true);
+                if (gen != _fsMapRefreshGen) return;
 
-            if (gen != _fsMapRefreshGen) return;
+                try
+                {
+                    await HiatmeGeoSettings.RefreshConnectivityAsync(HiatmeAiSettings.Load(), CancellationToken.None)
+                        .ConfigureAwait(true);
+                }
+                catch (OperationCanceledException) { }
+                catch { }
 
-            if (!routingOk)
-            {
-                SetFsMapPreviewAvailable(false, routingDetail);
-                SetScheduleBuilderStatus(tabName
-                    + " · map hidden (road routing offline — trip list still works).");
-                return;
-            }
+                _fsMap.SetMapLoadingMessage("Checking routing…");
+                var (routingOk, routingDetail) = await ScheduleOsrmGate.ProbePreviewRoutingAsync(
+                    HiatmeAiSettings.Load(), CancellationToken.None).ConfigureAwait(true);
 
-            SetFsMapPreviewAvailable(true);
+                if (gen != _fsMapRefreshGen) return;
+
+                if (!routingOk)
+                {
+                    SetFsMapPreviewAvailable(false, routingDetail);
+                    SetScheduleBuilderStatus(tabName
+                        + " · map hidden (road routing offline — trip list still works).");
+                    return;
+                }
+
+                SetFsMapPreviewAvailable(true);
+                _fsMap.SetMapLoadingMessage("Geocoding trips…");
 
             var pickup = new Dictionary<string, GeoPoint>(StringComparer.OrdinalIgnoreCase);
 
@@ -1785,6 +1797,7 @@ namespace Hiatme_Tool_Suite_v3
             if (driverProfile != null && string.IsNullOrWhiteSpace(driverProfile.ScheduleTabKey))
                 driverProfile.ScheduleTabKey = tabName;
 
+            _fsMap.SetMapLoadingMessage("Resolving driver home…");
             GeoPoint? homeGeo = null;
             if (driverProfile != null)
             {
@@ -1796,6 +1809,7 @@ namespace Hiatme_Tool_Suite_v3
             if (!string.Equals(tabName, _fsActiveDriverTab, StringComparison.OrdinalIgnoreCase))
                 return;
 
+            _fsMap.SetMapLoadingMessage("Loading road routes…");
             SetScheduleBuilderStatus(tabName + " map · loading road routes…");
             var routeCounts = await ScheduleBuilderPreviewGroups.BuildOsrmRoutePolylinesAsync(
                 groups, homeGeo, CancellationToken.None).ConfigureAwait(true);
@@ -1853,6 +1867,16 @@ namespace Hiatme_Tool_Suite_v3
             else
 
                 SetScheduleBuilderStatus(tabName + " map · no pins (geocode cache empty — BUILD/SAVE still work).");
+            }
+            catch (OperationCanceledException)
+            {
+                // Geocode / OSRM timeouts — map refresh continues with fallbacks.
+            }
+            finally
+            {
+                if (mapLoadingActive)
+                    _fsMap.PopMapLoading();
+            }
 
         }
 
@@ -2008,6 +2032,12 @@ namespace Hiatme_Tool_Suite_v3
 
             int gen = Interlocked.Increment(ref _fsMileageHudGen);
 
+            _fsMap.PushMapLoading("Loading mileage…");
+            try
+            {
+            await Task.Yield();
+            if (gen != _fsMileageHudGen) return;
+
             double? tripMeters = null;
 
             bool tripApprox = false;
@@ -2066,6 +2096,7 @@ namespace Hiatme_Tool_Suite_v3
                     groupIndex, tabGroups.Count);
             }
 
+            _fsMap.SetMapLoadingMessage("Calculating group efficiency…");
             var efficiency = await ScheduleBuilderMapMileage.ComputeGroupEfficiencyAsync(
                 group,
                 homeGeo,
@@ -2112,10 +2143,17 @@ namespace Hiatme_Tool_Suite_v3
                 efficiency.currentMeters,
                 efficiency.approx,
                 routeChangeMeters);
+            }
+            catch (OperationCanceledException)
+            {
+                // OSRM / geocode timeout while computing mileage HUD.
+            }
+            finally
+            {
+                _fsMap.PopMapLoading();
+            }
 
         }
-
-
 
         /// <summary>Map/list rebuild creates new cluster objects — always use the live row from the current tab.</summary>
         private SupeyTripCluster FsResolveLiveGroup(SupeyTripCluster group)

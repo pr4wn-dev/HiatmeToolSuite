@@ -34,7 +34,10 @@ namespace Hiatme_Tool_Suite_v3
 
         private const int GroupKeyPanelWidth = 272;
 
+        private readonly Panel _mapHost;
         private readonly GMapControl _map;
+        private SupeyMapLoadingOverlay _mapLoadingOverlay;
+        private int _mapLoadingDepth;
         private readonly FlowLayoutPanel _legend;
         private readonly Panel _legendFooter;
         private readonly SupeyCollapsiblePanel _groupKeyCollapsible;
@@ -92,6 +95,12 @@ namespace Hiatme_Tool_Suite_v3
 
             GMapInitializer.EnsureInitialized();
 
+            _mapHost = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.FromArgb(30, 30, 30),
+            };
+
             _map = new GMapControl
             {
                 Dock = DockStyle.Fill,
@@ -107,6 +116,7 @@ namespace Hiatme_Tool_Suite_v3
             };
             _map.Position = MaineLewistonCenter;
             _map.Zoom = MaineDefaultZoom;
+            _mapHost.Controls.Add(_map);
 
             _legend = new FlowLayoutPanel
             {
@@ -209,15 +219,96 @@ namespace Hiatme_Tool_Suite_v3
                 emptyCard.Top = Math.Max(0, (_emptyLabel.ClientSize.Height - emptyCard.Height) / 2);
             };
 
-            Controls.Add(_map);
+            Controls.Add(_mapHost);
+            BuildMapLoadingOverlay();
             Controls.Add(_emptyLabel);
             BuildMileageHud();
             _emptyLabel.BringToFront();
             SetGroupKeyDockVisible(false);
 
+            _mapHost.Resize += (s, e) => SyncMapLoadingOverlayBounds();
+            Resize += (s, e) => SyncMapLoadingOverlayBounds();
+
             _map.OnMapZoomChanged += () => Invalidate();
             _map.OnMarkerClick += OnMarkerClick;
             SupeyMapMarkerDrag.EnsureWired(_map);
+        }
+
+        private void BuildMapLoadingOverlay()
+        {
+            _mapLoadingOverlay = new SupeyMapLoadingOverlay();
+            Controls.Add(_mapLoadingOverlay);
+            SyncMapLoadingOverlayBounds();
+        }
+
+        private void SyncMapLoadingOverlayBounds()
+        {
+            if (_mapLoadingOverlay == null || _mapHost == null || _mapHost.IsDisposed)
+                return;
+
+            _mapLoadingOverlay.Bounds = _mapHost.Bounds;
+        }
+
+        private void ShowMapLoadingLayer()
+        {
+            SyncMapLoadingOverlayBounds();
+            _mapLoadingOverlay.Visible = true;
+            _mapLoadingOverlay.BringToFront();
+            if (_mileageHudHost != null && _mileageHudHost.Visible)
+                _mileageHudHost.BringToFront();
+        }
+
+        /// <summary>Ref-counted map loading veil (spinner). Pair with <see cref="PopMapLoading"/>.</summary>
+        public void PushMapLoading(string message = null)
+        {
+            if (InvokeRequired)
+            {
+                Invoke(new Action(() => PushMapLoading(message)));
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(message))
+                _mapLoadingOverlay.Message = message.Trim();
+
+            _mapLoadingDepth++;
+            if (_mapLoadingDepth == 1)
+            {
+                ShowMapLoadingLayer();
+                _mapLoadingOverlay.IsAnimating = true;
+            }
+        }
+
+        public void PopMapLoading()
+        {
+            if (InvokeRequired)
+            {
+                Invoke(new Action(PopMapLoading));
+                return;
+            }
+
+            if (_mapLoadingDepth <= 0)
+                return;
+
+            _mapLoadingDepth--;
+            if (_mapLoadingDepth == 0)
+            {
+                _mapLoadingOverlay.IsAnimating = false;
+                _mapLoadingOverlay.Visible = false;
+            }
+        }
+
+        public void SetMapLoadingMessage(string message)
+        {
+            if (InvokeRequired)
+            {
+                Invoke(new Action(() => SetMapLoadingMessage(message)));
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(message) || _mapLoadingDepth <= 0)
+                return;
+
+            _mapLoadingOverlay.Message = message.Trim();
         }
 
         private void BuildGroupKeyContentHost()

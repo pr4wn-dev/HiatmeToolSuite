@@ -374,6 +374,9 @@
     <Compile Include="SupeyTripLegConsistency.cs" />
     <Compile Include="SupeyPartnerLegHarmonizer.cs" />
     <Compile Include="SupeyScheduleBuilder.cs" />
+    <Compile Include="SupeyMapLoadingOverlay.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="SupeyMapWorkspace.cs">
       <SubType>UserControl</SubType>
     </Compile>

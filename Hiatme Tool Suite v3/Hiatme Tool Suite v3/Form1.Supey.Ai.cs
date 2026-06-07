@@ -634,8 +634,12 @@ namespace Hiatme_Tool_Suite_v3
         private async Task HydrateSupeyGeocodeForMapAsync(bool refreshMapPolylines = true)
         {
             if (_supeyResult == null) return;
+            _supeyMap?.PushMapLoading(refreshMapPolylines
+                ? "Geocoding trips for map…"
+                : "Refreshing map pins…");
             try
             {
+                await Task.Yield();
                 SetSupeyStatus(refreshMapPolylines
                     ? "Geocoding trips for map…"
                     : "Refreshing map pins…");
@@ -659,6 +663,10 @@ namespace Hiatme_Tool_Suite_v3
             catch (Exception ex)
             {
                 SetSupeyStatus("Geocode for map failed: " + ex.Message);
+            }
+            finally
+            {
+                _supeyMap?.PopMapLoading();
             }
         }
 
