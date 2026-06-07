@@ -148,9 +148,9 @@ namespace Hiatme_Tool_Suite_v3
                     return ParseOsrmOk(json, waypoints);
                 }
             }
-            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            catch (OperationCanceledException)
             {
-                throw;
+                return RouteEstimator.RoutePolylineResult.Fail("Routing request timed out.");
             }
             catch (Exception ex)
             {

@@ -354,13 +354,7 @@ namespace Hiatme_Tool_Suite_v3
             if (owner == null || string.IsNullOrEmpty(text)) return;
             if (_tip == null)
             {
-                _tip = new ToolTip
-                {
-                    AutoPopDelay = 4000,
-                    InitialDelay = 400,
-                    ReshowDelay = 200,
-                    ShowAlways = true,
-                };
+                _tip = SupeyToolTip.Create(autoPopDelay: 4000, initialDelay: 400);
             }
             _tip.SetToolTip(owner, text);
         }

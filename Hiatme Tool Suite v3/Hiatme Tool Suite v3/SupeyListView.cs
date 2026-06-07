@@ -17,6 +17,8 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>Invoked at the end of WM_PAINT so owner-draw adornments can paint above items.</summary>
         public Action<Graphics> PostPaintItems { get; set; }
 
+        private int _wndProcDepth;
+
         public SupeyListView()
         {
             DoubleBuffered = true;
@@ -30,26 +32,66 @@ namespace Hiatme_Tool_Suite_v3
 
         protected override void WndProc(ref Message m)
         {
+            if (IsDisposed)
+                return;
+
             // Suppress background erase before owner-draw repaints — a common scroll/selection flicker source.
             if (m.Msg == WM_ERASEBKGND)
             {
-                m.Result = (IntPtr)1;
+                if (IsHandleCreated)
+                    m.Result = (IntPtr)1;
                 return;
             }
-            base.WndProc(ref m);
-            if (m.Msg == WM_PAINT && PostPaintItems != null && IsHandleCreated && Visible)
+
+            if (!IsHandleCreated)
             {
-                try
+                try { base.WndProc(ref m); }
+                catch (ObjectDisposedException) { }
+                return;
+            }
+
+            _wndProcDepth++;
+            try
+            {
+                base.WndProc(ref m);
+            }
+            catch (NullReferenceException)
+            {
+                // ListView can NRE during handle teardown or nested WM_PAINT — never crash the desk.
+                if (!IsDisposed && IsHandleCreated)
+                    throw;
+            }
+            catch (ObjectDisposedException)
+            {
+                return;
+            }
+            finally
+            {
+                _wndProcDepth--;
+            }
+
+            // Post-paint only on the outermost WM_PAINT — CreateGraphics here re-enters WndProc.
+            if (m.Msg != WM_PAINT || _wndProcDepth > 0)
+                return;
+
+            var postPaint = PostPaintItems;
+            if (postPaint == null || !Visible)
+                return;
+
+            try
+            {
+                using (var g = CreateGraphics())
                 {
-                    using (var g = CreateGraphics())
-                    {
-                        g.SetClip(ClientRectangle);
-                        PostPaintItems(g);
-                    }
+                    g.SetClip(ClientRectangle);
+                    postPaint(g);
                 }
-                catch (ObjectDisposedException)
-                {
-                }
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+            catch (ArgumentException)
+            {
+                // Handle destroyed between WM_PAINT and CreateGraphics.
             }
         }
     }

@@ -109,6 +109,40 @@ namespace Hiatme_Tool_Suite_v3
             MoveBannedTrips(legacyBanned, reroutes, seen);
         }
 
+        /// <summary>
+        /// Re-sort every trip already on the Reserves tab into Will calls / Reservers / Reroutes
+        /// using current banned-client and no-go rules (e.g. after removing a ban or town).
+        /// </summary>
+        public static void ReclassifyReserveBuckets(
+            IList<MCDownloadedTrip> reservers,
+            IList<MCDownloadedTrip> reroutes,
+            IList<MCDownloadedTrip> willCalls)
+        {
+            var all = MergeTripLists(reservers, reroutes, willCalls);
+            reservers?.Clear();
+            reroutes?.Clear();
+            willCalls?.Clear();
+            if (reservers == null || reroutes == null || willCalls == null)
+                return;
+
+            foreach (var trip in all)
+            {
+                if (trip == null) continue;
+                switch (Classify(trip))
+                {
+                    case ReserveBucket.WillCall:
+                        willCalls.Add(trip);
+                        break;
+                    case ReserveBucket.Reroute:
+                        reroutes.Add(trip);
+                        break;
+                    default:
+                        reservers.Add(trip);
+                        break;
+                }
+            }
+        }
+
         private static void MoveBannedTrips(
             IList<MCDownloadedTrip> source,
             IList<MCDownloadedTrip> reroutes,

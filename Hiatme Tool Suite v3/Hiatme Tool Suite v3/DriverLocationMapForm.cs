@@ -154,13 +154,7 @@ namespace Hiatme_Tool_Suite_v3
             // Long ETA-status messages still might not fit even on a 2-line label, so a tooltip
             // backs them up. AutoPopDelay is generous (30s) because dispatch sometimes wants to
             // dwell on an error long enough to read it carefully.
-            _etaStatusTip = new ToolTip
-            {
-                AutoPopDelay = 30000,
-                InitialDelay = 350,
-                ReshowDelay = 200,
-                ShowAlways = true,
-            };
+            _etaStatusTip = SupeyToolTip.Create(autoPopDelay: 30000, initialDelay: 350);
 
             // Populate horizon dropdown and honor whatever filter the user picked last.
             _tripsHorizonCombo.Items.AddRange(HorizonItems);

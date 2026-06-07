@@ -525,7 +525,15 @@ namespace Hiatme_Tool_Suite_v3
                 }
             }
 
-            await _gate.WaitAsync(token).ConfigureAwait(false);
+            try
+            {
+                await _gate.WaitAsync(token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return null;
+            }
+
             try
             {
                 // Re-check inside the gate in case another caller resolved this same address while

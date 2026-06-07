@@ -912,6 +912,11 @@ namespace Hiatme_Tool_Suite_v3
 
                         _fsNoGoStatusLbl.Text = "Saved to office server (shared with Supey).";
 
+                    SupeyOutOfArea.SetCachedAreas(areas);
+
+                    if (_fsHasPreview && fsbuilder != null)
+                        FsApplyRulesToPreview(pullBannedFromDrivers: false);
+
                     return;
 
                 }
@@ -933,6 +938,9 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             SupeyOutOfArea.SetCachedAreas(areas);
+
+            if (_fsHasPreview && fsbuilder != null)
+                FsApplyRulesToPreview(pullBannedFromDrivers: false);
 
         }
 
@@ -1019,7 +1027,7 @@ namespace Hiatme_Tool_Suite_v3
             RefreshFsBannedList();
 
             if (_fsHasPreview && fsbuilder != null)
-                FsApplyBannedClientToPreview();
+                FsApplyRulesToPreview(pullBannedFromDrivers: true);
 
             SetScheduleBuilderStatus("Banned " + (trip.ClientFullName ?? "client")
 
@@ -1030,13 +1038,16 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-        private void FsApplyBannedClientToPreview()
+        private void FsApplyRulesToPreview(bool pullBannedFromDrivers = false)
 
         {
 
             if (!_fsHasPreview || fsbuilder == null) return;
 
-            fsbuilder.RemoveBannedTripsFromDriverPreview();
+            if (pullBannedFromDrivers)
+                fsbuilder.RemoveBannedTripsFromDriverPreview();
+            else
+                fsbuilder.RebucketPreviewReserves();
 
             if (fsbuilder.PreviewDriverLines != null)
 
@@ -1068,6 +1079,8 @@ namespace Hiatme_Tool_Suite_v3
 
             ShowFsTripsForTab(string.IsNullOrWhiteSpace(_fsActiveDriverTab) ? "Reserves" : _fsActiveDriverTab);
 
+            _ = RefreshFsMapForCurrentTabAsync();
+
         }
 
 
@@ -1090,9 +1103,14 @@ namespace Hiatme_Tool_Suite_v3
 
             RefreshFsBannedList();
 
+            if (_fsHasPreview && fsbuilder != null)
+                FsApplyRulesToPreview(pullBannedFromDrivers: false);
+
             SetScheduleBuilderStatus("Removed ban for " + (trip.ClientFullName ?? "client")
 
-                + (string.IsNullOrWhiteSpace(trip.Age) ? "" : " · age " + trip.Age) + ".");
+                + (string.IsNullOrWhiteSpace(trip.Age) ? "" : " · age " + trip.Age)
+
+                + (_fsHasPreview ? " — reserves list updated." : " — applies on next BUILD."));
 
         }
 
@@ -1106,7 +1124,18 @@ namespace Hiatme_Tool_Suite_v3
 
             if (ScheduleBuilderBannedClients.RemoveAt(_fsBannedList.SelectedIndex))
 
+            {
+
                 RefreshFsBannedList();
+
+                if (_fsHasPreview && fsbuilder != null)
+                    FsApplyRulesToPreview(pullBannedFromDrivers: false);
+
+                SetScheduleBuilderStatus(_fsHasPreview
+                    ? "Ban removed — reserves list updated."
+                    : "Ban removed — applies on next BUILD.");
+
+            }
 
         }
 

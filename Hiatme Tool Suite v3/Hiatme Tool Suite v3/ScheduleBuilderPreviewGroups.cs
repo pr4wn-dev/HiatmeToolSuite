@@ -48,6 +48,36 @@ namespace Hiatme_Tool_Suite_v3
             return groups;
         }
 
+        /// <summary>
+        /// One cluster per trip (PU→DO only on map). Used when group colors/groups are hidden in Settings.
+        /// Gap rows are ignored — trips render as independent legs.
+        /// </summary>
+        public static List<SupeyTripCluster> BuildTripFlatClustersFromPreviewLines(
+            IEnumerable<ScheduleBuilderPreviewLine> lines)
+        {
+            var groups = new List<SupeyTripCluster>();
+            if (lines == null) return groups;
+
+            int tripNum = 0;
+            foreach (var line in lines)
+            {
+                if (line == null || line.Kind != ScheduleBuilderPreviewLine.LineKind.Trip || line.Trip == null)
+                    continue;
+
+                tripNum++;
+                var cluster = new SupeyTripCluster
+                {
+                    GroupNumber = tripNum,
+                    GroupColor = SupeyGroupPalette.For(tripNum),
+                };
+                cluster.Trips.Add(line.Trip);
+                groups.Add(cluster);
+                FinalizePickupWindow(cluster);
+            }
+
+            return groups;
+        }
+
         internal static void FinalizePickupWindowPublic(SupeyTripCluster g) => FinalizePickupWindow(g);
 
         public static void ApplyGeocodes(
@@ -128,6 +158,51 @@ namespace Hiatme_Tool_Suite_v3
                     straight++;
             }
             return (road, straight);
+        }
+
+        /// <summary>PU→DO OSRM legs for each trip — drawn on the map when group colors are on.</summary>
+        public static async Task BuildTripLegPolylinesAsync(
+            IEnumerable<SupeyTripCluster> groups, CancellationToken token)
+        {
+            if (groups == null) return;
+            foreach (var g in groups)
+            {
+                if (g == null) continue;
+                token.ThrowIfCancellationRequested();
+                await PopulateTripLegPolylinesAsync(g, token).ConfigureAwait(false);
+            }
+        }
+
+        private static async Task PopulateTripLegPolylinesAsync(SupeyTripCluster g, CancellationToken token)
+        {
+            g.TripLegPolylines.Clear();
+            int n = Math.Min(g.Trips.Count, Math.Min(g.PickupPoints.Count, g.DropoffPoints.Count));
+            for (int i = 0; i < n; i++)
+            {
+                var pu = g.PickupPoints[i];
+                var dof = g.DropoffPoints[i];
+                if (!SupeyOsrmLegs.IsRoutable(pu) || !SupeyOsrmLegs.IsRoutable(dof))
+                    continue;
+
+                var leg = new SupeyTripLegPolyline
+                {
+                    TripNumber = (g.Trips[i]?.TripNumber ?? "").Trim(),
+                };
+                var waypoints = new List<GeoPoint> { pu, dof };
+                var route = await SupeyOsrmLegs.RouteAsync(waypoints, token).ConfigureAwait(false);
+                if (route.Ok && route.Polyline != null && route.Polyline.Count >= 2)
+                {
+                    leg.Points.AddRange(route.Polyline);
+                    leg.IsStraightLineFallback = route.IsStraightLineFallback;
+                }
+                else
+                {
+                    leg.Points.Add(pu);
+                    leg.Points.Add(dof);
+                    leg.IsStraightLineFallback = true;
+                }
+                g.TripLegPolylines.Add(leg);
+            }
         }
 
         /// <summary>Straight PU→DO preview only (no OSRM).</summary>

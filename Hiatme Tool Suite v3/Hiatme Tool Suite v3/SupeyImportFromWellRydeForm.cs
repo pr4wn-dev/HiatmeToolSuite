@@ -47,7 +47,7 @@ namespace Hiatme_Tool_Suite_v3
         private MaterialButton _addSelectedBtn;
         // Tooltip explains the *why* of the disabled state — without it, the user just sees a
         // greyed button with no feedback when nothing is checked.
-        private readonly ToolTip _addSelectedTip = new ToolTip { AutoPopDelay = 6000, InitialDelay = 250, ReshowDelay = 100 };
+        private readonly ToolTip _addSelectedTip = SupeyToolTip.Create(autoPopDelay: 6000, initialDelay: 250, reshowDelay: 100);
         private MaterialButton _cancelBtn;
         private MaterialButton _checkAllBtn;
         private MaterialButton _checkNoneBtn;

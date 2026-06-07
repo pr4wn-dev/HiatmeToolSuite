@@ -348,7 +348,7 @@ namespace Hiatme_Tool_Suite_v3
             var osrmTip = "Road miles and geocode use the office AI server (Maine OSRM).\r\n" +
                 "Panel + OSRM must be running on the server PC.\r\n" +
                 "Click to refresh.";
-            var osrmTipProvider = new ToolTip { AutoPopDelay = 12000, InitialDelay = 400 };
+            var osrmTipProvider = SupeyToolTip.Create(autoPopDelay: 12000, initialDelay: 400);
             osrmTipProvider.SetToolTip(_supeyOsrmStatusPill, osrmTip);
 
             // Left group — action cluster, ordered LTR.
@@ -1104,6 +1104,7 @@ namespace Hiatme_Tool_Suite_v3
 
             host.Controls.Add(_supeyPreviewEmptyHint);
             host.Controls.Add(_supeyPreviewLv);
+            SupeyToolTip.WireListViewItems(_supeyPreviewLv);
             host.Controls.Add(_supeyPreviewStatsLbl);
             host.Controls.Add(topPanel);
             _supeyPreviewEmptyHint.BringToFront();
@@ -3301,13 +3302,7 @@ namespace Hiatme_Tool_Suite_v3
         private void EnsureSupeyToolTip()
         {
             if (_supeyToolTip != null) return;
-            _supeyToolTip = new ToolTip
-            {
-                AutoPopDelay = 12000,
-                InitialDelay = 350,
-                ReshowDelay = 200,
-                ShowAlways = true,
-            };
+            _supeyToolTip = SupeyToolTip.Create(autoPopDelay: 12000, initialDelay: 350);
         }
 
         /// <summary>

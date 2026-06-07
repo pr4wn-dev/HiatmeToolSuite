@@ -313,6 +313,19 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        /// <summary>Re-bucket Reserves lists after banned / no-go rules change (unban, remove town).</summary>
+        internal void RebucketPreviewReserves()
+        {
+            var reservers = PreviewReserves ?? new List<MCDownloadedTrip>();
+            var reroutes = PreviewReservesReroute ?? new List<MCDownloadedTrip>();
+            var willCalls = PreviewReservesWillCalls ?? new List<MCDownloadedTrip>();
+            ScheduleBuilderReserveBuckets.ReclassifyReserveBuckets(reservers, reroutes, willCalls);
+            PreviewReserves = reservers;
+            PreviewReservesReroute = reroutes;
+            PreviewReservesWillCalls = willCalls;
+            PreviewReservesBanned = new List<MCDownloadedTrip>();
+        }
+
         private void EnsureMatchedTripsOrThrow()
         {
             if (TripsFound != null && TripsFound.Any())

@@ -500,6 +500,9 @@ namespace Hiatme_Tool_Suite_v3
             using (var br = new SolidBrush(fill))
                 g.FillRectangle(br, cellBounds);
 
+            if (columnIndex < 0 || columnIndex >= _fsTripDragSourceItem.SubItems.Count)
+                return;
+
             string text = _fsTripDragSourceItem.SubItems[columnIndex].Text ?? "";
             if (useColors && columnIndex == 0 && grp != null)
                 text = grp.GroupNumber.ToString();

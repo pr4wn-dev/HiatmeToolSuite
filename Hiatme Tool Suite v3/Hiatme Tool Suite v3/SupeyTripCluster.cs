@@ -119,6 +119,9 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>OSRM snap-to-street polyline through the in-cluster sequence (PU1, PU2, ..., DO1, DO2, ...).</summary>
         public List<GeoPoint> RoutePolyline { get; } = new List<GeoPoint>();
 
+        /// <summary>Per-trip PU→DO map legs when group tour mode is active (Schedule Builder).</summary>
+        public List<SupeyTripLegPolyline> TripLegPolylines { get; } = new List<SupeyTripLegPolyline>();
+
         /// <summary>Total in-cluster travel seconds (sum of leg durations).</summary>
         public double IntraClusterDriveSeconds { get; set; }
 
@@ -143,6 +146,14 @@ namespace Hiatme_Tool_Suite_v3
         /// </summary>
         public SupeyClusterRejectionTally Rejections { get; }
             = new SupeyClusterRejectionTally();
+    }
+
+    /// <summary>One trip's PU→DO road (or straight fallback) line on the Schedule Builder map.</summary>
+    internal sealed class SupeyTripLegPolyline
+    {
+        public string TripNumber { get; set; } = "";
+        public List<GeoPoint> Points { get; } = new List<GeoPoint>();
+        public bool IsStraightLineFallback { get; set; }
     }
 
     /// <summary>

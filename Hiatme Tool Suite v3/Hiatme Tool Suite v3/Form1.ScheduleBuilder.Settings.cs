@@ -47,7 +47,7 @@ namespace Hiatme_Tool_Suite_v3
 
             layout.Controls.Add(MakeFsSettingsOption(
                 "Show group colors",
-                "Color-coded group headers, trip stripes, and map routes.",
+                "Group headers, stripes, and group tour routes. Each trip still gets a PU→DO line on the map. Off = PU→DO only (no group tour).",
                 _fsShowGroupColors,
                 out _fsSettingsShowGroupColors,
                 OnFsSettingsShowGroupColorsChanged));
@@ -141,6 +141,7 @@ namespace Hiatme_Tool_Suite_v3
             if (_fsMap != null)
             {
                 _fsMap.UseGroupRouteColors = _fsShowGroupColors;
+                _fsMap.TripFlatMapMode = !_fsShowGroupColors;
                 if (_fsHasPreview && !string.IsNullOrWhiteSpace(_fsActiveDriverTab)
                     && !_fsActiveDriverTab.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
                     _ = RefreshFsMapForCurrentTabAsync();

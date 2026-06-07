@@ -145,6 +145,8 @@ namespace Hiatme_Tool_Suite_v3
             RegisterRuntimeTabIcons();
             // Click-to-sort + smart cell typing on every custom-drawn listview. Default column resize already works.
             WireListViewSorters();
+            if (listView1 != null)
+                SupeyToolTip.WireListViewItems(listView1);
             // Eliminate the first-highlight gray-without-text flash on every ListView in this
             // form (designer-built and runtime-built alike). Touches only the protected
             // DoubleBuffered bit — colors, fonts, owner-draw, and themes are untouched.

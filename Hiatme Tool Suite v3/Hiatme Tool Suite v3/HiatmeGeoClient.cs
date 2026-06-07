@@ -168,7 +168,7 @@ namespace Hiatme_Tool_Suite_v3
             }
             catch (OperationCanceledException)
             {
-                throw;
+                return null;
             }
             catch
             {
@@ -231,7 +231,7 @@ namespace Hiatme_Tool_Suite_v3
             }
             catch (OperationCanceledException)
             {
-                throw;
+                return null;
             }
             catch
             {

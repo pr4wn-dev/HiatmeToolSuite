@@ -200,6 +200,13 @@
       <DependentUpon>Form1.cs</DependentUpon>
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="Form1.ScheduleBuilder.MapDisplay.cs">
+      <DependentUpon>Form1.cs</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="FsMapDisplayMode.cs" />
+    <Compile Include="FsMapModeIconButton.cs" />
+    <Compile Include="ScheduleBuilderMapDisplayIcons.cs" />
     <Compile Include="ScheduleBuilderDriverMapRouting.cs" />
     <Compile Include="ScheduleBuilderBannedClients.cs" />
     <Compile Include="FİleManager.cs">
@@ -438,6 +445,7 @@
       <SubType>Component</SubType>
     </Compile>
     <Compile Include="SupeyTheme.cs" />
+    <Compile Include="SupeyToolTip.cs" />
     <Compile Include="SupeyGeocodeFixForm.cs">
       <SubType>Form</SubType>
     </Compile>
