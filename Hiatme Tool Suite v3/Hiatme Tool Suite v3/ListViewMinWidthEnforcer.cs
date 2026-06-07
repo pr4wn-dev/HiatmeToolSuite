@@ -77,6 +77,7 @@ namespace Hiatme_Tool_Suite_v3
 
         private void OnLayoutRelatedChange(object sender, EventArgs e)
         {
+            if (SupeyListViewHelpers.SplitterDragActive) return;
             ScheduleRecompute();
         }
 

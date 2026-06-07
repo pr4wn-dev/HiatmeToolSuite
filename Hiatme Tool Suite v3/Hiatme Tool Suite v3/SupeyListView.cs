@@ -26,7 +26,6 @@ namespace Hiatme_Tool_Suite_v3
         {
             base.OnHandleCreated(e);
             SupeyListViewHelpers.ApplyNativeFlickerFixes(this);
-            ListViewHoverRepaintFix.Attach(this);
         }
 
         protected override void WndProc(ref Message m)

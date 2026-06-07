@@ -33,7 +33,7 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-        /// <summary>Banned, will call, no-go reroute, else reservers. Driver template matches may keep no-go on-tab.</summary>
+        /// <summary>Banned clients, no-go reroute, will call, else reservers. Banned → reroutes bucket.</summary>
 
         public static ReserveBucket Classify(MCDownloadedTrip trip)
 
@@ -43,7 +43,7 @@ namespace Hiatme_Tool_Suite_v3
 
             if (ScheduleBuilderBannedClients.IsBanned(trip))
 
-                return ReserveBucket.Banned;
+                return ReserveBucket.Reroute;
 
             if (IsWillCallTrip(trip))
 
@@ -55,6 +55,115 @@ namespace Hiatme_Tool_Suite_v3
 
             return ReserveBucket.Reserver;
 
+        }
+
+        /// <summary>Legacy enum value — <see cref="Classify"/> maps banned clients to <see cref="ReserveBucket.Reroute"/>.</summary>
+        // ReserveBucket.Banned kept for callers that still switch on it.
+
+        /// <summary>Pull banned-client trips off driver preview tabs into the reroute list (deduped by trip #).</summary>
+        public static int PullBannedTripsFromDriverLines(
+            IDictionary<string, List<ScheduleBuilderPreviewLine>> driverLines,
+            IList<MCDownloadedTrip> reroutes)
+        {
+            if (driverLines == null) return 0;
+            var seen = BuildTripNumberSet(reroutes);
+            int pulled = 0;
+
+            foreach (string tab in driverLines.Keys.ToList())
+            {
+                if (tab.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (!driverLines.TryGetValue(tab, out var lines) || lines == null)
+                    continue;
+
+                var kept = new List<ScheduleBuilderPreviewLine>();
+                foreach (var line in lines)
+                {
+                    if (line?.Kind == ScheduleBuilderPreviewLine.LineKind.Trip
+                        && line.Trip != null
+                        && ScheduleBuilderBannedClients.IsBanned(line.Trip))
+                    {
+                        if (TryAddTripUnique(reroutes, seen, line.Trip))
+                            pulled++;
+                        continue;
+                    }
+                    kept.Add(line);
+                }
+
+                driverLines[tab] = ScheduleBuilderTemplateSlots.CollapseConsecutivePreviewGaps(kept);
+            }
+
+            return pulled;
+        }
+
+        /// <summary>Move any banned-client trips from other reserve buckets into reroutes.</summary>
+        public static void RebucketBannedTripsIntoReroutes(
+            IList<MCDownloadedTrip> reservers,
+            IList<MCDownloadedTrip> reroutes,
+            IList<MCDownloadedTrip> willCalls,
+            IList<MCDownloadedTrip> legacyBanned = null)
+        {
+            var seen = BuildTripNumberSet(reroutes);
+            MoveBannedTrips(reservers, reroutes, seen);
+            MoveBannedTrips(willCalls, reroutes, seen);
+            MoveBannedTrips(legacyBanned, reroutes, seen);
+        }
+
+        private static void MoveBannedTrips(
+            IList<MCDownloadedTrip> source,
+            IList<MCDownloadedTrip> reroutes,
+            HashSet<string> seen)
+        {
+            if (source == null || source.Count == 0) return;
+            for (int i = source.Count - 1; i >= 0; i--)
+            {
+                var trip = source[i];
+                if (trip == null || !ScheduleBuilderBannedClients.IsBanned(trip))
+                    continue;
+                source.RemoveAt(i);
+                TryAddTripUnique(reroutes, seen, trip);
+            }
+        }
+
+        private static HashSet<string> BuildTripNumberSet(IEnumerable<MCDownloadedTrip> trips)
+        {
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (trips == null) return seen;
+            foreach (var t in trips)
+            {
+                if (t == null) continue;
+                string tn = (t.TripNumber ?? "").Trim();
+                if (tn.Length > 0)
+                    seen.Add(tn);
+            }
+            return seen;
+        }
+
+        private static bool TryAddTripUnique(IList<MCDownloadedTrip> list, HashSet<string> seen, MCDownloadedTrip trip)
+        {
+            if (list == null || trip == null) return false;
+            string tn = (trip.TripNumber ?? "").Trim();
+            if (tn.Length > 0)
+            {
+                if (!seen.Add(tn))
+                    return false;
+            }
+            list.Add(trip);
+            return true;
+        }
+
+        private static List<MCDownloadedTrip> MergeTripLists(params IList<MCDownloadedTrip>[] sources)
+        {
+            var merged = new List<MCDownloadedTrip>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (sources == null) return merged;
+            foreach (var source in sources)
+            {
+                if (source == null) continue;
+                foreach (var trip in source)
+                    TryAddTripUnique(merged, seen, trip);
+            }
+            return merged;
         }
 
         /// <summary>Will call = scheduled pickup is midnight only (00:00 / 12:00 AM).</summary>
@@ -153,6 +262,8 @@ namespace Hiatme_Tool_Suite_v3
 
             int wc = willCalls?.Count ?? 0;
 
+            var allReroutes = MergeTripLists(reroutes, banned);
+
             if (wc > 0 || willCallsInDownloadCount > 0)
 
             {
@@ -205,7 +316,7 @@ namespace Hiatme_Tool_Suite_v3
 
             }
 
-            if (reroutes != null && reroutes.Count > 0)
+            if (allReroutes.Count > 0)
 
             {
 
@@ -215,38 +326,17 @@ namespace Hiatme_Tool_Suite_v3
 
                     Kind = ScheduleBuilderPreviewLine.LineKind.SectionHeader,
 
-                    SectionTitle = "Reroutes (" + reroutes.Count + ")",
+                    SectionTitle = "Reroutes (" + allReroutes.Count + ")",
 
                 });
 
-                foreach (var t in reroutes.OrderBy(x => x?.PUTime ?? ""))
+                foreach (var t in allReroutes.OrderBy(x => x?.PUTime ?? ""))
 
                     lines.Add(TripLine(t, RerouteBand));
 
             }
 
-            if (banned != null && banned.Count > 0)
-
-            {
-
-                lines.Add(new ScheduleBuilderPreviewLine
-
-                {
-
-                    Kind = ScheduleBuilderPreviewLine.LineKind.SectionHeader,
-
-                    SectionTitle = "Banned clients (" + banned.Count + ")",
-
-                });
-
-                foreach (var t in banned.OrderBy(x => x?.PUTime ?? ""))
-
-                    lines.Add(TripLine(t, BannedBand));
-
-            }
-
             return lines;
-
         }
 
 
@@ -266,6 +356,8 @@ namespace Hiatme_Tool_Suite_v3
             var groups = new List<SupeyTripCluster>();
 
             int n = 0;
+
+            var allReroutes = MergeTripLists(reroutes, banned);
 
             if (willCalls != null && willCalls.Count > 0)
 
@@ -299,7 +391,7 @@ namespace Hiatme_Tool_Suite_v3
 
             }
 
-            if (reroutes != null && reroutes.Count > 0)
+            if (allReroutes.Count > 0)
 
             {
 
@@ -307,23 +399,7 @@ namespace Hiatme_Tool_Suite_v3
 
                 var g = new SupeyTripCluster { GroupNumber = n, GroupColor = RerouteBand };
 
-                foreach (var t in reroutes)
-
-                    if (t != null) g.Trips.Add(t);
-
-                groups.Add(g);
-
-            }
-
-            if (banned != null && banned.Count > 0)
-
-            {
-
-                n++;
-
-                var g = new SupeyTripCluster { GroupNumber = n, GroupColor = BannedBand };
-
-                foreach (var t in banned)
+                foreach (var t in allReroutes)
 
                     if (t != null) g.Trips.Add(t);
 

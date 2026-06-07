@@ -512,9 +512,12 @@ namespace Hiatme_Tool_Suite_v3
             if (fsbuilder?.PreviewDriverLines != null)
             {
                 var dict = fsbuilder.PreviewDriverLines as Dictionary<string, List<ScheduleBuilderPreviewLine>>;
-                if (dict != null)
+                if (dict != null && !tab.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
                     dict[tab] = lines;
             }
+
+            if (tab.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
+                fsbuilder?.ApplyPreviewReserveLines(lines);
 
             if (fsbuilder?.driverTripList != null)
             {

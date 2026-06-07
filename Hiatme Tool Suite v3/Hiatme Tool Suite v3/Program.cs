@@ -13,11 +13,15 @@ namespace Hiatme_Tool_Suite_v3
 {
     internal static class Program
     {
+        /// <summary>Set true to restore the startup MP3 on first form show.</summary>
+        internal const bool PlayStartupSound = false;
+
         private const string StartupAudioFileName = "must-have-precious.mp3";
 
         /// <summary>Plays <c>Resources\must-have-precious.mp3</c> in full once (NAudio + Media Foundation).</summary>
         internal static void TryPlayStartupMyPreciousOnce()
         {
+            if (!PlayStartupSound) return;
             try
             {
                 string baseDir = AppDomain.CurrentDomain.BaseDirectory;

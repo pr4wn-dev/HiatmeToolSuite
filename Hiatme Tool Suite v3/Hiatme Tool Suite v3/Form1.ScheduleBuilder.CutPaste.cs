@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
@@ -8,6 +9,7 @@ namespace Hiatme_Tool_Suite_v3
     public partial class Form1
     {
         private MCDownloadedTrip _fsCutTrip;
+        private Color? _fsCutTripReserveBand;
         private ListViewItem _fsTripsCtxHitItem;
 
         private bool FsHasCutTrip => _fsCutTrip != null;
@@ -15,6 +17,7 @@ namespace Hiatme_Tool_Suite_v3
         private void FsClearCutTrip()
         {
             _fsCutTrip = null;
+            _fsCutTripReserveBand = null;
         }
 
         private void FsCutSelectedTrip()
@@ -26,6 +29,7 @@ namespace Hiatme_Tool_Suite_v3
             if (!_fsLinesByTab.TryGetValue(tab, out var lines) || lines == null)
                 return;
 
+            _fsCutTripReserveBand = FsFindTripReserveBand(lines, _fsTripsCtxTrip);
             if (!ScheduleBuilderPreviewDrag.TryRemoveTrip(lines, _fsTripsCtxTrip))
                 return;
 
@@ -54,6 +58,7 @@ namespace Hiatme_Tool_Suite_v3
 
             string tab = _fsActiveDriverTab;
             MCDownloadedTrip trip = _fsCutTrip;
+            Color? cutReserveBand = _fsCutTripReserveBand;
             FsClearCutTrip();
 
             _fsPreserveRouteChangeBaseline = true;
@@ -62,7 +67,14 @@ namespace Hiatme_Tool_Suite_v3
             if (!_fsLinesByTab.TryGetValue(tab, out var lines) || lines == null)
                 return;
 
-            ScheduleBuilderPreviewDrag.InsertTripLine(lines, trip, insertBeforeLine);
+            Color? reserveBand = null;
+            if (tab.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
+            {
+                reserveBand = cutReserveBand
+                    ?? ScheduleBuilderPreviewDrag.ResolveReserveBandForInsert(lines, insertBeforeLine);
+            }
+
+            ScheduleBuilderPreviewDrag.InsertTripLine(lines, trip, insertBeforeLine, reserveBand);
 
             lines = ScheduleBuilderTemplateSlots.CollapseConsecutivePreviewGaps(lines);
             FsCommitPreviewLinesForTab(tab, lines);
@@ -126,6 +138,20 @@ namespace Hiatme_Tool_Suite_v3
             if (_fsTripsCtxHitItem.Tag is FsPreviewSectionHeaderTag)
                 return false;
             return true;
+        }
+
+        private static Color? FsFindTripReserveBand(IList<ScheduleBuilderPreviewLine> lines, MCDownloadedTrip trip)
+        {
+            if (lines == null || trip == null) return null;
+            foreach (var line in lines)
+            {
+                if (line?.Kind != ScheduleBuilderPreviewLine.LineKind.Trip || line.Trip == null)
+                    continue;
+                if (ReferenceEquals(line.Trip, trip)
+                    || string.Equals(line.Trip.TripNumber, trip.TripNumber, StringComparison.OrdinalIgnoreCase))
+                    return line.ReserveBandColor;
+            }
+            return null;
         }
     }
 }

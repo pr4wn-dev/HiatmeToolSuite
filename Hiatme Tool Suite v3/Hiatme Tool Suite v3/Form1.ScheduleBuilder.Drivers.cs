@@ -10,8 +10,6 @@ namespace Hiatme_Tool_Suite_v3
 {
     public partial class Form1
     {
-        private SupeyCollapsiblePanel _fsDriversCollapsible;
-        private Splitter _fsDriversSplitter;
         private SupeyListView _fsDriversLv;
         private Label _fsDriversFooter;
         private Label _fsDriversEmptyHint;
@@ -23,24 +21,6 @@ namespace Hiatme_Tool_Suite_v3
         private bool _fsDriverRosterLoaded;
         private ContextMenuStrip _fsDriversCtxMenu;
         private ToolStripMenuItem _fsDriversCtxGeocodeHome;
-
-        private void BuildFsDriversWorkspaceDock()
-        {
-            _fsDriversCollapsible = new SupeyCollapsiblePanel
-            {
-                Title = "Drivers",
-                Dock = DockStyle.Right,
-                ExpandedWidth = 360,
-                MinExpandedWidth = 280,
-                MaxExpandedWidth = 480,
-                Expanded = false,
-            };
-
-            EnsureFsDriverRosterLoaded();
-            BuildFsDriversPanel(_fsDriversCollapsible.ContentPanel);
-            _fsDriversSplitter = MakeFsDockSplitter(DockStyle.Right, _fsDriversCollapsible);
-            _fsDriversCollapsible.ApplyExpandedLayout();
-        }
 
         private void EnsureFsDriverRosterLoaded()
         {
@@ -206,12 +186,23 @@ namespace Hiatme_Tool_Suite_v3
             }
             _fsDriversLv.EndUpdate();
             ListViewMinWidthEnforcer.Recompute(_fsDriversLv);
+            UpdateFsSidePanelDriversWidth();
 
             int n = _supeyRoster.Count;
             _fsDriversFooter.Text = n + " driver" + (n == 1 ? "" : "s")
                 + (_supeyRosterLastSaved == DateTime.MinValue ? "" : " · saved " + _supeyRosterLastSaved.ToString("HH:mm"));
             if (_fsDriversEmptyHint != null)
                 _fsDriversEmptyHint.Visible = n == 0;
+        }
+
+        private void UpdateFsSidePanelDriversWidth()
+        {
+            if (_fsDriversLv == null || _fsSideTabPanel == null) return;
+            int colTotal = 0;
+            foreach (ColumnHeader col in _fsDriversLv.Columns)
+                colTotal += col.Width;
+            int needed = colTotal + SystemInformation.VerticalScrollBarWidth + 8;
+            _fsSideTabPanel.SetPageRecommendedWidth(FsSidePageDrivers, needed);
         }
 
         private static string ShortHomeLabel(SupeyDriverProfile d)

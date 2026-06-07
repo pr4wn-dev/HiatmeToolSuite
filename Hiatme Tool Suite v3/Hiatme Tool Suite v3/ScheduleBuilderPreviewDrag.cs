@@ -62,17 +62,24 @@ namespace Hiatme_Tool_Suite_v3
             return lines;
         }
 
-        internal static int CountTripAndGapLines(ListView lv)
+        internal static int CountPreviewLines(ListView lv)
         {
             int n = 0;
             if (lv == null) return 0;
             foreach (ListViewItem item in lv.Items)
             {
-                if (item.Tag is FsPreviewGapTag || item.Tag is FsPreviewTripTag)
+                if (item.Tag is FsPreviewNoteTag)
+                    continue;
+                if (item.Tag is FsPreviewGapTag
+                    || item.Tag is FsPreviewTripTag
+                    || item.Tag is FsPreviewSectionHeaderTag)
                     n++;
             }
             return n;
         }
+
+        /// <summary>Backward-compatible name — counts gap, trip, and section rows (not group notes).</summary>
+        internal static int CountTripAndGapLines(ListView lv) => CountPreviewLines(lv);
 
         internal static int ListViewIndexToLineIndex(
             ListView lv,
@@ -87,15 +94,19 @@ namespace Hiatme_Tool_Suite_v3
             for (int i = 0; i < lv.Items.Count; i++)
             {
                 var item = lv.Items[i];
-                if (item.Tag is FsPreviewNoteTag || item.Tag is FsPreviewSectionHeaderTag)
+                if (item.Tag is FsPreviewNoteTag)
                     continue;
                 if (i == itemIndex)
                 {
+                    if (item.Tag is FsPreviewSectionHeaderTag)
+                        return -1;
                     isGap = item.Tag is FsPreviewGapTag;
                     tripTag = item.Tag as FsPreviewTripTag;
                     return line;
                 }
-                if (item.Tag is FsPreviewGapTag || item.Tag is FsPreviewTripTag)
+                if (item.Tag is FsPreviewGapTag
+                    || item.Tag is FsPreviewTripTag
+                    || item.Tag is FsPreviewSectionHeaderTag)
                     line++;
             }
             return line;
@@ -144,7 +155,7 @@ namespace Hiatme_Tool_Suite_v3
             var hit = lv.HitTest(clientPt);
             if (hit.Item == null)
             {
-                insertBeforeLine = CountTripAndGapLines(lv);
+                insertBeforeLine = CountPreviewLines(lv);
                 return true;
             }
 
@@ -155,7 +166,7 @@ namespace Hiatme_Tool_Suite_v3
                 int noteRelY = clientPt.Y - noteBounds.Top;
                 insertBeforeLine = ListViewIndexToLineIndex(lv, hit.Item.Index + 1, out targetTrip, out _);
                 if (insertBeforeLine < 0)
-                    insertBeforeLine = CountTripAndGapLines(lv);
+                    insertBeforeLine = CountPreviewLines(lv);
                 if (noteRelY < noteH / 2)
                 {
                     mergeOntoTarget = false;
@@ -270,17 +281,65 @@ namespace Hiatme_Tool_Suite_v3
         internal static void InsertTripLine(
             IList<ScheduleBuilderPreviewLine> lines,
             MCDownloadedTrip trip,
-            int insertBeforeLineIndex)
+            int insertBeforeLineIndex,
+            Color? reserveBandColor = null)
         {
             if (lines == null || trip == null) return;
             if (FindTripLine(lines, trip) >= 0) return;
 
             int insert = Math.Max(0, Math.Min(insertBeforeLineIndex, lines.Count));
-            lines.Insert(insert, new ScheduleBuilderPreviewLine
+            var line = new ScheduleBuilderPreviewLine
             {
                 Kind = ScheduleBuilderPreviewLine.LineKind.Trip,
                 Trip = trip,
-            });
+            };
+            if (reserveBandColor.HasValue)
+                line.ReserveBandColor = reserveBandColor.Value;
+            lines.Insert(insert, line);
+        }
+
+        internal static Color? ResolveReserveBandForInsert(IList<ScheduleBuilderPreviewLine> lines, int insertIndex)
+        {
+            if (lines == null || lines.Count == 0)
+                return ScheduleBuilderReserveBuckets.ReserversBand;
+
+            int start = Math.Max(0, Math.Min(insertIndex, lines.Count));
+            for (int i = start - 1; i >= 0; i--)
+            {
+                var line = lines[i];
+                if (line == null) continue;
+                if (line.Kind == ScheduleBuilderPreviewLine.LineKind.Trip && line.ReserveBandColor.HasValue)
+                    return line.ReserveBandColor;
+                if (line.Kind == ScheduleBuilderPreviewLine.LineKind.SectionHeader)
+                    return ReserveBandFromSectionTitle(line.SectionTitle);
+            }
+
+            for (int i = start; i < lines.Count; i++)
+            {
+                var line = lines[i];
+                if (line == null) continue;
+                if (line.Kind == ScheduleBuilderPreviewLine.LineKind.SectionHeader)
+                    return ReserveBandFromSectionTitle(line.SectionTitle);
+                if (line.Kind == ScheduleBuilderPreviewLine.LineKind.Trip && line.ReserveBandColor.HasValue)
+                    return line.ReserveBandColor;
+            }
+
+            return ScheduleBuilderReserveBuckets.ReserversBand;
+        }
+
+        private static Color? ReserveBandFromSectionTitle(string title)
+        {
+            if (string.IsNullOrWhiteSpace(title))
+                return null;
+            if (title.StartsWith("Will calls", StringComparison.OrdinalIgnoreCase))
+                return ScheduleBuilderReserveBuckets.WillCallBand;
+            if (title.StartsWith("Reservers", StringComparison.OrdinalIgnoreCase))
+                return ScheduleBuilderReserveBuckets.ReserversBand;
+            if (title.StartsWith("Reroutes", StringComparison.OrdinalIgnoreCase))
+                return ScheduleBuilderReserveBuckets.RerouteBand;
+            if (title.StartsWith("Banned", StringComparison.OrdinalIgnoreCase))
+                return ScheduleBuilderReserveBuckets.RerouteBand;
+            return null;
         }
 
         internal static void ApplyTripMove(

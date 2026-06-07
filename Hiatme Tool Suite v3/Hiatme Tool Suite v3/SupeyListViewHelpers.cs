@@ -1,8 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Windows.Forms;
 
 namespace Hiatme_Tool_Suite_v3
@@ -100,10 +102,105 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>Suppresses painting during bulk column-width or item updates.</summary>
         public static void SetRedraw(ListView listView, bool enable, bool invalidate = false)
         {
-            if (listView == null || !listView.IsHandleCreated) return;
-            SendMessage(listView.Handle, WmSetRedraw, enable ? (IntPtr)1 : IntPtr.Zero, IntPtr.Zero);
+            if (listView == null) return;
+            SetControlRedraw(listView, enable, invalidate);
+        }
+
+        /// <summary>WM_SETREDRAW for any control — used to batch layout during splitter drags.</summary>
+        public static void SetControlRedraw(Control control, bool enable, bool invalidate = false)
+        {
+            if (control == null || !control.IsHandleCreated) return;
+            SendMessage(control.Handle, WmSetRedraw, enable ? (IntPtr)1 : IntPtr.Zero, IntPtr.Zero);
             if (enable && invalidate)
-                listView.Invalidate(true);
+                control.Invalidate(true);
+        }
+
+        /// <summary>True while the user is dragging a wired splitter (ListView repaints deferred).</summary>
+        internal static bool SplitterDragActive => _splitterDragDepth > 0;
+
+        private static int _splitterDragDepth;
+        private static Control _splitterDragScope;
+        private static HashSet<ListView> _splitterDragListViews;
+
+        private static void BeginSplitterDrag(Control scope)
+        {
+            if (Interlocked.Increment(ref _splitterDragDepth) != 1)
+                return;
+
+            _splitterDragScope = scope;
+            _splitterDragListViews = new HashSet<ListView>();
+            if (scope != null)
+                CollectListViews(scope, _splitterDragListViews);
+
+            foreach (var lv in _splitterDragListViews)
+                SetControlRedraw(lv, false);
+        }
+
+        private static void EndSplitterDrag()
+        {
+            if (Interlocked.Decrement(ref _splitterDragDepth) != 0)
+                return;
+
+            if (_splitterDragListViews != null)
+            {
+                foreach (var lv in _splitterDragListViews)
+                {
+                    SetControlRedraw(lv, true);
+                    if (lv.IsHandleCreated)
+                        lv.Invalidate(true);
+                }
+            }
+
+            _splitterDragScope?.Invalidate(true);
+            _splitterDragScope = null;
+            _splitterDragListViews = null;
+        }
+
+        /// <summary>Defers heavy repaints until splitter drag ends. Layout stays live.</summary>
+        public static void WireSplitContainerSmoothResize(SplitContainer split)
+        {
+            if (split == null) return;
+
+            split.ControlAdded += (s, e) =>
+            {
+                if (_splitterDragScope == split)
+                    _splitterDragListViews = null;
+            };
+            split.ControlRemoved += (s, e) =>
+            {
+                if (_splitterDragScope == split)
+                    _splitterDragListViews = null;
+            };
+
+            split.SplitterMoving += (s, e) =>
+            {
+                if (_splitterDragDepth == 0)
+                    BeginSplitterDrag(split);
+            };
+            split.SplitterMoved += (s, e) => EndSplitterDrag();
+        }
+
+        /// <summary>Same as <see cref="WireSplitContainerSmoothResize"/> for legacy <see cref="Splitter"/> bars.</summary>
+        public static void WireSplitterSmoothResize(Splitter splitter, Control layoutRoot = null)
+        {
+            if (splitter == null) return;
+            Control root = layoutRoot ?? splitter.Parent;
+
+            splitter.SplitterMoving += (s, e) =>
+            {
+                if (_splitterDragDepth == 0)
+                    BeginSplitterDrag(root ?? splitter.Parent);
+            };
+            splitter.SplitterMoved += (s, e) => EndSplitterDrag();
+        }
+
+        private static void CollectListViews(Control root, HashSet<ListView> into)
+        {
+            if (root == null || into == null) return;
+            if (root is ListView lv)
+                into.Add(lv);
+            foreach (Control child in root.Controls)
+                CollectListViews(child, into);
         }
 
         /// <summary>

@@ -558,6 +558,7 @@ namespace Hiatme_Tool_Suite_v3
                 Dock = DockStyle.Fill,
                 BackColor = SupeyTheme.SurfaceBase,
             };
+            SupeyCollapsibleSideLayout.EnsureWired(workPanel);
 
             _supeyMap = new SupeyMapWorkspace { Dock = DockStyle.Fill };
             _supeyMap.SetSupeyStatusOnHost = msg => SetSupeyStatus(msg);
@@ -617,10 +618,10 @@ namespace Hiatme_Tool_Suite_v3
             // adjacent to it (the "outer" one on its dock side). MinExtra leaves a
             // sensible amount of space for the Map (Fill) so users can't drag a side
             // panel to swallow the whole workspace.
-            _supeyDriversSplitter = MakeDockSplitter(DockStyle.Left, _supeyDriversCollapsible);
-            _supeyAiSplitter = MakeDockSplitter(DockStyle.Right, _supeyAiCollapsible);
-            _supeyRulesSplitter = MakeDockSplitter(DockStyle.Right, _supeyRulesCollapsible);
-            _supeyInfoSplitter = MakeDockSplitter(DockStyle.Right, _supeyRightCollapsible);
+            _supeyDriversSplitter = MakeDockSplitter(DockStyle.Left, _supeyDriversCollapsible, workPanel);
+            _supeyAiSplitter = MakeDockSplitter(DockStyle.Right, _supeyAiCollapsible, workPanel);
+            _supeyRulesSplitter = MakeDockSplitter(DockStyle.Right, _supeyRulesCollapsible, workPanel);
+            _supeyInfoSplitter = MakeDockSplitter(DockStyle.Right, _supeyRightCollapsible, workPanel);
 
             workPanel.Controls.Add(_supeyMap);
             workPanel.Controls.Add(_supeyMap.GroupKeyPanel);
@@ -633,6 +634,9 @@ namespace Hiatme_Tool_Suite_v3
             workPanel.Controls.Add(_supeyInfoSplitter);
             workPanel.Controls.Add(_supeyRightCollapsible);
             _supeyDriversCollapsible.ApplyExpandedLayout();
+            _supeyAiCollapsible?.ApplyExpandedLayout();
+            _supeyRulesCollapsible?.ApplyExpandedLayout();
+            _supeyRightCollapsible.ApplyExpandedLayout();
             _supeyMap.GroupKeyPanel.ApplyExpandedLayout();
             _supeyMainSplit.Panel1.Controls.Add(workPanel);
 
@@ -643,6 +647,8 @@ namespace Hiatme_Tool_Suite_v3
             };
             BuildSupeyTripsPanel(_supeyTripsCollapsible.ContentPanel);
             _supeyMainSplit.Panel2.Controls.Add(_supeyTripsCollapsible);
+
+            SupeyListViewHelpers.WireSplitContainerSmoothResize(_supeyMainSplit);
 
             _supeyMainHost.Controls.Add(_supeyMainSplit);
         }
@@ -655,40 +661,8 @@ namespace Hiatme_Tool_Suite_v3
         ///   • clamps the panel's expanded size to the panel's MinExpandedWidth/MaxExpandedWidth;
         ///   • leaves a sensible MinExtra so the central Map (Fill) can't be squished to nothing.
         /// </summary>
-        private Splitter MakeDockSplitter(DockStyle dock, SupeyCollapsiblePanel target)
-        {
-            var s = new Splitter
-            {
-                Dock = dock,
-                Width = 4,
-                Height = 4,
-                BackColor = SupeyTheme.Divider,
-                MinSize = target?.MinExpandedWidth > 0 ? target.MinExpandedWidth : 180,
-                MinExtra = 320,
-                Cursor = (dock == DockStyle.Left || dock == DockStyle.Right) ? Cursors.VSplit : Cursors.HSplit,
-                Visible = target?.Expanded ?? true,
-            };
-            // Subtle hover affordance — bar lightens so users notice it's draggable.
-            s.MouseEnter += (sender, e) => { s.BackColor = SupeyTheme.BorderSubtle; };
-            s.MouseLeave += (sender, e) => { s.BackColor = SupeyTheme.Divider; };
-
-            if (target != null)
-            {
-                target.ExpandedChanged += (sender, e) => { s.Visible = target.Expanded; };
-
-                // Enforce the panel's MaxExpandedWidth on splitter drag — WinForms only
-                // honors MinExtra/MinSize directly, so we clamp on SplitterMoved.
-                s.SplitterMoved += (sender, e) =>
-                {
-                    if (dock != DockStyle.Left && dock != DockStyle.Right) return;
-                    if (target.MinExpandedWidth > 0 && target.Width < target.MinExpandedWidth)
-                        target.Width = target.MinExpandedWidth;
-                    if (target.MaxExpandedWidth > 0 && target.Width > target.MaxExpandedWidth)
-                        target.Width = target.MaxExpandedWidth;
-                };
-            }
-            return s;
-        }
+        private Splitter MakeDockSplitter(DockStyle dock, SupeyCollapsiblePanel target, Control layoutRoot) =>
+            SupeyCollapsiblePanel.CreateDockSplitter(dock, target, minExtra: 320, layoutRoot: layoutRoot);
 
         /// <summary>Default trip list to ~38% of workspace height (max 480px); user drag keeps their choice.</summary>
         private void EnsureSupeySplitDistance()

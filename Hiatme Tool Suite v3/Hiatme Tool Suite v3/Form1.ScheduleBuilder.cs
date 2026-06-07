@@ -533,7 +533,7 @@ namespace Hiatme_Tool_Suite_v3
 
             _fsMainSplit.Panel2.Controls.Add(_fsTripsCollapsible);
 
-
+            SupeyListViewHelpers.WireSplitContainerSmoothResize(_fsMainSplit);
 
             _fsMainHost.Controls.Add(_fsMainSplit);
 
@@ -655,7 +655,8 @@ namespace Hiatme_Tool_Suite_v3
 
             WireFsTripsListDragDrop();
 
-            _fsTripsLv.PostPaintItems = FsTripsPostPaintDragCursor;
+            if (FsTripDragDropEnabled)
+                _fsTripsLv.PostPaintItems = FsTripsPostPaintDragCursor;
 
 
 
@@ -1263,8 +1264,6 @@ namespace Hiatme_Tool_Suite_v3
 
                     int rer = fsbuilder.PreviewReservesReroute?.Count ?? 0;
 
-                    int ban = fsbuilder.PreviewReservesBanned?.Count ?? 0;
-
                     int wc = fsbuilder.PreviewReservesWillCalls?.Count ?? 0;
 
 
@@ -1285,13 +1284,11 @@ namespace Hiatme_Tool_Suite_v3
 
                         "Loaded " + dateMsg + " — " + drivers + " driver tab(s), " + trips + " trip(s)"
 
-                        + (res + rer + ban + wc > 0
+                        + (res + rer + wc > 0
 
                             ? ", reserves " + res + (wc > 0 ? ", " + wc + " will call(s)" : "")
 
                               + (rer > 0 ? ", " + rer + " reroute(s)" : "")
-
-                              + (ban > 0 ? ", " + ban + " banned" : "")
 
                             : "")
 
@@ -1458,8 +1455,6 @@ namespace Hiatme_Tool_Suite_v3
 
                 int res = fsbuilder.PreviewReserves?.Count ?? 0;
 
-                int ban = fsbuilder.PreviewReservesBanned?.Count ?? 0;
-
                 int wc = fsbuilder.PreviewReservesWillCalls?.Count ?? 0;
 
                 int wcDl = fsbuilder.WillCallsInDownloadCount;
@@ -1485,10 +1480,6 @@ namespace Hiatme_Tool_Suite_v3
                 if (rer > 0)
 
                     resMsg += ", " + rer + " reroute" + (rer == 1 ? "" : "s");
-
-                if (ban > 0)
-
-                    resMsg += ", " + ban + " banned";
 
                 SetScheduleBuilderStatus("Built — " + drivers + " driver tab(s), "
 
@@ -1672,13 +1663,13 @@ namespace Hiatme_Tool_Suite_v3
 
                 if (reservesRoutingOk)
                 {
-                    SetFsMapPreviewAvailable(true, showGroupKey: false);
+                    SetFsMapPreviewAvailable(true);
                     SetScheduleBuilderStatus("Reserves · list only (no map pins).");
                     _fsMap.CenterOnMaineHub();
                 }
                 else
                 {
-                    SetFsMapPreviewAvailable(false, reservesRoutingDetail, showGroupKey: false);
+                    SetFsMapPreviewAvailable(false, reservesRoutingDetail);
                     SetScheduleBuilderStatus("Reserves · list only · map hidden (road routing offline).");
                 }
 
@@ -1689,7 +1680,7 @@ namespace Hiatme_Tool_Suite_v3
 
             {
 
-                SetFsMapPreviewAvailable(ScheduleOsrmGate.PreviewRoutingOk, showGroupKey: false);
+                SetFsMapPreviewAvailable(ScheduleOsrmGate.PreviewRoutingOk);
                 _fsMap.CenterOnMaineHub();
 
                 return;
@@ -1702,7 +1693,7 @@ namespace Hiatme_Tool_Suite_v3
 
             if (trips.Count == 0)
             {
-                SetFsMapPreviewAvailable(ScheduleOsrmGate.PreviewRoutingOk, showGroupKey: false);
+                SetFsMapPreviewAvailable(ScheduleOsrmGate.PreviewRoutingOk);
                 _fsMap.CenterOnMaineHub();
                 return;
             }
@@ -1721,7 +1712,7 @@ namespace Hiatme_Tool_Suite_v3
 
             if (!routingOk)
             {
-                SetFsMapPreviewAvailable(false, routingDetail, showGroupKey: false);
+                SetFsMapPreviewAvailable(false, routingDetail);
                 SetScheduleBuilderStatus(tabName
                     + " · map hidden (road routing offline — trip list still works).");
                 return;
@@ -1890,8 +1881,7 @@ namespace Hiatme_Tool_Suite_v3
             if (_fsMap == null) return;
 
             _fsMap.Visible = available;
-            if (_fsMap.GroupKeyPanel != null)
-                _fsMap.GroupKeyPanel.Visible = available && showGroupKey;
+            _fsSideTabPanel?.SetPageEnabled(FsSidePageGroupKey, available && showGroupKey);
 
             if (_fsMapOfflineOverlay == null) return;
 
@@ -1900,8 +1890,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 _fsMap.Clear();
                 _fsMap.ClearMileageHud();
-                if (_fsMap.GroupKeyPanel != null)
-                    _fsMap.GroupKeyPanel.Visible = false;
+                _fsSideTabPanel?.SetPageEnabled(FsSidePageGroupKey, false);
                 string detail = string.IsNullOrWhiteSpace(routingDetail)
                     ? ScheduleOsrmGate.PreviewRoutingDetail
                     : routingDetail;
@@ -2434,11 +2423,8 @@ namespace Hiatme_Tool_Suite_v3
 
                 {
 
-                    if (line.ReserveBandColor == ScheduleBuilderReserveBuckets.BannedBand)
-
-                        banned.Add(line.Trip);
-
-                    else if (line.ReserveBandColor == ScheduleBuilderReserveBuckets.RerouteBand)
+                    if (line.ReserveBandColor == ScheduleBuilderReserveBuckets.BannedBand
+                        || line.ReserveBandColor == ScheduleBuilderReserveBuckets.RerouteBand)
 
                         reroutes.Add(line.Trip);
 

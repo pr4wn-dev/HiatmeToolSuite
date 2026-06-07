@@ -131,8 +131,8 @@ namespace Hiatme_Tool_Suite_v3
                 sb.AppendLine("Also: " + doMidnight + " trip(s) with 00:00 **dropoff (DO)** (B/C return legs — not counted as will calls).");
             }
             sb.AppendLine("Reserves — Reservers: " + res);
-            sb.AppendLine("Reserves — Reroutes: " + rer);
-            sb.AppendLine("Reserves — Banned: " + ban);
+            sb.AppendLine("Reserves — Reroutes: " + rer + " (includes banned clients + no-go)");
+            sb.AppendLine("Banned client rules: " + ScheduleBuilderBannedClients.CachedClients.Count);
             sb.AppendLine();
         }
 

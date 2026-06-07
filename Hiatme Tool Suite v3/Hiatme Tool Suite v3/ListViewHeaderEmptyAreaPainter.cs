@@ -84,14 +84,9 @@ namespace Hiatme_Tool_Suite_v3
                 int emptyH = clientRect.bottom - clientRect.top;
                 if (emptyW <= 0 || emptyH <= 0) return;
 
-                using (var bmp = new Bitmap(emptyW, emptyH))
-                using (var mem = Graphics.FromImage(bmp))
                 using (var brush = new SolidBrush(HeaderBackground))
-                using (var screen = Graphics.FromHwnd(Handle))
-                {
-                    mem.FillRectangle(brush, 0, 0, emptyW, emptyH);
-                    screen.DrawImage(bmp, totalColumns, clientRect.top);
-                }
+                using (var g = Graphics.FromHwnd(Handle))
+                    g.FillRectangle(brush, totalColumns, clientRect.top, emptyW, emptyH);
             }
             catch
             {

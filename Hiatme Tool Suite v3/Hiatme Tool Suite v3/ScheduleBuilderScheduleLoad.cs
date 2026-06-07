@@ -193,8 +193,6 @@ namespace Hiatme_Tool_Suite_v3
                 switch (ScheduleBuilderReserveBuckets.Classify(trip))
                 {
                     case ScheduleBuilderReserveBuckets.ReserveBucket.Banned:
-                        banned.Add(trip);
-                        break;
                     case ScheduleBuilderReserveBuckets.ReserveBucket.Reroute:
                         reroutes.Add(trip);
                         break;

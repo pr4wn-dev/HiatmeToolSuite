@@ -34,10 +34,13 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-        private SupeyCollapsiblePanel _fsRulesCollapsible;
+        private const int FsSidePageRules = 0;
+        private const int FsSidePageDrivers = 1;
+        private const int FsSidePageGroupKey = 2;
+        private const int FsSidePageSettings = 3;
 
-        private Splitter _fsRulesSplitter;
-
+        private SupeyIconTabSidePanel _fsSideTabPanel;
+        private Splitter _fsSideSplitter;
         private Panel _fsMapWorkPanel;
 
 
@@ -78,68 +81,42 @@ namespace Hiatme_Tool_Suite_v3
 
             };
 
+            SupeyCollapsibleSideLayout.EnsureWired(_fsMapWorkPanel);
 
+            _fsSideTabPanel = new SupeyIconTabSidePanel();
 
-            _fsRulesCollapsible = new SupeyCollapsiblePanel
+            var rulesHost = _fsSideTabPanel.AddPage("Rules", "📋", "No-go and banned clients", recommendedExpandedWidth: 320);
+            BuildFsRulesPanel(rulesHost);
 
-            {
+            EnsureFsDriverRosterLoaded();
+            var driversHost = _fsSideTabPanel.AddPage("Drivers", "👤", "Driver roster for BUILD", recommendedExpandedWidth: 430);
+            BuildFsDriversPanel(driversHost);
 
-                Title = "Rules",
+            var groupKeyHost = _fsSideTabPanel.AddPage("Group key", "🎨", "Show or hide groups on the map", recommendedExpandedWidth: 288);
+            groupKeyHost.Controls.Add(_fsMap.GroupKeyContentPanel);
+            _fsMap.GroupKeyContentPanel.Dock = DockStyle.Fill;
+            _fsMap.SetGroupKeyEmbedded(true);
+            groupKeyHost.Resize += (s, e) => _fsMap.RelayoutGroupKeyIfNeeded();
 
-                Dock = DockStyle.Right,
+            var settingsHost = _fsSideTabPanel.AddPage("Settings", "⚙", "Trip list and map display", recommendedExpandedWidth: 260);
+            BuildFsSettingsPanel(settingsHost);
 
-                ExpandedWidth = 320,
+            _fsSideTabPanel.FinalizePages(FsSidePageGroupKey);
 
-                MinExpandedWidth = 260,
-
-                MaxExpandedWidth = 440,
-
-            };
-
-            _fsRulesCollapsible.Expanded = false;
-
-            BuildFsRulesPanel(_fsRulesCollapsible.ContentPanel);
-
-
-
-            _fsRulesSplitter = MakeFsDockSplitter(DockStyle.Right, _fsRulesCollapsible);
-
-            BuildFsSettingsWorkspaceDock();
-
-            BuildFsDriversWorkspaceDock();
-
-
+            _fsSideSplitter = MakeFsDockSplitter(DockStyle.Right, _fsSideTabPanel.Panel);
 
             BuildFsMapOfflineOverlay();
 
             _fsMapWorkPanel.Controls.Add(_fsMap);
-
             _fsMapWorkPanel.Controls.Add(_fsMapOfflineOverlay);
-
-            _fsMapWorkPanel.Controls.Add(_fsMap.GroupKeyPanel);
-
-            _fsMapWorkPanel.Controls.Add(_fsDriversSplitter);
-
-            _fsMapWorkPanel.Controls.Add(_fsDriversCollapsible);
-
-            _fsMapWorkPanel.Controls.Add(_fsSettingsSplitter);
-
-            _fsMapWorkPanel.Controls.Add(_fsSettingsCollapsible);
-
-            _fsMapWorkPanel.Controls.Add(_fsRulesSplitter);
-
-            _fsMapWorkPanel.Controls.Add(_fsRulesCollapsible);
-
-            _fsRulesCollapsible.ApplyExpandedLayout();
-
-            _fsMap.GroupKeyPanel.ApplyExpandedLayout();
-
+            _fsMapWorkPanel.Controls.Add(_fsSideSplitter);
+            _fsMapWorkPanel.Controls.Add(_fsSideTabPanel.Panel);
         }
 
 
 
-        private static Splitter MakeFsDockSplitter(DockStyle dock, SupeyCollapsiblePanel target) =>
-            SupeyCollapsiblePanel.CreateDockSplitter(dock, target, minExtra: 280);
+        private Splitter MakeFsDockSplitter(DockStyle dock, SupeyCollapsiblePanel target) =>
+            SupeyCollapsiblePanel.CreateDockSplitter(dock, target, minExtra: 280, layoutRoot: _fsMapWorkPanel);
 
 
 
@@ -1041,9 +1018,55 @@ namespace Hiatme_Tool_Suite_v3
 
             RefreshFsBannedList();
 
+            if (_fsHasPreview && fsbuilder != null)
+                FsApplyBannedClientToPreview();
+
             SetScheduleBuilderStatus("Banned " + (trip.ClientFullName ?? "client")
 
-                + (string.IsNullOrWhiteSpace(trip.Age) ? "" : " · age " + trip.Age) + " — applies on next BUILD.");
+                + (string.IsNullOrWhiteSpace(trip.Age) ? "" : " · age " + trip.Age)
+
+                + (_fsHasPreview ? " — moved to Reserves → Reroutes." : " — applies on next BUILD."));
+        }
+
+
+
+        private void FsApplyBannedClientToPreview()
+
+        {
+
+            if (!_fsHasPreview || fsbuilder == null) return;
+
+            fsbuilder.RemoveBannedTripsFromDriverPreview();
+
+            if (fsbuilder.PreviewDriverLines != null)
+
+            {
+
+                foreach (var kv in fsbuilder.PreviewDriverLines)
+
+                {
+
+                    if (kv.Key.Equals("Reserves", StringComparison.OrdinalIgnoreCase)) continue;
+
+                    _fsLinesByTab[kv.Key] = kv.Value ?? new List<ScheduleBuilderPreviewLine>();
+
+                }
+
+            }
+
+            _fsLinesByTab["Reserves"] = ScheduleBuilderReserveBuckets.BuildReservePreviewLines(
+
+                fsbuilder.PreviewReserves,
+
+                fsbuilder.PreviewReservesReroute,
+
+                banned: null,
+
+                fsbuilder.PreviewReservesWillCalls,
+
+                fsbuilder.WillCallsInDownloadCount);
+
+            ShowFsTripsForTab(string.IsNullOrWhiteSpace(_fsActiveDriverTab) ? "Reserves" : _fsActiveDriverTab);
 
         }
 

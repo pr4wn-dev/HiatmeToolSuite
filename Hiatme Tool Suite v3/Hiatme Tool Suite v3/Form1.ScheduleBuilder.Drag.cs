@@ -192,10 +192,12 @@ namespace Hiatme_Tool_Suite_v3
             for (int i = 0; i < _fsTripsLv.Items.Count; i++)
             {
                 var item = _fsTripsLv.Items[i];
-                if (item.Tag is FsPreviewNoteTag || item.Tag is FsPreviewSectionHeaderTag)
+                if (item.Tag is FsPreviewNoteTag)
                     continue;
 
-                if (item.Tag is FsPreviewGapTag || item.Tag is FsPreviewTripTag)
+                if (item.Tag is FsPreviewGapTag
+                    || item.Tag is FsPreviewTripTag
+                    || item.Tag is FsPreviewSectionHeaderTag)
                 {
                     if (line == insertLine)
                         return i;

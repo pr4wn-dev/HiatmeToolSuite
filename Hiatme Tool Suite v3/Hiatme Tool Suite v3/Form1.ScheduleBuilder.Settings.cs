@@ -9,8 +9,6 @@ namespace Hiatme_Tool_Suite_v3
     {
         private const int FsSettingsPad = 10;
 
-        private SupeyCollapsiblePanel _fsSettingsCollapsible;
-        private Splitter _fsSettingsSplitter;
         private CheckBox _fsSettingsShowGaps;
         private CheckBox _fsSettingsShowGroupColors;
 
@@ -21,23 +19,6 @@ namespace Hiatme_Tool_Suite_v3
         {
             _fsShowGaps = Settings.Default.FsShowGaps;
             _fsShowGroupColors = Settings.Default.FsShowGroupColors;
-        }
-
-        private void BuildFsSettingsWorkspaceDock()
-        {
-            _fsSettingsCollapsible = new SupeyCollapsiblePanel
-            {
-                Title = "Settings",
-                Dock = DockStyle.Right,
-                ExpandedWidth = 280,
-                MinExpandedWidth = 220,
-                MaxExpandedWidth = 360,
-                Expanded = false,
-            };
-
-            BuildFsSettingsPanel(_fsSettingsCollapsible.ContentPanel);
-            _fsSettingsSplitter = MakeFsDockSplitter(DockStyle.Right, _fsSettingsCollapsible);
-            _fsSettingsCollapsible.ApplyExpandedLayout();
         }
 
         private void BuildFsSettingsPanel(Panel host)

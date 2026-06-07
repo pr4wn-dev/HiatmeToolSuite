@@ -1,6 +1,7 @@
 using Microsoft.Office.Interop.Excel;
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.IO;
 using System.IO.Ports;
 using System.Linq;
@@ -249,10 +250,13 @@ namespace Hiatme_Tool_Suite_v3
                 out var banned,
                 out var willCalls);
 
+            ScheduleBuilderReserveBuckets.RebucketBannedTripsIntoReroutes(
+                reservers, reroutes, willCalls, banned);
+
             PreviewReserves = reservers;
             PreviewReservesReroute = reroutes;
-            PreviewReservesBanned = banned;
             PreviewReservesWillCalls = willCalls;
+            PreviewReservesBanned = new List<MCDownloadedTrip>();
 
             if (MCTripList != null)
             {
@@ -269,6 +273,44 @@ namespace Hiatme_Tool_Suite_v3
                 WillCallsInDownloadCount = WillCallsPuMidnightInDownloadCount = WillCallsCommentInDownloadCount = 0;
 
             RemoveWillCallsFromDriverPreview();
+            RemoveBannedTripsFromDriverPreview();
+        }
+
+        /// <summary>Banned-client trips belong in Reserves → Reroutes, not on driver tabs.</summary>
+        internal void RemoveBannedTripsFromDriverPreview()
+        {
+            EnsureScheduleBuilderRulesLoaded();
+
+            var dict = PreviewDriverLines as Dictionary<string, List<ScheduleBuilderPreviewLine>>;
+            if (dict == null) return;
+
+            var reroutes = PreviewReservesReroute ?? new List<MCDownloadedTrip>();
+            ScheduleBuilderReserveBuckets.PullBannedTripsFromDriverLines(dict, reroutes);
+
+            var reservers = PreviewReserves ?? new List<MCDownloadedTrip>();
+            var willCalls = PreviewReservesWillCalls ?? new List<MCDownloadedTrip>();
+            var legacyBanned = PreviewReservesBanned ?? new List<MCDownloadedTrip>();
+            ScheduleBuilderReserveBuckets.RebucketBannedTripsIntoReroutes(
+                reservers, reroutes, willCalls, legacyBanned);
+
+            PreviewReserves = reservers;
+            PreviewReservesReroute = reroutes;
+            PreviewReservesWillCalls = willCalls;
+            PreviewReservesBanned = new List<MCDownloadedTrip>();
+
+            if (driverTripList != null)
+            {
+                foreach (var kv in dict)
+                {
+                    var trips = new List<MCDownloadedTrip>();
+                    foreach (var line in kv.Value ?? Enumerable.Empty<ScheduleBuilderPreviewLine>())
+                    {
+                        if (line?.Kind == ScheduleBuilderPreviewLine.LineKind.Trip && line.Trip != null)
+                            trips.Add(line.Trip);
+                    }
+                    driverTripList[kv.Key] = trips;
+                }
+            }
         }
 
         private void EnsureMatchedTripsOrThrow()
@@ -329,7 +371,6 @@ namespace Hiatme_Tool_Suite_v3
             EnsureScheduleBuilderRulesLoaded();
 
             var reroute = new List<MCDownloadedTrip>();
-            var banned = new List<MCDownloadedTrip>();
             var willCalls = new List<MCDownloadedTrip>();
             var reserves = new List<MCDownloadedTrip>();
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -345,8 +386,6 @@ namespace Hiatme_Tool_Suite_v3
                 switch (ScheduleBuilderReserveBuckets.Classify(trip))
                 {
                     case ScheduleBuilderReserveBuckets.ReserveBucket.Banned:
-                        banned.Add(trip);
-                        break;
                     case ScheduleBuilderReserveBuckets.ReserveBucket.Reroute:
                         reroute.Add(trip);
                         break;
@@ -375,9 +414,9 @@ namespace Hiatme_Tool_Suite_v3
                     // On a driver tab: no-go may stay; banned + 00:00 PU will-calls always go to Reserves.
                     if (TripStillOnDriverAssignment(dled))
                     {
-                        var bucket = ScheduleBuilderReserveBuckets.Classify(dled);
-                        if (bucket == ScheduleBuilderReserveBuckets.ReserveBucket.Banned
-                            || bucket == ScheduleBuilderReserveBuckets.ReserveBucket.WillCall)
+                        if (ScheduleBuilderBannedClients.IsBanned(dled)
+                            || ScheduleBuilderReserveBuckets.Classify(dled)
+                                == ScheduleBuilderReserveBuckets.ReserveBucket.WillCall)
                         {
                             RemoveTripFromFound(dled);
                             AddToBucket(dled);
@@ -406,9 +445,43 @@ namespace Hiatme_Tool_Suite_v3
                 WillCallsInDownloadCount = WillCallsPuMidnightInDownloadCount = WillCallsCommentInDownloadCount = 0;
 
             PreviewReservesReroute = reroute;
-            PreviewReservesBanned = banned;
+            PreviewReservesBanned = new List<MCDownloadedTrip>();
             PreviewReservesWillCalls = willCalls;
             PreviewReserves = reserves;
+        }
+
+        /// <summary>Sync reserve bucket lists after manual cut/insert on the Reserves preview tab.</summary>
+        internal void ApplyPreviewReserveLines(IList<ScheduleBuilderPreviewLine> lines)
+        {
+            var reservers = new List<MCDownloadedTrip>();
+            var reroutes = new List<MCDownloadedTrip>();
+            var willCalls = new List<MCDownloadedTrip>();
+            var legacyBanned = new List<MCDownloadedTrip>();
+
+            if (lines != null)
+            {
+                foreach (var line in lines)
+                {
+                    if (line?.Kind != ScheduleBuilderPreviewLine.LineKind.Trip || line.Trip == null)
+                        continue;
+                    Color? band = line.ReserveBandColor;
+                    if (band == ScheduleBuilderReserveBuckets.BannedBand
+                        || band == ScheduleBuilderReserveBuckets.RerouteBand)
+                        reroutes.Add(line.Trip);
+                    else if (band == ScheduleBuilderReserveBuckets.WillCallBand)
+                        willCalls.Add(line.Trip);
+                    else
+                        reservers.Add(line.Trip);
+                }
+            }
+
+            ScheduleBuilderReserveBuckets.RebucketBannedTripsIntoReroutes(
+                reservers, reroutes, willCalls, legacyBanned);
+
+            PreviewReserves = reservers;
+            PreviewReservesReroute = reroutes;
+            PreviewReservesWillCalls = willCalls;
+            PreviewReservesBanned = new List<MCDownloadedTrip>();
         }
 
         /// <summary>
@@ -506,16 +579,18 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     if (line?.Kind == ScheduleBuilderPreviewLine.LineKind.Trip && line.Trip != null)
                     {
-                        switch (ScheduleBuilderReserveBuckets.Classify(line.Trip))
+                        if (ScheduleBuilderBannedClients.IsBanned(line.Trip))
                         {
-                            case ScheduleBuilderReserveBuckets.ReserveBucket.Banned:
-                                _bannedPulledFromDrivers.Add(line.Trip);
-                                RemoveTripFromFound(line.Trip);
-                                continue;
-                            case ScheduleBuilderReserveBuckets.ReserveBucket.WillCall:
-                                _willCallPulledFromDrivers.Add(line.Trip);
-                                RemoveTripFromFound(line.Trip);
-                                continue;
+                            _bannedPulledFromDrivers.Add(line.Trip);
+                            RemoveTripFromFound(line.Trip);
+                            continue;
+                        }
+                        if (ScheduleBuilderReserveBuckets.Classify(line.Trip)
+                            == ScheduleBuilderReserveBuckets.ReserveBucket.WillCall)
+                        {
+                            _willCallPulledFromDrivers.Add(line.Trip);
+                            RemoveTripFromFound(line.Trip);
+                            continue;
                         }
                     }
                     keptLines.Add(line);

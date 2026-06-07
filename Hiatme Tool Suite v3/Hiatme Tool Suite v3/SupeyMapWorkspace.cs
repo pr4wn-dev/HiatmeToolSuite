@@ -43,6 +43,11 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>Fixed-width dock on the workspace host (not inside the map). Not user-resizable.</summary>
         public SupeyCollapsiblePanel GroupKeyPanel => _groupKeyCollapsible;
 
+        /// <summary>Inner host for group-key legend — may be reparented into a unified side panel.</summary>
+        public Panel GroupKeyContentPanel => _groupKeyCollapsible.ContentPanel;
+
+        private bool _groupKeyEmbedded;
+
         private static readonly Font GroupKeyTitleFont = new Font("Segoe UI Semibold", 9f);
         private static readonly Font GroupKeyDetailFont = new Font("Segoe UI", 8.25f);
 
@@ -248,11 +253,22 @@ namespace Hiatme_Tool_Suite_v3
 
         private void SetGroupKeyDockVisible(bool visible)
         {
-            _groupKeyCollapsible.Visible = visible;
+            if (!_groupKeyEmbedded)
+                _groupKeyCollapsible.Visible = visible;
             if (!visible) return;
-            _groupKeyCollapsible.ApplyExpandedLayout();
+            if (!_groupKeyEmbedded)
+                _groupKeyCollapsible.ApplyExpandedLayout();
             RelayoutLegendRows();
         }
+
+        public void SetGroupKeyEmbedded(bool embedded)
+        {
+            _groupKeyEmbedded = embedded;
+            if (embedded)
+                _groupKeyCollapsible.Visible = false;
+        }
+
+        public void RelayoutGroupKeyIfNeeded() => RelayoutLegendRows();
 
         private int GetLegendRowWidth() => Math.Max(160, _legend.ClientSize.Width - 4);
 
