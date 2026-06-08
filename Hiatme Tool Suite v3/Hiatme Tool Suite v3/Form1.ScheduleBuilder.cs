@@ -1921,6 +1921,7 @@ namespace Hiatme_Tool_Suite_v3
             if (_fsMap == null || !_fsMap.Visible || !ScheduleOsrmGate.PreviewRoutingOk) return;
 
             ApplyFsMapDisplayFilter();
+            ApplyFsMapTripSelectionHighlight();
 
             if (_fsTripsLv == null || _fsTripsLv.SelectedItems.Count == 0
 

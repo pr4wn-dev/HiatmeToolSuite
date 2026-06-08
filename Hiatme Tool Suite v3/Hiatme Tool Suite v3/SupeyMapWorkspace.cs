@@ -68,16 +68,49 @@ namespace Hiatme_Tool_Suite_v3
 
         private GMapOverlay _deadheadOverlay;
         private GMapOverlay _homeOverlay;
+        private GMapOverlay _selectionRouteOverlay;
+        private GMapOverlay _selectionMarkerOverlay;
+        private readonly Dictionary<string, SelectionTopRouteVisual> _selectionTopRoutes =
+            new Dictionary<string, SelectionTopRouteVisual>(StringComparer.OrdinalIgnoreCase);
         private CheckBox _deadheadToggle;
 
         private SupeyDriverPlan _currentPlan;
         private readonly Dictionary<string, List<SupeyDraggableMarker>> _tripMarkers =
             new Dictionary<string, List<SupeyDraggableMarker>>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<SupeyDraggableMarker, GMapOverlay> _markerHomeOverlay =
+            new Dictionary<SupeyDraggableMarker, GMapOverlay>();
+
+        private readonly Dictionary<string, TripLegRouteVisual> _tripLegRoutes =
+            new Dictionary<string, TripLegRouteVisual>(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> _highlightedTripNumbers =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private readonly Timer _selectionPulseTimer;
+        private float _selectionPulsePhase;
+
+        private sealed class TripLegRouteVisual
+        {
+            public GMapRoute Route;
+            public List<PointLatLng> Points;
+            public Color BaseColor;
+            public float BaseWidth;
+            public DashStyle BaseDash;
+            public bool FilterVisible = true;
+        }
+
+        private sealed class SelectionTopRouteVisual
+        {
+            public GMapRoute BorderRoute;
+            public GMapRoute ColorRoute;
+        }
+
+        private const float SelectionRouteBorderExtraWidth = 3f;
 
         private static readonly Font MileageValueFont = new Font("Segoe UI Semibold", 22f);
         private static readonly Color MileageCardBack = Color.FromArgb(34, 38, 34);
 
         private Panel _mileageHudHost;
+        private Panel _selectionHiddenHint;
+        private Label _selectionHiddenHintLbl;
         private Panel _groupMileageCard;
         private Panel _tripMileageCard;
         private Panel _efficiencyMileageCard;
@@ -226,6 +259,7 @@ namespace Hiatme_Tool_Suite_v3
             BuildMapLoadingOverlay();
             Controls.Add(_emptyLabel);
             BuildMileageHud();
+            BuildSelectionHiddenHint();
             _emptyLabel.BringToFront();
             SetGroupKeyDockVisible(false);
 
@@ -235,6 +269,9 @@ namespace Hiatme_Tool_Suite_v3
             _map.OnMapZoomChanged += () => Invalidate();
             _map.OnMarkerClick += OnMarkerClick;
             SupeyMapMarkerDrag.EnsureWired(_map);
+
+            _selectionPulseTimer = new Timer { Interval = 45 };
+            _selectionPulseTimer.Tick += (s, e) => AdvanceSelectionPulse();
         }
 
         private void BuildMapLoadingOverlay()
@@ -471,9 +508,14 @@ namespace Hiatme_Tool_Suite_v3
             _groupCheckboxes.Clear();
             _deadheadOverlay = null;
             _homeOverlay = null;
+            _selectionRouteOverlay = null;
+            _selectionMarkerOverlay = null;
+            _selectionTopRoutes.Clear();
+            _markerHomeOverlay.Clear();
             ClearLegend();
             _currentPlan = null;
             _tripMarkers.Clear();
+            ClearTripSelectionHighlight();
             ClearMileageHud();
             _emptyLabel.Visible = true;
             SetGroupKeyDockVisible(false);
@@ -667,6 +709,48 @@ namespace Hiatme_Tool_Suite_v3
             Resize += (s, e) => PositionMileageHudHost();
         }
 
+        private void BuildSelectionHiddenHint()
+        {
+            _selectionHiddenHintLbl = new Label
+            {
+                AutoSize = false,
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleCenter,
+                ForeColor = SupeyTheme.WarnText,
+                BackColor = Color.Transparent,
+                Font = new Font("Segoe UI", 9f),
+                Padding = new Padding(8, 0, 8, 0),
+            };
+
+            _selectionHiddenHint = new Panel
+            {
+                Visible = false,
+                Height = 34,
+                BackColor = Color.FromArgb(240, 34, 38, 34),
+                BorderStyle = BorderStyle.FixedSingle,
+            };
+            _selectionHiddenHint.Paint += (s, e) =>
+            {
+                using (var pen = new Pen(SupeyTheme.WarnText, 1f))
+                    e.Graphics.DrawRectangle(pen, 0, 0, _selectionHiddenHint.Width - 1, _selectionHiddenHint.Height - 1);
+            };
+            _selectionHiddenHint.Controls.Add(_selectionHiddenHintLbl);
+            Controls.Add(_selectionHiddenHint);
+            Resize += (s, e) => PositionSelectionHiddenHint();
+        }
+
+        private void PositionSelectionHiddenHint()
+        {
+            if (_selectionHiddenHint == null || !_selectionHiddenHint.Visible)
+                return;
+
+            int maxW = Math.Max(280, Math.Min(520, ClientSize.Width - 24));
+            _selectionHiddenHint.Width = maxW;
+            _selectionHiddenHint.Left = Math.Max(12, (ClientSize.Width - maxW) / 2);
+            _selectionHiddenHint.Top = Math.Max(12, ClientSize.Height - _selectionHiddenHint.Height - 12);
+            _selectionHiddenHint.BringToFront();
+        }
+
         private void PositionMileageHudHost()
         {
             if (_mileageHudHost == null) return;
@@ -772,6 +856,7 @@ namespace Hiatme_Tool_Suite_v3
             _deadheadOverlay = null;
             _homeOverlay = null;
             _tripMarkers.Clear();
+            _markerHomeOverlay.Clear();
             SetGroupKeyDockVisible(false);
 
             if (trips == null || trips.Count == 0)
@@ -801,7 +886,7 @@ namespace Hiatme_Tool_Suite_v3
                     var marker = new SupeyDraggableMarker(pos, GMarkerGoogleType.green_small);
                     ApplyTripEndpointTooltip(marker, trip, isPickup: true, groupColor: null);
                     overlay.Markers.Add(marker);
-                    RegisterTripMarker(trip, marker);
+                    RegisterTripMarker(trip, marker, overlay);
                 }
 
                 if (dropoffByTrip != null && dropoffByTrip.TryGetValue(key, out var dof)
@@ -812,7 +897,7 @@ namespace Hiatme_Tool_Suite_v3
                     var marker = new SupeyDraggableMarker(pos, GMarkerGoogleType.red_small);
                     ApplyTripEndpointTooltip(marker, trip, isPickup: false, groupColor: null);
                     overlay.Markers.Add(marker);
-                    RegisterTripMarker(trip, marker);
+                    RegisterTripMarker(trip, marker, overlay);
                 }
             }
 
@@ -900,7 +985,7 @@ namespace Hiatme_Tool_Suite_v3
             if (_map.Zoom > zoomMulti) _map.Zoom = zoomMulti;
         }
 
-        private void RegisterTripMarker(MCDownloadedTrip trip, SupeyDraggableMarker marker)
+        private void RegisterTripMarker(MCDownloadedTrip trip, SupeyDraggableMarker marker, GMapOverlay homeOverlay)
         {
             if (trip == null || marker == null) return;
             string key = (trip.TripNumber ?? "").Trim();
@@ -911,7 +996,487 @@ namespace Hiatme_Tool_Suite_v3
                 _tripMarkers[key] = list;
             }
             list.Add(marker);
+            if (homeOverlay != null)
+                _markerHomeOverlay[marker] = homeOverlay;
         }
+
+        /// <summary>Pulse-highlight PU/DO pins and the trip PU→DO route for list selection.</summary>
+        public void SetSelectedTripHighlight(IEnumerable<string> tripNumbers)
+        {
+            _highlightedTripNumbers.Clear();
+            if (tripNumbers != null)
+            {
+                foreach (var raw in tripNumbers)
+                {
+                    string tn = (raw ?? "").Trim();
+                    if (tn.Length > 0)
+                        _highlightedTripNumbers.Add(tn);
+                }
+            }
+
+            foreach (var kv in _tripMarkers)
+            {
+                bool on = _highlightedTripNumbers.Contains(kv.Key);
+                foreach (var marker in kv.Value)
+                {
+                    marker.IsSelectionHighlighted = on;
+                    if (!on)
+                        marker.SelectionPulsePhase = 0f;
+                }
+            }
+
+            ApplyTripRouteHighlightStyles();
+
+            if (_highlightedTripNumbers.Count == 0)
+            {
+                _selectionPulseTimer.Stop();
+                _selectionPulsePhase = 0f;
+            }
+            else if (!_selectionPulseTimer.Enabled)
+            {
+                _selectionPulseTimer.Start();
+            }
+
+            UpdateSelectionHiddenHint();
+            SyncSelectionRouteOverlay();
+            _map.Refresh();
+        }
+
+        public void ClearTripSelectionHighlight()
+        {
+            SetSelectedTripHighlight(null);
+        }
+
+        private void EnsureSelectionRouteOverlayOnTop()
+        {
+            if (_selectionRouteOverlay == null)
+                _selectionRouteOverlay = new GMapOverlay("selection-routes");
+
+            if (!_map.Overlays.Contains(_selectionRouteOverlay))
+                _map.Overlays.Add(_selectionRouteOverlay);
+            else
+            {
+                _map.Overlays.Remove(_selectionRouteOverlay);
+                _map.Overlays.Add(_selectionRouteOverlay);
+            }
+
+            EnsureSelectionMarkerOverlayOnTop();
+        }
+
+        private void EnsureSelectionMarkerOverlayOnTop()
+        {
+            if (_selectionMarkerOverlay == null)
+                _selectionMarkerOverlay = new GMapOverlay("selection-markers");
+
+            if (!_map.Overlays.Contains(_selectionMarkerOverlay))
+                _map.Overlays.Add(_selectionMarkerOverlay);
+            else
+            {
+                _map.Overlays.Remove(_selectionMarkerOverlay);
+                _map.Overlays.Add(_selectionMarkerOverlay);
+            }
+        }
+
+        private void RestoreSelectionMarkersToHome()
+        {
+            if (_selectionMarkerOverlay == null || _selectionMarkerOverlay.Markers.Count == 0)
+                return;
+
+            var moving = new List<SupeyDraggableMarker>();
+            foreach (var item in _selectionMarkerOverlay.Markers)
+            {
+                if (item is SupeyDraggableMarker dm)
+                    moving.Add(dm);
+            }
+
+            foreach (var marker in moving)
+            {
+                _selectionMarkerOverlay.Markers.Remove(marker);
+                if (_markerHomeOverlay.TryGetValue(marker, out var home) && home != null)
+                    home.Markers.Add(marker);
+            }
+        }
+
+        /// <summary>Draw selected trip PU/DO pins on a top overlay so they sit above other markers.</summary>
+        private void SyncSelectionMarkerOverlay()
+        {
+            RestoreSelectionMarkersToHome();
+
+            if (_highlightedTripNumbers.Count == 0)
+                return;
+
+            EnsureSelectionMarkerOverlayOnTop();
+
+            foreach (var tn in _highlightedTripNumbers)
+            {
+                if (!_tripMarkers.TryGetValue(tn, out var markers))
+                    continue;
+                foreach (var marker in markers)
+                {
+                    if (!marker.IsVisible)
+                        continue;
+                    if (!_markerHomeOverlay.TryGetValue(marker, out var home) || home == null)
+                        continue;
+                    if (!home.Markers.Contains(marker))
+                        continue;
+
+                    home.Markers.Remove(marker);
+                    _selectionMarkerOverlay.Markers.Add(marker);
+                }
+            }
+        }
+
+        private void ClearSelectionTopRoutes()
+        {
+            if (_selectionRouteOverlay != null)
+            {
+                foreach (var route in _selectionRouteOverlay.Routes)
+                    route.Stroke?.Dispose();
+                _selectionRouteOverlay.Routes.Clear();
+            }
+            _selectionTopRoutes.Clear();
+        }
+
+        private static bool IsTripLegRouteName(string routeName) =>
+            routeName != null && routeName.StartsWith("trip-leg:", StringComparison.OrdinalIgnoreCase);
+
+        private bool GroupHasVisibleHighlightedTrip(SupeyTripCluster group)
+        {
+            if (group?.Trips == null || _highlightedTripNumbers.Count == 0)
+                return false;
+            foreach (var t in group.Trips)
+            {
+                string tn = (t?.TripNumber ?? "").Trim();
+                if (tn.Length == 0 || !_highlightedTripNumbers.Contains(tn))
+                    continue;
+                if (_tripLegRoutes.TryGetValue(tn, out var legVisual) && legVisual.FilterVisible)
+                    return true;
+            }
+            return false;
+        }
+
+        private bool IsGroupRouteVisible(int groupNumber)
+        {
+            if (!_groupOverlays.TryGetValue(groupNumber, out var overlay))
+                return false;
+            if (!overlay.IsVisibile)
+                return false;
+            if (!TripFlatMapMode && _groupCheckboxes.TryGetValue(groupNumber, out var cb))
+                return cb.Checked;
+            return true;
+        }
+
+        /// <summary>
+        /// Hide group tours and other trip legs under highlighted PU→DO legs so the top overlay
+        /// is not partially covered while pulsing.
+        /// </summary>
+        private void SuppressUnderlyingRoutesForSelection()
+        {
+            if (_highlightedTripNumbers.Count == 0 || _currentPlan?.Groups == null)
+                return;
+
+            foreach (var g in _currentPlan.Groups)
+            {
+                if (!_groupOverlays.TryGetValue(g.GroupNumber, out var overlay) || !overlay.IsVisibile)
+                    continue;
+
+                bool groupHasHighlight = GroupHasVisibleHighlightedTrip(g);
+
+                foreach (var route in overlay.Routes)
+                {
+                    if (route == null)
+                        continue;
+
+                    if (string.Equals(route.Name, "group-tour", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (groupHasHighlight)
+                            route.IsVisible = false;
+                        continue;
+                    }
+
+                    if (!IsTripLegRouteName(route.Name))
+                        continue;
+
+                    string tn = route.Name.Substring("trip-leg:".Length);
+                    if (!_highlightedTripNumbers.Contains(tn))
+                        route.IsVisible = false;
+                }
+            }
+        }
+
+        private void RestoreNonTripLegBaseRoutes()
+        {
+            if (_currentPlan?.Groups == null)
+                return;
+
+            foreach (var g in _currentPlan.Groups)
+            {
+                if (!_groupOverlays.TryGetValue(g.GroupNumber, out var overlay))
+                    continue;
+
+                bool showRoute = IsGroupRouteVisible(g.GroupNumber);
+                foreach (var route in overlay.Routes)
+                {
+                    if (route == null || IsTripLegRouteName(route.Name))
+                        continue;
+                    route.IsVisible = showRoute;
+                }
+            }
+        }
+
+        private static Pen CreateRoutePen(Color color, float width, DashStyle dash)
+        {
+            return new Pen(color, width)
+            {
+                DashStyle = dash,
+                LineJoin = LineJoin.Round,
+                StartCap = LineCap.Round,
+                EndCap = LineCap.Round,
+            };
+        }
+
+        /// <summary>Draw selected trip PU→DO legs on a top overlay so they sit above other routes.</summary>
+        private void SyncSelectionRouteOverlay()
+        {
+            ClearSelectionTopRoutes();
+
+            if (_highlightedTripNumbers.Count == 0)
+            {
+                foreach (var kv in _tripLegRoutes)
+                {
+                    if (kv.Value?.Route != null)
+                        kv.Value.Route.IsVisible = kv.Value.FilterVisible;
+                }
+                RestoreNonTripLegBaseRoutes();
+                ApplyTripRouteHighlightStyles();
+                SyncSelectionMarkerOverlay();
+                return;
+            }
+
+            if (_tripLegRoutes.Count == 0)
+            {
+                ApplyTripRouteHighlightStyles();
+                SyncSelectionMarkerOverlay();
+                return;
+            }
+
+            EnsureSelectionRouteOverlayOnTop();
+
+            foreach (var kv in _tripLegRoutes)
+            {
+                var visual = kv.Value;
+                if (visual?.Route == null)
+                    continue;
+
+                bool highlighted = _highlightedTripNumbers.Contains(kv.Key) && visual.FilterVisible;
+                var sourcePts = visual.Points ?? visual.Route.Points;
+                if (highlighted && sourcePts != null && sourcePts.Count >= 2)
+                {
+                    visual.Route.IsVisible = false;
+                    var pts = new List<PointLatLng>(sourcePts);
+                    var border = new GMapRoute(pts, "sel-trip-leg-border:" + kv.Key);
+                    var top = new GMapRoute(pts, "sel-trip-leg:" + kv.Key);
+                    _selectionRouteOverlay.Routes.Add(border);
+                    _selectionRouteOverlay.Routes.Add(top);
+                    _selectionTopRoutes[kv.Key] = new SelectionTopRouteVisual
+                    {
+                        BorderRoute = border,
+                        ColorRoute = top,
+                    };
+                }
+                else
+                {
+                    visual.Route.IsVisible = visual.FilterVisible;
+                }
+            }
+
+            SuppressUnderlyingRoutesForSelection();
+            ApplyTripRouteHighlightStyles();
+            SyncSelectionMarkerOverlay();
+        }
+
+        private void UpdateSelectionHiddenHint()
+        {
+            if (_selectionHiddenHint == null || _selectionHiddenHintLbl == null)
+                return;
+
+            if (TripFlatMapMode
+                || _groupCheckboxes.Count == 0
+                || MapDisplayFilter != FsMapDisplayMode.AllDriverTrips
+                || _highlightedTripNumbers.Count == 0)
+            {
+                _selectionHiddenHint.Visible = false;
+                return;
+            }
+
+            var hiddenGroups = new SortedSet<int>();
+            foreach (var tn in _highlightedTripNumbers)
+            {
+                if (IsTripVisibleOnMap(tn))
+                    continue;
+                if (TryGetTripGroupNumber(tn, out int gn)
+                    && _groupCheckboxes.TryGetValue(gn, out var cb)
+                    && !cb.Checked)
+                {
+                    hiddenGroups.Add(gn);
+                }
+            }
+
+            if (hiddenGroups.Count == 0)
+            {
+                _selectionHiddenHint.Visible = false;
+                return;
+            }
+
+            string groupLabel = hiddenGroups.Count == 1
+                ? "Group " + hiddenGroups.Min()
+                : "Groups " + string.Join(", ", hiddenGroups);
+            string verb = hiddenGroups.Count == 1 ? "is" : "are";
+            string pronoun = hiddenGroups.Count == 1 ? "it" : "them";
+            string tripLabel = _highlightedTripNumbers.Count == 1 ? "this trip" : "these trips";
+            _selectionHiddenHintLbl.Text =
+                groupLabel + " " + verb + " hidden in the Group key — enable "
+                + pronoun + " to see " + tripLabel + " on the map.";
+            _selectionHiddenHint.Visible = true;
+            PositionSelectionHiddenHint();
+        }
+
+        private bool IsTripVisibleOnMap(string tripNumber)
+        {
+            string key = (tripNumber ?? "").Trim();
+            if (key.Length == 0 || !_tripMarkers.TryGetValue(key, out var markers))
+                return false;
+            foreach (var marker in markers)
+            {
+                if (marker.IsVisible)
+                    return true;
+            }
+            return false;
+        }
+
+        private bool TryGetTripGroupNumber(string tripNumber, out int groupNumber)
+        {
+            groupNumber = 0;
+            if (string.IsNullOrWhiteSpace(tripNumber) || _currentPlan?.Groups == null)
+                return false;
+            string key = tripNumber.Trim();
+            foreach (var g in _currentPlan.Groups)
+            {
+                if (g?.Trips == null)
+                    continue;
+                foreach (var t in g.Trips)
+                {
+                    if (string.Equals((t?.TripNumber ?? "").Trim(), key, StringComparison.OrdinalIgnoreCase))
+                    {
+                        groupNumber = g.GroupNumber;
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        private void AdvanceSelectionPulse()
+        {
+            if (_highlightedTripNumbers.Count == 0)
+            {
+                _selectionPulseTimer.Stop();
+                return;
+            }
+
+            _selectionPulsePhase += 0.045f;
+            if (_selectionPulsePhase > 1f)
+                _selectionPulsePhase -= 1f;
+
+            foreach (var tn in _highlightedTripNumbers)
+            {
+                if (!_tripMarkers.TryGetValue(tn, out var markers))
+                    continue;
+                foreach (var marker in markers)
+                {
+                    if (marker.IsVisible)
+                        marker.SelectionPulsePhase = _selectionPulsePhase;
+                }
+            }
+
+            ApplyTripRouteHighlightStyles();
+            _map.Refresh();
+        }
+
+        private void ApplyTripRouteHighlightStyles()
+        {
+            float wave = (float)((Math.Sin(_selectionPulsePhase * Math.PI * 2) + 1) * 0.5);
+            float visibility = 1f - wave;
+
+            foreach (var kv in _tripLegRoutes)
+            {
+                var visual = kv.Value;
+                if (visual?.Route == null || _selectionTopRoutes.ContainsKey(kv.Key))
+                    continue;
+
+                visual.Route.Stroke?.Dispose();
+                visual.Route.Stroke = CreateRoutePen(visual.BaseColor, visual.BaseWidth, visual.BaseDash);
+            }
+
+            foreach (var kv in _selectionTopRoutes)
+            {
+                if (!_tripLegRoutes.TryGetValue(kv.Key, out var visual))
+                    continue;
+
+                var top = kv.Value;
+                if (top?.BorderRoute == null || top.ColorRoute == null)
+                    continue;
+
+                Color accent = visual.BaseColor;
+                float borderWidth = visual.BaseWidth + SelectionRouteBorderExtraWidth;
+
+                top.BorderRoute.Stroke?.Dispose();
+                top.BorderRoute.Stroke = CreateRoutePen(Color.Black, borderWidth, DashStyle.Solid);
+                top.BorderRoute.IsVisible = true;
+
+                int alpha = (int)(255 * visibility);
+                top.ColorRoute.Stroke?.Dispose();
+                if (alpha < 8)
+                {
+                    top.ColorRoute.IsVisible = false;
+                    continue;
+                }
+
+                top.ColorRoute.Stroke = CreateRoutePen(
+                    Color.FromArgb(alpha, accent.R, accent.G, accent.B),
+                    visual.BaseWidth,
+                    visual.BaseDash);
+                top.ColorRoute.IsVisible = true;
+            }
+        }
+
+        private void RegisterTripLegRoute(
+            string tripNumber,
+            GMapRoute route,
+            Color color,
+            float width,
+            bool straightFallback)
+        {
+            string tn = (tripNumber ?? "").Trim();
+            if (tn.Length == 0 || route == null)
+                return;
+
+            List<PointLatLng> pts = null;
+            if (route.Points != null && route.Points.Count >= 2)
+                pts = new List<PointLatLng>(route.Points);
+
+            _tripLegRoutes[tn] = new TripLegRouteVisual
+            {
+                Route = route,
+                Points = pts,
+                BaseColor = color,
+                BaseWidth = width,
+                BaseDash = straightFallback ? DashStyle.Dash : DashStyle.Solid,
+            };
+        }
+
+        private static string TripLegRouteName(string tripNumber) =>
+            "trip-leg:" + (tripNumber ?? "").Trim();
 
         /// <summary>
         /// Rebuilds the map for the given driver: one overlay per group, one for the home marker,
@@ -930,8 +1495,14 @@ namespace Hiatme_Tool_Suite_v3
             _map.Overlays.Clear();
             _groupOverlays.Clear();
             _groupCheckboxes.Clear();
+            _selectionRouteOverlay = null;
+            _selectionMarkerOverlay = null;
+            _selectionTopRoutes.Clear();
+            _markerHomeOverlay.Clear();
             ClearLegend();
             _tripMarkers.Clear();
+            _tripLegRoutes.Clear();
+            ClearTripSelectionHighlight();
             ClearMileageHud();
 
             if (plan == null || (!plan.HomeGeo.HasValue && plan.Groups.Count == 0))
@@ -1011,8 +1582,10 @@ namespace Hiatme_Tool_Suite_v3
 
                 if (TripFlatMapMode)
                 {
-                    AddClusterRouteToOverlay(overlay, g.RoutePolyline, "trip-" + g.GroupNumber,
+                    string tn = g.Trips.Count > 0 ? (g.Trips[0]?.TripNumber ?? "").Trim() : "";
+                    var route = AddClusterRouteToOverlay(overlay, g.RoutePolyline, TripLegRouteName(tn),
                         groupColor, g.IsStraightLineFallback, thick: true);
+                    RegisterTripLegRoute(tn, route, groupColor, 4f, g.IsStraightLineFallback);
                 }
                 else
                 {
@@ -1026,9 +1599,10 @@ namespace Hiatme_Tool_Suite_v3
                     {
                         if (leg?.Points == null || leg.Points.Count < 2)
                             continue;
-                        string legName = "trip-leg:" + (leg.TripNumber ?? "");
-                        AddClusterRouteToOverlay(overlay, leg.Points, legName,
+                        string legName = TripLegRouteName(leg.TripNumber);
+                        var route = AddClusterRouteToOverlay(overlay, leg.Points, legName,
                             groupColor, leg.IsStraightLineFallback, thick: false);
+                        RegisterTripLegRoute(leg.TripNumber, route, groupColor, 2.5f, leg.IsStraightLineFallback);
                     }
 
                     // Fallback when leg build was skipped but geocodes exist.
@@ -1040,8 +1614,10 @@ namespace Hiatme_Tool_Suite_v3
                             fallback.Add(g.PickupPoints[0]);
                             fallback.Add(g.DropoffPoints[0]);
                         }
-                        AddClusterRouteToOverlay(overlay, fallback, "trip-leg:",
+                        string tn = (g.Trips[0]?.TripNumber ?? "").Trim();
+                        var route = AddClusterRouteToOverlay(overlay, fallback, TripLegRouteName(tn),
                             groupColor, straightFallback: true, thick: false);
+                        RegisterTripLegRoute(tn, route, groupColor, 2.5f, straightFallback: true);
                     }
                 }
 
@@ -1064,7 +1640,7 @@ namespace Hiatme_Tool_Suite_v3
                     };
                     ApplyRouteStopTooltip(marker, g, stop, totalStops, isPickup: true, trip);
                     overlay.Markers.Add(marker);
-                    RegisterTripMarker(trip, marker);
+                    RegisterTripMarker(trip, marker, overlay);
                 }
 
                 // DO markers.
@@ -1084,7 +1660,7 @@ namespace Hiatme_Tool_Suite_v3
                     };
                     ApplyRouteStopTooltip(marker, g, stop, totalStops, isPickup: false, trip);
                     overlay.Markers.Add(marker);
-                    RegisterTripMarker(trip, marker);
+                    RegisterTripMarker(trip, marker, overlay);
                 }
 
                 _groupOverlays[g.GroupNumber] = overlay;
@@ -1095,6 +1671,9 @@ namespace Hiatme_Tool_Suite_v3
 
             if (_homeOverlay != null)
                 _map.Overlays.Add(_homeOverlay);
+
+            EnsureSelectionRouteOverlayOnTop();
+            SyncSelectionRouteOverlay();
 
             if (!TripFlatMapMode)
             {
@@ -1166,10 +1745,10 @@ namespace Hiatme_Tool_Suite_v3
                     _deadheadOverlay.IsVisibile = snap.DeadheadChecked.Value;
             }
 
-            // All-driver mode shows every group; skip single-group legend focus from prior refresh.
+            // All-driver mode: restore legend toggles from snapshot (never collapse to one group).
             if (MapDisplayFilter == FsMapDisplayMode.AllDriverTrips)
             {
-                ShowAllGroups(syncLegendOnly: true);
+                RestoreLegendFromSnapshot(plan, snap);
                 _map.Refresh();
                 return;
             }
@@ -1201,40 +1780,103 @@ namespace Hiatme_Tool_Suite_v3
             }
             else if (snap.CheckedGroupCount > 0 && snap.CheckedGroupCount < _groupCheckboxes.Count)
             {
-                foreach (var g in plan.Groups)
-                {
-                    bool show = false;
-                    foreach (var t in g.Trips)
-                    {
-                        var tn = t?.TripNumber;
-                        if (string.IsNullOrWhiteSpace(tn))
-                        {
-                            show = true;
-                            break;
-                        }
-                        if (!snap.TripWasVisible.TryGetValue(tn, out bool was))
-                        {
-                            show = true;
-                            break;
-                        }
-                        if (was)
-                            show = true;
-                    }
-                    if (g.Trips.Count == 0)
-                        show = true;
-                    SetGroupVisible(g.GroupNumber, show);
-                }
+                RestoreLegendFromSnapshot(plan, snap);
             }
 
             _map.Refresh();
         }
 
+        private void RestoreLegendFromSnapshot(SupeyDriverPlan plan, LegendVisibilitySnapshot snap)
+        {
+            foreach (var g in plan.Groups)
+            {
+                bool show = false;
+                foreach (var t in g.Trips)
+                {
+                    var tn = t?.TripNumber;
+                    if (string.IsNullOrWhiteSpace(tn))
+                    {
+                        show = true;
+                        break;
+                    }
+                    if (!snap.TripWasVisible.TryGetValue(tn, out bool was))
+                    {
+                        show = true;
+                        break;
+                    }
+                    if (was)
+                        show = true;
+                }
+                if (g.Trips.Count == 0)
+                    show = true;
+                SetGroupVisible(g.GroupNumber, show);
+            }
+        }
+
         private void SetGroupVisible(int groupNumber, bool visible)
         {
-            if (_groupCheckboxes.TryGetValue(groupNumber, out var cb) && cb.Checked != visible)
-                cb.Checked = visible;
-            if (_groupOverlays.TryGetValue(groupNumber, out var overlay))
-                overlay.IsVisibile = visible;
+            _syncingLegend = true;
+            try
+            {
+                if (_groupCheckboxes.TryGetValue(groupNumber, out var cb) && cb.Checked != visible)
+                    cb.Checked = visible;
+                if (_groupOverlays.TryGetValue(groupNumber, out var overlay))
+                {
+                    overlay.IsVisibile = visible;
+                    foreach (var route in overlay.Routes)
+                        route.IsVisible = visible;
+                }
+                SyncTripMarkerVisibilityForGroup(groupNumber, visible);
+                UpdateTripLegFilterForGroup(groupNumber, visible);
+            }
+            finally
+            {
+                _syncingLegend = false;
+            }
+
+            SyncSelectionRouteOverlay();
+        }
+
+        private void SyncTripMarkerVisibilityForGroup(int groupNumber, bool visible)
+        {
+            if (_currentPlan?.Groups == null)
+                return;
+            foreach (var g in _currentPlan.Groups)
+            {
+                if (g.GroupNumber != groupNumber || g.Trips == null)
+                    continue;
+                foreach (var t in g.Trips)
+                {
+                    string tn = (t?.TripNumber ?? "").Trim();
+                    if (tn.Length == 0 || !_tripMarkers.TryGetValue(tn, out var markers))
+                        continue;
+                    foreach (var marker in markers)
+                        marker.IsVisible = visible;
+                }
+            }
+        }
+
+        private bool IsTripLegendVisible(string tripNumber)
+        {
+            if (string.IsNullOrWhiteSpace(tripNumber) || _currentPlan?.Groups == null)
+                return true;
+            string key = tripNumber.Trim();
+            foreach (var g in _currentPlan.Groups)
+            {
+                if (g.Trips == null)
+                    continue;
+                foreach (var t in g.Trips)
+                {
+                    if (!string.Equals((t?.TripNumber ?? "").Trim(), key, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    if (_groupCheckboxes.TryGetValue(g.GroupNumber, out var cb))
+                        return cb.Checked;
+                    if (_groupOverlays.TryGetValue(g.GroupNumber, out var overlay))
+                        return overlay.IsVisibile;
+                    return true;
+                }
+            }
+            return true;
         }
 
         private Color ResolveGroupDisplayColor(SupeyTripCluster g)
@@ -1342,7 +1984,7 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>Active list-driven map filter; legend clicks are ignored while filtered.</summary>
         public FsMapDisplayMode MapDisplayFilter { get; private set; } = FsMapDisplayMode.AllDriverTrips;
 
-        private static void AddClusterRouteToOverlay(
+        private static GMapRoute AddClusterRouteToOverlay(
             GMapOverlay overlay,
             IList<GeoPoint> polyline,
             string routeName,
@@ -1351,7 +1993,7 @@ namespace Hiatme_Tool_Suite_v3
             bool thick)
         {
             if (overlay == null || polyline == null || polyline.Count < 2)
-                return;
+                return null;
 
             var pts = new List<PointLatLng>(polyline.Count);
             foreach (var p in polyline)
@@ -1362,9 +2004,13 @@ namespace Hiatme_Tool_Suite_v3
                 Stroke = new Pen(groupColor, thick ? 4f : 2.5f)
                 {
                     DashStyle = straightFallback ? DashStyle.Dash : DashStyle.Solid,
+                    LineJoin = LineJoin.Round,
+                    StartCap = LineCap.Round,
+                    EndCap = LineCap.Round,
                 },
             };
             overlay.Routes.Add(route);
+            return route;
         }
 
         /// <summary>Show every group overlay/route and check all legend rows (Schedule Builder "all driver trips").</summary>
@@ -1384,6 +2030,7 @@ namespace Hiatme_Tool_Suite_v3
                     kv.Value.IsVisibile = true;
                     foreach (var route in kv.Value.Routes)
                         route.IsVisible = true;
+                    UpdateTripLegFilterForGroup(kv.Key, true);
                 }
             }
             finally
@@ -1392,21 +2039,62 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             if (!syncLegendOnly)
+            {
+                SyncSelectionRouteOverlay();
                 _map.Refresh();
+            }
         }
 
         private void OnGroupChecked(object sender, EventArgs e)
         {
-            if (_syncingLegend || MapDisplayFilter != FsMapDisplayMode.AllDriverTrips)
+            if (_syncingLegend)
                 return;
             var cb = sender as CheckBox;
             if (cb == null || !(cb.Tag is int groupNumber)) return;
+
+            // Group key only filters in all-driver mode; other toolbar modes drive visibility.
+            if (MapDisplayFilter != FsMapDisplayMode.AllDriverTrips)
+            {
+                _syncingLegend = true;
+                try
+                {
+                    if (_groupOverlays.TryGetValue(groupNumber, out var lockedOverlay))
+                        cb.Checked = lockedOverlay.IsVisibile;
+                }
+                finally
+                {
+                    _syncingLegend = false;
+                }
+                return;
+            }
+
             if (_groupOverlays.TryGetValue(groupNumber, out var overlay))
             {
                 overlay.IsVisibile = cb.Checked;
                 foreach (var route in overlay.Routes)
                     route.IsVisible = cb.Checked;
+                SyncTripMarkerVisibilityForGroup(groupNumber, cb.Checked);
+                UpdateTripLegFilterForGroup(groupNumber, cb.Checked);
+                UpdateSelectionHiddenHint();
+                SyncSelectionRouteOverlay();
                 _map.Refresh();
+            }
+        }
+
+        private void UpdateTripLegFilterForGroup(int groupNumber, bool groupVisible)
+        {
+            if (_currentPlan?.Groups == null)
+                return;
+            foreach (var g in _currentPlan.Groups)
+            {
+                if (g.GroupNumber != groupNumber || g.Trips == null)
+                    continue;
+                foreach (var t in g.Trips)
+                {
+                    string tn = (t?.TripNumber ?? "").Trim();
+                    if (tn.Length > 0 && _tripLegRoutes.TryGetValue(tn, out var visual))
+                        visual.FilterVisible = groupVisible;
+                }
             }
         }
 
@@ -1472,8 +2160,16 @@ namespace Hiatme_Tool_Suite_v3
                         }
                         break;
                     default:
-                        showOverlay = true;
-                        showRoute = true;
+                        if (!TripFlatMapMode && _groupCheckboxes.TryGetValue(gn, out var legendCb))
+                        {
+                            showOverlay = legendCb.Checked;
+                            showRoute = legendCb.Checked;
+                        }
+                        else
+                        {
+                            showOverlay = true;
+                            showRoute = true;
+                        }
                         break;
                 }
 
@@ -1495,10 +2191,16 @@ namespace Hiatme_Tool_Suite_v3
                                 showLeg = showOverlay;
                                 break;
                             default:
-                                showLeg = true;
+                                if (!TripFlatMapMode && _groupCheckboxes.TryGetValue(gn, out var legendCb))
+                                    showLeg = legendCb.Checked;
+                                else
+                                    showLeg = true;
                                 break;
                         }
-                        route.IsVisible = showLeg && showOverlay;
+                        bool legVisible = showLeg && showOverlay;
+                        if (_tripLegRoutes.TryGetValue(tn, out var legVisual))
+                            legVisual.FilterVisible = legVisible;
+                        route.IsVisible = legVisible;
                     }
                     else
                     {
@@ -1511,7 +2213,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 bool showMarker;
                 if (mode == FsMapDisplayMode.AllDriverTrips)
-                    showMarker = true;
+                    showMarker = IsTripLegendVisible(kv.Key);
                 else if (mode == FsMapDisplayMode.SelectedGroup)
                     showMarker = TripBelongsToGroup(kv.Key, selectedGroupNumber);
                 else
@@ -1530,20 +2232,9 @@ namespace Hiatme_Tool_Suite_v3
                 _deadheadOverlay.IsVisibile = allowDeadhead && (_deadheadToggle?.Checked ?? true);
             }
 
-            if (mode == FsMapDisplayMode.AllDriverTrips && !TripFlatMapMode && _groupCheckboxes.Count > 0)
-            {
-                _syncingLegend = true;
-                try
-                {
-                    foreach (var kv in _groupCheckboxes)
-                        kv.Value.Checked = true;
-                }
-                finally
-                {
-                    _syncingLegend = false;
-                }
-            }
-            else if (!TripFlatMapMode && _groupCheckboxes.Count > 0)
+            if (mode != FsMapDisplayMode.AllDriverTrips
+                && !TripFlatMapMode
+                && _groupCheckboxes.Count > 0)
             {
                 _syncingLegend = true;
                 try
@@ -1562,6 +2253,8 @@ namespace Hiatme_Tool_Suite_v3
 
             if (autoFit)
                 FitToVisibleMapContent(mode, selectedGroupNumber, selectedTrips);
+
+            SyncSelectionRouteOverlay();
 
             _map.Refresh();
         }

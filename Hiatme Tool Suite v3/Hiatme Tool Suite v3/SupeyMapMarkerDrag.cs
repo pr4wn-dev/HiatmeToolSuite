@@ -72,14 +72,20 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (_map.Overlays == null)
                 return null;
-            foreach (var overlay in _map.Overlays)
+            for (int o = _map.Overlays.Count - 1; o >= 0; o--)
             {
+                var overlay = _map.Overlays[o];
                 if (overlay?.Markers == null)
                     continue;
-                foreach (var item in overlay.Markers)
+                for (int m = overlay.Markers.Count - 1; m >= 0; m--)
                 {
-                    if (item is SupeyDraggableMarker dm && dm.AllowDrag && dm.IsVisible && dm.IsMouseOver)
+                    if (overlay.Markers[m] is SupeyDraggableMarker dm
+                        && dm.AllowDrag
+                        && dm.IsVisible
+                        && dm.IsMouseOver)
+                    {
                         return dm;
+                    }
                 }
             }
             return null;

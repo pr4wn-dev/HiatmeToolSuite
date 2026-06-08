@@ -138,6 +138,31 @@ namespace Hiatme_Tool_Suite_v3
             _fsMap.ApplyMapDisplayFilter(_fsMapDisplayMode, groupNumber, tripNumbers);
         }
 
+        private void ApplyFsMapTripSelectionHighlight()
+        {
+            if (_fsMap == null || !_fsMap.Visible || !ScheduleOsrmGate.PreviewRoutingOk)
+                return;
+
+            var tripNumbers = new List<string>();
+            if (_fsTripsLv != null && _fsTripsLv.SelectedItems.Count > 0)
+            {
+                foreach (ListViewItem item in _fsTripsLv.SelectedItems)
+                {
+                    if (item?.Tag is FsPreviewGapTag || item?.Tag is FsPreviewSectionHeaderTag)
+                        continue;
+                    if (TryResolveFsListItemSelection(item, out _, out var trip) && trip != null)
+                    {
+                        string tn = (trip.TripNumber ?? "").Trim();
+                        if (tn.Length > 0
+                            && !tripNumbers.Any(x => string.Equals(x, tn, StringComparison.OrdinalIgnoreCase)))
+                            tripNumbers.Add(tn);
+                    }
+                }
+            }
+
+            _fsMap.SetSelectedTripHighlight(tripNumbers);
+        }
+
         private void ResolveFsMapFilterSelection(out int? groupNumber, out List<string> tripNumbers)
         {
             groupNumber = null;

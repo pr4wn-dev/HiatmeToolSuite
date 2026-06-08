@@ -25,6 +25,12 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>When false, map drag handler ignores this marker (home pin).</summary>
         public bool AllowDrag { get; set; } = true;
 
+        /// <summary>Expanding ripple rings from Schedule Builder / Supey list pick.</summary>
+        public bool IsSelectionHighlighted { get; set; }
+
+        /// <summary>0–1 animation phase; advanced by <see cref="SupeyMapWorkspace"/>.</summary>
+        public float SelectionPulsePhase { get; set; }
+
         public SupeyDraggableMarker(PointLatLng pos, GMarkerGoogleType type)
             : base(pos, type)
         {
@@ -37,8 +43,12 @@ namespace Hiatme_Tool_Suite_v3
 
         public override void OnRender(Graphics g)
         {
-            base.OnRender(g);
             if (g == null) return;
+
+            if (IsSelectionHighlighted && IsVisible)
+                DrawSelectionRipples(g);
+
+            base.OnRender(g);
 
             string text = null;
             bool pill = false;
@@ -127,6 +137,28 @@ namespace Hiatme_Tool_Suite_v3
 
             g.SmoothingMode = prevSmooth;
             g.TextRenderingHint = prevHint;
+        }
+
+        private void DrawSelectionRipples(Graphics g)
+        {
+            int cx = LocalPosition.X + Size.Width / 2;
+            int cy = LocalPosition.Y + Size.Height / 2;
+            Color accent = BadgeAccentColor.A > 0 ? BadgeAccentColor : SupeyTheme.AccentPrimary;
+
+            var prevSmooth = g.SmoothingMode;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+
+            for (int ring = 0; ring < 2; ring++)
+            {
+                float p = (SelectionPulsePhase + ring * 0.5f) % 1f;
+                int alpha = (int)(220 * (1f - p));
+                if (alpha <= 0) continue;
+                int radius = 12 + (int)(20 * p);
+                using (var pen = new Pen(Color.FromArgb(alpha, accent), 2.5f))
+                    g.DrawEllipse(pen, cx - radius, cy - radius, radius * 2, radius * 2);
+            }
+
+            g.SmoothingMode = prevSmooth;
         }
 
         private static GraphicsPath RoundedRect(Rectangle bounds, int radius)

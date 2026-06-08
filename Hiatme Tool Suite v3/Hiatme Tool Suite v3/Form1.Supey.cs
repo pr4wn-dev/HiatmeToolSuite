@@ -3995,7 +3995,25 @@ namespace Hiatme_Tool_Suite_v3
 
         private void SupeyPreviewLv_SelectedTripChanged(object sender, EventArgs e)
         {
-            if (_supeyPreviewLv.SelectedItems.Count == 0) return;
+            if (_supeyPreviewLv.SelectedItems.Count == 0)
+            {
+                _supeyMap?.ClearTripSelectionHighlight();
+                return;
+            }
+
+            var tripNumbers = new List<string>();
+            foreach (ListViewItem row in _supeyPreviewLv.SelectedItems)
+            {
+                if (row?.Tag is SupeyPreviewRowTag tag && tag.Trip != null)
+                {
+                    string tn = (tag.Trip.TripNumber ?? "").Trim();
+                    if (tn.Length > 0
+                        && !tripNumbers.Any(x => string.Equals(x, tn, StringComparison.OrdinalIgnoreCase)))
+                        tripNumbers.Add(tn);
+                }
+            }
+            _supeyMap?.SetSelectedTripHighlight(tripNumbers);
+
             FocusPreviewTripRow(_supeyPreviewLv.SelectedItems[0]);
         }
 
