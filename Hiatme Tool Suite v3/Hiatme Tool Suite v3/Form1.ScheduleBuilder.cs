@@ -78,6 +78,7 @@ namespace Hiatme_Tool_Suite_v3
 
         private int _fsMapRefreshGen;
 
+        private bool _fsShowAllGroupsOnNextMapLoad;
 
         private bool _fsCenterMaineAfterBuild;
 
@@ -88,6 +89,8 @@ namespace Hiatme_Tool_Suite_v3
             new Dictionary<string, GeoPoint>(StringComparer.OrdinalIgnoreCase);
 
         private int _fsMileageHudGen;
+
+        private int _fsSuppressMapSelectionUpdates;
 
         private double? _fsPreMoveGroupMeters;
 
@@ -742,6 +745,9 @@ namespace Hiatme_Tool_Suite_v3
 
             if (string.IsNullOrWhiteSpace(tabName)) return;
 
+            if (_fsMap != null && !string.IsNullOrWhiteSpace(_fsActiveDriverTab))
+                _fsMap.SaveLegendSnapshotForTab(_fsActiveDriverTab);
+
             _fsActiveDriverTab = tabName;
 
             foreach (var kv in _fsDriverTabButtons)
@@ -756,7 +762,20 @@ namespace Hiatme_Tool_Suite_v3
 
             }
 
-            ShowFsTripsForTab(tabName);
+            SetFsMapDisplayMode(FsMapDisplayMode.AllDriverTrips, applyFilter: false);
+
+            _fsShowAllGroupsOnNextMapLoad = true;
+
+            PushFsMapSelectionSuppress();
+            try
+            {
+                ClearFsTripsListSelection();
+                ShowFsTripsForTab(tabName);
+            }
+            finally
+            {
+                PopFsMapSelectionSuppress();
+            }
 
             _ = RefreshFsMapForCurrentTabAsync();
 
@@ -1634,6 +1653,44 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
+        private void PushFsMapSelectionSuppress() =>
+            Interlocked.Increment(ref _fsSuppressMapSelectionUpdates);
+
+        private void PopFsMapSelectionSuppress()
+        {
+            if (_fsSuppressMapSelectionUpdates > 0)
+                Interlocked.Decrement(ref _fsSuppressMapSelectionUpdates);
+        }
+
+        private bool FsMapSelectionUpdatesSuppressed =>
+            _fsSuppressMapSelectionUpdates > 0;
+
+        private void ClearFsTripsListSelection()
+        {
+            if (_fsTripsLv == null || _fsTripsLv.SelectedItems.Count == 0)
+                return;
+
+            _fsTripsLv.SelectedItems.Clear();
+        }
+
+        private void FinalizeFsMapAfterRefresh()
+        {
+            if (_fsMap == null || !_fsMap.Visible || !ScheduleOsrmGate.PreviewRoutingOk)
+                return;
+
+            if (_fsTripsLv == null || _fsTripsLv.SelectedItems.Count == 0)
+                _fsMap.ClearTripSelectionHighlight();
+
+            if (_fsShowAllGroupsOnNextMapLoad)
+            {
+                _fsShowAllGroupsOnNextMapLoad = false;
+                if (_fsMapDisplayMode == FsMapDisplayMode.AllDriverTrips)
+                    _fsMap.ShowAllGroups();
+            }
+
+            ApplyFsMapDisplayFilter(autoFit: false);
+        }
+
         private async Task RefreshFsMapForCurrentTabAsync()
 
         {
@@ -1643,7 +1700,13 @@ namespace Hiatme_Tool_Suite_v3
             string tabName = _fsActiveDriverTab;
 
             int gen = Interlocked.Increment(ref _fsMapRefreshGen);
+            Interlocked.Increment(ref _fsMileageHudGen);
 
+            PushFsMapSelectionSuppress();
+            try
+            {
+
+            _fsMap.SaveLegendSnapshotForTabIfLoaded(tabName);
             _fsMap.Clear();
             _fsMap.ClearMileageHud();
             _fsMapPickupByTrip.Clear();
@@ -1807,14 +1870,12 @@ namespace Hiatme_Tool_Suite_v3
             _fsMap.UseGroupRouteColors = !isReservesTab && _fsShowGroupColors;
             _fsMap.TripFlatMapMode = isReservesTab || !FsShowGroupColorsEnabled;
 
-            _fsMap.ShowDriverPlan(plan, autoFitViewport: !centerMaineAfterBuild);
+            _fsMap.ShowDriverPlan(plan, autoFitViewport: !centerMaineAfterBuild, restoreSavedLegend: !_fsShowAllGroupsOnNextMapLoad);
 
             if (centerMaineAfterBuild || !SupeyMapWorkspace.HasValidMapPins(plan))
                 _fsMap.CenterOnMaineHub();
 
-            FsTripsLv_SelectionChangedUpdateMap();
-
-
+            FinalizeFsMapAfterRefresh();
 
             int pinCount = pickup.Count + dropoff.Count;
 
@@ -1852,6 +1913,11 @@ namespace Hiatme_Tool_Suite_v3
             {
                 if (mapLoadingActive)
                     _fsMap.PopMapLoading();
+            }
+            }
+            finally
+            {
+                PopFsMapSelectionSuppress();
             }
 
         }
@@ -1906,6 +1972,9 @@ namespace Hiatme_Tool_Suite_v3
 
         {
 
+            if (FsMapSelectionUpdatesSuppressed)
+                return;
+
             if (!_fsPreserveRouteChangeBaseline)
 
             {
@@ -1921,7 +1990,6 @@ namespace Hiatme_Tool_Suite_v3
             if (_fsMap == null || !_fsMap.Visible || !ScheduleOsrmGate.PreviewRoutingOk) return;
 
             ApplyFsMapDisplayFilter();
-            ApplyFsMapTripSelectionHighlight();
 
             if (_fsTripsLv == null || _fsTripsLv.SelectedItems.Count == 0
 

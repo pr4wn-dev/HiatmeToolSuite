@@ -79,6 +79,18 @@ namespace Hiatme_Tool_Suite_v3
             new Dictionary<string, List<SupeyDraggableMarker>>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<SupeyDraggableMarker, GMapOverlay> _markerHomeOverlay =
             new Dictionary<SupeyDraggableMarker, GMapOverlay>();
+        private readonly Dictionary<string, LegendVisibilitySnapshot> _legendSnapByTabKey =
+            new Dictionary<string, LegendVisibilitySnapshot>(StringComparer.OrdinalIgnoreCase);
+        private bool _deferSelectionOverlaySync;
+
+        // Last ApplyMapDisplayFilter pass — used to restore group tours after selection overlay sync.
+        private int? _filterSelectedGroupNumber;
+        private readonly HashSet<string> _filterSelectedTrips =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<int, bool> _filterGroupTourVisible =
+            new Dictionary<int, bool>();
+        private readonly Dictionary<int, bool> _filterGroupOverlayVisible =
+            new Dictionary<int, bool>();
 
         private readonly Dictionary<string, TripLegRouteVisual> _tripLegRoutes =
             new Dictionary<string, TripLegRouteVisual>(StringComparer.OrdinalIgnoreCase);
@@ -1051,6 +1063,7 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (_selectionRouteOverlay == null)
                 _selectionRouteOverlay = new GMapOverlay("selection-routes");
+            _selectionRouteOverlay.IsVisibile = true;
 
             if (!_map.Overlays.Contains(_selectionRouteOverlay))
                 _map.Overlays.Add(_selectionRouteOverlay);
@@ -1140,68 +1153,60 @@ namespace Hiatme_Tool_Suite_v3
         private static bool IsTripLegRouteName(string routeName) =>
             routeName != null && routeName.StartsWith("trip-leg:", StringComparison.OrdinalIgnoreCase);
 
-        private bool GroupHasVisibleHighlightedTrip(SupeyTripCluster group)
+        private bool IsGroupLegendVisible(int groupNumber)
         {
-            if (group?.Trips == null || _highlightedTripNumbers.Count == 0)
-                return false;
-            foreach (var t in group.Trips)
-            {
-                string tn = (t?.TripNumber ?? "").Trim();
-                if (tn.Length == 0 || !_highlightedTripNumbers.Contains(tn))
-                    continue;
-                if (_tripLegRoutes.TryGetValue(tn, out var legVisual) && legVisual.FilterVisible)
-                    return true;
-            }
-            return false;
-        }
-
-        private bool IsGroupRouteVisible(int groupNumber)
-        {
-            if (!_groupOverlays.TryGetValue(groupNumber, out var overlay))
-                return false;
-            if (!overlay.IsVisibile)
-                return false;
-            if (!TripFlatMapMode && _groupCheckboxes.TryGetValue(groupNumber, out var cb))
+            if (TripFlatMapMode)
+                return true;
+            if (_groupCheckboxes.TryGetValue(groupNumber, out var cb))
                 return cb.Checked;
             return true;
         }
 
-        /// <summary>
-        /// Hide group tours and other trip legs under highlighted PU→DO legs so the top overlay
-        /// is not partially covered while pulsing.
-        /// </summary>
-        private void SuppressUnderlyingRoutesForSelection()
+        private bool IsGroupRouteVisible(int groupNumber)
         {
-            if (_highlightedTripNumbers.Count == 0 || _currentPlan?.Groups == null)
-                return;
+            if (!_groupOverlays.ContainsKey(groupNumber))
+                return false;
+            return IsGroupLegendVisible(groupNumber);
+        }
 
-            foreach (var g in _currentPlan.Groups)
-            {
-                if (!_groupOverlays.TryGetValue(g.GroupNumber, out var overlay) || !overlay.IsVisibile)
-                    continue;
+        /// <summary>
+        /// GMap.NET can hide routes when overlay.IsVisibile is false while markers still draw.
+        /// Keep group overlays enabled; filter with route/marker IsVisible instead.
+        /// </summary>
+        private void EnsureGroupOverlaysEnabled()
+        {
+            foreach (var kv in _groupOverlays)
+                kv.Value.IsVisibile = true;
+        }
 
-                bool groupHasHighlight = GroupHasVisibleHighlightedTrip(g);
+        private bool ResolveTripLegRouteVisible(string tripNumber)
+        {
+            string tn = (tripNumber ?? "").Trim();
+            if (tn.Length == 0)
+                return true;
+            if (!TryGetTripGroupNumber(tn, out int gn))
+                return true;
+            if (!IsGroupLegendVisible(gn))
+                return false;
 
-                foreach (var route in overlay.Routes)
-                {
-                    if (route == null)
-                        continue;
+            if (MapDisplayFilter == FsMapDisplayMode.AllDriverTrips)
+                return true;
 
-                    if (string.Equals(route.Name, "group-tour", StringComparison.OrdinalIgnoreCase))
-                    {
-                        if (groupHasHighlight)
-                            route.IsVisible = false;
-                        continue;
-                    }
+            if (_tripLegRoutes.TryGetValue(tn, out var visual))
+                return visual.FilterVisible;
+            return true;
+        }
 
-                    if (!IsTripLegRouteName(route.Name))
-                        continue;
+        /// <summary>Sync map workspace filter mode without re-applying visibility (tab switches).</summary>
+        public void SetMapDisplayFilterMode(FsMapDisplayMode mode) => MapDisplayFilter = mode;
 
-                    string tn = route.Name.Substring("trip-leg:".Length);
-                    if (!_highlightedTripNumbers.Contains(tn))
-                        route.IsVisible = false;
-                }
-            }
+        private bool ShouldShowGroupTour(int groupNumber)
+        {
+            if (!IsGroupLegendVisible(groupNumber))
+                return false;
+            if (MapDisplayFilter == FsMapDisplayMode.AllDriverTrips)
+                return true;
+            return _filterGroupTourVisible.TryGetValue(groupNumber, out bool filtered) && filtered;
         }
 
         private void RestoreNonTripLegBaseRoutes()
@@ -1214,12 +1219,13 @@ namespace Hiatme_Tool_Suite_v3
                 if (!_groupOverlays.TryGetValue(g.GroupNumber, out var overlay))
                     continue;
 
-                bool showRoute = IsGroupRouteVisible(g.GroupNumber);
+                bool showTour = ShouldShowGroupTour(g.GroupNumber);
+
                 foreach (var route in overlay.Routes)
                 {
                     if (route == null || IsTripLegRouteName(route.Name))
                         continue;
-                    route.IsVisible = showRoute;
+                    route.IsVisible = showTour;
                 }
             }
         }
@@ -1244,8 +1250,11 @@ namespace Hiatme_Tool_Suite_v3
             {
                 foreach (var kv in _tripLegRoutes)
                 {
-                    if (kv.Value?.Route != null)
-                        kv.Value.Route.IsVisible = kv.Value.FilterVisible;
+                    if (kv.Value?.Route == null)
+                        continue;
+                    bool vis = ResolveTripLegRouteVisible(kv.Key);
+                    kv.Value.FilterVisible = vis;
+                    kv.Value.Route.IsVisible = vis;
                 }
                 RestoreNonTripLegBaseRoutes();
                 ApplyTripRouteHighlightStyles();
@@ -1268,9 +1277,10 @@ namespace Hiatme_Tool_Suite_v3
                 if (visual?.Route == null)
                     continue;
 
-                bool highlighted = _highlightedTripNumbers.Contains(kv.Key) && visual.FilterVisible;
+                bool isHighlighted = _highlightedTripNumbers.Contains(kv.Key);
+                bool legVisible = ResolveTripLegRouteVisible(kv.Key);
                 var sourcePts = visual.Points ?? visual.Route.Points;
-                if (highlighted && sourcePts != null && sourcePts.Count >= 2)
+                if (isHighlighted && legVisible && sourcePts != null && sourcePts.Count >= 2)
                 {
                     visual.Route.IsVisible = false;
                     var pts = new List<PointLatLng>(sourcePts);
@@ -1286,11 +1296,13 @@ namespace Hiatme_Tool_Suite_v3
                 }
                 else
                 {
-                    visual.Route.IsVisible = visual.FilterVisible;
+                    bool vis = ResolveTripLegRouteVisible(kv.Key);
+                    visual.FilterVisible = vis;
+                    visual.Route.IsVisible = vis;
                 }
             }
 
-            SuppressUnderlyingRoutesForSelection();
+            RestoreNonTripLegBaseRoutes();
             ApplyTripRouteHighlightStyles();
             SyncSelectionMarkerOverlay();
         }
@@ -1484,13 +1496,13 @@ namespace Hiatme_Tool_Suite_v3
         /// or driver change; on refresh for the same driver, prior group visibility is restored
         /// (including single-group focus after drag/route updates). Auto-fits to visible groups.
         /// </summary>
-        public void ShowDriverPlan(SupeyDriverPlan plan, bool autoFitViewport = true)
+        public void ShowDriverPlan(SupeyDriverPlan plan, bool autoFitViewport = true, bool restoreSavedLegend = true)
         {
             // Post-build may reorder plan.Groups on another thread; snapshot before draw.
             var groups = plan?.Groups != null ? new List<SupeyTripCluster>(plan.Groups) : new List<SupeyTripCluster>();
             var deadHeads = plan?.DeadHeads != null ? new List<SupeyDeadHeadSegment>(plan.DeadHeads) : new List<SupeyDeadHeadSegment>();
 
-            var legendSnap = CaptureLegendVisibility();
+            var legendSnap = restoreSavedLegend ? ResolveLegendSnapshot(plan) : null;
             _currentPlan = plan;
             _map.Overlays.Clear();
             _groupOverlays.Clear();
@@ -1502,6 +1514,10 @@ namespace Hiatme_Tool_Suite_v3
             ClearLegend();
             _tripMarkers.Clear();
             _tripLegRoutes.Clear();
+            _filterGroupTourVisible.Clear();
+            _filterSelectedTrips.Clear();
+            _filterSelectedGroupNumber = null;
+            _filterGroupOverlayVisible.Clear();
             ClearTripSelectionHighlight();
             ClearMileageHud();
 
@@ -1673,18 +1689,23 @@ namespace Hiatme_Tool_Suite_v3
                 _map.Overlays.Add(_homeOverlay);
 
             EnsureSelectionRouteOverlayOnTop();
-            SyncSelectionRouteOverlay();
 
             if (!TripFlatMapMode)
             {
                 AddDeadheadToggle();
                 ApplyLegendVisibility(plan, legendSnap);
+                if (legendSnap == null)
+                    ApplyDefaultLegendVisibility();
                 RelayoutLegendRows();
             }
             else
             {
                 ClearLegend();
             }
+
+            EnsureGroupOverlaysEnabled();
+
+            SyncSelectionRouteOverlay();
             if (autoFitViewport)
                 FitToPlan();
             _map.Refresh();
@@ -1705,7 +1726,7 @@ namespace Hiatme_Tool_Suite_v3
 
             var snap = new LegendVisibilitySnapshot
             {
-                DriverKey = _currentPlan.Driver?.Name ?? "",
+                DriverKey = PlanTabKey(_currentPlan),
                 TripWasVisible = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase),
             };
 
@@ -1729,13 +1750,163 @@ namespace Hiatme_Tool_Suite_v3
             return snap;
         }
 
+        private static string PlanTabKey(SupeyDriverPlan plan)
+        {
+            if (plan?.Driver == null)
+                return "";
+            string key = (plan.Driver.ScheduleTabKey ?? "").Trim();
+            if (key.Length > 0)
+                return key;
+            return (plan.Driver.Name ?? "").Trim();
+        }
+
+        private LegendVisibilitySnapshot ResolveLegendSnapshot(SupeyDriverPlan plan)
+        {
+            string tabKey = PlanTabKey(plan);
+            if (tabKey.Length > 0
+                && _legendSnapByTabKey.TryGetValue(tabKey, out var saved))
+            {
+                return saved;
+            }
+
+            return null;
+        }
+
+        /// <summary>Persist Group key checkbox state for a driver tab (Schedule Builder tab switches).</summary>
+        public void SaveLegendSnapshotForTab(string tabKey)
+        {
+            tabKey = (tabKey ?? "").Trim();
+            if (tabKey.Length == 0)
+                return;
+
+            var snap = CaptureLegendVisibility();
+            if (snap == null)
+                return;
+
+            snap.DriverKey = tabKey;
+            _legendSnapByTabKey[tabKey] = snap;
+        }
+
+        /// <summary>Save legend only when the loaded plan belongs to <paramref name="tabKey"/>.</summary>
+        public void SaveLegendSnapshotForTabIfLoaded(string tabKey)
+        {
+            tabKey = (tabKey ?? "").Trim();
+            if (tabKey.Length == 0 || _currentPlan == null)
+                return;
+            if (!string.Equals(PlanTabKey(_currentPlan), tabKey, StringComparison.OrdinalIgnoreCase))
+                return;
+            SaveLegendSnapshotForTab(tabKey);
+        }
+
+        private void PersistLegendSnapshotForCurrentPlan()
+        {
+            if (_currentPlan == null)
+                return;
+            string tabKey = PlanTabKey(_currentPlan);
+            if (tabKey.Length == 0)
+                return;
+
+            var snap = CaptureLegendVisibility();
+            if (snap == null)
+                return;
+
+            snap.DriverKey = tabKey;
+            _legendSnapByTabKey[tabKey] = snap;
+        }
+
+        private void ApplyLegendDrivenGroupVisibility(int groupNumber, out bool showOverlay, out bool showRoute)
+        {
+            if (!TripFlatMapMode && _groupCheckboxes.TryGetValue(groupNumber, out var legendCb))
+            {
+                showOverlay = legendCb.Checked;
+                showRoute = legendCb.Checked;
+            }
+            else
+            {
+                showOverlay = true;
+                showRoute = true;
+            }
+        }
+
+        private bool ApplyLegendDrivenTripLegVisibility(int groupNumber, string tripNumber)
+        {
+            if (!TripFlatMapMode && _groupCheckboxes.TryGetValue(groupNumber, out var legendCb))
+                return legendCb.Checked;
+            return true;
+        }
+
+        private void ApplyDefaultLegendVisibility()
+        {
+            _deferSelectionOverlaySync = true;
+            try
+            {
+                foreach (var kv in _groupOverlays)
+                    ApplyGroupLegendVisibility(kv.Key, true);
+            }
+            finally
+            {
+                _deferSelectionOverlaySync = false;
+            }
+
+            SyncSelectionRouteOverlay();
+        }
+
+        private static bool ComputeGroupShownFromSnapshot(SupeyTripCluster g, LegendVisibilitySnapshot snap)
+        {
+            bool show = false;
+            foreach (var t in g.Trips)
+            {
+                var tn = t?.TripNumber;
+                if (string.IsNullOrWhiteSpace(tn))
+                {
+                    show = true;
+                    break;
+                }
+                if (!snap.TripWasVisible.TryGetValue(tn, out bool was))
+                {
+                    show = true;
+                    break;
+                }
+                if (was)
+                    show = true;
+            }
+            if (g.Trips.Count == 0)
+                show = true;
+            return show;
+        }
+
+        private void RestoreLegendCheckboxesFromSnapshot(LegendVisibilitySnapshot snap)
+        {
+            if (snap == null || _currentPlan == null || _groupCheckboxes.Count == 0)
+                return;
+
+            string tabKey = PlanTabKey(_currentPlan);
+            if (tabKey.Length == 0 || !string.Equals(tabKey, snap.DriverKey, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            _syncingLegend = true;
+            try
+            {
+                foreach (var g in _currentPlan.Groups)
+                {
+                    bool show = ComputeGroupShownFromSnapshot(g, snap);
+                    if (_groupCheckboxes.TryGetValue(g.GroupNumber, out var cb))
+                        cb.Checked = show;
+                }
+            }
+            finally
+            {
+                _syncingLegend = false;
+            }
+        }
+
         private void ApplyLegendVisibility(SupeyDriverPlan plan, LegendVisibilitySnapshot snap)
         {
             if (snap == null || plan == null || _groupCheckboxes.Count == 0)
                 return;
 
-            string driverKey = plan.Driver?.Name ?? "";
-            if (!string.Equals(driverKey, snap.DriverKey, StringComparison.OrdinalIgnoreCase))
+            string tabKey = PlanTabKey(plan);
+            if (tabKey.Length == 0 || !string.Equals(tabKey, snap.DriverKey, StringComparison.OrdinalIgnoreCase))
                 return;
 
             if (snap.DeadheadChecked.HasValue && _deadheadToggle != null)
@@ -1745,72 +1916,65 @@ namespace Hiatme_Tool_Suite_v3
                     _deadheadOverlay.IsVisibile = snap.DeadheadChecked.Value;
             }
 
-            // All-driver mode: restore legend toggles from snapshot (never collapse to one group).
-            if (MapDisplayFilter == FsMapDisplayMode.AllDriverTrips)
-            {
-                RestoreLegendFromSnapshot(plan, snap);
-                _map.Refresh();
-                return;
-            }
-
-            if (snap.CheckedGroupCount == 1 && snap.TripWasVisible.Count > 0)
-            {
-                int bestGroup = -1;
-                int bestScore = 0;
-                foreach (var g in plan.Groups)
-                {
-                    int score = 0;
-                    foreach (var t in g.Trips)
-                    {
-                        var tn = t?.TripNumber;
-                        if (string.IsNullOrWhiteSpace(tn))
-                            continue;
-                        if (snap.TripWasVisible.TryGetValue(tn, out bool was) && was)
-                            score++;
-                    }
-                    if (score > bestScore)
-                    {
-                        bestScore = score;
-                        bestGroup = g.GroupNumber;
-                    }
-                }
-
-                foreach (var kv in _groupCheckboxes)
-                    SetGroupVisible(kv.Key, kv.Key == bestGroup && bestScore > 0);
-            }
-            else if (snap.CheckedGroupCount > 0 && snap.CheckedGroupCount < _groupCheckboxes.Count)
-            {
-                RestoreLegendFromSnapshot(plan, snap);
-            }
-
+            RestoreLegendFromSnapshot(plan, snap);
+            UpdateSelectionHiddenHint();
             _map.Refresh();
         }
 
         private void RestoreLegendFromSnapshot(SupeyDriverPlan plan, LegendVisibilitySnapshot snap)
         {
-            foreach (var g in plan.Groups)
+            _deferSelectionOverlaySync = true;
+            try
             {
-                bool show = false;
-                foreach (var t in g.Trips)
-                {
-                    var tn = t?.TripNumber;
-                    if (string.IsNullOrWhiteSpace(tn))
-                    {
-                        show = true;
-                        break;
-                    }
-                    if (!snap.TripWasVisible.TryGetValue(tn, out bool was))
-                    {
-                        show = true;
-                        break;
-                    }
-                    if (was)
-                        show = true;
-                }
-                if (g.Trips.Count == 0)
-                    show = true;
-                SetGroupVisible(g.GroupNumber, show);
+                foreach (var g in plan.Groups)
+                    SetGroupVisible(g.GroupNumber, ComputeGroupShownFromSnapshot(g, snap));
             }
+            finally
+            {
+                _deferSelectionOverlaySync = false;
+            }
+
+            SyncSelectionRouteOverlay();
+            PersistLegendSnapshotForCurrentPlan();
+        }
+
+        private void ApplyGroupLegendVisibility(int groupNumber, bool visible)
+        {
+            if (_groupOverlays.TryGetValue(groupNumber, out var overlay))
+            {
+                overlay.IsVisibile = true;
+                foreach (var route in overlay.Routes)
+                {
+                    if (route == null)
+                        continue;
+                    if (!visible && IsTripLegRouteName(route.Name))
+                    {
+                        string tn = route.Name.Substring("trip-leg:".Length);
+                        if (_highlightedTripNumbers.Contains(tn))
+                        {
+                            route.IsVisible = false;
+                            continue;
+                        }
+                    }
+                    else if (visible && IsTripLegRouteName(route.Name))
+                    {
+                        string tn = route.Name.Substring("trip-leg:".Length);
+                        if (_highlightedTripNumbers.Contains(tn))
+                            continue;
+                    }
+                    route.IsVisible = visible;
+                }
+            }
+
+            if (MapDisplayFilter == FsMapDisplayMode.AllDriverTrips)
+                _filterGroupTourVisible[groupNumber] = visible;
+            else if (!visible)
+                _filterGroupTourVisible[groupNumber] = false;
+
+            SyncTripMarkerVisibilityForGroup(groupNumber, visible);
+            UpdateTripLegFilterForGroup(groupNumber, visible);
+            if (!_deferSelectionOverlaySync)
+                SyncSelectionRouteOverlay();
         }
 
         private void SetGroupVisible(int groupNumber, bool visible)
@@ -1820,21 +1984,13 @@ namespace Hiatme_Tool_Suite_v3
             {
                 if (_groupCheckboxes.TryGetValue(groupNumber, out var cb) && cb.Checked != visible)
                     cb.Checked = visible;
-                if (_groupOverlays.TryGetValue(groupNumber, out var overlay))
-                {
-                    overlay.IsVisibile = visible;
-                    foreach (var route in overlay.Routes)
-                        route.IsVisible = visible;
-                }
-                SyncTripMarkerVisibilityForGroup(groupNumber, visible);
-                UpdateTripLegFilterForGroup(groupNumber, visible);
             }
             finally
             {
                 _syncingLegend = false;
             }
 
-            SyncSelectionRouteOverlay();
+            ApplyGroupLegendVisibility(groupNumber, visible);
         }
 
         private void SyncTripMarkerVisibilityForGroup(int groupNumber, bool visible)
@@ -1871,9 +2027,7 @@ namespace Hiatme_Tool_Suite_v3
                         continue;
                     if (_groupCheckboxes.TryGetValue(g.GroupNumber, out var cb))
                         return cb.Checked;
-                    if (_groupOverlays.TryGetValue(g.GroupNumber, out var overlay))
-                        return overlay.IsVisibile;
-                    return true;
+                    return IsGroupLegendVisible(g.GroupNumber);
                 }
             }
             return true;
@@ -2017,6 +2171,7 @@ namespace Hiatme_Tool_Suite_v3
         public void ShowAllGroups(bool syncLegendOnly = false)
         {
             _syncingLegend = true;
+            _deferSelectionOverlaySync = true;
             try
             {
                 foreach (var kv in _groupCheckboxes)
@@ -2025,22 +2180,20 @@ namespace Hiatme_Tool_Suite_v3
                 if (syncLegendOnly)
                     return;
 
+                EnsureGroupOverlaysEnabled();
                 foreach (var kv in _groupOverlays)
-                {
-                    kv.Value.IsVisibile = true;
-                    foreach (var route in kv.Value.Routes)
-                        route.IsVisible = true;
-                    UpdateTripLegFilterForGroup(kv.Key, true);
-                }
+                    ApplyGroupLegendVisibility(kv.Key, true);
             }
             finally
             {
+                _deferSelectionOverlaySync = false;
                 _syncingLegend = false;
             }
 
             if (!syncLegendOnly)
             {
                 SyncSelectionRouteOverlay();
+                PersistLegendSnapshotForCurrentPlan();
                 _map.Refresh();
             }
         }
@@ -2058,8 +2211,7 @@ namespace Hiatme_Tool_Suite_v3
                 _syncingLegend = true;
                 try
                 {
-                    if (_groupOverlays.TryGetValue(groupNumber, out var lockedOverlay))
-                        cb.Checked = lockedOverlay.IsVisibile;
+                    cb.Checked = _filterGroupOverlayVisible.TryGetValue(groupNumber, out bool shown) && shown;
                 }
                 finally
                 {
@@ -2068,17 +2220,11 @@ namespace Hiatme_Tool_Suite_v3
                 return;
             }
 
-            if (_groupOverlays.TryGetValue(groupNumber, out var overlay))
-            {
-                overlay.IsVisibile = cb.Checked;
-                foreach (var route in overlay.Routes)
-                    route.IsVisible = cb.Checked;
-                SyncTripMarkerVisibilityForGroup(groupNumber, cb.Checked);
-                UpdateTripLegFilterForGroup(groupNumber, cb.Checked);
-                UpdateSelectionHiddenHint();
-                SyncSelectionRouteOverlay();
-                _map.Refresh();
-            }
+            ApplyGroupLegendVisibility(groupNumber, cb.Checked);
+            _filterGroupOverlayVisible[groupNumber] = cb.Checked;
+            PersistLegendSnapshotForCurrentPlan();
+            UpdateSelectionHiddenHint();
+            _map.Refresh();
         }
 
         private void UpdateTripLegFilterForGroup(int groupNumber, bool groupVisible)
@@ -2108,9 +2254,26 @@ namespace Hiatme_Tool_Suite_v3
             IReadOnlyCollection<string> selectedTripNumbers,
             bool autoFit = true)
         {
+            FsMapDisplayMode previousFilter = MapDisplayFilter;
+
+            if (previousFilter == FsMapDisplayMode.AllDriverTrips && mode != FsMapDisplayMode.AllDriverTrips)
+                PersistLegendSnapshotForCurrentPlan();
+
+            if (mode == FsMapDisplayMode.AllDriverTrips && previousFilter != FsMapDisplayMode.AllDriverTrips)
+            {
+                var legendSnap = ResolveLegendSnapshot(_currentPlan);
+                if (legendSnap != null)
+                    RestoreLegendCheckboxesFromSnapshot(legendSnap);
+            }
+
             MapDisplayFilter = mode;
             if (_currentPlan == null)
                 return;
+
+            _filterSelectedGroupNumber = selectedGroupNumber;
+            _filterSelectedTrips.Clear();
+            _filterGroupTourVisible.Clear();
+            _filterGroupOverlayVisible.Clear();
 
             var selectedTrips = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (selectedTripNumbers != null)
@@ -2121,6 +2284,9 @@ namespace Hiatme_Tool_Suite_v3
                         selectedTrips.Add(tn.Trim());
                 }
             }
+
+            foreach (var tn in selectedTrips)
+                _filterSelectedTrips.Add(tn);
 
             foreach (var g in _currentPlan.Groups)
             {
@@ -2133,14 +2299,18 @@ namespace Hiatme_Tool_Suite_v3
                 switch (mode)
                 {
                     case FsMapDisplayMode.SelectedGroup:
-                        showOverlay = selectedGroupNumber.HasValue && gn == selectedGroupNumber.Value;
-                        showRoute = showOverlay;
+                        if (!selectedGroupNumber.HasValue)
+                            ApplyLegendDrivenGroupVisibility(gn, out showOverlay, out showRoute);
+                        else
+                        {
+                            showOverlay = gn == selectedGroupNumber.Value;
+                            showRoute = showOverlay;
+                        }
                         break;
                     case FsMapDisplayMode.SelectedTrips:
                         if (selectedTrips.Count == 0)
                         {
-                            showOverlay = false;
-                            showRoute = false;
+                            ApplyLegendDrivenGroupVisibility(gn, out showOverlay, out showRoute);
                         }
                         else
                         {
@@ -2160,20 +2330,12 @@ namespace Hiatme_Tool_Suite_v3
                         }
                         break;
                     default:
-                        if (!TripFlatMapMode && _groupCheckboxes.TryGetValue(gn, out var legendCb))
-                        {
-                            showOverlay = legendCb.Checked;
-                            showRoute = legendCb.Checked;
-                        }
-                        else
-                        {
-                            showOverlay = true;
-                            showRoute = true;
-                        }
+                        ApplyLegendDrivenGroupVisibility(gn, out showOverlay, out showRoute);
                         break;
                 }
 
-                overlay.IsVisibile = showOverlay;
+                _filterGroupOverlayVisible[gn] = showOverlay;
+                overlay.IsVisibile = true;
                 foreach (var route in overlay.Routes)
                 {
                     bool isTripLeg = route.Name != null
@@ -2185,16 +2347,19 @@ namespace Hiatme_Tool_Suite_v3
                         switch (mode)
                         {
                             case FsMapDisplayMode.SelectedTrips:
-                                showLeg = tn.Length > 0 && selectedTrips.Contains(tn);
+                                if (selectedTrips.Count == 0)
+                                    showLeg = ApplyLegendDrivenTripLegVisibility(gn, tn);
+                                else
+                                    showLeg = tn.Length > 0 && selectedTrips.Contains(tn);
                                 break;
                             case FsMapDisplayMode.SelectedGroup:
-                                showLeg = showOverlay;
+                                if (!selectedGroupNumber.HasValue)
+                                    showLeg = ApplyLegendDrivenTripLegVisibility(gn, tn);
+                                else
+                                    showLeg = showOverlay;
                                 break;
                             default:
-                                if (!TripFlatMapMode && _groupCheckboxes.TryGetValue(gn, out var legendCb))
-                                    showLeg = legendCb.Checked;
-                                else
-                                    showLeg = true;
+                                showLeg = ApplyLegendDrivenTripLegVisibility(gn, tn);
                                 break;
                         }
                         bool legVisible = showLeg && showOverlay;
@@ -2204,7 +2369,9 @@ namespace Hiatme_Tool_Suite_v3
                     }
                     else
                     {
-                        route.IsVisible = showRoute && showOverlay;
+                        bool tourVisible = showRoute && showOverlay;
+                        _filterGroupTourVisible[gn] = tourVisible;
+                        route.IsVisible = tourVisible;
                     }
                 }
             }
@@ -2241,8 +2408,7 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     foreach (var kv in _groupCheckboxes)
                     {
-                        bool vis = _groupOverlays.TryGetValue(kv.Key, out var ov) && ov.IsVisibile;
-                        kv.Value.Checked = vis;
+                        kv.Value.Checked = _filterGroupOverlayVisible.TryGetValue(kv.Key, out bool shown) && shown;
                     }
                 }
                 finally
@@ -2251,10 +2417,10 @@ namespace Hiatme_Tool_Suite_v3
                 }
             }
 
+            EnsureGroupOverlaysEnabled();
+
             if (autoFit)
                 FitToVisibleMapContent(mode, selectedGroupNumber, selectedTrips);
-
-            SyncSelectionRouteOverlay();
 
             _map.Refresh();
         }

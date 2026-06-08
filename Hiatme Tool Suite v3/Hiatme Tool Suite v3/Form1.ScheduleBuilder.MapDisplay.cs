@@ -119,14 +119,16 @@ namespace Hiatme_Tool_Suite_v3
 
             UpdateFsMapModeHint(mode, hovered: false);
 
-            if (mode == FsMapDisplayMode.AllDriverTrips && _fsMap != null)
-                _fsMap.ShowAllGroups();
+            if (!applyFilter)
+            {
+                _fsMap?.SetMapDisplayFilterMode(mode);
+                return;
+            }
 
-            if (applyFilter)
-                ApplyFsMapDisplayFilter();
+            ApplyFsMapDisplayFilter();
         }
 
-        private void ApplyFsMapDisplayFilter()
+        private void ApplyFsMapDisplayFilter(bool autoFit = true)
         {
             if (_fsMap == null || !_fsMap.Visible || !ScheduleOsrmGate.PreviewRoutingOk)
                 return;
@@ -135,7 +137,8 @@ namespace Hiatme_Tool_Suite_v3
                 out int? groupNumber,
                 out List<string> tripNumbers);
 
-            _fsMap.ApplyMapDisplayFilter(_fsMapDisplayMode, groupNumber, tripNumbers);
+            _fsMap.ApplyMapDisplayFilter(_fsMapDisplayMode, groupNumber, tripNumbers, autoFit);
+            ApplyFsMapTripSelectionHighlight();
         }
 
         private void ApplyFsMapTripSelectionHighlight()
