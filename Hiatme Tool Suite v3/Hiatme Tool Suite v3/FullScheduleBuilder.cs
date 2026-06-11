@@ -145,8 +145,19 @@ namespace Hiatme_Tool_Suite_v3
         }
         private async Task AsyncUpdateLoadingScreen(string txt)
         {
-            UpdateLoadingScreen(txt);
+            UpdateLoadingScreen?.Invoke(txt);
             await Task.Yield();
+        }
+
+        private void NotifyHideLoadingScreen()
+        {
+            HideLoadingScreen?.Invoke();
+        }
+
+        private void ClearLastExport()
+        {
+            LastExportPath = null;
+            LastExportWasCsv = false;
         }
         public async Task DownloadMCTrips(DateTime mcdate, MCLoginHandler mcLoginHandler)
         {
@@ -1083,6 +1094,7 @@ namespace Hiatme_Tool_Suite_v3
 
         public async Task CreateWorkbookAsync()
         {
+            ClearLastExport();
             if (!IsExcelAvailable())
             {
                 await ExportCsvSchedulePackageAsync().ConfigureAwait(false);
@@ -1103,7 +1115,7 @@ namespace Hiatme_Tool_Suite_v3
                 var tempDir = TemplateBuilder.GetTemplateTempDirectory();
                 if (!Directory.Exists(tempDir))
                 {
-                    HideLoadingScreen();
+                    NotifyHideLoadingScreen();
                     throw new ScheduleBuilderException(
                         "CreateWorkbook",
                         tempDir,
@@ -1129,7 +1141,7 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     await AsyncUpdateLoadingScreen("Cancelling process..");
                     try { newWorkbook?.Close(false); xlApp?.Quit(); } catch { }
-                    HideLoadingScreen();
+                    NotifyHideLoadingScreen();
                     return;
                 }
 
@@ -1245,17 +1257,17 @@ namespace Hiatme_Tool_Suite_v3
                 LastExportPath = path;
                 LastExportWasCsv = false;
                 await AsyncUpdateLoadingScreen("Finalizing process..");
-                HideLoadingScreen();
+                NotifyHideLoadingScreen();
             }
             catch (ScheduleBuilderException)
             {
-                HideLoadingScreen();
+                NotifyHideLoadingScreen();
                 try { newWorkbook?.Close(false); xlApp?.Quit(); } catch { }
                 throw;
             }
             catch (Exception ex)
             {
-                HideLoadingScreen();
+                NotifyHideLoadingScreen();
                 try
                 {
                     newWorkbook?.Close(false);
@@ -1307,7 +1319,7 @@ namespace Hiatme_Tool_Suite_v3
             var tempDir = TemplateBuilder.GetTemplateTempDirectory();
             if (!Directory.Exists(tempDir))
             {
-                HideLoadingScreen();
+                NotifyHideLoadingScreen();
                 throw new ScheduleBuilderException(
                     "ExportCsvSchedulePackage",
                     tempDir,
@@ -1322,7 +1334,7 @@ namespace Hiatme_Tool_Suite_v3
             var fileList = Directory.EnumerateFiles(tempDir, "*.csv").ToList();
             if (fileList.Count == 0)
             {
-                HideLoadingScreen();
+                NotifyHideLoadingScreen();
                 throw new ScheduleBuilderException(
                     "ExportCsvSchedulePackage",
                     tempDir,
@@ -1345,7 +1357,7 @@ namespace Hiatme_Tool_Suite_v3
                 folderDlg.SelectedPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
                 if (folderDlg.ShowDialog() != DialogResult.OK)
                 {
-                    HideLoadingScreen();
+                    NotifyHideLoadingScreen();
                     return;
                 }
                 destRoot = folderDlg.SelectedPath;
@@ -1360,7 +1372,7 @@ namespace Hiatme_Tool_Suite_v3
                 File.Copy(src, Path.Combine(destDir, name), overwrite: true);
             }
 
-            HideLoadingScreen();
+            NotifyHideLoadingScreen();
             try
             {
                 System.Diagnostics.Process.Start("explorer.exe", destDir);

@@ -879,13 +879,13 @@ namespace Hiatme_Tool_Suite_v3
 
             else if (!sel && isNote && noteTag?.Group != null && FsShowGroupColorsEnabled)
 
-                rowBg = FsRouteHeaderBackColor(noteTag.Group.GroupColor);
+                rowBg = FsRouteHeaderBackColor(noteTag.Group.DisplayColor);
 
             Color fill = rowBg;
 
             if (!sel && isNote && noteTag?.Group != null && e.ColumnIndex == 0 && FsShowGroupColorsEnabled)
 
-                fill = noteTag.Group.GroupColor;
+                fill = noteTag.Group.DisplayColor;
 
             else if (!sel && !isGap && !isNote && e.ColumnIndex == 0 && FsShowGroupColorsEnabled
 
@@ -2678,7 +2678,7 @@ namespace Hiatme_Tool_Suite_v3
 
             lvi.UseItemStyleForSubItems = false;
 
-            lvi.SubItems[0].BackColor = g.GroupColor;
+            lvi.SubItems[0].BackColor = g.DisplayColor;
 
             for (int c = 1; c <= 11; c++)
 
@@ -2686,7 +2686,7 @@ namespace Hiatme_Tool_Suite_v3
 
             for (int c = 1; c < lvi.SubItems.Count; c++)
 
-                lvi.SubItems[c].BackColor = FsRouteHeaderBackColor(g.GroupColor);
+                lvi.SubItems[c].BackColor = FsRouteHeaderBackColor(g.DisplayColor);
 
             lvi.Tag = new FsPreviewNoteTag(g);
 
@@ -2710,7 +2710,7 @@ namespace Hiatme_Tool_Suite_v3
 
             {
 
-                lvi.SubItems[0].BackColor = g.GroupColor;
+                lvi.SubItems[0].BackColor = g.DisplayColor;
 
             }
 

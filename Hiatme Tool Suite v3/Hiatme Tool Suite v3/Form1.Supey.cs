@@ -3156,7 +3156,7 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (selected) return SupeyLvSel;
             if (item?.Tag is SupeyPreviewGroupHeaderTag tag)
-                return SupeyRouteHeaderBackColor(tag.Group.GroupColor);
+                return SupeyRouteHeaderBackColor(tag.Group.DisplayColor);
             return SupeyLvBg;
         }
 
@@ -4400,7 +4400,7 @@ namespace Hiatme_Tool_Suite_v3
             });
             lvi.UseItemStyleForSubItems = false;
             lvi.Tag = new SupeyPreviewGroupHeaderTag(g, plan);
-            lvi.SubItems[0].BackColor = g.GroupColor;
+            lvi.SubItems[0].BackColor = g.DisplayColor;
             lvi.SubItems[0].ForeColor = Color.Black;
             lvi.ToolTipText = note;
             _supeyPreviewLv.Items.Add(lvi);
@@ -4463,7 +4463,7 @@ namespace Hiatme_Tool_Suite_v3
             });
             lvi.UseItemStyleForSubItems = false;
             lvi.Tag = new SupeyPreviewRowTag(g, t, plan, ti);
-            lvi.SubItems[0].BackColor = g.GroupColor;
+            lvi.SubItems[0].BackColor = g.DisplayColor;
             lvi.SubItems[0].ForeColor = Color.Black;
             StyleGeoSubItem(lvi.SubItems[SupeyPrevColGeoIndex], geo);
             if (late != "—" && late.IndexOf('L') >= 0)

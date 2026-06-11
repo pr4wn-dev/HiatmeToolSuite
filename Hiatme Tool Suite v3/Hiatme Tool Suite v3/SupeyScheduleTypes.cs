@@ -271,6 +271,7 @@ namespace Hiatme_Tool_Suite_v3
     /// <summary>
     /// 8 dark-mode-readable hues cycled in order so each natural ride-share group gets a stable
     /// color. Index 0 is reserved for "no group / unassigned"; index 1+ map to groups 1..N.
+    /// No yellow or amber — they are hard to read on the map and list stripes.
     /// </summary>
     internal static class SupeyGroupPalette
     {
@@ -279,12 +280,28 @@ namespace Hiatme_Tool_Suite_v3
             Color.FromArgb(255, 92, 138),   // pink-red
             Color.FromArgb(79, 195, 247),   // sky blue
             Color.FromArgb(129, 199, 132),  // green
-            Color.FromArgb(255, 183, 77),   // amber
+            Color.FromArgb(255, 121, 97),   // coral (replaces amber)
             Color.FromArgb(186, 104, 200),  // purple
             Color.FromArgb(77, 208, 225),   // teal
-            Color.FromArgb(255, 213, 79),   // yellow
+            Color.FromArgb(149, 117, 205),  // periwinkle (replaces yellow)
             Color.FromArgb(161, 136, 127),  // taupe
         };
+
+        /// <summary>Remap yellow/amber hues from older builds to a readable replacement.</summary>
+        public static Color Sanitize(Color color)
+        {
+            if (!IsYellowish(color))
+                return color;
+            return Color.FromArgb(149, 117, 205);
+        }
+
+        private static bool IsYellowish(Color c)
+        {
+            if (c.A < 16)
+                return false;
+            // High red+green with low blue — catches yellow, amber, gold, chartreuse.
+            return c.R >= 175 && c.G >= 130 && c.B <= 145 && c.R + c.G > c.B * 3;
+        }
 
         public static Color For(int groupNumberOneBased)
         {

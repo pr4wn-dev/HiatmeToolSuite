@@ -2036,7 +2036,9 @@ namespace Hiatme_Tool_Suite_v3
         private Color ResolveGroupDisplayColor(SupeyTripCluster g)
         {
             if (g == null) return NeutralRouteColor;
-            return UseGroupRouteColors ? g.GroupColor : NeutralRouteColor;
+            if (!UseGroupRouteColors)
+                return NeutralRouteColor;
+            return g.DisplayColor;
         }
 
         private void AddLegendRow(SupeyTripCluster g)

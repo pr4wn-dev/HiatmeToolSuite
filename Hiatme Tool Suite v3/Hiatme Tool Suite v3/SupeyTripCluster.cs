@@ -16,6 +16,9 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>Cached palette color for this group — consistent across List, map, legend.</summary>
         public Color GroupColor { get; set; }
 
+        /// <summary>Map/list stripe color — never yellow or amber.</summary>
+        public Color DisplayColor => SupeyGroupPalette.Sanitize(GroupColor);
+
         public List<MCDownloadedTrip> Trips { get; } = new List<MCDownloadedTrip>();
 
         /// <summary>Geocoded PU points, in <see cref="Trips"/> order.</summary>

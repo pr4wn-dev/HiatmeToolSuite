@@ -493,9 +493,9 @@ namespace Hiatme_Tool_Suite_v3
             bool useColors = FsShowGroupColorsEnabled;
             Color fill = SupeyTheme.ListBody;
             if (useColors && columnIndex == 0 && grp != null)
-                fill = grp.GroupColor;
+                fill = grp.DisplayColor;
             else if (useColors && columnIndex > 0 && grp != null && slotHighlight)
-                fill = FsRouteHeaderBackColor(grp.GroupColor);
+                fill = FsRouteHeaderBackColor(grp.DisplayColor);
 
             using (var br = new SolidBrush(fill))
                 g.FillRectangle(br, cellBounds);

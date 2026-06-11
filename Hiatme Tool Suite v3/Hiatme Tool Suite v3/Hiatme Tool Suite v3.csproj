@@ -205,7 +205,9 @@
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="FsMapDisplayMode.cs" />
-    <Compile Include="FsMapModeIconButton.cs" />
+    <Compile Include="FsMapModeIconButton.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="ScheduleBuilderMapDisplayIcons.cs" />
     <Compile Include="ScheduleBuilderDriverMapRouting.cs" />
     <Compile Include="ScheduleBuilderBannedClients.cs" />
