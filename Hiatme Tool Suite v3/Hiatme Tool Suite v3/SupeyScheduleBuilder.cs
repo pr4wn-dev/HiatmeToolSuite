@@ -90,7 +90,7 @@ namespace Hiatme_Tool_Suite_v3
 
                 string savePath = dlg.FileName;
                 var csvFiles = Directory.EnumerateFiles(GetTempDirectory())
-                    .OrderBy(f => Path.GetFileName(f), StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(f => Path.GetFileNameWithoutExtension(f), Comparer<string>.Create(ScheduleBuilderPreviewCsvExport.CompareWorkbookTabNames))
                     .ToList();
                 await Task.Run(() =>
                 {

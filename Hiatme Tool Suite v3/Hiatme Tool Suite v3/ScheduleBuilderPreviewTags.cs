@@ -1,3 +1,5 @@
+using System.Drawing;
+
 namespace Hiatme_Tool_Suite_v3
 {
     internal sealed class FsPreviewGapTag { }
@@ -5,7 +7,13 @@ namespace Hiatme_Tool_Suite_v3
     internal sealed class FsPreviewSectionHeaderTag
     {
         public string Title { get; }
-        public FsPreviewSectionHeaderTag(string title) => Title = title ?? "";
+        public Color SectionColor { get; }
+
+        public FsPreviewSectionHeaderTag(string title, Color sectionColor)
+        {
+            Title = title ?? "";
+            SectionColor = sectionColor;
+        }
     }
 
     internal sealed class FsPreviewNoteTag

@@ -1118,7 +1118,7 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             var fileList = Directory.EnumerateFiles(tempDir)
-                .OrderBy(f => Path.GetFileName(f), StringComparer.OrdinalIgnoreCase)
+                .OrderBy(f => Path.GetFileNameWithoutExtension(f), Comparer<string>.Create(ScheduleBuilderPreviewCsvExport.CompareWorkbookTabNames))
                 .ToList();
             if (fileList.Count == 0)
             {

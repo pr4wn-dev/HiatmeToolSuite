@@ -861,9 +861,14 @@ namespace Hiatme_Tool_Suite_v3
 
             bool isGap = e.Item?.Tag is FsPreviewGapTag;
 
-            bool isSection = e.Item?.Tag is FsPreviewSectionHeaderTag;
+            var sectionTag = e.Item?.Tag as FsPreviewSectionHeaderTag;
+
+            bool isSection = sectionTag != null;
 
             bool isNote = e.Item?.Tag is FsPreviewNoteTag;
+
+            bool isReservesTab = _fsActiveDriverTab != null
+                && _fsActiveDriverTab.Equals("Reserves", StringComparison.OrdinalIgnoreCase);
 
             var noteTag = e.Item?.Tag as FsPreviewNoteTag;
 
@@ -871,7 +876,9 @@ namespace Hiatme_Tool_Suite_v3
 
             if (!sel && isSection)
 
-                rowBg = SupeyTheme.SurfaceHeader;
+                rowBg = isReservesTab
+                    ? sectionTag.SectionColor
+                    : SupeyTheme.SurfaceHeader;
 
             else if (!sel && isGap)
 
@@ -888,6 +895,7 @@ namespace Hiatme_Tool_Suite_v3
                 fill = noteTag.Group.DisplayColor;
 
             else if (!sel && !isGap && !isNote && e.ColumnIndex == 0 && FsShowGroupColorsEnabled
+                && !isReservesTab
 
                 && e.SubItem != null && e.SubItem.BackColor != Color.Empty
 
@@ -905,11 +913,15 @@ namespace Hiatme_Tool_Suite_v3
 
             Color textColor = sel ? SupeyTheme.ListSelectedText : SupeyTheme.ListText;
 
-            if (!sel && isSection && e.ColumnIndex == 2)
+            if (!sel && isSection && isReservesTab && e.ColumnIndex == 0)
+
+                textColor = ScheduleBuilderPreviewStyle.ReserveSectionHeaderText;
+
+            else if (!sel && isSection && !isReservesTab && e.ColumnIndex == 2)
 
                 textColor = SupeyTheme.TextPrimary;
 
-            Font drawFont = isSection && e.ColumnIndex == 2
+            Font drawFont = isSection && ((isReservesTab && e.ColumnIndex == 0) || (!isReservesTab && e.ColumnIndex == 2))
 
                 ? new Font(_fsTripsLv.Font, FontStyle.Bold)
 
@@ -2522,7 +2534,7 @@ namespace Hiatme_Tool_Suite_v3
 
                 {
 
-                    AddFsReservesSectionHeader(line.SectionTitle);
+                    AddFsReservesSectionHeader(line.SectionTitle, line.ReserveBandColor);
 
                     continue;
 
@@ -2544,21 +2556,29 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-        private void AddFsReservesSectionHeader(string title)
+        private void AddFsReservesSectionHeader(string title, Color? sectionColor)
 
         {
 
-            var lvi = new ListViewItem(new[] { "—", "", title ?? "", "", "", "", "", "", "", "", "", "" });
+            Color c = sectionColor ?? ScheduleBuilderReserveBuckets.SectionColorForTitle(title);
+
+            var lvi = new ListViewItem(title ?? "");
 
             lvi.UseItemStyleForSubItems = false;
 
             lvi.Font = new Font(_fsTripsLv.Font, FontStyle.Bold);
 
-            lvi.SubItems[0].BackColor = SupeyTheme.SurfaceHeader;
+            lvi.ForeColor = ScheduleBuilderPreviewStyle.ReserveSectionHeaderText;
 
-            lvi.SubItems[2].ForeColor = SupeyTheme.TextPrimary;
+            for (int i = 0; i < 11; i++)
 
-            lvi.Tag = new FsPreviewSectionHeaderTag(title);
+                lvi.SubItems.Add("");
+
+            for (int i = 0; i < lvi.SubItems.Count; i++)
+
+                lvi.SubItems[i].BackColor = c;
+
+            lvi.Tag = new FsPreviewSectionHeaderTag(title, c);
 
             _fsTripsLv.Items.Add(lvi);
 

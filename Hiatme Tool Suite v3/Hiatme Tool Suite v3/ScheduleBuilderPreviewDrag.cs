@@ -45,6 +45,7 @@ namespace Hiatme_Tool_Suite_v3
                     {
                         Kind = ScheduleBuilderPreviewLine.LineKind.SectionHeader,
                         SectionTitle = section.Title,
+                        ReserveBandColor = section.SectionColor,
                     });
                     continue;
                 }

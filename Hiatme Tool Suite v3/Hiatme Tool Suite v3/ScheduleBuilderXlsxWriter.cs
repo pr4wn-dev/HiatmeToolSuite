@@ -64,7 +64,9 @@ namespace Hiatme_Tool_Suite_v3
 
             var sheets = new List<(string Name, List<List<string>> Rows, Dictionary<(int Row, int Col), Color> Fills, List<ScheduleBuilderPreviewCsvExport.WorkbookTab.RowMergeBar> MergeBars)>();
             var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (string csvPath in csvFilePaths.OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase))
+            foreach (string csvPath in csvFilePaths.OrderBy(
+                p => Path.GetFileNameWithoutExtension(p),
+                Comparer<string>.Create(ScheduleBuilderPreviewCsvExport.CompareWorkbookTabNames)))
             {
                 if (string.IsNullOrWhiteSpace(csvPath) || !File.Exists(csvPath))
                     continue;

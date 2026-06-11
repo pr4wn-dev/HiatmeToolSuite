@@ -21,6 +21,18 @@ namespace Hiatme_Tool_Suite_v3
             public static Options TripsOnly => new Options();
         }
 
+        /// <summary>Reserves first, then driver tabs A–Z (matches Schedule Builder preview).</summary>
+        public static int CompareWorkbookTabNames(string a, string b)
+        {
+            a = a ?? "";
+            b = b ?? "";
+            bool aRes = a.Equals("Reserves", StringComparison.OrdinalIgnoreCase);
+            bool bRes = b.Equals("Reserves", StringComparison.OrdinalIgnoreCase);
+            if (aRes != bRes)
+                return aRes ? -1 : 1;
+            return string.Compare(a, b, StringComparison.OrdinalIgnoreCase);
+        }
+
         public sealed class WorkbookTab
         {
             public string TabName { get; set; }
@@ -81,7 +93,7 @@ namespace Hiatme_Tool_Suite_v3
 
             options = options ?? Options.TripsOnly;
             var tabs = new List<WorkbookTab>();
-            foreach (var kv in linesByTab.OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase))
+            foreach (var kv in linesByTab.OrderBy(x => x.Key, Comparer<string>.Create(CompareWorkbookTabNames)))
             {
                 if (string.IsNullOrWhiteSpace(kv.Key))
                     continue;
@@ -186,15 +198,15 @@ namespace Hiatme_Tool_Suite_v3
                         continue;
 
                     int row = tab.AddRow(BuildNoteCells(line.SectionTitle.Trim()));
-                    tab.FillRow(row, SupeyTheme.SurfaceHeader);
+                    Color sectionColor = line.ReserveBandColor
+                        ?? ScheduleBuilderReserveBuckets.SectionColorForTitle(line.SectionTitle);
+                    tab.FillRow(row, sectionColor);
                     continue;
                 }
 
                 if (line.Kind == ScheduleBuilderPreviewLine.LineKind.Trip && line.Trip != null)
                 {
-                    int row = tab.AddRow(BuildTripCells(line.Trip));
-                    if (line.ReserveBandColor.HasValue)
-                        tab.FillCell(row, 0, line.ReserveBandColor.Value);
+                    tab.AddRow(BuildTripCells(line.Trip));
                 }
             }
         }

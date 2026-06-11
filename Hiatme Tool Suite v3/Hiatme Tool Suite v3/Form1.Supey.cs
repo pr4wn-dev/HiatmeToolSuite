@@ -2827,19 +2827,19 @@ namespace Hiatme_Tool_Suite_v3
             {
                 AddReservesSectionHeader("Will calls (" + _supeyResult.ReservesWillCalls.Count + ")");
                 foreach (var t in _supeyResult.ReservesWillCalls)
-                    AddReservesTripRow(t, Color.FromArgb(120, 120, 160));
+                    AddReservesTripRow(t, ScheduleBuilderReserveBuckets.WillCallBand);
             }
             if (_supeyResult.Reserves.Count > 0)
             {
                 AddReservesSectionHeader("Reservers (" + _supeyResult.Reserves.Count + ")");
                 foreach (var t in _supeyResult.Reserves)
-                    AddReservesTripRow(t, Color.DimGray);
+                    AddReservesTripRow(t, ScheduleBuilderReserveBuckets.ReserversBand);
             }
             if (_supeyResult.ReservesReroute.Count > 0)
             {
                 AddReservesSectionHeader("Reroutes (" + _supeyResult.ReservesReroute.Count + ")");
                 foreach (var t in _supeyResult.ReservesReroute)
-                    AddReservesTripRow(t, Color.FromArgb(140, 90, 40));
+                    AddReservesTripRow(t, ScheduleBuilderReserveBuckets.RerouteBand);
             }
         }
 

@@ -268,15 +268,24 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-        public static readonly Color WillCallBand = Color.FromArgb(120, 120, 160);
+        /// <summary>Reserve section / map colors — tuned for LibreOffice and dark preview.</summary>
+        public static readonly Color WillCallBand = Color.FromArgb(88, 112, 188);   // indigo — will calls
+        public static readonly Color ReserversBand = Color.FromArgb(52, 128, 124);  // teal — need driver
+        public static readonly Color RerouteBand = Color.FromArgb(196, 118, 48);  // amber — reroute to MC
+        public static readonly Color BannedBand = Color.FromArgb(168, 72, 88);    // rose — banned (legacy)
 
-        public static readonly Color ReserversBand = Color.DimGray;
-
-        public static readonly Color RerouteBand = Color.FromArgb(140, 90, 40);
-
-        public static readonly Color BannedBand = Color.FromArgb(120, 55, 55);
-
-
+        /// <summary>Section header bar color from title (Will calls / Reservers / Reroutes).</summary>
+        public static Color SectionColorForTitle(string title)
+        {
+            title = title ?? "";
+            if (title.StartsWith("Will calls", StringComparison.OrdinalIgnoreCase))
+                return WillCallBand;
+            if (title.StartsWith("Reservers", StringComparison.OrdinalIgnoreCase))
+                return ReserversBand;
+            if (title.StartsWith("Reroutes", StringComparison.OrdinalIgnoreCase))
+                return RerouteBand;
+            return ReserversBand;
+        }
 
         public static List<ScheduleBuilderPreviewLine> BuildReservePreviewLines(
 
@@ -318,6 +327,8 @@ namespace Hiatme_Tool_Suite_v3
 
                     SectionTitle = title,
 
+                    ReserveBandColor = WillCallBand,
+
                 });
 
                 if (wc > 0)
@@ -342,6 +353,8 @@ namespace Hiatme_Tool_Suite_v3
 
                     SectionTitle = "Reservers (" + reservers.Count + ")",
 
+                    ReserveBandColor = ReserversBand,
+
                 });
 
                 foreach (var t in reservers.OrderBy(x => x?.PUTime ?? ""))
@@ -361,6 +374,8 @@ namespace Hiatme_Tool_Suite_v3
                     Kind = ScheduleBuilderPreviewLine.LineKind.SectionHeader,
 
                     SectionTitle = "Reroutes (" + allReroutes.Count + ")",
+
+                    ReserveBandColor = RerouteBand,
 
                 });
 

@@ -12,5 +12,14 @@ namespace Hiatme_Tool_Suite_v3
             int b = Math.Max(0, groupColor.B - 48);
             return Color.FromArgb(255, r, g, b);
         }
+
+        public static Color ContrastText(Color background)
+        {
+            int lum = (background.R * 299 + background.G * 587 + background.B * 114) / 1000;
+            return lum < 128 ? Color.White : Color.FromArgb(28, 28, 28);
+        }
+
+        /// <summary>Reserve section title bars — always white so every bucket matches.</summary>
+        public static Color ReserveSectionHeaderText => Color.White;
     }
 }
