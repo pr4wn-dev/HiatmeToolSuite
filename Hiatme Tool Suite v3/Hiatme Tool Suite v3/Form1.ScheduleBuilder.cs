@@ -1949,8 +1949,16 @@ namespace Hiatme_Tool_Suite_v3
             _fsMap.TripFlatMapMode = isReservesTab || !FsShowGroupColorsEnabled;
             _fsMap.UseGroupRouteColors = !isReservesTab && _fsShowGroupColors;
             var routeHome = (!isReservesTab && FsShowGroupColorsEnabled) ? homeGeo : (GeoPoint?)null;
+            var routeProgress = new Progress<(int Done, int Total)>(p =>
+            {
+                if (gen != _fsMapRefreshGen) return;
+                string msg = p.Total > 1
+                    ? "Loading road routes… " + p.Done + "/" + p.Total
+                    : "Loading road routes…";
+                _fsMap.SetMapLoadingMessage(msg);
+            });
             var routeCounts = await ScheduleBuilderPreviewGroups.BuildOsrmRoutePolylinesAsync(
-                groups, routeHome, CancellationToken.None).ConfigureAwait(true);
+                groups, routeHome, CancellationToken.None, routeProgress).ConfigureAwait(true);
 
             if (!isReservesTab && FsShowGroupColorsEnabled)
             {

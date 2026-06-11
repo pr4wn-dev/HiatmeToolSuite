@@ -165,26 +165,71 @@ namespace Hiatme_Tool_Suite_v3
         /// When <paramref name="homeGeo"/> is set: home starts the first group route and ends the last
         /// (both for a single-group day) — no separate deadhead overlay.
         /// </summary>
-        public static async Task<(int roadGroups, int straightGroups)> BuildOsrmRoutePolylinesAsync(
+        public static Task<(int roadGroups, int straightGroups)> BuildOsrmRoutePolylinesAsync(
             IEnumerable<SupeyTripCluster> groups, GeoPoint? homeGeo, CancellationToken token)
         {
-            int road = 0, straight = 0;
+            return BuildOsrmRoutePolylinesAsync(groups, homeGeo, token, null);
+        }
+
+        public static async Task<(int roadGroups, int straightGroups)> BuildOsrmRoutePolylinesAsync(
+            IEnumerable<SupeyTripCluster> groups,
+            GeoPoint? homeGeo,
+            CancellationToken token,
+            IProgress<(int Done, int Total)> progress)
+        {
             if (groups == null) return (0, 0);
             var list = groups as IList<SupeyTripCluster> ?? new List<SupeyTripCluster>(groups);
             int count = list.Count;
+            if (count == 0) return (0, 0);
+
+            int road = 0;
+            int straight = 0;
+            int done = 0;
+            progress?.Report((0, count));
+
+            var tasks = new Task[count];
             for (int i = 0; i < count; i++)
             {
-                var g = list[i];
-                if (g == null) continue;
-                token.ThrowIfCancellationRequested();
-                ScheduleBuilderDriverMapRouting.ResolveHomeRouteBookends(
-                    i, count, homeGeo, out GeoPoint? routeStart, out GeoPoint? routeEnd);
-                if (await PopulateGroupOsrmRouteAsync(g, token, routeStart, routeEnd).ConfigureAwait(false))
-                    road++;
-                else if (g.RoutePolyline.Count >= 2)
-                    straight++;
+                int index = i;
+                tasks[i] = RouteOneGroupAsync(list, index, count, homeGeo, token, () =>
+                {
+                    int finished = Interlocked.Increment(ref done);
+                    progress?.Report((finished, count));
+                }, isRoad =>
+                {
+                    if (isRoad)
+                        Interlocked.Increment(ref road);
+                    else if (list[index]?.RoutePolyline.Count >= 2)
+                        Interlocked.Increment(ref straight);
+                });
             }
+
+            await Task.WhenAll(tasks).ConfigureAwait(false);
             return (road, straight);
+        }
+
+        private static async Task RouteOneGroupAsync(
+            IList<SupeyTripCluster> list,
+            int index,
+            int count,
+            GeoPoint? homeGeo,
+            CancellationToken token,
+            Action onFinished,
+            Action<bool> tally)
+        {
+            var g = list[index];
+            if (g == null)
+            {
+                onFinished?.Invoke();
+                return;
+            }
+
+            token.ThrowIfCancellationRequested();
+            ScheduleBuilderDriverMapRouting.ResolveHomeRouteBookends(
+                index, count, homeGeo, out GeoPoint? routeStart, out GeoPoint? routeEnd);
+            bool isRoad = await PopulateGroupOsrmRouteAsync(g, token, routeStart, routeEnd).ConfigureAwait(false);
+            tally?.Invoke(isRoad);
+            onFinished?.Invoke();
         }
 
         /// <summary>PU→DO OSRM legs for each trip — drawn on the map when group colors are on.</summary>
