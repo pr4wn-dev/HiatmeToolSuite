@@ -22,11 +22,14 @@ namespace Hiatme_Tool_Suite_v3
             foreach (var line in lines)
             {
                 if (line == null) continue;
-                if (line.Kind == ScheduleBuilderPreviewLine.LineKind.Gap)
+                if (line.Kind == ScheduleBuilderPreviewLine.LineKind.Gap
+                    || line.Kind == ScheduleBuilderPreviewLine.LineKind.GroupHeader)
                 {
                     current = null;
                     continue;
                 }
+                if (line.Kind == ScheduleBuilderPreviewLine.LineKind.SectionHeader)
+                    continue;
                 if (line.Kind != ScheduleBuilderPreviewLine.LineKind.Trip || line.Trip == null)
                     continue;
 

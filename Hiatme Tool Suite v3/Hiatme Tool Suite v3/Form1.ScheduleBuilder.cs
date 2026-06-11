@@ -1712,6 +1712,8 @@ namespace Hiatme_Tool_Suite_v3
                 var lines = builder.PreviewDriverLines[name];
 
                 if (lines == null) lines = new List<ScheduleBuilderPreviewLine>();
+                else
+                    lines = ScheduleBuilderGroupHeaderReconcile.Reconcile(lines);
 
                 _fsLinesByTab[name] = lines;
 

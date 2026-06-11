@@ -293,7 +293,7 @@ namespace Hiatme_Tool_Suite_v3
                 _fsTripDragMerge);
 
             lines = ScheduleBuilderTemplateSlots.CollapseConsecutivePreviewGaps(lines);
-            _fsLinesByTab[tab] = lines;
+            FsCommitPreviewLinesForTab(tab, lines);
 
             if (fsbuilder?.PreviewDriverLines != null)
             {

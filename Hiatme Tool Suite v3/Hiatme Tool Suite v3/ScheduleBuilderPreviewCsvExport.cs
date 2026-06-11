@@ -173,7 +173,7 @@ namespace Hiatme_Tool_Suite_v3
 
                     var headerGroup = FindGroupByNumber(groups, line.GroupNumber);
                     Color color = headerGroup?.DisplayColor ?? SupeyGroupPalette.For(line.GroupNumber);
-                    int noteRow = tab.AddRow(BuildNoteCells(line.GroupNoteText ?? ""));
+                    int noteRow = tab.AddRow(BuildGroupHeaderCells(line.GroupNumber, line.GroupNoteText ?? ""));
                     tab.AddMergeBar(noteRow, color);
                     lastHeaderGroup = headerGroup;
                     continue;
@@ -187,7 +187,7 @@ namespace Hiatme_Tool_Suite_v3
                     var g = ScheduleBuilderPreviewGroups.FindGroupForTrip(groups, line.Trip);
                     if (g != null && !ReferenceEquals(g, lastHeaderGroup))
                     {
-                        int noteRow = tab.AddRow(EmptyCells());
+                        int noteRow = tab.AddRow(BuildGroupHeaderCells(g.GroupNumber, ""));
                         tab.AddMergeBar(noteRow, g.DisplayColor);
                         lastHeaderGroup = g;
                     }
@@ -242,6 +242,14 @@ namespace Hiatme_Tool_Suite_v3
         {
             var cells = EmptyCells();
             cells[0] = colAText ?? "";
+            return cells;
+        }
+
+        private static string[] BuildGroupHeaderCells(int groupNumber, string noteText)
+        {
+            var cells = EmptyCells();
+            cells[0] = noteText ?? "";
+            cells[13] = ScheduleBuilderGroupHeaderMeta.Encode(groupNumber);
             return cells;
         }
 

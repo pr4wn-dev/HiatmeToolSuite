@@ -98,7 +98,7 @@ namespace Hiatme_Tool_Suite_v3
             var sharedIndex = new Dictionary<string, int>(StringComparer.Ordinal);
             int IndexOfShared(string value)
             {
-                value = value ?? "";
+                value = SanitizeXmlText(value ?? "");
                 if (!sharedIndex.TryGetValue(value, out int idx))
                 {
                     idx = sharedStrings.Count;
@@ -338,8 +338,30 @@ namespace Hiatme_Tool_Suite_v3
                         new XElement(Ns + "si",
                             new XElement(Ns + "t",
                                 new XAttribute(XNamespace.Xml + "space", "preserve"),
-                                text ?? "")))));
+                                SanitizeXmlText(text ?? ""))))));
             return "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" + doc;
+        }
+
+        /// <summary>Strip characters illegal in XML 1.0 text nodes (e.g. control chars in trip notes).</summary>
+        private static string SanitizeXmlText(string text)
+        {
+            if (string.IsNullOrEmpty(text))
+                return text ?? "";
+
+            var sb = new StringBuilder(text.Length);
+            foreach (char c in text)
+            {
+                if (IsLegalXmlChar(c))
+                    sb.Append(c);
+            }
+            return sb.ToString();
+        }
+
+        private static bool IsLegalXmlChar(char c)
+        {
+            return c == 0x9 || c == 0xA || c == 0xD
+                || (c >= 0x20 && c <= 0xD7FF)
+                || (c >= 0xE000 && c <= 0xFFFD);
         }
 
         private static string BuildStylesXml(IReadOnlyDictionary<Color, int> colorToStyle)

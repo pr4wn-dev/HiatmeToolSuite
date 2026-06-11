@@ -51,6 +51,18 @@ namespace Hiatme_Tool_Suite_v3
                 if (TripTemplateCsvValidator.IsLikelyHeaderRow(rowValues))
                     continue;
 
+                if (rowValues.Length >= 14
+                    && ScheduleBuilderGroupHeaderMeta.TryDecode(rowValues[13], out int groupNumber))
+                {
+                    slots.Add(new SupeyTemplateSlot
+                    {
+                        Kind = SupeyTemplateSlot.SlotKind.GroupHeader,
+                        GroupNumber = groupNumber,
+                        NoteText = rowValues[0] ?? "",
+                    });
+                    continue;
+                }
+
                 if (TripTemplateCsvValidator.IsTemplateGapRow(rowValues))
                 {
                     slots.Add(new SupeyTemplateSlot

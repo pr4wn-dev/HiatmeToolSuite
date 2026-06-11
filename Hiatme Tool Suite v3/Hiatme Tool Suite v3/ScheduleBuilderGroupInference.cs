@@ -22,10 +22,14 @@ namespace Hiatme_Tool_Suite_v3
                 return new List<ScheduleBuilderPreviewLine>();
 
             var slots = SupeyTemplateCsvLoader.LoadSlotsFromFile(csvPath);
-            if (slots.Any(s => s != null && s.Kind == SupeyTemplateSlot.SlotKind.Gap))
+            if (slots.Any(s => s != null
+                    && (s.Kind == SupeyTemplateSlot.SlotKind.Gap
+                        || s.Kind == SupeyTemplateSlot.SlotKind.GroupHeader)))
             {
                 groupingNote = "route breaks in file";
-                return SlotsToPreviewLines(slots);
+                var lines = SlotsToPreviewLines(slots);
+                lines = ScheduleBuilderGroupHeaderRestore.ApplyLegacyRestoration(lines);
+                return ScheduleBuilderGroupHeaderReconcile.Reconcile(lines);
             }
 
             var trips = ExtractTripsFromSlots(slots);
@@ -60,6 +64,17 @@ namespace Hiatme_Tool_Suite_v3
                     {
                         Kind = ScheduleBuilderPreviewLine.LineKind.Gap,
                         GapNoteText = slot.NoteText ?? "",
+                    });
+                    continue;
+                }
+
+                if (slot.Kind == SupeyTemplateSlot.SlotKind.GroupHeader)
+                {
+                    lines.Add(new ScheduleBuilderPreviewLine
+                    {
+                        Kind = ScheduleBuilderPreviewLine.LineKind.GroupHeader,
+                        GroupNumber = slot.GroupNumber,
+                        GroupNoteText = slot.NoteText ?? "",
                     });
                     continue;
                 }

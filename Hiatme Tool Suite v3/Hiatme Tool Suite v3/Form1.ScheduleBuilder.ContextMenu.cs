@@ -411,8 +411,13 @@ namespace Hiatme_Tool_Suite_v3
             if (!_fsLinesByTab.TryGetValue(_fsActiveDriverTab, out var lines) || lines == null)
                 return;
 
-            _fsGroupsByTab.TryGetValue(_fsActiveDriverTab, out var groups);
-            ScheduleBuilderGroupNotes.ApplyNote(lines, groups, _fsTripsCtxNoteTag.Group, edited);
+            ScheduleBuilderGroupHeaderReconcile.ReconcileInPlace(lines);
+            var groups = ScheduleBuilderPreviewGroups.BuildFromPreviewLines(lines);
+            var group = FindFsGroupByNumber(groups, groupNumber) ?? _fsTripsCtxNoteTag.Group;
+            if (group == null)
+                return;
+
+            ScheduleBuilderGroupNotes.ApplyNote(lines, groups, group, edited);
             FsCommitPreviewLinesForTab(_fsActiveDriverTab, lines);
             ShowFsTripsForTab(_fsActiveDriverTab);
             SyncFsPreviewCsvsForExport();
@@ -631,6 +636,12 @@ namespace Hiatme_Tool_Suite_v3
 
         private void FsCommitPreviewLinesForTab(string tab, List<ScheduleBuilderPreviewLine> lines)
         {
+            if (lines != null
+                && !tab.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
+            {
+                lines = ScheduleBuilderGroupHeaderReconcile.Reconcile(lines);
+            }
+
             _fsLinesByTab[tab] = lines;
 
             if (fsbuilder?.PreviewDriverLines != null)
