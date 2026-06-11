@@ -70,15 +70,17 @@ namespace Hiatme_Tool_Suite_v3
                 SaveDriverPlanToCsv(plan, SafeFileName(plan.Driver?.Name ?? "Driver"));
             SaveTripListToCsv(result.Reserves, "Reserves");
 
-            string defaultFileName = "Schedule for " +
-                result.ServiceDate.ToString("MMMM") + " " + result.ServiceDate.Day + " " + result.ServiceDate.Year + ".xlsx";
+            string defaultFileName;
+            string yearFolder;
+            ScheduleExportPaths.GetDefaultWorkbookSaveLocation(
+                result.ServiceDate, out yearFolder, out defaultFileName, out _);
 
             using (var dlg = new SaveFileDialog
             {
-                InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
+                InitialDirectory = yearFolder,
                 Filter = "Excel files (*.xlsx)|*.xlsx",
                 FilterIndex = 0,
-                RestoreDirectory = true,
+                RestoreDirectory = false,
                 Title = "Export Excel File To",
                 FileName = defaultFileName,
             })

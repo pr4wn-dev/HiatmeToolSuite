@@ -1129,13 +1129,16 @@ namespace Hiatme_Tool_Suite_v3
                 }
 
                 await AsyncUpdateLoadingScreen("Choose a location to save schedule");
+                ScheduleExportPaths.GetDefaultWorkbookSaveLocation(
+                    NameOfMonth, Day, Year, out string yearFolder, out string fileName, out _);
+
                 SaveFileDialog saveDlg = new SaveFileDialog();
-                saveDlg.InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+                saveDlg.InitialDirectory = yearFolder;
                 saveDlg.Filter = "Excel files (*.xlsx)|*.xlsx";
                 saveDlg.FilterIndex = 0;
-                saveDlg.RestoreDirectory = true;
+                saveDlg.RestoreDirectory = false;
                 saveDlg.Title = "Export Excel File To";
-                saveDlg.FileName = "Schedule for " + NameOfMonth + " " + Day + " " + Year + ".xlsx";
+                saveDlg.FileName = fileName;
 
                 if (saveDlg.ShowDialog() != DialogResult.OK)
                 {
@@ -1265,6 +1268,12 @@ namespace Hiatme_Tool_Suite_v3
                 try { newWorkbook?.Close(false); xlApp?.Quit(); } catch { }
                 throw;
             }
+            catch (System.Runtime.InteropServices.COMException comEx)
+                when (comEx.HResult == unchecked((int)0x80040154))
+            {
+                try { newWorkbook?.Close(false); xlApp?.Quit(); } catch { }
+                await ExportCsvSchedulePackageAsync().ConfigureAwait(false);
+            }
             catch (Exception ex)
             {
                 NotifyHideLoadingScreen();
@@ -1294,8 +1303,9 @@ namespace Hiatme_Tool_Suite_v3
                     comEx.HResult == unchecked((int)0x80040154))
                 {
                     inner = new InvalidOperationException(
-                        "Excel could not be started on this PC.\n\n" +
-                        "Use Export CSVs (this machine has no Excel), or install Excel and rebuild as a workbook.",
+                        "Excel is not installed on this PC, so a .xlsx workbook cannot be created.\n\n" +
+                        "Click SAVE SCHEDULE again to export one .csv per driver tab instead, " +
+                        "or install Excel to save a single workbook file.",
                         ex);
                 }
 
@@ -1347,23 +1357,24 @@ namespace Hiatme_Tool_Suite_v3
                     "—");
             }
 
-            await AsyncUpdateLoadingScreen("Choose folder for driver CSV files");
-            string defaultFolderName = "Schedule for " + NameOfMonth + " " + Day + " " + Year;
-            string destRoot;
-            using (var folderDlg = new FolderBrowserDialog())
+            await AsyncUpdateLoadingScreen("Preparing CSV export");
+            ScheduleExportPaths.GetDefaultWorkbookSaveLocation(
+                NameOfMonth, Day, Year, out string yearFolder, out string fileName, out _);
+            string destDir = Path.Combine(yearFolder, Path.GetFileNameWithoutExtension(fileName));
+
+            var confirm = MessageBox.Show(
+                "This PC does not have Excel, so SAVE cannot create a single .xlsx workbook.\n\n" +
+                "Export one .csv per driver tab to:\n\n" + destDir + "\n\n" +
+                "You can open or merge these on a PC that has Excel.",
+                "Schedule Builder — CSV export",
+                MessageBoxButtons.OKCancel,
+                MessageBoxIcon.Information);
+            if (confirm != DialogResult.OK)
             {
-                folderDlg.Description = "Export schedule — one .csv per driver tab (+ Reserves if any).";
-                folderDlg.ShowNewFolderButton = true;
-                folderDlg.SelectedPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
-                if (folderDlg.ShowDialog() != DialogResult.OK)
-                {
-                    NotifyHideLoadingScreen();
-                    return;
-                }
-                destRoot = folderDlg.SelectedPath;
+                NotifyHideLoadingScreen();
+                return;
             }
 
-            string destDir = Path.Combine(destRoot, defaultFolderName);
             Directory.CreateDirectory(destDir);
             await AsyncUpdateLoadingScreen("Copying " + fileList.Count + " CSV file(s)…");
             foreach (var src in fileList)
