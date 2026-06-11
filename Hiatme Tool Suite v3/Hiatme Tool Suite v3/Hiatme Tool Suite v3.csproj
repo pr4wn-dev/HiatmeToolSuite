@@ -159,6 +159,7 @@
     <Compile Include="ScheduleBuilderGroupInference.cs" />
     <Compile Include="ScheduleBuilderLoadDateResolver.cs" />
     <Compile Include="ScheduleBuilderXlsxReader.cs" />
+    <Compile Include="ScheduleBuilderXlsxWriter.cs" />
     <Compile Include="ScheduleBuilderPreviewGroups.cs" />
     <Compile Include="ScheduleBuilderPreviewDrag.cs" />
     <Compile Include="ScheduleBuilderPreviewTags.cs" />

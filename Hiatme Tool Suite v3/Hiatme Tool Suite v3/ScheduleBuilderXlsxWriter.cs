@@ -1,0 +1,305 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.IO.Compression;
+using System.Linq;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Xml.Linq;
+
+namespace Hiatme_Tool_Suite_v3
+{
+    /// <summary>Builds schedule .xlsx workbooks from Template Temps CSVs without Microsoft Excel.</summary>
+    internal static class ScheduleBuilderXlsxWriter
+    {
+        private static readonly XNamespace Ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+        private static readonly XNamespace RelNs = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+        private static readonly XNamespace PkgRelNs = "http://schemas.openxmlformats.org/package/2006/relationships";
+        private static readonly Regex CsvSplit = new Regex(",(?=(?:[^\"]*\"[^\"]*\")*(?![^\"]*\"))");
+
+        public static void WriteWorkbookFromCsvFiles(string outputPath, IReadOnlyList<string> csvFilePaths)
+        {
+            if (string.IsNullOrWhiteSpace(outputPath))
+                throw new ArgumentException("Output path is required.", nameof(outputPath));
+            if (csvFilePaths == null || csvFilePaths.Count == 0)
+                throw new InvalidOperationException("No driver CSV files to export.");
+
+            var sheets = new List<(string Name, List<List<string>> Rows)>();
+            var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string csvPath in csvFilePaths.OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase))
+            {
+                if (string.IsNullOrWhiteSpace(csvPath) || !File.Exists(csvPath))
+                    continue;
+
+                string baseName = Path.GetFileNameWithoutExtension(csvPath) ?? "Sheet";
+                string sheetName = MakeUniqueSheetName(baseName, usedNames);
+                usedNames.Add(sheetName);
+                sheets.Add((sheetName, ReadCsvRows(csvPath)));
+            }
+
+            if (sheets.Count == 0)
+                throw new InvalidOperationException("No readable driver CSV files were found.");
+
+            string dir = Path.GetDirectoryName(outputPath);
+            if (!string.IsNullOrEmpty(dir))
+                Directory.CreateDirectory(dir);
+
+            if (File.Exists(outputPath))
+                File.Delete(outputPath);
+
+            var sharedStrings = new List<string>();
+            var sharedIndex = new Dictionary<string, int>(StringComparer.Ordinal);
+
+            int IndexOfShared(string value)
+            {
+                value = value ?? "";
+                if (!sharedIndex.TryGetValue(value, out int idx))
+                {
+                    idx = sharedStrings.Count;
+                    sharedStrings.Add(value);
+                    sharedIndex[value] = idx;
+                }
+                return idx;
+            }
+
+            foreach (var sheet in sheets)
+            {
+                foreach (var row in sheet.Rows)
+                {
+                    if (row == null) continue;
+                    foreach (var cell in row)
+                        IndexOfShared(cell);
+                }
+            }
+
+            using (var zip = ZipFile.Open(outputPath, ZipArchiveMode.Create))
+            {
+                WriteEntry(zip, "[Content_Types].xml", BuildContentTypes(sheets.Count));
+                WriteEntry(zip, "_rels/.rels", BuildRootRels());
+                WriteEntry(zip, "xl/workbook.xml", BuildWorkbookXml(sheets));
+                WriteEntry(zip, "xl/_rels/workbook.xml.rels", BuildWorkbookRels(sheets.Count));
+                WriteEntry(zip, "xl/sharedStrings.xml", BuildSharedStringsXml(sharedStrings));
+                WriteEntry(zip, "xl/styles.xml", BuildStylesXml());
+
+                for (int i = 0; i < sheets.Count; i++)
+                {
+                    string part = "xl/worksheets/sheet" + (i + 1) + ".xml";
+                    WriteEntry(zip, part, BuildWorksheetXml(sheets[i].Rows, sharedIndex));
+                }
+            }
+        }
+
+        private static List<List<string>> ReadCsvRows(string csvPath)
+        {
+            var rows = new List<List<string>>();
+            foreach (string line in File.ReadAllLines(csvPath))
+            {
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    rows.Add(new List<string>());
+                    continue;
+                }
+
+                string[] fields = CsvSplit.Split(line);
+                var row = new List<string>(fields.Length);
+                for (int i = 0; i < fields.Length; i++)
+                {
+                    string v = fields[i] ?? "";
+                    if (v.Length >= 2 && v[0] == '"' && v[v.Length - 1] == '"')
+                        v = v.Substring(1, v.Length - 2).Replace("\"\"", "\"");
+                    row.Add(v);
+                }
+                rows.Add(row);
+            }
+
+            return rows;
+        }
+
+        private static string MakeUniqueSheetName(string baseName, ISet<string> usedNames)
+        {
+            string sanitized = SanitizeSheetName(baseName);
+            if (usedNames.Add(sanitized))
+                return sanitized;
+
+            for (int n = 2; n < 100; n++)
+            {
+                string candidate = SanitizeSheetName(TrimForSuffix(sanitized, n));
+                if (usedNames.Add(candidate))
+                    return candidate;
+            }
+
+            return SanitizeSheetName("Sheet" + usedNames.Count);
+        }
+
+        private static string SanitizeSheetName(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                return "Sheet";
+
+            var invalid = new[] { ':', '\\', '/', '?', '*', '[', ']' };
+            var sb = new StringBuilder(name.Trim());
+            for (int i = 0; i < sb.Length; i++)
+            {
+                if (invalid.Contains(sb[i]))
+                    sb[i] = '_';
+            }
+
+            string result = sb.ToString();
+            if (result.Length > 31)
+                result = result.Substring(0, 31);
+            return string.IsNullOrWhiteSpace(result) ? "Sheet" : result;
+        }
+
+        private static string TrimForSuffix(string name, int suffix)
+        {
+            string tail = " (" + suffix + ")";
+            int maxBase = Math.Max(1, 31 - tail.Length);
+            if (name.Length <= maxBase)
+                return name + tail;
+            return name.Substring(0, maxBase) + tail;
+        }
+
+        private static void WriteEntry(ZipArchive zip, string path, string xml)
+        {
+            var entry = zip.CreateEntry(path.Replace('\\', '/'), CompressionLevel.Optimal);
+            using (var stream = entry.Open())
+            using (var writer = new StreamWriter(stream, new UTF8Encoding(false)))
+                writer.Write(xml);
+        }
+
+        private static string BuildContentTypes(int sheetCount)
+        {
+            var sb = new StringBuilder();
+            sb.Append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>");
+            sb.Append("<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">");
+            sb.Append("<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>");
+            sb.Append("<Default Extension=\"xml\" ContentType=\"application/xml\"/>");
+            sb.Append("<Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/>");
+            sb.Append("<Override PartName=\"/xl/sharedStrings.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml\"/>");
+            sb.Append("<Override PartName=\"/xl/styles.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml\"/>");
+            for (int i = 1; i <= sheetCount; i++)
+            {
+                sb.Append("<Override PartName=\"/xl/worksheets/sheet");
+                sb.Append(i);
+                sb.Append(".xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>");
+            }
+            sb.Append("</Types>");
+            return sb.ToString();
+        }
+
+        private static string BuildRootRels()
+        {
+            return "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+                + "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
+                + "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"xl/workbook.xml\"/>"
+                + "</Relationships>";
+        }
+
+        private static string BuildWorkbookXml(IReadOnlyList<(string Name, List<List<string>> Rows)> sheets)
+        {
+            var doc = new XDocument(
+                new XElement(Ns + "workbook",
+                    new XAttribute(XNamespace.Xmlns + "r", RelNs),
+                    new XElement(Ns + "sheets",
+                        sheets.Select((sheet, i) =>
+                            new XElement(Ns + "sheet",
+                                new XAttribute("name", sheet.Name),
+                                new XAttribute("sheetId", (uint)(i + 1)),
+                                new XAttribute(RelNs + "id", "rId" + (i + 1)))))));
+            return doc.Declaration == null
+                ? "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" + doc
+                : doc.Declaration + Environment.NewLine + doc;
+        }
+
+        private static string BuildWorkbookRels(int sheetCount)
+        {
+            var sb = new StringBuilder();
+            sb.Append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>");
+            sb.Append("<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">");
+            for (int i = 1; i <= sheetCount; i++)
+            {
+                sb.Append("<Relationship Id=\"rId");
+                sb.Append(i);
+                sb.Append("\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet");
+                sb.Append(i);
+                sb.Append(".xml\"/>");
+            }
+            sb.Append("<Relationship Id=\"rId");
+            sb.Append(sheetCount + 1);
+            sb.Append("\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings\" Target=\"sharedStrings.xml\"/>");
+            sb.Append("<Relationship Id=\"rId");
+            sb.Append(sheetCount + 2);
+            sb.Append("\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles\" Target=\"styles.xml\"/>");
+            sb.Append("</Relationships>");
+            return sb.ToString();
+        }
+
+        private static string BuildSharedStringsXml(IReadOnlyList<string> sharedStrings)
+        {
+            var doc = new XDocument(
+                new XElement(Ns + "sst",
+                    new XAttribute("count", sharedStrings.Count),
+                    new XAttribute("uniqueCount", sharedStrings.Count),
+                    sharedStrings.Select(text =>
+                        new XElement(Ns + "si",
+                            new XElement(Ns + "t",
+                                new XAttribute(XNamespace.Xml + "space", "preserve"),
+                                text ?? "")))));
+            return "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" + doc;
+        }
+
+        private static string BuildStylesXml()
+        {
+            return "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+                + "<styleSheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">"
+                + "<fonts count=\"1\"><font><sz val=\"11\"/><name val=\"Calibri\"/></font></fonts>"
+                + "<fills count=\"1\"><fill><patternFill patternType=\"none\"/></fill></fills>"
+                + "<borders count=\"1\"><border/></borders>"
+                + "<cellStyleXfs count=\"1\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\"/></cellStyleXfs>"
+                + "<cellXfs count=\"1\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\" xfId=\"0\"/></cellXfs>"
+                + "</styleSheet>";
+        }
+
+        private static string BuildWorksheetXml(IReadOnlyList<List<string>> rows, IReadOnlyDictionary<string, int> sharedIndex)
+        {
+            var sheetData = new XElement(Ns + "sheetData");
+            for (int r = 0; r < rows.Count; r++)
+            {
+                var row = rows[r];
+                if (row == null || row.Count == 0)
+                {
+                    sheetData.Add(new XElement(Ns + "row", new XAttribute("r", r + 1)));
+                    continue;
+                }
+
+                var rowEl = new XElement(Ns + "row", new XAttribute("r", r + 1));
+                for (int c = 0; c < row.Count; c++)
+                {
+                    string value = row[c] ?? "";
+                    string cellRef = IndexToColumnLetters(c + 1) + (r + 1);
+                    rowEl.Add(new XElement(Ns + "c",
+                        new XAttribute("r", cellRef),
+                        new XAttribute("t", "s"),
+                        new XElement(Ns + "v", sharedIndex[value])));
+                }
+                sheetData.Add(rowEl);
+            }
+
+            var doc = new XDocument(new XElement(Ns + "worksheet", sheetData));
+            return "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" + doc;
+        }
+
+        private static string IndexToColumnLetters(int index1Based)
+        {
+            var sb = new StringBuilder();
+            int n = index1Based;
+            while (n > 0)
+            {
+                n--;
+                sb.Insert(0, (char)('A' + (n % 26)));
+                n /= 26;
+            }
+            return sb.Length == 0 ? "A" : sb.ToString();
+        }
+    }
+}

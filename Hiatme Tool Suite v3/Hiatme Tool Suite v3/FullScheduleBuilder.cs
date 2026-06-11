@@ -1095,9 +1095,70 @@ namespace Hiatme_Tool_Suite_v3
         public async Task CreateWorkbookAsync()
         {
             ClearLastExport();
+
+            var tempDir = TemplateBuilder.GetTemplateTempDirectory();
+            if (!Directory.Exists(tempDir))
+            {
+                NotifyHideLoadingScreen();
+                throw new ScheduleBuilderException(
+                    "CreateWorkbook",
+                    tempDir,
+                    null,
+                    null,
+                    0,
+                    new DirectoryNotFoundException(
+                        "The working folder for schedule CSV files does not exist:\n" + tempDir + "\n\n" +
+                        "Run the schedule builder again from the start."),
+                    "—");
+            }
+
+            var fileList = Directory.EnumerateFiles(tempDir)
+                .OrderBy(f => Path.GetFileName(f), StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (fileList.Count == 0)
+            {
+                NotifyHideLoadingScreen();
+                throw new ScheduleBuilderException(
+                    "CreateWorkbook",
+                    tempDir,
+                    null,
+                    null,
+                    0,
+                    new InvalidOperationException(
+                        "There are no CSV files in the working folder to put into the new workbook.\n\n" +
+                        "Try building the schedule again; if this keeps happening, check that template matching produced files in:\n" + tempDir),
+                    "—");
+            }
+
+            await AsyncUpdateLoadingScreen("Choose a location to save schedule");
+            ScheduleExportPaths.GetDefaultWorkbookSaveLocation(
+                NameOfMonth, Day, Year, out string yearFolder, out string fileName, out _);
+
+            string path;
+            using (var saveDlg = new SaveFileDialog())
+            {
+                saveDlg.InitialDirectory = yearFolder;
+                saveDlg.Filter = "Excel files (*.xlsx)|*.xlsx";
+                saveDlg.FilterIndex = 0;
+                saveDlg.RestoreDirectory = false;
+                saveDlg.Title = "Export Excel File To";
+                saveDlg.FileName = fileName;
+                if (saveDlg.ShowDialog() != DialogResult.OK)
+                {
+                    await AsyncUpdateLoadingScreen("Cancelling process..");
+                    NotifyHideLoadingScreen();
+                    return;
+                }
+                path = saveDlg.FileName;
+            }
+
+            await AsyncUpdateLoadingScreen("Building workbook");
+
             if (!IsExcelAvailable())
             {
-                await ExportCsvSchedulePackageAsync().ConfigureAwait(false);
+                await Task.Run(() => ScheduleBuilderXlsxWriter.WriteWorkbookFromCsvFiles(path, fileList))
+                    .ConfigureAwait(false);
+                await FinishWorkbookExportAsync(path).ConfigureAwait(false);
                 return;
             }
 
@@ -1111,58 +1172,6 @@ namespace Hiatme_Tool_Suite_v3
                 await AsyncUpdateLoadingScreen("Starting Excel");
                 xlApp = new Microsoft.Office.Interop.Excel.Application { Visible = false };
                 newWorkbook = xlApp.Workbooks.Add();
-
-                var tempDir = TemplateBuilder.GetTemplateTempDirectory();
-                if (!Directory.Exists(tempDir))
-                {
-                    NotifyHideLoadingScreen();
-                    throw new ScheduleBuilderException(
-                        "CreateWorkbook",
-                        tempDir,
-                        null,
-                        null,
-                        0,
-                        new DirectoryNotFoundException(
-                            "The working folder for schedule CSV files does not exist:\n" + tempDir + "\n\n" +
-                            "Run the schedule builder again from the start."),
-                        "—");
-                }
-
-                await AsyncUpdateLoadingScreen("Choose a location to save schedule");
-                ScheduleExportPaths.GetDefaultWorkbookSaveLocation(
-                    NameOfMonth, Day, Year, out string yearFolder, out string fileName, out _);
-
-                SaveFileDialog saveDlg = new SaveFileDialog();
-                saveDlg.InitialDirectory = yearFolder;
-                saveDlg.Filter = "Excel files (*.xlsx)|*.xlsx";
-                saveDlg.FilterIndex = 0;
-                saveDlg.RestoreDirectory = false;
-                saveDlg.Title = "Export Excel File To";
-                saveDlg.FileName = fileName;
-
-                if (saveDlg.ShowDialog() != DialogResult.OK)
-                {
-                    await AsyncUpdateLoadingScreen("Cancelling process..");
-                    try { newWorkbook?.Close(false); xlApp?.Quit(); } catch { }
-                    NotifyHideLoadingScreen();
-                    return;
-                }
-
-                await AsyncUpdateLoadingScreen("Building workbook");
-                var fileList = Directory.EnumerateFiles(TemplateBuilder.GetTemplateTempDirectory()).ToList();
-                if (fileList.Count == 0)
-                {
-                    throw new ScheduleBuilderException(
-                        "CreateWorkbook",
-                        tempDir,
-                        null,
-                        null,
-                        0,
-                        new InvalidOperationException(
-                            "There are no CSV files in the working folder to put into the new workbook.\n\n" +
-                            "Try building the schedule again; if this keeps happening, check that template matching produced files in:\n" + tempDir),
-                        "—");
-                }
 
                 var counter = 1;
                 foreach (var file in fileList)
@@ -1247,7 +1256,6 @@ namespace Hiatme_Tool_Suite_v3
                 }
                 xlApp.DisplayAlerts = false;
 
-                string path = saveDlg.FileName;
                 currentFile = "(saving workbook)";
                 newWorkbook.SaveAs(path, Microsoft.Office.Interop.Excel.XlFileFormat.xlWorkbookDefault, Type.Missing, Type.Missing, false, false, XlSaveAsAccessMode.xlNoChange, XlSaveConflictResolution.xlLocalSessionChanges, Type.Missing, Type.Missing);
                 newWorkbook.Close(true, misValue, misValue);
@@ -1256,11 +1264,7 @@ namespace Hiatme_Tool_Suite_v3
                 Marshal.ReleaseComObject(newWorkbook);
                 Marshal.ReleaseComObject(xlApp);
 
-                System.Diagnostics.Process.Start(path);
-                LastExportPath = path;
-                LastExportWasCsv = false;
-                await AsyncUpdateLoadingScreen("Finalizing process..");
-                NotifyHideLoadingScreen();
+                await FinishWorkbookExportAsync(path).ConfigureAwait(false);
             }
             catch (ScheduleBuilderException)
             {
@@ -1272,7 +1276,9 @@ namespace Hiatme_Tool_Suite_v3
                 when (comEx.HResult == unchecked((int)0x80040154))
             {
                 try { newWorkbook?.Close(false); xlApp?.Quit(); } catch { }
-                await ExportCsvSchedulePackageAsync().ConfigureAwait(false);
+                await Task.Run(() => ScheduleBuilderXlsxWriter.WriteWorkbookFromCsvFiles(path, fileList))
+                    .ConfigureAwait(false);
+                await FinishWorkbookExportAsync(path).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -1303,9 +1309,7 @@ namespace Hiatme_Tool_Suite_v3
                     comEx.HResult == unchecked((int)0x80040154))
                 {
                     inner = new InvalidOperationException(
-                        "Excel is not installed on this PC, so a .xlsx workbook cannot be created.\n\n" +
-                        "Click SAVE SCHEDULE again to export one .csv per driver tab instead, " +
-                        "or install Excel to save a single workbook file.",
+                        "Excel could not be started on this PC. The schedule was not saved.",
                         ex);
                 }
 
@@ -1320,81 +1324,21 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
-        /// <summary>
-        /// When Excel is not installed: copy per-driver CSVs from Template Temps into a folder the user picks
-        /// (same data as the workbook step — open or merge into .xlsx on a PC that has Excel).
-        /// </summary>
-        private async Task ExportCsvSchedulePackageAsync()
+        private async Task FinishWorkbookExportAsync(string path)
         {
-            var tempDir = TemplateBuilder.GetTemplateTempDirectory();
-            if (!Directory.Exists(tempDir))
-            {
-                NotifyHideLoadingScreen();
-                throw new ScheduleBuilderException(
-                    "ExportCsvSchedulePackage",
-                    tempDir,
-                    null,
-                    null,
-                    0,
-                    new DirectoryNotFoundException(
-                        "The working folder for schedule CSV files does not exist:\n" + tempDir),
-                    "—");
-            }
-
-            var fileList = Directory.EnumerateFiles(tempDir, "*.csv").ToList();
-            if (fileList.Count == 0)
-            {
-                NotifyHideLoadingScreen();
-                throw new ScheduleBuilderException(
-                    "ExportCsvSchedulePackage",
-                    tempDir,
-                    null,
-                    null,
-                    0,
-                    new InvalidOperationException(
-                        "There are no driver CSV files to export.\n\n" +
-                        "Template matching may have failed — check templates and try again.\n\n" + tempDir),
-                    "—");
-            }
-
-            await AsyncUpdateLoadingScreen("Preparing CSV export");
-            ScheduleExportPaths.GetDefaultWorkbookSaveLocation(
-                NameOfMonth, Day, Year, out string yearFolder, out string fileName, out _);
-            string destDir = Path.Combine(yearFolder, Path.GetFileNameWithoutExtension(fileName));
-
-            var confirm = MessageBox.Show(
-                "This PC does not have Excel, so SAVE cannot create a single .xlsx workbook.\n\n" +
-                "Export one .csv per driver tab to:\n\n" + destDir + "\n\n" +
-                "You can open or merge these on a PC that has Excel.",
-                "Schedule Builder — CSV export",
-                MessageBoxButtons.OKCancel,
-                MessageBoxIcon.Information);
-            if (confirm != DialogResult.OK)
-            {
-                NotifyHideLoadingScreen();
-                return;
-            }
-
-            Directory.CreateDirectory(destDir);
-            await AsyncUpdateLoadingScreen("Copying " + fileList.Count + " CSV file(s)…");
-            foreach (var src in fileList)
-            {
-                string name = Path.GetFileName(src);
-                File.Copy(src, Path.Combine(destDir, name), overwrite: true);
-            }
-
-            NotifyHideLoadingScreen();
             try
             {
-                System.Diagnostics.Process.Start("explorer.exe", destDir);
+                System.Diagnostics.Process.Start(path);
             }
             catch
             {
                 /* ignore */
             }
 
-            LastExportPath = destDir;
-            LastExportWasCsv = true;
+            LastExportPath = path;
+            LastExportWasCsv = false;
+            await AsyncUpdateLoadingScreen("Finalizing process..");
+            NotifyHideLoadingScreen();
         }
 
         /// <summary>Set after a successful export (workbook path or CSV folder).</summary>

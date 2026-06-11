@@ -88,9 +88,19 @@ namespace Hiatme_Tool_Suite_v3
                 if (dlg.ShowDialog(owner) != DialogResult.OK)
                     return;
 
-                await Task.Run(() => AssembleWorkbook(dlg.FileName)).ConfigureAwait(false);
+                string savePath = dlg.FileName;
+                var csvFiles = Directory.EnumerateFiles(GetTempDirectory())
+                    .OrderBy(f => Path.GetFileName(f), StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                await Task.Run(() =>
+                {
+                    if (FullScheduleBuilder.IsExcelAvailable())
+                        AssembleWorkbook(savePath);
+                    else
+                        ScheduleBuilderXlsxWriter.WriteWorkbookFromCsvFiles(savePath, csvFiles);
+                }).ConfigureAwait(false);
 
-                try { System.Diagnostics.Process.Start(dlg.FileName); }
+                try { System.Diagnostics.Process.Start(savePath); }
                 catch { /* failing to open is non-fatal — user can open from Explorer */ }
             }
         }
