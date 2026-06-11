@@ -66,6 +66,34 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        public static void AutoFitAllWorksheets(Workbook workbook)
+        {
+            if (workbook?.Worksheets == null)
+                return;
+
+            int count = workbook.Worksheets.Count;
+            for (int i = 1; i <= count; i++)
+            {
+                Worksheet worksheet = null;
+                Range columns = null;
+                Range rows = null;
+                try
+                {
+                    worksheet = (Worksheet)workbook.Worksheets[i];
+                    columns = worksheet.Columns;
+                    columns.AutoFit();
+                    rows = worksheet.Rows;
+                    rows.AutoFit();
+                }
+                finally
+                {
+                    if (rows != null) Marshal.ReleaseComObject(rows);
+                    if (columns != null) Marshal.ReleaseComObject(columns);
+                    if (worksheet != null) Marshal.ReleaseComObject(worksheet);
+                }
+            }
+        }
+
         private static void ApplyMergeBar(
             Worksheet worksheet,
             ScheduleBuilderPreviewCsvExport.WorkbookTab.RowMergeBar bar)

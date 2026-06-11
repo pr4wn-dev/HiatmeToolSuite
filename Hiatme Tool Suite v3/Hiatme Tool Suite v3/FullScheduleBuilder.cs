@@ -1274,6 +1274,8 @@ namespace Hiatme_Tool_Suite_v3
                 if (workbookTabs != null && workbookTabs.Count > 0)
                     ScheduleBuilderExcelWorkbookColors.ApplyTabColors(newWorkbook, workbookTabs);
 
+                ScheduleBuilderExcelWorkbookColors.AutoFitAllWorksheets(newWorkbook);
+
                 currentFile = "(saving workbook)";
                 newWorkbook.SaveAs(path, Microsoft.Office.Interop.Excel.XlFileFormat.xlWorkbookDefault, Type.Missing, Type.Missing, false, false, XlSaveAsAccessMode.xlNoChange, XlSaveConflictResolution.xlLocalSessionChanges, Type.Missing, Type.Missing);
                 newWorkbook.Close(true, misValue, misValue);

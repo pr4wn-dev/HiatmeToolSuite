@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -16,6 +17,12 @@ namespace Hiatme_Tool_Suite_v3
         private static readonly XNamespace Ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
         private static readonly XNamespace RelNs = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
         private static readonly Regex CsvSplit = new Regex(",(?=(?:[^\"]*\"[^\"]*\")*(?![^\"]*\"))");
+
+        private const double DefaultColWidth = 8.43;
+        private const double MinColWidth = 6.5;
+        private const double MaxColWidth = 55.0;
+        /// <summary>Extra space beyond longest cell text (Excel character units).</summary>
+        private const double ColWidthPadding = 2.0;
 
         public static void WriteWorkbookFromTabs(
             string outputPath,
@@ -432,7 +439,23 @@ namespace Hiatme_Tool_Suite_v3
                 sheetData.Add(rowEl);
             }
 
-            var worksheet = new XElement(Ns + "worksheet", sheetData);
+            var worksheet = new XElement(Ns + "worksheet");
+
+            int lastRow = rows?.Count ?? 0;
+            if (lastRow > 0)
+            {
+                string lastCol = IndexToColumnLetters(ScheduleBuilderPreviewCsvExport.ColumnCount);
+                worksheet.Add(new XElement(Ns + "dimension",
+                    new XAttribute("ref", "A1:" + lastCol + lastRow)));
+            }
+
+            worksheet.Add(new XElement(Ns + "sheetFormatPr",
+                new XAttribute("defaultRowHeight", "15"),
+                new XAttribute("defaultColWidth", DefaultColWidth.ToString("0.##", CultureInfo.InvariantCulture))));
+
+            var colWidths = ComputeColumnWidths(rows, ScheduleBuilderPreviewCsvExport.ColumnCount);
+            worksheet.Add(BuildColsElement(colWidths));
+            worksheet.Add(sheetData);
             if (mergeBars != null && mergeBars.Count > 0)
             {
                 var mergeCells = new XElement(Ns + "mergeCells",
@@ -461,6 +484,83 @@ namespace Hiatme_Tool_Suite_v3
                 n /= 26;
             }
             return sb.Length == 0 ? "A" : sb.ToString();
+        }
+
+        private static double[] ComputeColumnWidths(IReadOnlyList<List<string>> rows, int columnCount)
+        {
+            var maxChars = new int[columnCount];
+
+            if (rows != null)
+            {
+                foreach (var row in rows)
+                {
+                    if (row == null)
+                        continue;
+
+                    int limit = Math.Min(columnCount, row.Count);
+                    for (int c = 0; c < limit; c++)
+                    {
+                        int len = VisibleLength(row[c]);
+                        if (len > maxChars[c])
+                            maxChars[c] = len;
+                    }
+                }
+            }
+
+            var widths = new double[columnCount];
+            for (int c = 0; c < columnCount; c++)
+                widths[c] = ColumnWidthFromMaxChars(maxChars[c]);
+
+            return widths;
+        }
+
+        private static int VisibleLength(string text)
+        {
+            text = (text ?? "").Trim();
+            if (text.Length == 0)
+                return 0;
+
+            int len = 0;
+            foreach (char ch in text)
+            {
+                if (char.IsControl(ch))
+                    continue;
+                len += ch < 128 ? 1 : 2;
+            }
+
+            return len;
+        }
+
+        private static double ColumnWidthFromMaxChars(int maxChars)
+        {
+            if (maxChars <= 0)
+                return DefaultColWidth;
+
+            double width = maxChars + ColWidthPadding;
+            if (width < MinColWidth)
+                width = MinColWidth;
+            if (width > MaxColWidth)
+                width = MaxColWidth;
+            return width;
+        }
+
+        private static XElement BuildColsElement(IReadOnlyList<double> widths)
+        {
+            var cols = new XElement(Ns + "cols");
+            if (widths == null || widths.Count == 0)
+                return cols;
+
+            cols.Add(new XAttribute("count", widths.Count));
+            for (int i = 0; i < widths.Count; i++)
+            {
+                cols.Add(new XElement(Ns + "col",
+                    new XAttribute("min", i + 1),
+                    new XAttribute("max", i + 1),
+                    new XAttribute("width", widths[i].ToString("0.##", CultureInfo.InvariantCulture)),
+                    new XAttribute("customWidth", "1")));
+            }
+
+            return cols;
         }
     }
 }
