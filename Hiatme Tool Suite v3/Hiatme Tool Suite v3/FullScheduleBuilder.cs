@@ -86,6 +86,77 @@ namespace Hiatme_Tool_Suite_v3
         private readonly Dictionary<string, List<SupeyTemplateSlot>> _driverTemplateSlots =
             new Dictionary<string, List<SupeyTemplateSlot>>(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>How to write Template Temps CSV rows (gaps, group headers, reserve sections).</summary>
+        public ScheduleBuilderPreviewCsvExport.Options PreviewCsvExportOptions { get; set; }
+
+        private IReadOnlyDictionary<string, List<ScheduleBuilderPreviewLine>> _previewLinesByTab;
+
+        /// <summary>Rewrite working CSVs from preview lines (used before SAVE and after BUILD).</summary>
+        public void ExportPreviewCsvs(IReadOnlyDictionary<string, List<ScheduleBuilderPreviewLine>> linesByTab)
+        {
+            if (linesByTab == null)
+                return;
+
+            _previewLinesByTab = linesByTab;
+            var opt = PreviewCsvExportOptions ?? ScheduleBuilderPreviewCsvExport.Options.TripsOnly;
+            string tempDir = TemplateBuilder.GetTemplateTempDirectory();
+            foreach (var kv in linesByTab)
+            {
+                if (string.IsNullOrWhiteSpace(kv.Key))
+                    continue;
+
+                string path = Path.Combine(tempDir, kv.Key + ".csv");
+                bool reserves = kv.Key.Equals("Reserves", StringComparison.OrdinalIgnoreCase);
+                try
+                {
+                    ScheduleBuilderPreviewCsvExport.WriteTabCsv(
+                        path,
+                        kv.Value ?? new List<ScheduleBuilderPreviewLine>(),
+                        opt,
+                        reserves);
+                }
+                catch (Exception ex)
+                {
+                    throw new ScheduleBuilderException(
+                        "ExportPreviewCsvs",
+                        path,
+                        kv.Key,
+                        null,
+                        0,
+                        new IOException("Could not write CSV for tab \"" + kv.Key + "\".\n\n" + ex.Message, ex),
+                        "Working folder: " + tempDir);
+                }
+            }
+        }
+
+        private void WriteAllPreviewCsvsFromBuilder()
+        {
+            var linesByTab = new Dictionary<string, List<ScheduleBuilderPreviewLine>>(StringComparer.OrdinalIgnoreCase);
+            if (PreviewDriverLines != null)
+            {
+                foreach (var kv in PreviewDriverLines)
+                    linesByTab[kv.Key] = kv.Value ?? new List<ScheduleBuilderPreviewLine>();
+            }
+
+            linesByTab["Reserves"] = ScheduleBuilderReserveBuckets.BuildReservePreviewLines(
+                PreviewReserves,
+                PreviewReservesReroute,
+                PreviewReservesBanned,
+                PreviewReservesWillCalls,
+                WillCallsInDownloadCount);
+
+            ExportPreviewCsvs(linesByTab);
+        }
+
+        private IReadOnlyList<ScheduleBuilderPreviewCsvExport.WorkbookTab> BuildWorkbookTabsFromPreview()
+        {
+            if (_previewLinesByTab == null || _previewLinesByTab.Count == 0)
+                return null;
+
+            var opt = PreviewCsvExportOptions ?? ScheduleBuilderPreviewCsvExport.Options.TripsOnly;
+            return ScheduleBuilderPreviewCsvExport.BuildWorkbookTabs(_previewLinesByTab, opt);
+        }
+
         /// <summary>Per-driver preview rows in template order (gaps + matched trips).</summary>
         public IReadOnlyDictionary<string, List<ScheduleBuilderPreviewLine>> PreviewDriverLines { get; private set; } =
             new Dictionary<string, List<ScheduleBuilderPreviewLine>>();
@@ -627,30 +698,6 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
-        private void RewriteDriverCsvsAfterRuleStrip()
-        {
-            if (driverTripList == null) return;
-            foreach (var kv in driverTripList.ToList())
-            {
-                try
-                {
-                    SaveTripListToCSVFile(kv.Value ?? new List<MCDownloadedTrip>(), kv.Key);
-                }
-                catch (ScheduleBuilderException) { throw; }
-                catch (Exception ex)
-                {
-                    throw new ScheduleBuilderException(
-                        "SaveTripListToCSVFile",
-                        null,
-                        kv.Key,
-                        null,
-                        0,
-                        new IOException("Could not rewrite CSV after applying banned-client rules for \"" + kv.Key + "\".\n\n" + ex.Message, ex),
-                        "Working folder: " + TemplateBuilder.GetTemplateTempDirectory());
-                }
-            }
-        }
-
         private void RemoveTripFromFound(MCDownloadedTrip trip)
         {
             if (trip == null || TripsFound == null) return;
@@ -809,60 +856,18 @@ namespace Hiatme_Tool_Suite_v3
                     }
 
                     driverTripList[driverName] = confirmedtrips;
-
-                    try
-                    {
-                        SaveTripListToCSVFile(confirmedtrips, driverName);
-                    }
-                    catch (ScheduleBuilderException) { throw; }
-                    catch (Exception ex)
-                    {
-                        throw new ScheduleBuilderException(
-                            "SaveTripListToCSVFile",
-                            null,
-                            driverName,
-                            null,
-                            0,
-                            new IOException("Could not write CSV for driver tab \"" + driverName + "\".\n\n" + ex.Message, ex),
-                            "Working folder: " + TemplateBuilder.GetTemplateTempDirectory());
-                    }
                 }
 
                 RemoveRuleBlockedTripsFromDriverAssignments(previewByDriver, driverTripList);
                 PreviewDriverLines = previewByDriver;
-                RewriteDriverCsvsAfterRuleStrip();
                 SplitReserveBuckets();
                 RemoveWillCallsFromDriverPreview();
-                CreateMReservesCSVFile();
+                WriteAllPreviewCsvsFromBuilder();
             }
             catch (ScheduleBuilderException) { throw; }
             catch (Exception ex)
             {
                 throw new ScheduleBuilderException("BuildTempCsvFiles", null, null, null, 0, ex);
-            }
-        }
-        private void CreateMReservesCSVFile()
-        {
-            try
-            {
-                var reservetrips = new List<MCDownloadedTrip>();
-                if (PreviewReservesWillCalls != null) reservetrips.AddRange(PreviewReservesWillCalls);
-                if (PreviewReserves != null) reservetrips.AddRange(PreviewReserves);
-                if (PreviewReservesReroute != null) reservetrips.AddRange(PreviewReservesReroute);
-                if (PreviewReservesBanned != null) reservetrips.AddRange(PreviewReservesBanned);
-                SaveTripListToCSVFile(reservetrips, "Reserves");
-            }
-            catch (ScheduleBuilderException) { throw; }
-            catch (Exception ex)
-            {
-                throw new ScheduleBuilderException(
-                    "CreateMReservesCSVFile",
-                    Path.Combine(TemplateBuilder.GetTemplateTempDirectory(), "Reserves.csv"),
-                    "Reserves",
-                    null,
-                    0,
-                    ex,
-                    "Trips in the Modivcare download that did not match any template row");
             }
         }
         private void CleanTempFolder()
@@ -1154,10 +1159,20 @@ namespace Hiatme_Tool_Suite_v3
 
             await AsyncUpdateLoadingScreen("Building workbook");
 
+            var workbookTabs = BuildWorkbookTabsFromPreview();
+
             if (!IsExcelAvailable())
             {
-                await Task.Run(() => ScheduleBuilderXlsxWriter.WriteWorkbookFromCsvFiles(path, fileList))
-                    .ConfigureAwait(false);
+                if (workbookTabs != null && workbookTabs.Count > 0)
+                {
+                    await Task.Run(() => ScheduleBuilderXlsxWriter.WriteWorkbookFromTabs(path, workbookTabs))
+                        .ConfigureAwait(false);
+                }
+                else
+                {
+                    await Task.Run(() => ScheduleBuilderXlsxWriter.WriteWorkbookFromCsvFiles(path, fileList))
+                        .ConfigureAwait(false);
+                }
                 await FinishWorkbookExportAsync(path).ConfigureAwait(false);
                 return;
             }
@@ -1256,6 +1271,9 @@ namespace Hiatme_Tool_Suite_v3
                 }
                 xlApp.DisplayAlerts = false;
 
+                if (workbookTabs != null && workbookTabs.Count > 0)
+                    ScheduleBuilderExcelWorkbookColors.ApplyTabColors(newWorkbook, workbookTabs);
+
                 currentFile = "(saving workbook)";
                 newWorkbook.SaveAs(path, Microsoft.Office.Interop.Excel.XlFileFormat.xlWorkbookDefault, Type.Missing, Type.Missing, false, false, XlSaveAsAccessMode.xlNoChange, XlSaveConflictResolution.xlLocalSessionChanges, Type.Missing, Type.Missing);
                 newWorkbook.Close(true, misValue, misValue);
@@ -1276,8 +1294,16 @@ namespace Hiatme_Tool_Suite_v3
                 when (comEx.HResult == unchecked((int)0x80040154))
             {
                 try { newWorkbook?.Close(false); xlApp?.Quit(); } catch { }
-                await Task.Run(() => ScheduleBuilderXlsxWriter.WriteWorkbookFromCsvFiles(path, fileList))
-                    .ConfigureAwait(false);
+                if (workbookTabs != null && workbookTabs.Count > 0)
+                {
+                    await Task.Run(() => ScheduleBuilderXlsxWriter.WriteWorkbookFromTabs(path, workbookTabs))
+                        .ConfigureAwait(false);
+                }
+                else
+                {
+                    await Task.Run(() => ScheduleBuilderXlsxWriter.WriteWorkbookFromCsvFiles(path, fileList))
+                        .ConfigureAwait(false);
+                }
                 await FinishWorkbookExportAsync(path).ConfigureAwait(false);
             }
             catch (Exception ex)

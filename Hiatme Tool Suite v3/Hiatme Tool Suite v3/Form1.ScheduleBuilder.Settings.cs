@@ -151,5 +151,16 @@ namespace Hiatme_Tool_Suite_v3
         internal bool FsShowGapsEnabled => _fsShowGaps;
 
         internal bool FsShowGroupColorsEnabled => _fsShowGroupColors;
+
+        internal ScheduleBuilderPreviewCsvExport.Options MakeFsPreviewCsvExportOptions()
+        {
+            return new ScheduleBuilderPreviewCsvExport.Options
+            {
+                IncludeGaps = FsShowGapsEnabled,
+                // Colored spacer row at top of each group — no group number text on the saved sheet.
+                IncludeGroupHeaders = FsShowGroupColorsEnabled,
+                IncludeReserveSections = true,
+            };
+        }
     }
 }

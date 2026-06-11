@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -9,13 +10,39 @@ using System.Xml.Linq;
 
 namespace Hiatme_Tool_Suite_v3
 {
-    /// <summary>Builds schedule .xlsx workbooks from Template Temps CSVs without Microsoft Excel.</summary>
+    /// <summary>Builds schedule .xlsx workbooks without Microsoft Excel.</summary>
     internal static class ScheduleBuilderXlsxWriter
     {
         private static readonly XNamespace Ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
         private static readonly XNamespace RelNs = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
-        private static readonly XNamespace PkgRelNs = "http://schemas.openxmlformats.org/package/2006/relationships";
         private static readonly Regex CsvSplit = new Regex(",(?=(?:[^\"]*\"[^\"]*\")*(?![^\"]*\"))");
+
+        public static void WriteWorkbookFromTabs(
+            string outputPath,
+            IReadOnlyList<ScheduleBuilderPreviewCsvExport.WorkbookTab> tabs)
+        {
+            if (string.IsNullOrWhiteSpace(outputPath))
+                throw new ArgumentException("Output path is required.", nameof(outputPath));
+            if (tabs == null || tabs.Count == 0)
+                throw new InvalidOperationException("No workbook tabs to export.");
+
+            var sheets = new List<(string Name, List<List<string>> Rows, Dictionary<(int Row, int Col), Color> Fills)>();
+            var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var tab in tabs)
+            {
+                if (tab == null || string.IsNullOrWhiteSpace(tab.TabName))
+                    continue;
+
+                string sheetName = MakeUniqueSheetName(tab.TabName, usedNames);
+                usedNames.Add(sheetName);
+                sheets.Add((sheetName, tab.Rows ?? new List<List<string>>(), tab.CellFills ?? new Dictionary<(int, int), Color>()));
+            }
+
+            if (sheets.Count == 0)
+                throw new InvalidOperationException("No readable workbook tabs were found.");
+
+            WriteWorkbookInternal(outputPath, sheets);
+        }
 
         public static void WriteWorkbookFromCsvFiles(string outputPath, IReadOnlyList<string> csvFilePaths)
         {
@@ -24,7 +51,7 @@ namespace Hiatme_Tool_Suite_v3
             if (csvFilePaths == null || csvFilePaths.Count == 0)
                 throw new InvalidOperationException("No driver CSV files to export.");
 
-            var sheets = new List<(string Name, List<List<string>> Rows)>();
+            var sheets = new List<(string Name, List<List<string>> Rows, Dictionary<(int Row, int Col), Color> Fills)>();
             var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (string csvPath in csvFilePaths.OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase))
             {
@@ -34,12 +61,19 @@ namespace Hiatme_Tool_Suite_v3
                 string baseName = Path.GetFileNameWithoutExtension(csvPath) ?? "Sheet";
                 string sheetName = MakeUniqueSheetName(baseName, usedNames);
                 usedNames.Add(sheetName);
-                sheets.Add((sheetName, ReadCsvRows(csvPath)));
+                sheets.Add((sheetName, ReadCsvRows(csvPath), new Dictionary<(int, int), Color>()));
             }
 
             if (sheets.Count == 0)
                 throw new InvalidOperationException("No readable driver CSV files were found.");
 
+            WriteWorkbookInternal(outputPath, sheets);
+        }
+
+        private static void WriteWorkbookInternal(
+            string outputPath,
+            IReadOnlyList<(string Name, List<List<string>> Rows, Dictionary<(int Row, int Col), Color> Fills)> sheets)
+        {
             string dir = Path.GetDirectoryName(outputPath);
             if (!string.IsNullOrEmpty(dir))
                 Directory.CreateDirectory(dir);
@@ -49,7 +83,6 @@ namespace Hiatme_Tool_Suite_v3
 
             var sharedStrings = new List<string>();
             var sharedIndex = new Dictionary<string, int>(StringComparer.Ordinal);
-
             int IndexOfShared(string value)
             {
                 value = value ?? "";
@@ -72,6 +105,9 @@ namespace Hiatme_Tool_Suite_v3
                 }
             }
 
+            var colorToStyle = BuildColorStyleMap(sheets);
+            int defaultStyle = colorToStyle.TryGetValue(Color.Empty, out int ds) ? ds : 0;
+
             using (var zip = ZipFile.Open(outputPath, ZipArchiveMode.Create))
             {
                 WriteEntry(zip, "[Content_Types].xml", BuildContentTypes(sheets.Count));
@@ -79,14 +115,42 @@ namespace Hiatme_Tool_Suite_v3
                 WriteEntry(zip, "xl/workbook.xml", BuildWorkbookXml(sheets));
                 WriteEntry(zip, "xl/_rels/workbook.xml.rels", BuildWorkbookRels(sheets.Count));
                 WriteEntry(zip, "xl/sharedStrings.xml", BuildSharedStringsXml(sharedStrings));
-                WriteEntry(zip, "xl/styles.xml", BuildStylesXml());
+                WriteEntry(zip, "xl/styles.xml", BuildStylesXml(colorToStyle));
 
                 for (int i = 0; i < sheets.Count; i++)
                 {
                     string part = "xl/worksheets/sheet" + (i + 1) + ".xml";
-                    WriteEntry(zip, part, BuildWorksheetXml(sheets[i].Rows, sharedIndex));
+                    WriteEntry(zip, part, BuildWorksheetXml(sheets[i].Rows, sheets[i].Fills, sharedIndex, colorToStyle, defaultStyle));
                 }
             }
+        }
+
+        private static Dictionary<Color, int> BuildColorStyleMap(
+            IReadOnlyList<(string Name, List<List<string>> Rows, Dictionary<(int Row, int Col), Color> Fills)> sheets)
+        {
+            var colors = new List<Color> { Color.Empty };
+            var map = new Dictionary<Color, int> { [Color.Empty] = 0 };
+
+            foreach (var sheet in sheets)
+            {
+                if (sheet.Fills == null)
+                    continue;
+                foreach (var fill in sheet.Fills.Values)
+                {
+                    Color key = NormalizeColor(fill);
+                    if (map.ContainsKey(key))
+                        continue;
+                    map[key] = colors.Count;
+                    colors.Add(key);
+                }
+            }
+
+            return map;
+        }
+
+        private static Color NormalizeColor(Color color)
+        {
+            return Color.FromArgb(255, color.R, color.G, color.B);
         }
 
         private static List<List<string>> ReadCsvRows(string csvPath)
@@ -195,7 +259,8 @@ namespace Hiatme_Tool_Suite_v3
                 + "</Relationships>";
         }
 
-        private static string BuildWorkbookXml(IReadOnlyList<(string Name, List<List<string>> Rows)> sheets)
+        private static string BuildWorkbookXml(
+            IReadOnlyList<(string Name, List<List<string>> Rows, Dictionary<(int Row, int Col), Color> Fills)> sheets)
         {
             var doc = new XDocument(
                 new XElement(Ns + "workbook",
@@ -206,9 +271,7 @@ namespace Hiatme_Tool_Suite_v3
                                 new XAttribute("name", sheet.Name),
                                 new XAttribute("sheetId", (uint)(i + 1)),
                                 new XAttribute(RelNs + "id", "rId" + (i + 1)))))));
-            return doc.Declaration == null
-                ? "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" + doc
-                : doc.Declaration + Environment.NewLine + doc;
+            return "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" + doc;
         }
 
         private static string BuildWorkbookRels(int sheetCount)
@@ -248,19 +311,48 @@ namespace Hiatme_Tool_Suite_v3
             return "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" + doc;
         }
 
-        private static string BuildStylesXml()
+        private static string BuildStylesXml(IReadOnlyDictionary<Color, int> colorToStyle)
         {
-            return "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
-                + "<styleSheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">"
-                + "<fonts count=\"1\"><font><sz val=\"11\"/><name val=\"Calibri\"/></font></fonts>"
-                + "<fills count=\"1\"><fill><patternFill patternType=\"none\"/></fill></fills>"
-                + "<borders count=\"1\"><border/></borders>"
-                + "<cellStyleXfs count=\"1\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\"/></cellStyleXfs>"
-                + "<cellXfs count=\"1\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\" xfId=\"0\"/></cellXfs>"
-                + "</styleSheet>";
+            var colors = colorToStyle.Keys.OrderBy(c => colorToStyle[c]).ToList();
+            var sb = new StringBuilder();
+            sb.Append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>");
+            sb.Append("<styleSheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">");
+            sb.Append("<fonts count=\"1\"><font><sz val=\"11\"/><name val=\"Calibri\"/></font></fonts>");
+            sb.Append("<fills count=\"").Append(colors.Count).Append("\">");
+            sb.Append("<fill><patternFill patternType=\"none\"/></fill>");
+            for (int i = 1; i < colors.Count; i++)
+            {
+                Color c = colors[i];
+                sb.Append("<fill><patternFill patternType=\"solid\"><fgColor rgb=\"");
+                sb.Append(ColorToRgb(c));
+                sb.Append("\"/><bgColor indexed=\"64\"/></patternFill></fill>");
+            }
+            sb.Append("</fills>");
+            sb.Append("<borders count=\"1\"><border/></borders>");
+            sb.Append("<cellStyleXfs count=\"1\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\"/></cellStyleXfs>");
+            sb.Append("<cellXfs count=\"").Append(colors.Count).Append("\">");
+            for (int i = 0; i < colors.Count; i++)
+            {
+                sb.Append("<xf numFmtId=\"0\" fontId=\"0\" fillId=\"");
+                sb.Append(i);
+                sb.Append("\" borderId=\"0\" xfId=\"0\" applyFill=\"1\"/>");
+            }
+            sb.Append("</cellXfs>");
+            sb.Append("</styleSheet>");
+            return sb.ToString();
         }
 
-        private static string BuildWorksheetXml(IReadOnlyList<List<string>> rows, IReadOnlyDictionary<string, int> sharedIndex)
+        private static string ColorToRgb(Color color)
+        {
+            return string.Format("{0:X2}{1:X2}{2:X2}", color.R, color.G, color.B);
+        }
+
+        private static string BuildWorksheetXml(
+            IReadOnlyList<List<string>> rows,
+            IReadOnlyDictionary<(int Row, int Col), Color> fills,
+            IReadOnlyDictionary<string, int> sharedIndex,
+            IReadOnlyDictionary<Color, int> colorToStyle,
+            int defaultStyle)
         {
             var sheetData = new XElement(Ns + "sheetData");
             for (int r = 0; r < rows.Count; r++)
@@ -273,13 +365,21 @@ namespace Hiatme_Tool_Suite_v3
                 }
 
                 var rowEl = new XElement(Ns + "row", new XAttribute("r", r + 1));
-                for (int c = 0; c < row.Count; c++)
+                int colCount = Math.Max(row.Count, ScheduleBuilderPreviewCsvExport.ColumnCount);
+                for (int c = 0; c < colCount; c++)
                 {
-                    string value = row[c] ?? "";
+                    string value = c < row.Count ? (row[c] ?? "") : "";
                     string cellRef = IndexToColumnLetters(c + 1) + (r + 1);
+                    int style = defaultStyle;
+                    if (fills != null
+                        && fills.TryGetValue((r, c), out Color fillColor)
+                        && colorToStyle.TryGetValue(NormalizeColor(fillColor), out int styleIdx))
+                        style = styleIdx;
+
                     rowEl.Add(new XElement(Ns + "c",
                         new XAttribute("r", cellRef),
                         new XAttribute("t", "s"),
+                        new XAttribute("s", style),
                         new XElement(Ns + "v", sharedIndex[value])));
                 }
                 sheetData.Add(rowEl);

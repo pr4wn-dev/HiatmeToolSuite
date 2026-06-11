@@ -161,6 +161,9 @@
     <Compile Include="ScheduleBuilderXlsxReader.cs" />
     <Compile Include="ScheduleBuilderXlsxWriter.cs" />
     <Compile Include="ScheduleBuilderPreviewGroups.cs" />
+    <Compile Include="ScheduleBuilderPreviewCsvExport.cs" />
+    <Compile Include="ScheduleBuilderPreviewStyle.cs" />
+    <Compile Include="ScheduleBuilderExcelWorkbookColors.cs" />
     <Compile Include="ScheduleBuilderPreviewDrag.cs" />
     <Compile Include="ScheduleBuilderPreviewTags.cs" />
     <Compile Include="ScheduleBuilderReserveBands.cs" />

@@ -48,6 +48,30 @@ namespace Hiatme_Tool_Suite_v3
             return groups;
         }
 
+        public static SupeyTripCluster FindGroupForTrip(IList<SupeyTripCluster> groups, MCDownloadedTrip trip)
+        {
+            if (groups == null || trip == null)
+                return null;
+
+            string tn = (trip.TripNumber ?? "").Trim();
+            foreach (var g in groups)
+            {
+                if (g?.Trips == null)
+                    continue;
+                foreach (var t in g.Trips)
+                {
+                    if (t == null)
+                        continue;
+                    if (ReferenceEquals(t, trip)
+                        || (!string.IsNullOrEmpty(tn)
+                            && string.Equals(t.TripNumber, tn, StringComparison.OrdinalIgnoreCase)))
+                        return g;
+                }
+            }
+
+            return null;
+        }
+
         /// <summary>
         /// One cluster per trip (PU→DO only on map). Used when group colors/groups are hidden in Settings.
         /// Gap rows are ignored — trips render as independent legs.

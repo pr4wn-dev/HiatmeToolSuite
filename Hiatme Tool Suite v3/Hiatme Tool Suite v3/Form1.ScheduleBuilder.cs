@@ -1450,6 +1450,8 @@ namespace Hiatme_Tool_Suite_v3
 
                 fsbuilder = new FullScheduleBuilder(dayname, day, nameofmonth, month, year);
 
+                fsbuilder.PreviewCsvExportOptions = MakeFsPreviewCsvExportOptions();
+
                 fsbuilder.UpdateLoadingScreen += OnBuildStatus;
 
 
@@ -1502,13 +1504,25 @@ namespace Hiatme_Tool_Suite_v3
 
                     resMsg += ", " + rer + " reroute" + (rer == 1 ? "" : "s");
 
-                SetScheduleBuilderStatus("Built — " + drivers + " driver tab(s), "
+                string buildSummary = "Built — " + drivers + " driver tab(s), "
 
                     + trips + " trip(s), " + resMsg
 
-                    + "." + FormatFsDriverSyncNote(driverSync)
+                    + "." + FormatFsDriverSyncNote(driverSync);
 
-                    + " Rules panel: no-go & banned clients. Click SAVE SCHEDULE when ready.");
+                SetScheduleBuilderStatus(buildSummary + " Saving workbook…");
+
+                SyncFsPreviewCsvsForExport();
+
+                await fsbuilder.CreateWorkbookAsync().ConfigureAwait(true);
+
+                if (!string.IsNullOrEmpty(fsbuilder.LastExportPath))
+
+                    SetScheduleBuilderStatus(buildSummary + " Saved workbook — " + fsbuilder.LastExportPath);
+
+                else
+
+                    SetScheduleBuilderStatus(buildSummary + " Save cancelled — preview ready; click SAVE SCHEDULE to try again.");
 
             }
 
@@ -1574,6 +1588,17 @@ namespace Hiatme_Tool_Suite_v3
 
             if (_fsLoadBtn != null) _fsLoadBtn.Enabled = enabled;
 
+        }
+
+
+
+        private void SyncFsPreviewCsvsForExport()
+        {
+            if (fsbuilder == null)
+                return;
+
+            fsbuilder.PreviewCsvExportOptions = MakeFsPreviewCsvExportOptions();
+            fsbuilder.ExportPreviewCsvs(_fsLinesByTab);
         }
 
 
@@ -2280,6 +2305,8 @@ namespace Hiatme_Tool_Suite_v3
 
                 SetScheduleBuilderStatus("Preparing export…");
 
+                SyncFsPreviewCsvsForExport();
+
                 await fsbuilder.CreateWorkbookAsync().ConfigureAwait(true);
 
 
@@ -2631,17 +2658,8 @@ namespace Hiatme_Tool_Suite_v3
 
 
         private static Color FsRouteHeaderBackColor(Color groupColor)
-
         {
-
-            int r = Math.Max(0, groupColor.R - 48);
-
-            int gr = Math.Max(0, groupColor.G - 48);
-
-            int b = Math.Max(0, groupColor.B - 48);
-
-            return Color.FromArgb(255, r, gr, b);
-
+            return ScheduleBuilderPreviewStyle.RouteHeaderBackColor(groupColor);
         }
 
 
