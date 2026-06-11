@@ -26,7 +26,7 @@ namespace Hiatme_Tool_Suite_v3
             if (tabs == null || tabs.Count == 0)
                 throw new InvalidOperationException("No workbook tabs to export.");
 
-            var sheets = new List<(string Name, List<List<string>> Rows, Dictionary<(int Row, int Col), Color> Fills)>();
+            var sheets = new List<(string Name, List<List<string>> Rows, Dictionary<(int Row, int Col), Color> Fills, List<ScheduleBuilderPreviewCsvExport.WorkbookTab.RowMergeBar> MergeBars)>();
             var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var tab in tabs)
             {
@@ -35,7 +35,11 @@ namespace Hiatme_Tool_Suite_v3
 
                 string sheetName = MakeUniqueSheetName(tab.TabName, usedNames);
                 usedNames.Add(sheetName);
-                sheets.Add((sheetName, tab.Rows ?? new List<List<string>>(), tab.CellFills ?? new Dictionary<(int, int), Color>()));
+                sheets.Add((
+                    sheetName,
+                    tab.Rows ?? new List<List<string>>(),
+                    tab.CellFills ?? new Dictionary<(int, int), Color>(),
+                    tab.MergeBars ?? new List<ScheduleBuilderPreviewCsvExport.WorkbookTab.RowMergeBar>()));
             }
 
             if (sheets.Count == 0)
@@ -51,7 +55,7 @@ namespace Hiatme_Tool_Suite_v3
             if (csvFilePaths == null || csvFilePaths.Count == 0)
                 throw new InvalidOperationException("No driver CSV files to export.");
 
-            var sheets = new List<(string Name, List<List<string>> Rows, Dictionary<(int Row, int Col), Color> Fills)>();
+            var sheets = new List<(string Name, List<List<string>> Rows, Dictionary<(int Row, int Col), Color> Fills, List<ScheduleBuilderPreviewCsvExport.WorkbookTab.RowMergeBar> MergeBars)>();
             var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (string csvPath in csvFilePaths.OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase))
             {
@@ -61,7 +65,7 @@ namespace Hiatme_Tool_Suite_v3
                 string baseName = Path.GetFileNameWithoutExtension(csvPath) ?? "Sheet";
                 string sheetName = MakeUniqueSheetName(baseName, usedNames);
                 usedNames.Add(sheetName);
-                sheets.Add((sheetName, ReadCsvRows(csvPath), new Dictionary<(int, int), Color>()));
+                sheets.Add((sheetName, ReadCsvRows(csvPath), new Dictionary<(int, int), Color>(), new List<ScheduleBuilderPreviewCsvExport.WorkbookTab.RowMergeBar>()));
             }
 
             if (sheets.Count == 0)
@@ -72,7 +76,7 @@ namespace Hiatme_Tool_Suite_v3
 
         private static void WriteWorkbookInternal(
             string outputPath,
-            IReadOnlyList<(string Name, List<List<string>> Rows, Dictionary<(int Row, int Col), Color> Fills)> sheets)
+            IReadOnlyList<(string Name, List<List<string>> Rows, Dictionary<(int Row, int Col), Color> Fills, List<ScheduleBuilderPreviewCsvExport.WorkbookTab.RowMergeBar> MergeBars)> sheets)
         {
             string dir = Path.GetDirectoryName(outputPath);
             if (!string.IsNullOrEmpty(dir))
@@ -120,24 +124,42 @@ namespace Hiatme_Tool_Suite_v3
                 for (int i = 0; i < sheets.Count; i++)
                 {
                     string part = "xl/worksheets/sheet" + (i + 1) + ".xml";
-                    WriteEntry(zip, part, BuildWorksheetXml(sheets[i].Rows, sheets[i].Fills, sharedIndex, colorToStyle, defaultStyle));
+                    WriteEntry(zip, part, BuildWorksheetXml(
+                        sheets[i].Rows,
+                        sheets[i].Fills,
+                        sheets[i].MergeBars,
+                        sharedIndex,
+                        colorToStyle,
+                        defaultStyle));
                 }
             }
         }
 
         private static Dictionary<Color, int> BuildColorStyleMap(
-            IReadOnlyList<(string Name, List<List<string>> Rows, Dictionary<(int Row, int Col), Color> Fills)> sheets)
+            IReadOnlyList<(string Name, List<List<string>> Rows, Dictionary<(int Row, int Col), Color> Fills, List<ScheduleBuilderPreviewCsvExport.WorkbookTab.RowMergeBar> MergeBars)> sheets)
         {
             var colors = new List<Color> { Color.Empty };
             var map = new Dictionary<Color, int> { [Color.Empty] = 0 };
 
             foreach (var sheet in sheets)
             {
-                if (sheet.Fills == null)
-                    continue;
-                foreach (var fill in sheet.Fills.Values)
+                if (sheet.Fills != null)
                 {
-                    Color key = NormalizeColor(fill);
+                    foreach (var fill in sheet.Fills.Values)
+                    {
+                        Color key = NormalizeColor(fill);
+                        if (map.ContainsKey(key))
+                            continue;
+                        map[key] = colors.Count;
+                        colors.Add(key);
+                    }
+                }
+
+                if (sheet.MergeBars == null)
+                    continue;
+                foreach (var bar in sheet.MergeBars)
+                {
+                    Color key = NormalizeColor(bar.Color);
                     if (map.ContainsKey(key))
                         continue;
                     map[key] = colors.Count;
@@ -260,7 +282,7 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         private static string BuildWorkbookXml(
-            IReadOnlyList<(string Name, List<List<string>> Rows, Dictionary<(int Row, int Col), Color> Fills)> sheets)
+            IReadOnlyList<(string Name, List<List<string>> Rows, Dictionary<(int Row, int Col), Color> Fills, List<ScheduleBuilderPreviewCsvExport.WorkbookTab.RowMergeBar> MergeBars)> sheets)
         {
             var doc = new XDocument(
                 new XElement(Ns + "workbook",
@@ -350,10 +372,18 @@ namespace Hiatme_Tool_Suite_v3
         private static string BuildWorksheetXml(
             IReadOnlyList<List<string>> rows,
             IReadOnlyDictionary<(int Row, int Col), Color> fills,
+            IReadOnlyList<ScheduleBuilderPreviewCsvExport.WorkbookTab.RowMergeBar> mergeBars,
             IReadOnlyDictionary<string, int> sharedIndex,
             IReadOnlyDictionary<Color, int> colorToStyle,
             int defaultStyle)
         {
+            var mergeByRow = new Dictionary<int, ScheduleBuilderPreviewCsvExport.WorkbookTab.RowMergeBar>();
+            if (mergeBars != null)
+            {
+                foreach (var bar in mergeBars)
+                    mergeByRow[bar.RowIndex] = bar;
+            }
+
             var sheetData = new XElement(Ns + "sheetData");
             for (int r = 0; r < rows.Count; r++)
             {
@@ -365,15 +395,12 @@ namespace Hiatme_Tool_Suite_v3
                 }
 
                 var rowEl = new XElement(Ns + "row", new XAttribute("r", r + 1));
-                int colCount = Math.Max(row.Count, ScheduleBuilderPreviewCsvExport.ColumnCount);
-                for (int c = 0; c < colCount; c++)
+                if (mergeByRow.TryGetValue(r, out var mergeBar))
                 {
-                    string value = c < row.Count ? (row[c] ?? "") : "";
-                    string cellRef = IndexToColumnLetters(c + 1) + (r + 1);
+                    string value = mergeBar.StartCol < row.Count ? (row[mergeBar.StartCol] ?? "") : "";
+                    string cellRef = IndexToColumnLetters(mergeBar.StartCol + 1) + (r + 1);
                     int style = defaultStyle;
-                    if (fills != null
-                        && fills.TryGetValue((r, c), out Color fillColor)
-                        && colorToStyle.TryGetValue(NormalizeColor(fillColor), out int styleIdx))
+                    if (colorToStyle.TryGetValue(NormalizeColor(mergeBar.Color), out int styleIdx))
                         style = styleIdx;
 
                     rowEl.Add(new XElement(Ns + "c",
@@ -382,10 +409,44 @@ namespace Hiatme_Tool_Suite_v3
                         new XAttribute("s", style),
                         new XElement(Ns + "v", sharedIndex[value])));
                 }
+                else
+                {
+                    int colCount = Math.Max(row.Count, ScheduleBuilderPreviewCsvExport.ColumnCount);
+                    for (int c = 0; c < colCount; c++)
+                    {
+                        string value = c < row.Count ? (row[c] ?? "") : "";
+                        string cellRef = IndexToColumnLetters(c + 1) + (r + 1);
+                        int style = defaultStyle;
+                        if (fills != null
+                            && fills.TryGetValue((r, c), out Color fillColor)
+                            && colorToStyle.TryGetValue(NormalizeColor(fillColor), out int styleIdx))
+                            style = styleIdx;
+
+                        rowEl.Add(new XElement(Ns + "c",
+                            new XAttribute("r", cellRef),
+                            new XAttribute("t", "s"),
+                            new XAttribute("s", style),
+                            new XElement(Ns + "v", sharedIndex[value])));
+                    }
+                }
                 sheetData.Add(rowEl);
             }
 
-            var doc = new XDocument(new XElement(Ns + "worksheet", sheetData));
+            var worksheet = new XElement(Ns + "worksheet", sheetData);
+            if (mergeBars != null && mergeBars.Count > 0)
+            {
+                var mergeCells = new XElement(Ns + "mergeCells",
+                    new XAttribute("count", mergeBars.Count));
+                foreach (var bar in mergeBars)
+                {
+                    string start = IndexToColumnLetters(bar.StartCol + 1) + (bar.RowIndex + 1);
+                    string end = IndexToColumnLetters(bar.EndCol + 1) + (bar.RowIndex + 1);
+                    mergeCells.Add(new XElement(Ns + "mergeCell", new XAttribute("ref", start + ":" + end)));
+                }
+                worksheet.Add(mergeCells);
+            }
+
+            var doc = new XDocument(worksheet);
             return "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" + doc;
         }
 

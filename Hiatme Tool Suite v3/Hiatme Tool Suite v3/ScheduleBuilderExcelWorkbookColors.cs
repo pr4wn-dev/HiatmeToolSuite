@@ -17,7 +17,10 @@ namespace Hiatme_Tool_Suite_v3
 
             foreach (var tab in tabs)
             {
-                if (tab == null || tab.CellFills == null || tab.CellFills.Count == 0)
+                if (tab == null)
+                    continue;
+                if ((tab.CellFills == null || tab.CellFills.Count == 0)
+                    && (tab.MergeBars == null || tab.MergeBars.Count == 0))
                     continue;
 
                 Worksheet worksheet = null;
@@ -25,6 +28,17 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     worksheet = FindWorksheet(workbook, tab.TabName);
                     if (worksheet == null)
+                        continue;
+
+                    if (tab.MergeBars != null)
+                    {
+                        foreach (var bar in tab.MergeBars)
+                        {
+                            ApplyMergeBar(worksheet, bar);
+                        }
+                    }
+
+                    if (tab.CellFills == null)
                         continue;
 
                     foreach (var kv in tab.CellFills)
@@ -49,6 +63,35 @@ namespace Hiatme_Tool_Suite_v3
                     if (worksheet != null)
                         Marshal.ReleaseComObject(worksheet);
                 }
+            }
+        }
+
+        private static void ApplyMergeBar(
+            Worksheet worksheet,
+            ScheduleBuilderPreviewCsvExport.WorkbookTab.RowMergeBar bar)
+        {
+            if (worksheet == null || bar == null)
+                return;
+
+            int row = bar.RowIndex + 1;
+            int startCol = bar.StartCol + 1;
+            int endCol = bar.EndCol + 1;
+            Range startCell = null;
+            Range endCell = null;
+            Range mergeRange = null;
+            try
+            {
+                startCell = (Range)worksheet.Cells[row, startCol];
+                endCell = (Range)worksheet.Cells[row, endCol];
+                mergeRange = worksheet.get_Range(startCell, endCell);
+                mergeRange.Merge();
+                mergeRange.Interior.Color = ColorTranslator.ToOle(bar.Color);
+            }
+            finally
+            {
+                if (mergeRange != null) Marshal.ReleaseComObject(mergeRange);
+                if (endCell != null) Marshal.ReleaseComObject(endCell);
+                if (startCell != null) Marshal.ReleaseComObject(startCell);
             }
         }
 

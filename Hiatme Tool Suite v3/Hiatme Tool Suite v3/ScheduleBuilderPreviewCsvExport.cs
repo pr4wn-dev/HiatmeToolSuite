@@ -27,6 +27,16 @@ namespace Hiatme_Tool_Suite_v3
             public List<List<string>> Rows { get; set; } = new List<List<string>>();
             public Dictionary<(int Row, int Col), Color> CellFills { get; set; }
                 = new Dictionary<(int Row, int Col), Color>();
+            /// <summary>Full-width colored bars (merged A–N in xlsx).</summary>
+            public List<RowMergeBar> MergeBars { get; set; } = new List<RowMergeBar>();
+
+            public sealed class RowMergeBar
+            {
+                public int RowIndex { get; set; }
+                public int StartCol { get; set; }
+                public int EndCol { get; set; }
+                public Color Color { get; set; }
+            }
 
             public int AddRow(string[] cells)
             {
@@ -48,6 +58,17 @@ namespace Hiatme_Tool_Suite_v3
                 if (rowIndex < 0 || col < 0 || col >= ColumnCount)
                     return;
                 CellFills[(rowIndex, col)] = color;
+            }
+
+            public void AddMergeBar(int rowIndex, Color color, int startCol = 0, int endCol = ColumnCount - 1)
+            {
+                MergeBars.Add(new RowMergeBar
+                {
+                    RowIndex = rowIndex,
+                    StartCol = startCol,
+                    EndCol = endCol,
+                    Color = color,
+                });
             }
         }
 
@@ -142,11 +163,7 @@ namespace Hiatme_Tool_Suite_v3
                     if (g != null && !ReferenceEquals(g, lastHeaderGroup))
                     {
                         int noteRow = tab.AddRow(EmptyCells());
-                        Color swatch = g.DisplayColor;
-                        Color header = ScheduleBuilderPreviewStyle.RouteHeaderBackColor(swatch);
-                        tab.FillCell(noteRow, 0, swatch);
-                        for (int c = 1; c < ColumnCount; c++)
-                            tab.FillCell(noteRow, c, header);
+                        tab.AddMergeBar(noteRow, g.DisplayColor);
                         lastHeaderGroup = g;
                     }
                 }
