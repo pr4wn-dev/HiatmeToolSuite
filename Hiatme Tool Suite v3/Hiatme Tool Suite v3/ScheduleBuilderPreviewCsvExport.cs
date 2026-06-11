@@ -166,6 +166,19 @@ namespace Hiatme_Tool_Suite_v3
                     continue;
                 }
 
+                if (line.Kind == ScheduleBuilderPreviewLine.LineKind.GroupHeader)
+                {
+                    if (!options.IncludeGroupHeaders)
+                        continue;
+
+                    var headerGroup = FindGroupByNumber(groups, line.GroupNumber);
+                    Color color = headerGroup?.DisplayColor ?? SupeyGroupPalette.For(line.GroupNumber);
+                    int noteRow = tab.AddRow(BuildNoteCells(line.GroupNoteText ?? ""));
+                    tab.AddMergeBar(noteRow, color);
+                    lastHeaderGroup = headerGroup;
+                    continue;
+                }
+
                 if (line.Kind != ScheduleBuilderPreviewLine.LineKind.Trip || line.Trip == null)
                     continue;
 
@@ -184,6 +197,20 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        private static SupeyTripCluster FindGroupByNumber(IList<SupeyTripCluster> groups, int groupNumber)
+        {
+            if (groups == null || groupNumber <= 0)
+                return null;
+
+            foreach (var g in groups)
+            {
+                if (g != null && g.GroupNumber == groupNumber)
+                    return g;
+            }
+
+            return null;
+        }
+
         private static void AppendReservesContent(WorkbookTab tab, IList<ScheduleBuilderPreviewLine> lines, Options options)
         {
             foreach (var line in lines)
@@ -200,7 +227,7 @@ namespace Hiatme_Tool_Suite_v3
                     int row = tab.AddRow(BuildNoteCells(line.SectionTitle.Trim()));
                     Color sectionColor = line.ReserveBandColor
                         ?? ScheduleBuilderReserveBuckets.SectionColorForTitle(line.SectionTitle);
-                    tab.FillRow(row, sectionColor);
+                    tab.AddMergeBar(row, sectionColor);
                     continue;
                 }
 

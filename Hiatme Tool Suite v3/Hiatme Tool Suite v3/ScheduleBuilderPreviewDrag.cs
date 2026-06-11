@@ -25,17 +25,14 @@ namespace Hiatme_Tool_Suite_v3
                     continue;
                 }
 
-                if (item.Tag is FsPreviewNoteTag)
+                if (item.Tag is FsPreviewNoteTag noteTag)
                 {
-                    if (lines.Count > 0
-                        && lines[lines.Count - 1].Kind == ScheduleBuilderPreviewLine.LineKind.Trip)
+                    lines.Add(new ScheduleBuilderPreviewLine
                     {
-                        lines.Add(new ScheduleBuilderPreviewLine
-                        {
-                            Kind = ScheduleBuilderPreviewLine.LineKind.Gap,
-                            GapNoteText = "",
-                        });
-                    }
+                        Kind = ScheduleBuilderPreviewLine.LineKind.GroupHeader,
+                        GroupNumber = noteTag.Group?.GroupNumber ?? 0,
+                        GroupNoteText = noteTag.NoteText ?? "",
+                    });
                     continue;
                 }
 
@@ -99,7 +96,8 @@ namespace Hiatme_Tool_Suite_v3
                     continue;
                 if (i == itemIndex)
                 {
-                    if (item.Tag is FsPreviewSectionHeaderTag)
+                    if (item.Tag is FsPreviewSectionHeaderTag
+                        || item.Tag is FsPreviewNoteTag)
                         return -1;
                     isGap = item.Tag is FsPreviewGapTag;
                     tripTag = item.Tag as FsPreviewTripTag;
@@ -446,7 +444,8 @@ namespace Hiatme_Tool_Suite_v3
             {
                 bool boundary = i == lines.Count
                     || lines[i].Kind == ScheduleBuilderPreviewLine.LineKind.Gap
-                    || lines[i].Kind == ScheduleBuilderPreviewLine.LineKind.SectionHeader;
+                    || lines[i].Kind == ScheduleBuilderPreviewLine.LineKind.SectionHeader
+                    || lines[i].Kind == ScheduleBuilderPreviewLine.LineKind.GroupHeader;
 
                 if (boundary && segStart >= 0)
                 {
@@ -455,7 +454,8 @@ namespace Hiatme_Tool_Suite_v3
                     {
                         for (int j = segStart; j < i; j++)
                         {
-                            if (lines[j]?.Kind == ScheduleBuilderPreviewLine.LineKind.SectionHeader)
+                            if (lines[j]?.Kind == ScheduleBuilderPreviewLine.LineKind.SectionHeader
+                                || lines[j]?.Kind == ScheduleBuilderPreviewLine.LineKind.GroupHeader)
                                 continue;
                             if (lines[j]?.Kind == ScheduleBuilderPreviewLine.LineKind.Trip)
                                 tripLineIndices.Add(j);

@@ -94,6 +94,63 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        /// <summary>
+        /// Set column widths from trip/data rows (merged header rows excluded) so long group notes
+        /// do not widen column A after merge bars are applied.
+        /// </summary>
+        public static void ApplyColumnWidthsFromTabs(
+            Workbook workbook,
+            IReadOnlyList<ScheduleBuilderPreviewCsvExport.WorkbookTab> tabs)
+        {
+            if (workbook == null || tabs == null || tabs.Count == 0)
+                return;
+
+            const int columnCount = ScheduleBuilderPreviewCsvExport.ColumnCount;
+
+            foreach (var tab in tabs)
+            {
+                if (tab?.Rows == null)
+                    continue;
+
+                Worksheet worksheet = null;
+                try
+                {
+                    worksheet = FindWorksheet(workbook, tab.TabName);
+                    if (worksheet == null)
+                        continue;
+
+                    IEnumerable<int> mergeRows = tab.MergeBars != null
+                        ? tab.MergeBars.ConvertAll(b => b.RowIndex)
+                        : null;
+
+                    double[] widths = ScheduleBuilderXlsxWriter.ComputeColumnWidths(
+                        tab.Rows,
+                        columnCount,
+                        mergeRows);
+
+                    for (int c = 0; c < widths.Length; c++)
+                    {
+                        Range column = null;
+                        try
+                        {
+                            column = (Range)worksheet.Columns[c + 1];
+                            column.ColumnWidth = widths[c];
+                        }
+                        finally
+                        {
+                            if (column != null)
+                                Marshal.ReleaseComObject(column);
+                        }
+                    }
+                }
+                finally
+                {
+                    if (worksheet != null)
+                        Marshal.ReleaseComObject(worksheet);
+                }
+            }
+        }
+
         private static void ApplyMergeBar(
             Worksheet worksheet,
             ScheduleBuilderPreviewCsvExport.WorkbookTab.RowMergeBar bar)

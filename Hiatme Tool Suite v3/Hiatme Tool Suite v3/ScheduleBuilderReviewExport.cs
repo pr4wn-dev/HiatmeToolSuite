@@ -185,6 +185,16 @@ namespace Hiatme_Tool_Suite_v3
                     sb.Append("--- ").Append(Sanitize(line.SectionTitle)).AppendLine(" ---");
                     continue;
                 }
+                if (line.Kind == ScheduleBuilderPreviewLine.LineKind.GroupHeader)
+                {
+                    string note = (line.GroupNoteText ?? "").Trim();
+                    if (note.Length > 0)
+                    {
+                        sb.AppendLine();
+                        sb.Append("[group ").Append(line.GroupNumber).Append("] ").Append(Sanitize(note));
+                    }
+                    continue;
+                }
                 if (line.Kind == ScheduleBuilderPreviewLine.LineKind.Gap)
                 {
                     string note = (line.GapNoteText ?? "").Trim();

@@ -256,6 +256,77 @@ namespace Hiatme_Tool_Suite_v3
             if (e != null) e.DrawDefault = false;
         }
 
+        /// <summary>Sum of every column width — full logical width of a Details row.</summary>
+        public static int GetDetailsContentWidth(ListView listView)
+        {
+            if (listView?.Columns == null || listView.Columns.Count == 0)
+                return 0;
+
+            int w = 0;
+            foreach (ColumnHeader col in listView.Columns)
+                w += col.Width;
+            return w;
+        }
+
+        /// <summary>One merged bar across all columns (workbook-style group / section header).</summary>
+        public static void PaintMergedDetailsRow(
+            Graphics g,
+            Rectangle mergedBounds,
+            Color background,
+            string text,
+            Color textColor,
+            Font font,
+            bool boldText = false)
+        {
+            if (g == null)
+                return;
+
+            var state = g.Save();
+            try
+            {
+                g.SetClip(mergedBounds);
+
+                using (var brush = new SolidBrush(background))
+                    g.FillRectangle(brush, mergedBounds);
+
+                text = text ?? "";
+                if (text.Length > 0)
+                {
+                    var textBounds = new Rectangle(
+                        mergedBounds.Left + 6,
+                        mergedBounds.Top,
+                        Math.Max(0, mergedBounds.Width - 12),
+                        mergedBounds.Height);
+                    Font drawFont = boldText ? new Font(font, FontStyle.Bold) : font;
+                    try
+                    {
+                        TextRenderer.DrawText(
+                            g,
+                            text,
+                            drawFont,
+                            textBounds,
+                            textColor,
+                            TextFormatFlags.Left
+                                | TextFormatFlags.SingleLine
+                                | TextFormatFlags.VerticalCenter
+                                | TextFormatFlags.EndEllipsis
+                                | TextFormatFlags.NoPrefix);
+                    }
+                    finally
+                    {
+                        if (boldText && drawFont != null)
+                            drawFont.Dispose();
+                    }
+                }
+
+                g.DrawLine(_gridPen, mergedBounds.Left, mergedBounds.Bottom - 1, mergedBounds.Right - 1, mergedBounds.Bottom - 1);
+            }
+            finally
+            {
+                g.Restore(state);
+            }
+        }
+
         /// <summary>Fill one subitem cell (required for every column in Details owner-draw).</summary>
         public static void DrawSubItemCellBackground(DrawListViewSubItemEventArgs e, Color background)
         {

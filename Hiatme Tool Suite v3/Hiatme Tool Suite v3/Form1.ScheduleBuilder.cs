@@ -620,7 +620,7 @@ namespace Hiatme_Tool_Suite_v3
 
                 FullRowSelect = true,
 
-                GridLines = true,
+                GridLines = false,
 
                 HideSelection = false,
 
@@ -815,9 +815,85 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
+        private bool FsTripsIsMergedBarRow(ListViewItem item, out FsPreviewNoteTag noteTag, out FsPreviewSectionHeaderTag sectionTag)
+        {
+            noteTag = item?.Tag as FsPreviewNoteTag;
+            sectionTag = item?.Tag as FsPreviewSectionHeaderTag;
+            bool isReservesTab = _fsActiveDriverTab != null
+                && _fsActiveDriverTab.Equals("Reserves", StringComparison.OrdinalIgnoreCase);
+            if (noteTag?.Group != null)
+                return true;
+            return sectionTag != null && isReservesTab;
+        }
+
+        private bool FsTripsTryGetEntireRowBounds(ListViewItem item, out Rectangle bounds)
+        {
+            bounds = Rectangle.Empty;
+            if (_fsTripsLv == null || item == null)
+                return false;
+            try
+            {
+                bounds = _fsTripsLv.GetItemRect(item.Index, ItemBoundsPortion.Entire);
+            }
+            catch (ArgumentException)
+            {
+                bounds = item.Bounds;
+            }
+
+            return bounds.Width > 0 && bounds.Height > 0;
+        }
+
+        private void FsTripsPaintMergedBarRow(Graphics g, ListViewItem item, bool selected)
+        {
+            if (g == null || item == null || !FsTripsIsMergedBarRow(item, out var noteTag, out var sectionTag))
+                return;
+            if (!FsTripsTryGetEntireRowBounds(item, out Rectangle rowBounds))
+                return;
+
+            int bump = FsTripsGetDragBumpPixels(item.Index);
+            if (bump > 0)
+                rowBounds = new Rectangle(rowBounds.X, rowBounds.Y + bump, rowBounds.Width, rowBounds.Height);
+
+            FsTripsPaintDragDecorations(g, item, 0, rowBounds, bump);
+
+            if (noteTag?.Group != null)
+            {
+                Color bg = selected ? SupeyTheme.ListSelected : noteTag.Group.DisplayColor;
+                Color fg = selected
+                    ? SupeyTheme.ListSelectedText
+                    : ScheduleBuilderPreviewStyle.ContrastText(noteTag.Group.DisplayColor);
+                string text = (noteTag.NoteText ?? "").Trim();
+                SupeyListViewHelpers.PaintMergedDetailsRow(
+                    g, rowBounds, bg, text, fg, _fsTripsLv.Font, boldText: text.Length > 0);
+                return;
+            }
+
+            if (sectionTag != null)
+            {
+                string text = (sectionTag.Title ?? "").Trim();
+                SupeyListViewHelpers.PaintMergedDetailsRow(
+                    g,
+                    rowBounds,
+                    sectionTag.SectionColor,
+                    text,
+                    ScheduleBuilderPreviewStyle.ReserveSectionHeaderText,
+                    _fsTripsLv.Font,
+                    boldText: true);
+            }
+        }
+
+
+
         private void FsTripsLv_DrawItem(object sender, DrawListViewItemEventArgs e)
 
         {
+
+            if (FsTripsIsMergedBarRow(e.Item, out _, out _))
+            {
+                e.DrawDefault = false;
+                FsTripsPaintMergedBarRow(e.Graphics, e.Item, e.Item != null && e.Item.Selected);
+                return;
+            }
 
             SupeyListViewHelpers.SuppressDefaultDrawItem(e);
 
@@ -843,7 +919,16 @@ namespace Hiatme_Tool_Suite_v3
                 return;
             }
 
+            if (FsTripsIsMergedBarRow(e.Item, out _, out _))
+            {
+                e.DrawDefault = false;
+                return;
+            }
 
+            var noteTag = e.Item?.Tag as FsPreviewNoteTag;
+            var sectionTag = e.Item?.Tag as FsPreviewSectionHeaderTag;
+            bool isReservesTab = _fsActiveDriverTab != null
+                && _fsActiveDriverTab.Equals("Reserves", StringComparison.OrdinalIgnoreCase);
 
             int bump = FsTripsGetDragBumpPixels(e.Item?.Index ?? -1);
 
@@ -861,16 +946,9 @@ namespace Hiatme_Tool_Suite_v3
 
             bool isGap = e.Item?.Tag is FsPreviewGapTag;
 
-            var sectionTag = e.Item?.Tag as FsPreviewSectionHeaderTag;
-
             bool isSection = sectionTag != null;
 
-            bool isNote = e.Item?.Tag is FsPreviewNoteTag;
-
-            bool isReservesTab = _fsActiveDriverTab != null
-                && _fsActiveDriverTab.Equals("Reserves", StringComparison.OrdinalIgnoreCase);
-
-            var noteTag = e.Item?.Tag as FsPreviewNoteTag;
+            bool isNote = noteTag != null;
 
             Color rowBg = sel ? SupeyTheme.ListSelected : SupeyTheme.ListBody;
 
@@ -890,11 +968,7 @@ namespace Hiatme_Tool_Suite_v3
 
             Color fill = rowBg;
 
-            if (!sel && isNote && noteTag?.Group != null && e.ColumnIndex == 0 && FsShowGroupColorsEnabled)
-
-                fill = noteTag.Group.DisplayColor;
-
-            else if (!sel && !isGap && !isNote && e.ColumnIndex == 0 && FsShowGroupColorsEnabled
+            if (!sel && !isGap && !isNote && e.ColumnIndex == 0 && FsShowGroupColorsEnabled
                 && !isReservesTab
 
                 && e.SubItem != null && e.SubItem.BackColor != Color.Empty
@@ -913,15 +987,11 @@ namespace Hiatme_Tool_Suite_v3
 
             Color textColor = sel ? SupeyTheme.ListSelectedText : SupeyTheme.ListText;
 
-            if (!sel && isSection && isReservesTab && e.ColumnIndex == 0)
-
-                textColor = ScheduleBuilderPreviewStyle.ReserveSectionHeaderText;
-
-            else if (!sel && isSection && !isReservesTab && e.ColumnIndex == 2)
+            if (!sel && isSection && !isReservesTab && e.ColumnIndex == 2)
 
                 textColor = SupeyTheme.TextPrimary;
 
-            Font drawFont = isSection && ((isReservesTab && e.ColumnIndex == 0) || (!isReservesTab && e.ColumnIndex == 2))
+            Font drawFont = isSection && !isReservesTab && e.ColumnIndex == 2
 
                 ? new Font(_fsTripsLv.Font, FontStyle.Bold)
 
@@ -2486,6 +2556,32 @@ namespace Hiatme_Tool_Suite_v3
 
                     }
 
+                    if (line.Kind == ScheduleBuilderPreviewLine.LineKind.GroupHeader)
+
+                    {
+
+                        if (FsShowGroupColorsEnabled)
+
+                        {
+
+                            var headerGroup = FindFsGroupByNumber(groups, line.GroupNumber);
+
+                            if (headerGroup != null)
+
+                            {
+
+                                AddFsGroupNoteRow(headerGroup, line.GroupNoteText);
+
+                                lastHeaderGroup = headerGroup;
+
+                            }
+
+                        }
+
+                        continue;
+
+                    }
+
                     if (line.Trip == null) continue;
 
                     var g = FindFsGroupForTrip(groups, line.Trip);
@@ -2496,7 +2592,7 @@ namespace Hiatme_Tool_Suite_v3
 
                     {
 
-                        AddFsGroupNoteRow(g);
+                        AddFsGroupNoteRow(g, null);
 
                     }
 
@@ -2562,21 +2658,19 @@ namespace Hiatme_Tool_Suite_v3
 
             Color c = sectionColor ?? ScheduleBuilderReserveBuckets.SectionColorForTitle(title);
 
-            var lvi = new ListViewItem(title ?? "");
+            var lvi = new ListViewItem("");
 
             lvi.UseItemStyleForSubItems = false;
-
-            lvi.Font = new Font(_fsTripsLv.Font, FontStyle.Bold);
-
-            lvi.ForeColor = ScheduleBuilderPreviewStyle.ReserveSectionHeaderText;
 
             for (int i = 0; i < 11; i++)
 
                 lvi.SubItems.Add("");
 
             for (int i = 0; i < lvi.SubItems.Count; i++)
-
+            {
+                lvi.SubItems[i].Text = "";
                 lvi.SubItems[i].BackColor = c;
+            }
 
             lvi.Tag = new FsPreviewSectionHeaderTag(title, c);
 
@@ -2629,6 +2723,17 @@ namespace Hiatme_Tool_Suite_v3
         }
 
 
+
+        private static SupeyTripCluster FindFsGroupByNumber(List<SupeyTripCluster> groups, int groupNumber)
+        {
+            if (groups == null || groupNumber <= 0) return null;
+            for (int i = 0; i < groups.Count; i++)
+            {
+                if (groups[i] != null && groups[i].GroupNumber == groupNumber)
+                    return groups[i];
+            }
+            return null;
+        }
 
         private static int FindFsGroupIndex(List<SupeyTripCluster> groups, SupeyTripCluster group)
         {
@@ -2706,27 +2811,31 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-        private void AddFsGroupNoteRow(SupeyTripCluster g)
+        private void AddFsGroupNoteRow(SupeyTripCluster g, string noteText)
 
         {
 
             if (g == null) return;
 
-            var lvi = new ListViewItem(g.GroupNumber.ToString());
+            string note = (noteText ?? "").Trim();
+
+            var lvi = new ListViewItem("");
 
             lvi.UseItemStyleForSubItems = false;
 
-            lvi.SubItems[0].BackColor = g.DisplayColor;
+            Color bar = g.DisplayColor;
 
             for (int c = 1; c <= 11; c++)
 
                 lvi.SubItems.Add("");
 
-            for (int c = 1; c < lvi.SubItems.Count; c++)
+            for (int c = 0; c < lvi.SubItems.Count; c++)
+            {
+                lvi.SubItems[c].Text = "";
+                lvi.SubItems[c].BackColor = bar;
+            }
 
-                lvi.SubItems[c].BackColor = FsRouteHeaderBackColor(g.DisplayColor);
-
-            lvi.Tag = new FsPreviewNoteTag(g);
+            lvi.Tag = new FsPreviewNoteTag(g, note);
 
             _fsTripsLv.Items.Add(lvi);
 

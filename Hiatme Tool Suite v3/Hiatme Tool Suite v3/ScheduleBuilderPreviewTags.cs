@@ -19,7 +19,13 @@ namespace Hiatme_Tool_Suite_v3
     internal sealed class FsPreviewNoteTag
     {
         public SupeyTripCluster Group { get; }
-        public FsPreviewNoteTag(SupeyTripCluster g) => Group = g;
+        public string NoteText { get; set; }
+
+        public FsPreviewNoteTag(SupeyTripCluster g, string noteText = "")
+        {
+            Group = g;
+            NoteText = noteText ?? "";
+        }
     }
 
     internal sealed class FsPreviewTripTag

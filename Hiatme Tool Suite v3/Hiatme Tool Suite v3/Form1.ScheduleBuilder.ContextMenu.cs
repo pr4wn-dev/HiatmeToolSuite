@@ -22,8 +22,10 @@ namespace Hiatme_Tool_Suite_v3
         private ToolStripMenuItem _fsTripsCtxInsertAbove;
         private ToolStripMenuItem _fsTripsCtxInsertBelow;
         private ToolStripMenuItem _fsTripsCtxClearCut;
+        private ToolStripMenuItem _fsTripsCtxEditGroupNote;
         private MCDownloadedTrip _fsTripsCtxTrip;
         private SupeyTripCluster _fsTripsCtxGroup;
+        private FsPreviewNoteTag _fsTripsCtxNoteTag;
 
         private void BuildFsTripsContextMenu()
         {
@@ -145,6 +147,13 @@ namespace Hiatme_Tool_Suite_v3
                 SetScheduleBuilderStatus("Cut trip cleared.");
             };
 
+            _fsTripsCtxEditGroupNote = new ToolStripMenuItem("Edit group note")
+            {
+                BackColor = DarkContextMenuRenderer.Background,
+                ForeColor = DarkContextMenuRenderer.ForeColor,
+            };
+            _fsTripsCtxEditGroupNote.Click += (s, e) => FsEditGroupNoteFromContext();
+
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxBanClient);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxUnbanClient);
             _fsTripsCtxMenu.Items.Add(new ToolStripSeparator());
@@ -153,6 +162,7 @@ namespace Hiatme_Tool_Suite_v3
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxInsertBelow);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxClearCut);
             _fsTripsCtxMenu.Items.Add(new ToolStripSeparator());
+            _fsTripsCtxMenu.Items.Add(_fsTripsCtxEditGroupNote);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxAutoSortGroup);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxGeocodeDriverHome);
             _fsTripsCtxMenu.Items.Add(new ToolStripSeparator());
@@ -177,11 +187,15 @@ namespace Hiatme_Tool_Suite_v3
             var hit = _fsTripsLv.HitTest(e.Location);
             _fsTripsCtxTrip = null;
             _fsTripsCtxGroup = null;
+            _fsTripsCtxNoteTag = null;
             _fsTripsCtxHitItem = hit.Item;
             if (hit.Item != null)
             {
                 if (hit.Item.Tag is FsPreviewNoteTag noteTag)
+                {
+                    _fsTripsCtxNoteTag = noteTag;
                     _fsTripsCtxGroup = noteTag.Group;
+                }
                 else if (hit.Item.Tag is FsPreviewTripTag tripTag)
                 {
                     _fsTripsCtxTrip = tripTag.Trip;
@@ -241,6 +255,20 @@ namespace Hiatme_Tool_Suite_v3
             _fsTripsCtxCopyForAi.Enabled = hasBuild;
             _fsTripsCtxCopyCurrentTab.Enabled = hasBuild;
             _fsTripsCtxCopySelectedTrip.Enabled = hasTrip;
+            _fsTripsCtxEditGroupNote.Enabled = _fsTripsCtxNoteTag?.Group != null
+                && !isReserves
+                && FsShowGroupColorsEnabled;
+
+            if (_fsTripsCtxNoteTag?.Group != null)
+            {
+                _fsTripsCtxEditGroupNote.Text = string.IsNullOrWhiteSpace(_fsTripsCtxNoteTag.NoteText)
+                    ? "Edit group note — group " + _fsTripsCtxNoteTag.Group.GroupNumber
+                    : "Edit group note — group " + _fsTripsCtxNoteTag.Group.GroupNumber;
+            }
+            else
+            {
+                _fsTripsCtxEditGroupNote.Text = "Edit group note";
+            }
 
             if (canSortGroup)
             {
@@ -354,6 +382,102 @@ namespace Hiatme_Tool_Suite_v3
             {
                 MessageBox.Show(this, "Could not copy to clipboard:\n\n" + ex.Message, "Schedule Builder",
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+
+        private void FsEditGroupNoteFromContext()
+        {
+            if (_fsTripsCtxNoteTag?.Group == null
+                || string.IsNullOrWhiteSpace(_fsActiveDriverTab)
+                || !_fsHasPreview)
+                return;
+
+            int groupNumber = _fsTripsCtxNoteTag.Group.GroupNumber;
+            string current = _fsTripsCtxNoteTag.NoteText ?? "";
+            if (_fsLinesByTab.TryGetValue(_fsActiveDriverTab, out var existing) && existing != null)
+            {
+                string fromLine = ScheduleBuilderGroupNotes.GetNote(existing, groupNumber);
+                if (!string.IsNullOrWhiteSpace(fromLine))
+                    current = fromLine;
+            }
+
+            string edited = FsPromptGroupNoteText(
+                "Group " + groupNumber + " note",
+                "Note shown on the colored header row and in the saved workbook:",
+                current);
+            if (edited == null)
+                return;
+
+            if (!_fsLinesByTab.TryGetValue(_fsActiveDriverTab, out var lines) || lines == null)
+                return;
+
+            _fsGroupsByTab.TryGetValue(_fsActiveDriverTab, out var groups);
+            ScheduleBuilderGroupNotes.ApplyNote(lines, groups, _fsTripsCtxNoteTag.Group, edited);
+            FsCommitPreviewLinesForTab(_fsActiveDriverTab, lines);
+            ShowFsTripsForTab(_fsActiveDriverTab);
+            SyncFsPreviewCsvsForExport();
+
+            string status = string.IsNullOrWhiteSpace(edited)
+                ? "Group " + groupNumber + " note cleared."
+                : "Group " + groupNumber + " note saved.";
+            SetScheduleBuilderStatus(status);
+        }
+
+        private string FsPromptGroupNoteText(string title, string prompt, string initial)
+        {
+            using (var form = new Form())
+            {
+                form.Text = title;
+                form.FormBorderStyle = FormBorderStyle.FixedDialog;
+                form.StartPosition = FormStartPosition.CenterParent;
+                form.MinimizeBox = false;
+                form.MaximizeBox = false;
+                form.ShowInTaskbar = false;
+                form.BackColor = SupeyTheme.Surface;
+                form.ForeColor = SupeyTheme.TextPrimary;
+                form.ClientSize = new Size(440, 150);
+
+                var lbl = new Label
+                {
+                    Text = prompt,
+                    AutoSize = false,
+                    Left = 12,
+                    Top = 12,
+                    Width = 416,
+                    Height = 32,
+                    ForeColor = SupeyTheme.TextSecondary,
+                };
+                var tb = new TextBox
+                {
+                    Left = 12,
+                    Top = 48,
+                    Width = 416,
+                    Text = initial ?? "",
+                    BackColor = SupeyTheme.SurfaceElevated,
+                    ForeColor = SupeyTheme.TextPrimary,
+                    BorderStyle = BorderStyle.FixedSingle,
+                };
+                var ok = new Button
+                {
+                    Text = "OK",
+                    DialogResult = DialogResult.OK,
+                    Left = 272,
+                    Width = 75,
+                    Top = 108,
+                };
+                var cancel = new Button
+                {
+                    Text = "Cancel",
+                    DialogResult = DialogResult.Cancel,
+                    Left = 353,
+                    Width = 75,
+                    Top = 108,
+                };
+                form.Controls.AddRange(new Control[] { lbl, tb, ok, cancel });
+                form.AcceptButton = ok;
+                form.CancelButton = cancel;
+
+                return form.ShowDialog(this) == DialogResult.OK ? tb.Text.Trim() : null;
             }
         }
 

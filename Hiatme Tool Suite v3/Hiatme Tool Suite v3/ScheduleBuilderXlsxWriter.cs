@@ -455,7 +455,10 @@ namespace Hiatme_Tool_Suite_v3
                 new XAttribute("defaultRowHeight", "15"),
                 new XAttribute("defaultColWidth", DefaultColWidth.ToString("0.##", CultureInfo.InvariantCulture))));
 
-            var colWidths = ComputeColumnWidths(rows, ScheduleBuilderPreviewCsvExport.ColumnCount);
+            var colWidths = ComputeColumnWidths(
+                rows,
+                ScheduleBuilderPreviewCsvExport.ColumnCount,
+                mergeByRow.Keys);
             worksheet.Add(BuildColsElement(colWidths));
             worksheet.Add(sheetData);
             if (mergeBars != null && mergeBars.Count > 0)
@@ -488,14 +491,28 @@ namespace Hiatme_Tool_Suite_v3
             return sb.Length == 0 ? "A" : sb.ToString();
         }
 
-        private static double[] ComputeColumnWidths(IReadOnlyList<List<string>> rows, int columnCount)
+        /// <summary>
+        /// Size columns from trip/data rows only — merged group/reserve header rows span A–N
+        /// and must not inflate column A from long notes.
+        /// </summary>
+        internal static double[] ComputeColumnWidths(
+            IReadOnlyList<List<string>> rows,
+            int columnCount,
+            IEnumerable<int> mergedBarRowIndices = null)
         {
+            var skipRows = mergedBarRowIndices != null
+                ? new HashSet<int>(mergedBarRowIndices)
+                : null;
             var maxChars = new int[columnCount];
 
             if (rows != null)
             {
-                foreach (var row in rows)
+                for (int r = 0; r < rows.Count; r++)
                 {
+                    if (skipRows != null && skipRows.Contains(r))
+                        continue;
+
+                    var row = rows[r];
                     if (row == null)
                         continue;
 

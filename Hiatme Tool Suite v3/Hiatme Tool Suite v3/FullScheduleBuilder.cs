@@ -1272,9 +1272,12 @@ namespace Hiatme_Tool_Suite_v3
                 xlApp.DisplayAlerts = false;
 
                 if (workbookTabs != null && workbookTabs.Count > 0)
+                {
                     ScheduleBuilderExcelWorkbookColors.ApplyTabColors(newWorkbook, workbookTabs);
-
-                ScheduleBuilderExcelWorkbookColors.AutoFitAllWorksheets(newWorkbook);
+                    ScheduleBuilderExcelWorkbookColors.ApplyColumnWidthsFromTabs(newWorkbook, workbookTabs);
+                }
+                else
+                    ScheduleBuilderExcelWorkbookColors.AutoFitAllWorksheets(newWorkbook);
 
                 currentFile = "(saving workbook)";
                 newWorkbook.SaveAs(path, Microsoft.Office.Interop.Excel.XlFileFormat.xlWorkbookDefault, Type.Missing, Type.Missing, false, false, XlSaveAsAccessMode.xlNoChange, XlSaveConflictResolution.xlLocalSessionChanges, Type.Missing, Type.Missing);
