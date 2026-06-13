@@ -70,6 +70,7 @@ namespace Hiatme_Tool_Suite_v3
                 _vehicleTb.Text = existing.VehicleLabel ?? "";
                 _shiftStartTb.Text = existing.ShiftStart ?? "06:00";
                 _shiftEndTb.Text = existing.ShiftEnd ?? "18:00";
+                _emailTb.Text = existing.Email ?? string.Empty;
                 if (string.IsNullOrWhiteSpace(existing.WellRydeSecId))
                 {
                     _portalSectionLabel.Text = "Driver info (local)";
@@ -109,6 +110,7 @@ namespace Hiatme_Tool_Suite_v3
             Result = new SupeyDriverProfile
             {
                 Name = name,
+                Email = (_emailTb.Text ?? "").Trim(),
                 HomeStreet = (_streetTb.Text ?? "").Trim(),
                 HomeCity = (_cityTb.Text ?? "").Trim(),
                 HomeState = (_stateTb.Text ?? "").Trim(),
@@ -123,7 +125,9 @@ namespace Hiatme_Tool_Suite_v3
                 Result.WellRydeSecId = _existing.WellRydeSecId ?? "";
                 Result.WellRydeUsername = _existing.WellRydeUsername ?? "";
                 Result.WellRydeSyncedAtUtc = _existing.WellRydeSyncedAtUtc;
-                SaveToWellRyde = !string.IsNullOrWhiteSpace(_existing.Name);
+                Result.ScheduleTabKey = _existing.ScheduleTabKey ?? "";
+                // Push on OK for any edit; SEC id is resolved at push time if missing.
+                SaveToWellRyde = true;
             }
             DialogResult = DialogResult.OK;
             Close();

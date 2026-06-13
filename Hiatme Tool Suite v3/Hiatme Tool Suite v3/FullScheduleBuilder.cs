@@ -81,6 +81,37 @@ namespace Hiatme_Tool_Suite_v3
         public string Month { get; set; }
         public string Year { get; set; }
 
+        /// <summary>When set, SAVE uses this path instead of prompting (e.g. loaded .xlsx).</summary>
+        internal string PreferredExportPath { get; set; }
+
+        public DateTime ServiceDate
+        {
+            get
+            {
+                if (int.TryParse(Day, out int day)
+                    && int.TryParse(Month, out int month)
+                    && int.TryParse(Year, out int year)
+                    && month >= 1 && month <= 12
+                    && day >= 1 && day <= DateTime.DaysInMonth(year, month))
+                {
+                    return new DateTime(year, month, day);
+                }
+
+                return DateTime.Today;
+            }
+        }
+
+        /// <summary>Sync export filename/folder fields from the Schedule Builder date picker.</summary>
+        public void ApplyServiceDate(DateTime serviceDate)
+        {
+            var d = serviceDate.Date;
+            NameOfDay = d.DayOfWeek.ToString();
+            Day = d.Day.ToString();
+            NameOfMonth = d.ToString("MMMM");
+            Month = d.Month.ToString();
+            Year = d.Year.ToString();
+        }
+
         public IDictionary<string, List<MCDownloadedTrip>> driverTripList;
 
         private readonly Dictionary<string, List<SupeyTemplateSlot>> _driverTemplateSlots =
@@ -298,7 +329,7 @@ namespace Hiatme_Tool_Suite_v3
         public async Task BuildFullSchedule(DateTime modcdate, MCLoginHandler modcLoginHandler)
         {
             await BuildPreviewAsync(modcdate, modcLoginHandler).ConfigureAwait(false);
-            await CreateWorkbookAsync().ConfigureAwait(false);
+            await CreateWorkbookAsync(promptForLocation: true).ConfigureAwait(false);
         }
 
         /// <summary>Populate preview from a saved CSV package or workbook (no Modivcare download).</summary>
@@ -1301,7 +1332,15 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
-        public async Task CreateWorkbookAsync()
+        public Task CreateWorkbookAsync() => CreateWorkbookAsync(promptForLocation: true);
+
+        /// <param name="promptForLocation">False for SAVE SCHEDULE — uses service date and skips the file dialog.</param>
+        public async Task CreateWorkbookAsync(bool promptForLocation)
+        {
+            await CreateWorkbookAsync(promptForLocation, openAfterSave: promptForLocation).ConfigureAwait(false);
+        }
+
+        internal async Task CreateWorkbookAsync(bool promptForLocation, bool openAfterSave)
         {
             ClearLastExport();
 
@@ -1339,26 +1378,36 @@ namespace Hiatme_Tool_Suite_v3
                     "—");
             }
 
-            await AsyncUpdateLoadingScreen("Choose a location to save schedule");
             ScheduleExportPaths.GetDefaultWorkbookSaveLocation(
-                NameOfMonth, Day, Year, out string yearFolder, out string fileName, out _);
+                NameOfMonth, Day, Year, out string yearFolder, out string fileName, out string defaultFullPath);
 
             string path;
-            using (var saveDlg = new SaveFileDialog())
+            if (promptForLocation)
             {
-                saveDlg.InitialDirectory = yearFolder;
-                saveDlg.Filter = "Excel files (*.xlsx)|*.xlsx";
-                saveDlg.FilterIndex = 0;
-                saveDlg.RestoreDirectory = false;
-                saveDlg.Title = "Export Excel File To";
-                saveDlg.FileName = fileName;
-                if (saveDlg.ShowDialog() != DialogResult.OK)
+                await AsyncUpdateLoadingScreen("Choose a location to save schedule");
+                using (var saveDlg = new SaveFileDialog())
                 {
-                    await AsyncUpdateLoadingScreen("Cancelling process..");
-                    NotifyHideLoadingScreen();
-                    return;
+                    saveDlg.InitialDirectory = yearFolder;
+                    saveDlg.Filter = "Excel files (*.xlsx)|*.xlsx";
+                    saveDlg.FilterIndex = 0;
+                    saveDlg.RestoreDirectory = false;
+                    saveDlg.Title = "Export Excel File To";
+                    saveDlg.FileName = fileName;
+                    if (saveDlg.ShowDialog() != DialogResult.OK)
+                    {
+                        await AsyncUpdateLoadingScreen("Cancelling process..");
+                        NotifyHideLoadingScreen();
+                        return;
+                    }
+                    path = saveDlg.FileName;
                 }
-                path = saveDlg.FileName;
+            }
+            else
+            {
+                await AsyncUpdateLoadingScreen("Saving schedule…");
+                path = !string.IsNullOrWhiteSpace(PreferredExportPath)
+                    ? PreferredExportPath
+                    : defaultFullPath;
             }
 
             await AsyncUpdateLoadingScreen("Building workbook");
@@ -1372,7 +1421,7 @@ namespace Hiatme_Tool_Suite_v3
                 await RunWorkbookWriteAsync(path,
                     () => ScheduleBuilderXlsxWriter.WriteWorkbookFromTabs(path, workbookTabs))
                     .ConfigureAwait(false);
-                await FinishWorkbookExportAsync(path).ConfigureAwait(false);
+                await FinishWorkbookExportAsync(path, openAfterSave).ConfigureAwait(false);
                 return;
             }
 
@@ -1381,7 +1430,7 @@ namespace Hiatme_Tool_Suite_v3
                 await RunWorkbookWriteAsync(path,
                     () => ScheduleBuilderXlsxWriter.WriteWorkbookFromCsvFiles(path, fileList))
                     .ConfigureAwait(false);
-                await FinishWorkbookExportAsync(path).ConfigureAwait(false);
+                await FinishWorkbookExportAsync(path, openAfterSave).ConfigureAwait(false);
                 return;
             }
 
@@ -1495,7 +1544,7 @@ namespace Hiatme_Tool_Suite_v3
                 Marshal.ReleaseComObject(newWorkbook);
                 Marshal.ReleaseComObject(xlApp);
 
-                await FinishWorkbookExportAsync(path).ConfigureAwait(false);
+                await FinishWorkbookExportAsync(path, openAfterSave).ConfigureAwait(false);
             }
             catch (ScheduleBuilderException)
             {
@@ -1519,7 +1568,7 @@ namespace Hiatme_Tool_Suite_v3
                         () => ScheduleBuilderXlsxWriter.WriteWorkbookFromCsvFiles(path, fileList))
                         .ConfigureAwait(false);
                 }
-                await FinishWorkbookExportAsync(path).ConfigureAwait(false);
+                await FinishWorkbookExportAsync(path, openAfterSave).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -1599,15 +1648,18 @@ namespace Hiatme_Tool_Suite_v3
                 "—");
         }
 
-        private async Task FinishWorkbookExportAsync(string path)
+        private async Task FinishWorkbookExportAsync(string path, bool openAfterSave = true)
         {
-            try
+            if (openAfterSave)
             {
-                System.Diagnostics.Process.Start(path);
-            }
-            catch
-            {
-                /* ignore */
+                try
+                {
+                    System.Diagnostics.Process.Start(path);
+                }
+                catch
+                {
+                    /* ignore */
+                }
             }
 
             LastExportPath = path;

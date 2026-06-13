@@ -597,6 +597,78 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        public static async Task<List<DriverEmailRecord>> GetDriverEmailsAsync(
+            HiatmeAiSettings settings,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null)
+                return null;
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl))
+                return null;
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Get, baseUrl + "/api/hiatme/driver-emails"))
+                {
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
+                    {
+                        if (!resp.IsSuccessStatusCode)
+                            return null;
+                        var root = JObject.Parse(await resp.Content.ReadAsStringAsync().ConfigureAwait(false));
+                        var arr = root["drivers"] as JArray ?? new JArray();
+                        if (arr.Count == 0)
+                            return new List<DriverEmailRecord>();
+                        return arr.ToObject<List<DriverEmailRecord>>()
+                            ?? new List<DriverEmailRecord>();
+                    }
+                }
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        public static async Task<bool> MergeDriverEmailsAsync(
+            HiatmeAiSettings settings,
+            IList<DriverEmailRecord> drivers,
+            string updatedBy = "",
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null || drivers == null || drivers.Count == 0)
+                return false;
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl))
+                return false;
+            try
+            {
+                var payload = new JObject
+                {
+                    ["updated_by"] = updatedBy ?? "",
+                    ["drivers"] = JArray.FromObject(drivers),
+                };
+                using (var req = new HttpRequestMessage(HttpMethod.Post, baseUrl + "/api/hiatme/driver-emails"))
+                {
+                    req.Content = new StringContent(
+                        payload.ToString(Formatting.None),
+                        Encoding.UTF8,
+                        "application/json");
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
+                        return resp.IsSuccessStatusCode;
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         public static async Task<bool> SetOutOfAreaAsync(
             HiatmeAiSettings settings,
             IList<string> areas,

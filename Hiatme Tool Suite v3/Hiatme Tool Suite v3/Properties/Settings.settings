@@ -23,6 +23,12 @@
     <Setting Name="hiatmeUserPass" Type="System.String" Scope="User">
       <Value Profile="(Default)" />
     </Setting>
+    <Setting Name="gmailUserName" Type="System.String" Scope="User">
+      <Value Profile="(Default)" />
+    </Setting>
+    <Setting Name="gmailUserPass" Type="System.String" Scope="User">
+      <Value Profile="(Default)" />
+    </Setting>
     <Setting Name="wrPortalLogLevel" Type="System.String" Scope="User">
       <Value Profile="(Default)" />
     </Setting>

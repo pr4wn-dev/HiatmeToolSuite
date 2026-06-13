@@ -69,6 +69,7 @@ namespace Hiatme_Tool_Suite_v3
         private ListView _supeyDriversLv;
         private ColumnHeader _supeyDriversColCheck;
         private ColumnHeader _supeyDriversColName;
+        private ColumnHeader _supeyDriversColEmail;
         private ColumnHeader _supeyDriversColCap;
         private ColumnHeader _supeyDriversColShift;
         private ColumnHeader _supeyDriversColRelease;
@@ -107,6 +108,8 @@ namespace Hiatme_Tool_Suite_v3
 
         // ---------- runtime state ----------
         private List<SupeyDriverProfile> _supeyRoster = new List<SupeyDriverProfile>();
+        /// <summary>True after <see cref="LoadSupeyRosterFromDisk"/> or Schedule Builder first load — prevents reloading roster and breaking ListView tags.</summary>
+        private bool _supeyRosterLoadedFromDisk;
         private List<MCDownloadedTrip> _supeyLoadedTrips = new List<MCDownloadedTrip>();
         private SupeyScheduleResult _supeyResult;
         private CancellationTokenSource _supeyCts;
@@ -898,12 +901,13 @@ namespace Hiatme_Tool_Suite_v3
             // proper header so users see the on/off semantic.
             _supeyDriversColCheck = new ColumnHeader { Text = "Use", Width = 44 };
             _supeyDriversColName = new ColumnHeader { Text = "Driver", Width = 160 };
+            _supeyDriversColEmail = new ColumnHeader { Text = "Email", Width = 180 };
             _supeyDriversColCap = new ColumnHeader { Text = "Cap", Width = 48 };
             _supeyDriversColShift = new ColumnHeader { Text = "Shift", Width = 100 };
             _supeyDriversColRelease = new ColumnHeader { Text = "Release", Width = 88 };
             _supeyDriversLv.Columns.AddRange(new[]
             {
-                _supeyDriversColCheck, _supeyDriversColName,
+                _supeyDriversColCheck, _supeyDriversColName, _supeyDriversColEmail,
                 _supeyDriversColCap, _supeyDriversColShift, _supeyDriversColRelease
             });
             _supeyDriversLv.DoubleClick += async (s, e) => await OnSupeyDriverEditAsync();
@@ -1791,11 +1795,155 @@ namespace Hiatme_Tool_Suite_v3
         {
             string warning;
             _supeyRoster = SupeyDriverRosterStore.Load(out warning);
+            _supeyRosterLoadedFromDisk = true;
+            ScheduleBuilderDriverEmailsRegistry.ApplyLocalRegistryToRoster(_supeyRoster);
             if (!string.IsNullOrEmpty(warning))
             {
                 SetSupeyStatus(warning);
             }
             RebuildSupeyDriversList();
+        }
+
+        /// <summary>Match roster row by reference, WellRyde SEC id, schedule tab, or name.</summary>
+        private int IndexOfSupeyDriver(SupeyDriverProfile profile)
+        {
+            if (profile == null || _supeyRoster == null || _supeyRoster.Count == 0)
+                return -1;
+
+            int idx = _supeyRoster.IndexOf(profile);
+            if (idx >= 0)
+                return idx;
+
+            string sec = (profile.WellRydeSecId ?? "").Trim();
+            if (sec.Length > 0)
+            {
+                idx = _supeyRoster.FindIndex(d =>
+                    d != null && string.Equals((d.WellRydeSecId ?? "").Trim(), sec, StringComparison.OrdinalIgnoreCase));
+                if (idx >= 0)
+                    return idx;
+            }
+
+            string tab = (profile.ScheduleTabKey ?? "").Trim();
+            if (tab.Length > 0)
+            {
+                idx = _supeyRoster.FindIndex(d =>
+                    d != null && string.Equals((d.ScheduleTabKey ?? "").Trim(), tab, StringComparison.OrdinalIgnoreCase));
+                if (idx >= 0)
+                    return idx;
+            }
+
+            string name = (profile.Name ?? "").Trim();
+            if (name.Length > 0)
+            {
+                return _supeyRoster.FindIndex(d =>
+                    d != null && string.Equals((d.Name ?? "").Trim(), name, StringComparison.OrdinalIgnoreCase));
+            }
+
+            return -1;
+        }
+
+        private bool TryApplySupeyDriverEdit(SupeyDriverProfile existing, SupeyDriverProfile edited, out string error)
+        {
+            error = null;
+            if (edited == null)
+            {
+                error = "No driver data returned from the editor.";
+                return false;
+            }
+
+            if (_supeyRoster == null)
+                _supeyRoster = new List<SupeyDriverProfile>();
+
+            int idx = IndexOfSupeyDriver(existing ?? edited);
+            if (idx < 0)
+            {
+                error = "Could not find this driver in the roster — your changes were not saved.";
+                return false;
+            }
+
+            _supeyRoster[idx] = edited;
+            return true;
+        }
+
+        /// <summary>Local + server driver-email registry; must not break roster JSON save.</summary>
+        private void PersistSupeyDriverEmailsSafely()
+        {
+            try
+            {
+                if (_supeyRoster == null || _supeyRoster.Count == 0)
+                    return;
+                ScheduleBuilderDriverEmailsRegistry.UpdateLocalFromRoster(_supeyRoster, Environment.UserName);
+                ScheduleBuilderDriverEmailsRegistry.TryPushToServerFireAndForget(null, Environment.UserName);
+            }
+            catch
+            {
+                /* bulk SAVE path — edit uses CommitDriverEditAsync */
+            }
+        }
+
+        /// <summary>Edit OK: roster JSON, email registry, AI server, optional WellRyde — one result dialog.</summary>
+        private async Task CommitDriverEditAsync(
+            SupeyDriverProfile existing,
+            SupeyDriverProfile edited,
+            bool pushWellRyde,
+            Action rebuildLists)
+        {
+            if (!TryApplySupeyDriverEdit(existing, edited, out string applyErr))
+            {
+                MessageBox.Show(this, applyErr, "Drivers", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                SetDriverWellRydePushStatus(applyErr);
+                return;
+            }
+
+            rebuildLists?.Invoke();
+
+            var disk = SupeyDriverRosterStore.Save(_supeyRoster);
+            if (!disk.Ok)
+            {
+                MessageBox.Show(this, disk.ErrorMessage ?? "Save failed.", "Drivers",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                SetDriverWellRydePushStatus(disk.ErrorMessage);
+                return;
+            }
+
+            _supeyRosterLastSaved = disk.SavedAtLocal;
+            ScheduleBuilderDriverEmailsRegistry.UpdateLocalFromRoster(_supeyRoster, Environment.UserName);
+            bool serverOk = await ScheduleBuilderDriverEmailsRegistry.PushToServerAsync(
+                HiatmeAiSettings.Load(), _supeyRoster, Environment.UserName).ConfigureAwait(true);
+
+            string wrLine = null;
+            bool wrOk = true;
+            if (pushWellRyde)
+            {
+                var wr = await PushSupeyDriverToWellRydeCoreAsync(edited).ConfigureAwait(true);
+                wrOk = wr.Ok;
+                wrLine = wr.Ok
+                    ? wr.Message
+                    : (wr.Message ?? "WellRyde update failed.");
+            }
+
+            if (pushWellRyde && wrOk)
+            {
+                int idx = IndexOfSupeyDriver(edited);
+                if (idx >= 0)
+                    _supeyRoster[idx] = edited;
+                SupeyDriverRosterStore.Save(_supeyRoster);
+                rebuildLists?.Invoke();
+            }
+
+            string summary = "Local roster: saved.\r\n"
+                + (serverOk ? "AI server: synced." : "AI server: failed (start the panel at http://127.0.0.1:8787/).");
+            if (pushWellRyde)
+                summary += "\r\nWellRyde: " + (wrOk ? "updated." : ("FAILED — " + wrLine));
+            else
+                summary += "\r\nWellRyde: skipped (new driver — link via Pull from WellRyde first).";
+
+            SetDriverWellRydePushStatus(summary.Replace("\r\n", " · "));
+            MessageBox.Show(this, summary, "Driver saved",
+                MessageBoxButtons.OK,
+                disk.Ok && serverOk && (!pushWellRyde || wrOk)
+                    ? MessageBoxIcon.Information
+                    : MessageBoxIcon.Warning);
         }
 
         private void SaveSupeyRosterToDisk(bool showOk)
@@ -1805,8 +1953,13 @@ namespace Hiatme_Tool_Suite_v3
             var saved = SupeyDriverRosterStore.Save(_supeyRoster);
             if (saved.Ok)
             {
+                PersistSupeyDriverEmailsSafely();
                 _supeyRosterLastSaved = saved.SavedAtLocal;
-                _supeyRosterFooter.Text = _supeyRoster.Count + " drivers · saved " + saved.SavedAtLocal.ToString("HH:mm");
+                if (_supeyRosterFooter != null && _supeyRoster != null)
+                {
+                    _supeyRosterFooter.Text = _supeyRoster.Count + " drivers · saved "
+                        + saved.SavedAtLocal.ToString("HH:mm");
+                }
                 if (showOk) SetSupeyStatus("Roster saved.");
             }
             else
@@ -1828,7 +1981,7 @@ namespace Hiatme_Tool_Suite_v3
                 foreach (var d in _supeyRoster)
                 {
                     string shift = (d.ShiftStart ?? "—") + "-" + (d.ShiftEnd ?? "—");
-                    var item = new ListViewItem(new[] { "", d.Name ?? "", d.CapacityPassengers.ToString(), shift, "" })
+                    var item = new ListViewItem(new[] { "", d.Name ?? "", (d.Email ?? "").Trim(), d.CapacityPassengers.ToString(), shift, "" })
                     {
                         Tag = d,
                         Checked = true,
@@ -1844,8 +1997,11 @@ namespace Hiatme_Tool_Suite_v3
             // Auto-fit each column to the widest header / cell after binding so long driver names
             // and shift strings aren't clipped. Same pattern used by every other listview on Form1.
             ListViewMinWidthEnforcer.Recompute(_supeyDriversLv);
-            _supeyRosterFooter.Text = _supeyRoster.Count + " drivers" +
-                (_supeyRosterLastSaved == DateTime.MinValue ? "" : " · saved " + _supeyRosterLastSaved.ToString("HH:mm"));
+            if (_supeyRosterFooter != null && _supeyRoster != null)
+            {
+                _supeyRosterFooter.Text = _supeyRoster.Count + " drivers" +
+                    (_supeyRosterLastSaved == DateTime.MinValue ? "" : " · saved " + _supeyRosterLastSaved.ToString("HH:mm"));
+            }
             if (_supeyDriversEmptyHint != null)
                 _supeyDriversEmptyHint.Visible = _supeyRoster.Count == 0;
             UpdateSupeyButtonStates();
@@ -1898,12 +2054,20 @@ namespace Hiatme_Tool_Suite_v3
             using (var ed = new SupeyDriverEditorForm(existing))
             {
                 if (ed.ShowDialog(this) != DialogResult.OK || ed.Result == null) return;
-                int idx = _supeyRoster.IndexOf(existing);
-                if (idx >= 0) _supeyRoster[idx] = ed.Result;
-                RebuildSupeyDriversList();
-                SaveSupeyRosterToDisk(showOk: false);
-                if (ed.SaveToWellRyde)
-                    _ = PushSupeyDriverToWellRydeAsync(ed.Result);
+                await CommitDriverEditAsync(
+                    existing,
+                    ed.Result,
+                    ed.SaveToWellRyde,
+                    RebuildSupeyDriversList).ConfigureAwait(true);
+            }
+        }
+
+        private void SetDriverWellRydePushStatus(string message)
+        {
+            if (!string.IsNullOrWhiteSpace(message))
+            {
+                SetSupeyStatus(message);
+                SetScheduleBuilderStatus(message);
             }
         }
 
@@ -1924,19 +2088,25 @@ namespace Hiatme_Tool_Suite_v3
             return await FetchWellRydeDetailIntoProfileAsync(profile, cancellationToken).ConfigureAwait(true);
         }
 
-        private async Task PushSupeyDriverToWellRydeAsync(SupeyDriverProfile profile)
+        private async Task<WellRydeUserProfileSync.PushResult> PushSupeyDriverToWellRydeCoreAsync(
+            SupeyDriverProfile profile)
         {
-            if (profile == null) return;
+            if (profile == null)
+                return new WellRydeUserProfileSync.PushResult { Ok = false, Message = "No driver profile." };
+
             try
             {
-                SetSupeyStatus("Saving driver home to WellRyde…");
-                WellRydePortalLog.Info("SUPEY", "PushHomeAddress start driver=" + (profile.Name ?? ""));
+                SetDriverWellRydePushStatus("Saving driver to WellRyde…");
+                WellRydePortalLog.Info("SUPEY", "PushProfile start driver=" + (profile.Name ?? "")
+                    + " email=" + (profile.Email ?? ""));
                 if (!await EnsureWellRydePortalSessionForSupeyAsync().ConfigureAwait(true)
                     || _wellRydeSession == null)
                 {
-                    SetSupeyStatus(
-                        "Roster saved on this PC — WellRyde not updated (sign-in cancelled or failed).");
-                    return;
+                    return new WellRydeUserProfileSync.PushResult
+                    {
+                        Ok = false,
+                        Message = "Sign-in cancelled or failed.",
+                    };
                 }
 
                 var push = await WellRydeUserProfileSync.PushHomeAddressAsync(_wellRydeSession, profile)
@@ -1944,7 +2114,7 @@ namespace Hiatme_Tool_Suite_v3
                 if (!push.Ok && SupeyWellRydePushLooksLikeSessionFailure(push.Message))
                 {
                     InvalidateWellRydePortalSession();
-                    SetSupeyStatus("WellRyde session expired — signing in again…");
+                    SetDriverWellRydePushStatus("WellRyde session expired — signing in again…");
                     if (await EnsureWellRydePortalSessionForSupeyAsync().ConfigureAwait(true)
                         && _wellRydeSession != null)
                     {
@@ -1952,34 +2122,37 @@ namespace Hiatme_Tool_Suite_v3
                             .ConfigureAwait(true);
                     }
                 }
-                if (push.Ok)
-                {
-                    int idx = _supeyRoster.FindIndex(d =>
-                        d != null && string.Equals(d.Name, profile.Name, StringComparison.OrdinalIgnoreCase));
-                    if (idx >= 0)
-                        _supeyRoster[idx] = profile;
-                    SaveSupeyRosterToDisk(showOk: false);
-                    RebuildSupeyDriversList();
-                    SetSupeyStatus(push.Message);
-                }
-                else
-                {
-                    SetSupeyStatus(
-                        "Roster saved here — WellRyde update failed: " + (push.Message ?? "unknown error"));
-                    WellRydePortalLog.ShowError(this,
-                        "Supey — WellRyde",
-                        "Your edit was saved in the local Supey roster on this PC, but WellRyde rejected the update:\r\n\r\n"
-                        + (push.Message ?? "Unknown error"));
-                }
+
+                return push;
             }
             catch (Exception ex)
             {
-                WellRydePortalLog.Error("SUPEY", "PushHomeAddress exception", ex);
-                SetSupeyStatus("WellRyde save error: " + ex.Message);
-                WellRydePortalLog.ShowError(this,
-                    "Supey — WellRyde",
-                    "WellRyde save failed:\r\n\r\n" + ex.Message,
-                    MessageBoxIcon.Warning);
+                WellRydePortalLog.Error("SUPEY", "PushProfile exception", ex);
+                return new WellRydeUserProfileSync.PushResult
+                {
+                    Ok = false,
+                    Message = ex.Message,
+                };
+            }
+        }
+
+        private async Task PushSupeyDriverToWellRydeAsync(SupeyDriverProfile profile)
+        {
+            var push = await PushSupeyDriverToWellRydeCoreAsync(profile).ConfigureAwait(true);
+            if (push.Ok)
+            {
+                int idx = IndexOfSupeyDriver(profile);
+                if (idx >= 0)
+                    _supeyRoster[idx] = profile;
+                SaveSupeyRosterToDisk(showOk: false);
+                RebuildSupeyDriversList();
+                if (_fsDriversLv != null)
+                    RebuildFsDriversList();
+                SetDriverWellRydePushStatus(push.Message);
+            }
+            else
+            {
+                SetDriverWellRydePushStatus(push.Message ?? "WellRyde update failed.");
             }
         }
 

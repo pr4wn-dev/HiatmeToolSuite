@@ -1392,6 +1392,10 @@ namespace Hiatme_Tool_Suite_v3
                     if (hiatmeLoginHandler?.Connected == true) { DisableHiatmeLogin(); }
                     else { EnableHiatmeLogin(); }
                     break;
+                case "Gmail":
+                    LoadGmailCredentials();
+                    EnableGmailLogin();
+                    break;
             }
         }
         private async void loginBtn_Click(object sender, EventArgs e)
@@ -1446,6 +1450,10 @@ namespace Hiatme_Tool_Suite_v3
                     }
                     break;
                 case 2:
+                    hidegiftimer.Start();
+                    break;
+                case 3:
+                    await GmailLoginTestAsync();
                     hidegiftimer.Start();
                     break;
             }
@@ -1866,10 +1874,10 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             var dr = MessageBox.Show(this,
-                "Saving this driver's home to WellRyde requires a portal sign-in "
-                + "(so every dispatcher sees the same address on Pull from WellRyde).\r\n\r\n"
+                "Saving this driver's profile to WellRyde requires a portal sign-in "
+                + "(home address and email sync for other dispatchers).\r\n\r\n"
                 + "Sign in to WellRyde now?",
-                "Supey — WellRyde sign-in",
+                "WellRyde sign-in",
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Question,
                 MessageBoxDefaultButton.Button1);
@@ -1960,6 +1968,108 @@ namespace Hiatme_Tool_Suite_v3
             loginSwitch.Enabled = false;
             loginBtn.Text = "Logout";
             loginCB.SelectedIndex = 2;
+        }
+
+        private void LoadGmailCredentials()
+        {
+            if (!string.IsNullOrWhiteSpace(Properties.Settings.Default.gmailUserName))
+            {
+                loginCodeTB.Text = "Not Applicable";
+                loginUserTB.Text = Properties.Settings.Default.gmailUserName;
+                loginPassTB.Text = Properties.Settings.Default.gmailUserPass ?? string.Empty;
+                loginSwitch.Checked = true;
+            }
+            else
+            {
+                loginCodeTB.Text = "Not Applicable";
+                loginUserTB.Text = string.Empty;
+                loginPassTB.Text = string.Empty;
+                loginSwitch.Checked = false;
+            }
+        }
+
+        private void EnableGmailLogin()
+        {
+            SetWrPbLightImage(0);
+            loginCodeTB.Enabled = false;
+            loginUserTB.Enabled = true;
+            loginPassTB.Enabled = true;
+            loginSwitch.Enabled = true;
+            loginBtn.Text = "Test login";
+            loginCB.SelectedIndex = 3;
+            loginCB.Focus();
+        }
+
+        private void DisableGmailLogin()
+        {
+            SetWrPbLightImage(1);
+            loginCodeTB.Enabled = false;
+            loginUserTB.Enabled = true;
+            loginPassTB.Enabled = true;
+            loginSwitch.Enabled = true;
+            loginBtn.Text = "Test login";
+            loginCB.SelectedIndex = 3;
+        }
+
+        private async Task GmailLoginTestAsync()
+        {
+            loginCB.SelectedIndex = 3;
+            string address = (loginUserTB.Text ?? string.Empty).Trim();
+            string password = loginPassTB.Text ?? string.Empty;
+
+            if (string.IsNullOrEmpty(address) || string.IsNullOrEmpty(password))
+            {
+                MessageBox.Show("Enter your Gmail address and password (or App Password).");
+                return;
+            }
+
+            await SetLoadingGifLabel("Gmail: testing SMTP login…");
+            try
+            {
+                await ScheduleBuilderGmailMailer.TestConnectionAsync(address, password).ConfigureAwait(true);
+                GmailSaveCredentials(address, password);
+                DisableGmailLogin();
+                MessageBox.Show(
+                    "Gmail credentials verified. A test message was sent to your inbox.",
+                    "Gmail",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    "Gmail login failed.\r\n\r\n"
+                    + ex.Message
+                    + "\r\n\r\nIf you use 2-step verification, create a Google App Password "
+                    + "(Google Account → Security → App passwords) and use that here instead of your normal password.",
+                    "Gmail",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+                EnableGmailLogin();
+            }
+        }
+
+        private void GmailSaveCredentials(string user, string pass)
+        {
+            try
+            {
+                if (loginSwitch.Checked == false)
+                {
+                    Properties.Settings.Default.gmailUserName = string.Empty;
+                    Properties.Settings.Default.gmailUserPass = string.Empty;
+                }
+                else
+                {
+                    Properties.Settings.Default.gmailUserName = user ?? string.Empty;
+                    Properties.Settings.Default.gmailUserPass = pass ?? string.Empty;
+                }
+
+                Properties.Settings.Default.Save();
+            }
+            catch
+            {
+                // Settings may be unavailable in odd scenarios.
+            }
         }
 
         //Modivcare Login Functions, Handlers etc

@@ -44,7 +44,8 @@ namespace Hiatme_Tool_Suite_v3
         {
             return string.IsNullOrWhiteSpace(settings.wrUserName)
                 && string.IsNullOrWhiteSpace(settings.mcUserName)
-                && string.IsNullOrWhiteSpace(settings.hiatmeUserName);
+                && string.IsNullOrWhiteSpace(settings.hiatmeUserName)
+                && string.IsNullOrWhiteSpace(settings.gmailUserName);
         }
 
         /// <summary>
@@ -72,19 +73,23 @@ namespace Hiatme_Tool_Suite_v3
                     continue;
 
                 if (!TryReadCredentials(userConfig, out string wrCode, out string wrUser, out string wrPass,
-                        out string mcUser, out string mcPass, out string hmUser, out string hmPass))
+                        out string mcUser, out string mcPass, out string hmUser, out string hmPass,
+                        out string gmUser, out string gmPass))
                     continue;
 
-                if (string.IsNullOrWhiteSpace(wrUser) && string.IsNullOrWhiteSpace(mcUser) && string.IsNullOrWhiteSpace(hmUser))
+                if (string.IsNullOrWhiteSpace(wrUser) && string.IsNullOrWhiteSpace(mcUser)
+                    && string.IsNullOrWhiteSpace(hmUser) && string.IsNullOrWhiteSpace(gmUser))
                     continue;
 
-                settings.wrCompanyCode = wrCode ?? "";
-                settings.wrUserName = wrUser ?? "";
-                settings.wrUserPass = wrPass ?? "";
-                settings.mcUserName = mcUser ?? "";
-                settings.mcUserPass = mcPass ?? "";
-                settings.hiatmeUserName = hmUser ?? "";
-                settings.hiatmeUserPass = hmPass ?? "";
+                settings.wrCompanyCode = wrCode ?? string.Empty;
+                settings.wrUserName = wrUser ?? string.Empty;
+                settings.wrUserPass = wrPass ?? string.Empty;
+                settings.mcUserName = mcUser ?? string.Empty;
+                settings.mcUserPass = mcPass ?? string.Empty;
+                settings.hiatmeUserName = hmUser ?? string.Empty;
+                settings.hiatmeUserPass = hmPass ?? string.Empty;
+                settings.gmailUserName = gmUser ?? string.Empty;
+                settings.gmailUserPass = gmPass ?? string.Empty;
                 return;
             }
         }
@@ -92,9 +97,10 @@ namespace Hiatme_Tool_Suite_v3
         private static bool TryReadCredentials(string userConfigPath,
             out string wrCode, out string wrUser, out string wrPass,
             out string mcUser, out string mcPass,
-            out string hmUser, out string hmPass)
+            out string hmUser, out string hmPass,
+            out string gmUser, out string gmPass)
         {
-            wrCode = wrUser = wrPass = mcUser = mcPass = hmUser = hmPass = "";
+            wrCode = wrUser = wrPass = mcUser = mcPass = hmUser = hmPass = gmUser = gmPass = string.Empty;
 
             try
             {
@@ -110,6 +116,8 @@ namespace Hiatme_Tool_Suite_v3
                 mcPass = ReadSetting(settingsNode, "mcUserPass");
                 hmUser = ReadSetting(settingsNode, "hiatmeUserName");
                 hmPass = ReadSetting(settingsNode, "hiatmeUserPass");
+                gmUser = ReadSetting(settingsNode, "gmailUserName");
+                gmPass = ReadSetting(settingsNode, "gmailUserPass");
                 return true;
             }
             catch
@@ -122,7 +130,7 @@ namespace Hiatme_Tool_Suite_v3
         {
             return settingsNode.Elements("setting")
                 .FirstOrDefault(e => string.Equals((string)e.Attribute("name"), name, StringComparison.Ordinal))
-                ?.Element("value")?.Value ?? "";
+                ?.Element("value")?.Value ?? string.Empty;
         }
     }
 }

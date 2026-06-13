@@ -64,6 +64,8 @@ namespace Hiatme_Tool_Suite_v3
 
         private SupeyButton _fsSaveBtn;
 
+        private string _fsPreferredSavePath;
+
         private bool _fsHasPreview;
 
         private bool _fsPreviewUiReady;
@@ -158,6 +160,11 @@ namespace Hiatme_Tool_Suite_v3
 
             SetScheduleBuilderStatus("Ready. Pick a service date and click BUILD.");
 
+            BeginInvoke(new Action(async () =>
+            {
+                try { await SyncFsDriverEmailsAsync(reportOffline: false).ConfigureAwait(true); }
+                catch { /* offline */ }
+            }));
         }
 
 
@@ -351,7 +358,7 @@ namespace Hiatme_Tool_Suite_v3
             _fsSaveBtn.Click += fsSaveBtn_Click;
 
             saveTip.SetToolTip(_fsSaveBtn,
-                "Export Excel workbook, or a folder of driver CSVs if Excel is not installed. Does not require the office AI server.");
+                "Save the workbook using the service date (no file dialog). Overwrites the loaded .xlsx, or saves to Desktop\\Schedule for {year}\\.");
 
             saveTip.SetToolTip(_fsLoadBtn,
                 "Open a saved .xlsx workbook or driver .csv (Excel not required). Date is read from the file name or trip dates and sets the date picker.");
@@ -601,6 +608,8 @@ namespace Hiatme_Tool_Suite_v3
             _fsDriverTabStrip.Controls.Add(_fsDriverTabFlow);
 
             _fsDriverTabStrip.Controls.Add(tabDivider);
+
+            WireFsEmailSchedulesButton(_fsDriverTabStrip);
 
             SupeyDarkScrollBars.Apply(_fsDriverTabStrip);
 
@@ -1269,7 +1278,7 @@ namespace Hiatme_Tool_Suite_v3
 
                 _fsHasPreview = false;
 
-                if (_fsSaveBtn != null) _fsSaveBtn.Enabled = false;
+                SetFsPreviewExportButtonsEnabled(false);
 
                 if (fsbdatepicker != null) fsbdatepicker.Enabled = false;
 
@@ -1288,14 +1297,14 @@ namespace Hiatme_Tool_Suite_v3
                     ScheduleBuilderLoadResult load;
 
                     if (ext == ".xlsx" || ext == ".xls")
-
-                        load = await ScheduleBuilderScheduleLoad.LoadFromWorkbookAsync(path)
-
-                            .ConfigureAwait(true);
-
-                    else if (ext == ".csv")
-
                     {
+                        _fsPreferredSavePath = path;
+                        load = await ScheduleBuilderScheduleLoad.LoadFromWorkbookAsync(path)
+                            .ConfigureAwait(true);
+                    }
+                    else if (ext == ".csv")
+                    {
+                        _fsPreferredSavePath = null;
 
                         string folder = Path.GetDirectoryName(path);
 
@@ -1393,7 +1402,7 @@ namespace Hiatme_Tool_Suite_v3
 
                     _fsHasPreview = true;
 
-                    if (_fsSaveBtn != null) _fsSaveBtn.Enabled = true;
+                    SetFsPreviewExportButtonsEnabled(true);
 
 
 
@@ -1527,16 +1536,15 @@ namespace Hiatme_Tool_Suite_v3
             SetScheduleBuilderStatus("Checking connections…");
 
             _fsHasPreview = false;
+            _fsPreferredSavePath = null;
 
-            if (_fsSaveBtn != null) _fsSaveBtn.Enabled = false;
+            SetFsPreviewExportButtonsEnabled(false);
 
             if (fsbdatepicker != null) fsbdatepicker.Enabled = false;
 
             if (_fsBuildBtn != null) _fsBuildBtn.Enabled = false;
 
             if (_fsLoadBtn != null) _fsLoadBtn.Enabled = false;
-
-            if (_fsSaveBtn != null) _fsSaveBtn.Enabled = false;
 
 
 
@@ -1603,7 +1611,7 @@ namespace Hiatme_Tool_Suite_v3
 
                 _fsHasPreview = true;
 
-                if (_fsSaveBtn != null) _fsSaveBtn.Enabled = true;
+                SetFsPreviewExportButtonsEnabled(true);
 
                 int rer = fsbuilder.PreviewReservesReroute?.Count ?? 0;
 
@@ -2443,7 +2451,7 @@ namespace Hiatme_Tool_Suite_v3
 
             if (_fsLoadBtn != null) _fsLoadBtn.Enabled = false;
 
-            if (_fsSaveBtn != null) _fsSaveBtn.Enabled = false;
+            SetFsPreviewExportButtonsEnabled(false);
 
 
 
@@ -2453,15 +2461,22 @@ namespace Hiatme_Tool_Suite_v3
 
                 SetScheduleBuilderStatus("Preparing export…");
 
+                if (fsbdatepicker != null)
+                    fsbuilder.ApplyServiceDate(fsbdatepicker.Value);
+
+                fsbuilder.PreferredExportPath = _fsPreferredSavePath;
+
                 SyncFsPreviewCsvsForExport();
 
-                await fsbuilder.CreateWorkbookAsync().ConfigureAwait(true);
+                await fsbuilder.CreateWorkbookAsync(promptForLocation: false).ConfigureAwait(true);
 
 
 
                 if (!string.IsNullOrEmpty(fsbuilder.LastExportPath))
 
                 {
+
+                    _fsPreferredSavePath = fsbuilder.LastExportPath;
 
                     SetScheduleBuilderStatus(fsbuilder.LastExportWasCsv
 
@@ -2473,7 +2488,7 @@ namespace Hiatme_Tool_Suite_v3
 
                 else
 
-                    SetScheduleBuilderStatus("Save cancelled.");
+                    SetScheduleBuilderStatus("Save failed.");
 
             }
 
@@ -2521,9 +2536,8 @@ namespace Hiatme_Tool_Suite_v3
 
                 EnableScheduleBuilderInputs(true);
 
-                if (_fsHasPreview && _fsSaveBtn != null)
-
-                    _fsSaveBtn.Enabled = true;
+                if (_fsHasPreview)
+                    SetFsPreviewExportButtonsEnabled(true);
 
             }
 

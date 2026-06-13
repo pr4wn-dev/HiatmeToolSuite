@@ -382,9 +382,10 @@
             this.loginCB.Items.AddRange(new object[] {
             "Wellryde",
             "Modivcare",
-            "Hiatme"});
+            "Hiatme",
+            "Gmail"});
             this.loginCB.Location = new System.Drawing.Point(8, 9);
-            this.loginCB.MaxDropDownItems = 4;
+            this.loginCB.MaxDropDownItems = 5;
             this.loginCB.MouseState = MaterialSkin.MouseState.OUT;
             this.loginCB.Name = "loginCB";
             this.loginCB.Size = new System.Drawing.Size(286, 58);

@@ -34,7 +34,9 @@ namespace Hiatme_Tool_Suite_v3
             this._vehicleLabel = new System.Windows.Forms.Label();
             this._shiftStartLabel = new System.Windows.Forms.Label();
             this._shiftEndLabel = new System.Windows.Forms.Label();
+            this._emailLabel = new System.Windows.Forms.Label();
             this._nameTb = new MaterialSkin.Controls.MaterialTextBox2();
+            this._emailTb = new MaterialSkin.Controls.MaterialTextBox2();
             this._streetTb = new MaterialSkin.Controls.MaterialTextBox2();
             this._cityTb = new MaterialSkin.Controls.MaterialTextBox2();
             this._stateTb = new MaterialSkin.Controls.MaterialTextBox2();
@@ -58,6 +60,10 @@ namespace Hiatme_Tool_Suite_v3
             y += 22;
 
             y = LayoutFieldRow(this._nameLabel, "Driver name", this._nameTb, "Driver name",
+                padX, y, contentW, labelH, labelToField, fieldH);
+            y += rowGap;
+
+            y = LayoutFieldRow(this._emailLabel, "Email", this._emailTb, "driver@example.com",
                 padX, y, contentW, labelH, labelToField, fieldH);
             y += rowGap;
 
@@ -110,6 +116,8 @@ namespace Hiatme_Tool_Suite_v3
             this.Controls.Add(this._portalSectionLabel);
             this.Controls.Add(this._nameLabel);
             this.Controls.Add(this._nameTb);
+            this.Controls.Add(this._emailLabel);
+            this.Controls.Add(this._emailTb);
             this.Controls.Add(this._streetLabel);
             this.Controls.Add(this._streetTb);
             this.Controls.Add(this._cityLabel);
@@ -265,6 +273,8 @@ namespace Hiatme_Tool_Suite_v3
         private MaterialSkin.Controls.MaterialTextBox2 _vehicleTb;
         private MaterialSkin.Controls.MaterialTextBox2 _shiftStartTb;
         private MaterialSkin.Controls.MaterialTextBox2 _shiftEndTb;
+        private System.Windows.Forms.Label _emailLabel;
+        private MaterialSkin.Controls.MaterialTextBox2 _emailTb;
         private MaterialSkin.Controls.MaterialButton _cancelButton;
         private Hiatme_Tool_Suite_v3.DarkOnAccentMaterialButton _okButton;
     }

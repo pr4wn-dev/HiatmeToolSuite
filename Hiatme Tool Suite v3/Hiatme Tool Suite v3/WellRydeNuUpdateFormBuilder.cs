@@ -6,7 +6,7 @@ namespace Hiatme_Tool_Suite_v3
 {
     /// <summary>
     /// Builds multipart fields for POST <c>/portal/users/nuUpdateUser</c> from the portal
-    /// <c>GET /portal/users/{secId}?form</c> JSON plus Supey home-address overrides.
+    /// <c>GET /portal/users/{secId}?form</c> JSON plus Supey home-address and email overrides.
     /// </summary>
     internal static class WellRydeNuUpdateFormBuilder
     {
@@ -106,16 +106,44 @@ namespace Hiatme_Tool_Suite_v3
                 fields["userId"] = (profile.WellRydeSecId ?? "").Trim();
 
             fields["_csrf"] = (csrfToken ?? "").Trim();
-            fields["address1"] = (profile.HomeStreet ?? "").Trim();
-            fields["city"] = (profile.HomeCity ?? "").Trim();
-            fields["state"] = NormalizeState(profile.HomeState);
-            fields["zip"] = (profile.HomeZip ?? "").Trim();
-            if (!fields.ContainsKey("country") || string.IsNullOrWhiteSpace(fields["country"]))
-                fields["country"] = "US";
 
-            fields["updatedFields"] = AppendUpdatedFields(
-                fields.TryGetValue("updatedFields", out var prev) ? prev : "",
-                "Address1", "City", "State", "Zip");
+            string updatedFields = fields.TryGetValue("updatedFields", out var prevUpdated)
+                ? prevUpdated
+                : "";
+
+            bool hasHome = !string.IsNullOrWhiteSpace(profile.HomeStreet)
+                || !string.IsNullOrWhiteSpace(profile.HomeCity);
+            if (hasHome)
+            {
+                string street = (profile.HomeStreet ?? "").Trim();
+                string city = (profile.HomeCity ?? "").Trim();
+                string state = NormalizeState(profile.HomeState);
+                string zip = (profile.HomeZip ?? "").Trim();
+                fields["address1"] = street;
+                fields["city"] = city;
+                fields["state"] = state;
+                fields["zip"] = zip;
+                fields["orgAddress1"] = street;
+                fields["orgCity"] = city;
+                fields["orgState"] = state;
+                fields["orgZip"] = zip;
+                if (!fields.ContainsKey("country") || string.IsNullOrWhiteSpace(fields["country"]))
+                    fields["country"] = "US";
+                if (fields.TryGetValue("country", out var country) && !string.IsNullOrWhiteSpace(country))
+                    fields["orgCountry"] = country;
+                updatedFields = AppendUpdatedFields(updatedFields, "Address1", "City", "State", "Zip");
+            }
+
+            string email = (profile.Email ?? "").Trim();
+            if (email.Length > 0)
+            {
+                fields["email"] = email;
+                fields["orgEmail"] = email;
+                updatedFields = AppendUpdatedFields(updatedFields, "Email");
+            }
+
+            if (!string.IsNullOrWhiteSpace(updatedFields))
+                fields["updatedFields"] = updatedFields;
 
             if (fields.TryGetValue("enabled", out var en))
             {

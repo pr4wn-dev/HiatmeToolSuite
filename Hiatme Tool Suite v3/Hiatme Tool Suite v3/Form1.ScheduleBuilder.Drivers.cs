@@ -25,11 +25,58 @@ namespace Hiatme_Tool_Suite_v3
         private void EnsureFsDriverRosterLoaded()
         {
             if (_fsDriverRosterLoaded) return;
-            string warning;
-            _supeyRoster = SupeyDriverRosterStore.Load(out warning);
+            if (!_supeyRosterLoadedFromDisk)
+            {
+                string warning;
+                _supeyRoster = SupeyDriverRosterStore.Load(out warning);
+                _supeyRosterLoadedFromDisk = true;
+                ScheduleBuilderDriverEmailsRegistry.ApplyLocalRegistryToRoster(_supeyRoster);
+                if (!string.IsNullOrEmpty(warning))
+                    SetScheduleBuilderStatus(warning);
+            }
+            else
+            {
+                ScheduleBuilderDriverEmailsRegistry.ApplyLocalRegistryToRoster(_supeyRoster);
+            }
+
             _fsDriverRosterLoaded = true;
-            if (!string.IsNullOrEmpty(warning))
-                SetScheduleBuilderStatus(warning);
+        }
+
+        private async Task SyncFsDriverEmailsAsync(bool reportOffline = false)
+        {
+            EnsureFsDriverRosterLoaded();
+            var settings = HiatmeAiSettings.Load();
+            var result = await ScheduleBuilderDriverEmailsRegistry.SyncWithServerAsync(
+                settings,
+                _supeyRoster,
+                Environment.UserName).ConfigureAwait(true);
+
+            if (result.RosterChanged)
+            {
+                SupeyDriverRosterStore.Save(_supeyRoster);
+                RebuildFsDriversList();
+                if (_supeyDriversLv != null)
+                    RebuildSupeyDriversList();
+            }
+
+            if (reportOffline && result.ServerUsed && result.ServerUnreachable)
+                SetScheduleBuilderStatus("Driver emails — using local copy (server unavailable).");
+        }
+
+        private void PersistFsDriverEmailsLocally()
+        {
+            try
+            {
+                EnsureFsDriverRosterLoaded();
+                if (_supeyRoster == null || _supeyRoster.Count == 0)
+                    return;
+                ScheduleBuilderDriverEmailsRegistry.UpdateLocalFromRoster(_supeyRoster, Environment.UserName);
+                ScheduleBuilderDriverEmailsRegistry.TryPushToServerFireAndForget(null, Environment.UserName);
+            }
+            catch
+            {
+                /* best-effort — roster JSON already saved */
+            }
         }
 
         private void BuildFsDriversPanel(Panel host)
@@ -132,7 +179,8 @@ namespace Hiatme_Tool_Suite_v3
             _fsDriversLv.Columns.AddRange(new[]
             {
                 new ColumnHeader { Text = "Driver", Width = 120 },
-                new ColumnHeader { Text = "Home", Width = 140 },
+                new ColumnHeader { Text = "Email", Width = 160 },
+                new ColumnHeader { Text = "Home", Width = 120 },
                 new ColumnHeader { Text = "Cap", Width = 40 },
                 new ColumnHeader { Text = "Shift", Width = 90 },
             });
@@ -177,8 +225,9 @@ namespace Hiatme_Tool_Suite_v3
             {
                 if (d == null) continue;
                 string home = ShortHomeLabel(d);
+                string email = (d.Email ?? "").Trim();
                 string shift = (d.ShiftStart ?? "—") + "-" + (d.ShiftEnd ?? "—");
-                var item = new ListViewItem(new[] { d.Name ?? "", home, d.CapacityPassengers.ToString(), shift })
+                var item = new ListViewItem(new[] { d.Name ?? "", email, home, d.CapacityPassengers.ToString(), shift })
                 {
                     Tag = d,
                 };
@@ -223,6 +272,7 @@ namespace Hiatme_Tool_Suite_v3
             var saved = SupeyDriverRosterStore.Save(_supeyRoster);
             if (saved.Ok)
             {
+                PersistFsDriverEmailsLocally();
                 _supeyRosterLastSaved = saved.SavedAtLocal;
                 RebuildFsDriversList();
                 if (_supeyDriversLv != null)
@@ -527,14 +577,16 @@ namespace Hiatme_Tool_Suite_v3
             using (var ed = new SupeyDriverEditorForm(existing))
             {
                 if (ed.ShowDialog(this) != DialogResult.OK || ed.Result == null) return;
-                int idx = _supeyRoster.IndexOf(existing);
-                if (idx >= 0) _supeyRoster[idx] = ed.Result;
-                RebuildFsDriversList();
-                if (_supeyDriversLv != null) RebuildSupeyDriversList();
-                SaveFsDriverRosterToDisk(showOk: false);
-
-                if (ed.SaveToWellRyde && !string.IsNullOrWhiteSpace(ed.Result.WellRydeSecId))
-                    _ = PushSupeyDriverToWellRydeAsync(ed.Result);
+                await CommitDriverEditAsync(
+                    existing,
+                    ed.Result,
+                    ed.SaveToWellRyde,
+                    () =>
+                    {
+                        RebuildFsDriversList();
+                        if (_supeyDriversLv != null)
+                            RebuildSupeyDriversList();
+                    }).ConfigureAwait(true);
             }
 
             RefreshFsMapIfDriverTabActive();

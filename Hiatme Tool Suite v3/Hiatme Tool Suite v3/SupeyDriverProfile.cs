@@ -44,6 +44,9 @@ namespace Hiatme_Tool_Suite_v3
         /// </summary>
         public string WellRydeUsername { get; set; } = "";
 
+        /// <summary>Email for schedule mailer (from WellRyde pull or manual entry).</summary>
+        public string Email { get; set; } = "";
+
         /// <summary>
         /// UTC timestamp of the last successful pull from WellRyde for this driver. Used to show
         /// "synced X minutes ago" in the editor and to gate the future push-back ("you edited

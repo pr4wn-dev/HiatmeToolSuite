@@ -5,7 +5,7 @@ using Newtonsoft.Json.Linq;
 
 namespace Hiatme_Tool_Suite_v3
 {
-    /// <summary>Pushes Supey driver home address to WellRyde (<c>POST /portal/users/nuUpdateUser</c>).</summary>
+    /// <summary>Pushes Supey driver home address and email to WellRyde (<c>POST /portal/users/nuUpdateUser</c>).</summary>
     internal static class WellRydeUserProfileSync
     {
         public sealed class PushResult
@@ -44,8 +44,9 @@ namespace Hiatme_Tool_Suite_v3
                 profile.WellRydeSecId = secId;
             }
 
-            if (string.IsNullOrWhiteSpace(profile.HomeStreet) && string.IsNullOrWhiteSpace(profile.HomeCity))
-                return Fail("Enter a home street or city before saving to WellRyde.");
+            if (string.IsNullOrWhiteSpace(profile.HomeStreet) && string.IsNullOrWhiteSpace(profile.HomeCity)
+                && string.IsNullOrWhiteSpace(profile.Email))
+                return Fail("Enter a home address or email before saving to WellRyde.");
 
             if (string.IsNullOrEmpty(session.GetAjaxCsrfToken()))
             {
@@ -102,11 +103,37 @@ namespace Hiatme_Tool_Suite_v3
                     + (string.IsNullOrWhiteSpace(detail) ? "" : " " + detail));
             }
 
+            string wantedEmail = (profile.Email ?? "").Trim();
+            if (wantedEmail.Length > 0)
+            {
+                var verifyHtml = await session.GetUserDetailHtmlAsync(secId, cancellationToken)
+                    .ConfigureAwait(false);
+                if (verifyHtml.IsSuccess)
+                {
+                    var verified = WellRydeUserParser.ParseUserDetail(secId, verifyHtml.HtmlBody);
+                    string onPortal = (verified.Email ?? "").Trim();
+                    if (!string.Equals(onPortal, wantedEmail, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return Fail(
+                            "WellRyde did not apply the email change (portal still shows "
+                            + (string.IsNullOrEmpty(onPortal) ? "empty" : onPortal) + ").");
+                    }
+                }
+            }
+
             profile.WellRydeSyncedAtUtc = DateTime.UtcNow;
+            bool hasHome = !string.IsNullOrWhiteSpace(profile.HomeStreet)
+                || !string.IsNullOrWhiteSpace(profile.HomeCity);
+            bool hasEmail = !string.IsNullOrWhiteSpace(profile.Email);
+            string saved = hasHome && hasEmail
+                ? "Home address and email saved to WellRyde for "
+                : hasEmail
+                    ? "Email saved to WellRyde for "
+                    : "Home address saved to WellRyde for ";
             return new PushResult
             {
                 Ok = true,
-                Message = "Home address saved to WellRyde for " + (profile.Name ?? "driver") + ".",
+                Message = saved + (profile.Name ?? "driver") + ".",
             };
         }
 

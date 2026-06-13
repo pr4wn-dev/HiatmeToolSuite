@@ -160,10 +160,12 @@
     <Compile Include="ScheduleBuilderLoadDateResolver.cs" />
     <Compile Include="ScheduleBuilderXlsxReader.cs" />
     <Compile Include="ScheduleBuilderXlsxWriter.cs" />
+    <Compile Include="ScheduleBuilderGmailMailer.cs" />
     <Compile Include="ScheduleBuilderPreviewGroups.cs" />
     <Compile Include="ScheduleBuilderGroupNotes.cs" />
     <Compile Include="ScheduleBuilderGroupColors.cs" />
     <Compile Include="ScheduleBuilderRerouteMeta.cs" />
+    <Compile Include="ScheduleBuilderDriverEmailsRegistry.cs" />
     <Compile Include="ScheduleBuilderReroutedTrips.cs" />
     <Compile Include="ScheduleBuilderReroutedTripsRegistry.cs" />
     <Compile Include="MCTripRerouter.cs" />
@@ -226,6 +228,10 @@
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="Form1.ScheduleBuilder.MapDisplay.cs">
+      <DependentUpon>Form1.cs</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Form1.ScheduleBuilder.Email.cs">
       <DependentUpon>Form1.cs</DependentUpon>
       <SubType>Form</SubType>
     </Compile>
