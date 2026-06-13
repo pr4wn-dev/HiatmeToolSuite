@@ -148,11 +148,13 @@ namespace Hiatme_Tool_Suite_v3
 
                 if (fsbuilder.PreviewDriverLines is Dictionary<string, List<ScheduleBuilderPreviewLine>> dict)
                 {
-                    foreach (var kv in dict)
+                    var driverTabs = new List<string>(dict.Keys);
+                    foreach (string driverTab in driverTabs)
                     {
-                        if (kv.Key.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
+                        if (driverTab.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
                             continue;
-                        FsCommitPreviewLinesForTab(kv.Key, kv.Value);
+                        if (dict.TryGetValue(driverTab, out var driverLines) && driverLines != null)
+                            FsCommitPreviewLinesForTab(driverTab, driverLines);
                     }
                 }
 
