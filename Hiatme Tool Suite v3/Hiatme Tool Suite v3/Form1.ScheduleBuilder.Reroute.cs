@@ -75,6 +75,7 @@ namespace Hiatme_Tool_Suite_v3
                 string displayTab = movedToReserves ? "Reserves" : tab;
 
                 ShowFsTripsForTab(displayTab);
+                _fsTripsLv?.Invalidate(true);
                 SelectFsTripInListView(trip);
                 SyncFsPreviewCsvsForExport();
                 _ = RefreshFsMapForCurrentTabAsync();
@@ -93,11 +94,26 @@ namespace Hiatme_Tool_Suite_v3
                     successMsg += "\n\nAlready in Reserves → Reroutes — marked red.";
                 }
 
+                MCDownloadedTrip tripForRegistry = trip;
+                if (_fsLinesByTab.TryGetValue(displayTab, out var registryLines)
+                    && registryLines != null)
+                {
+                    var line = ScheduleBuilderReroutedTrips.FindLine(registryLines, trip);
+                    if (line?.Trip != null)
+                        tripForRegistry = line.Trip;
+                }
+                else if (fsbuilder != null)
+                {
+                    var previewTrip = fsbuilder.FindTripInPreviewByNumber(trip.TripNumber);
+                    if (previewTrip != null)
+                        tripForRegistry = previewTrip;
+                }
+
                 var aiSettings = HiatmeAiSettings.Load();
                 var recordResult = await ScheduleBuilderReroutedTripsRegistry.RecordRerouteAsync(
                     aiSettings,
                     fsbdatepicker?.Value.Date ?? DateTime.Today,
-                    trip,
+                    tripForRegistry,
                     aiSettings.ResolvedClientId()).ConfigureAwait(true);
 
                 if (recordResult.LocalSaved && !recordResult.ServerSaved && HiatmeGeoSettings.UseServer)
@@ -158,6 +174,8 @@ namespace Hiatme_Tool_Suite_v3
             if (fsbuilder == null)
                 return;
 
+            _fsLinesByTab.TryGetValue("Reserves", out var priorReserves);
+
             if (FsNeedsMoveToReservesReroutes(trip, sourceTab, fsbuilder))
             {
                 fsbuilder.MoveTripToPreviewReservesReroute(trip);
@@ -180,7 +198,8 @@ namespace Hiatme_Tool_Suite_v3
                     banned: null,
                     fsbuilder.PreviewReservesWillCalls,
                     fsbuilder.WillCallsInDownloadCount);
-                marked = ScheduleBuilderReroutedTrips.MarkRerouted(reserveLines, trip);
+                ScheduleBuilderReroutedTrips.RestoreAndMarkRerouted(reserveLines, priorReserves, trip);
+                marked = ScheduleBuilderReroutedTrips.IsMarked(reserveLines, trip);
                 FsCommitPreviewLinesForTab("Reserves", reserveLines);
                 movedToReserves = true;
                 SelectFsDriverTab("Reserves");
@@ -190,6 +209,8 @@ namespace Hiatme_Tool_Suite_v3
             if (_fsLinesByTab.TryGetValue(sourceTab, out var lines) && lines != null)
             {
                 marked = ScheduleBuilderReroutedTrips.MarkRerouted(lines, trip);
+                if (!marked)
+                    marked = ScheduleBuilderReroutedTrips.MarkReroutedAnyTab(_fsLinesByTab, trip);
                 FsCommitPreviewLinesForTab(sourceTab, lines);
             }
         }

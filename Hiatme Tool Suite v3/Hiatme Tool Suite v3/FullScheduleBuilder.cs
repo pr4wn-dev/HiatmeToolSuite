@@ -401,6 +401,14 @@ namespace Hiatme_Tool_Suite_v3
             if (trip == null)
                 return false;
 
+            MCDownloadedTrip best = FindTripInPreviewByNumber(trip.TripNumber);
+            if (best != null)
+            {
+                if (!ReferenceEquals(best, trip))
+                    best.MergeMissingScheduleFieldsFrom(trip);
+                trip = best;
+            }
+
             var reservers = PreviewReserves ?? new List<MCDownloadedTrip>();
             var reroutes = PreviewReservesReroute ?? new List<MCDownloadedTrip>();
             var willCalls = PreviewReservesWillCalls ?? new List<MCDownloadedTrip>();
@@ -440,12 +448,12 @@ namespace Hiatme_Tool_Suite_v3
 
         internal bool TripExistsInPreview(string tripNumber)
         {
-            string tn = (tripNumber ?? "").Trim();
-            if (tn.Length == 0)
+            string key = ScheduleBuilderReroutedTrips.TripNumberKey(tripNumber);
+            if (key.Length == 0)
                 return false;
 
             bool Match(MCDownloadedTrip t) =>
-                string.Equals((t?.TripNumber ?? "").Trim(), tn, StringComparison.OrdinalIgnoreCase);
+                ScheduleBuilderReroutedTrips.TripNumberKeysMatch(t?.TripNumber, key);
 
             if (MCTripList?.Any(Match) == true)
                 return true;
@@ -479,6 +487,11 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (ghost == null || string.IsNullOrWhiteSpace(ghost.TripNumber))
                 return false;
+
+            MCDownloadedTrip richer = FindTripInPreviewByNumber(ghost.TripNumber);
+            if (richer != null)
+                ghost.MergeMissingScheduleFieldsFrom(richer);
+
             if (TripExistsInPreview(ghost.TripNumber))
                 return false;
 
@@ -488,6 +501,102 @@ namespace Hiatme_Tool_Suite_v3
             if (TripsFound != null)
                 TripsFound.Add(ghost);
             return true;
+        }
+
+        /// <summary>Move rerouted trips off driver tabs into Reserves → Reroutes (load / registry reconcile).</summary>
+        internal int ReconcileReroutedTripsForPreview(IEnumerable<string> reroutedTripNumbers)
+        {
+            if (reroutedTripNumbers == null)
+                return 0;
+
+            var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var raw in reroutedTripNumbers)
+                ScheduleBuilderReroutedTrips.AddTripNumberKey(keys, raw);
+            if (keys.Count == 0)
+                return 0;
+
+            int moved = 0;
+            foreach (string key in keys)
+            {
+                var trip = FindTripInPreviewByNumber(key);
+                if (trip == null)
+                    continue;
+                if (MoveTripToPreviewReservesReroute(trip))
+                    moved++;
+            }
+
+            return moved;
+        }
+
+        internal MCDownloadedTrip FindTripInPreviewByNumber(string tripNumber)
+        {
+            string key = ScheduleBuilderReroutedTrips.TripNumberKey(tripNumber);
+            if (key.Length == 0)
+                return null;
+
+            bool Match(MCDownloadedTrip t) =>
+                ScheduleBuilderReroutedTrips.TripNumberKeysMatch(t?.TripNumber, key);
+
+            MCDownloadedTrip best = null;
+
+            void Consider(MCDownloadedTrip candidate)
+            {
+                if (candidate == null || !Match(candidate))
+                    return;
+                if (best == null || TripHasRicherScheduleFields(candidate, best))
+                    best = candidate;
+            }
+
+            if (PreviewDriverLines != null)
+            {
+                foreach (var kv in PreviewDriverLines)
+                {
+                    foreach (var line in kv.Value ?? Enumerable.Empty<ScheduleBuilderPreviewLine>())
+                    {
+                        if (line?.Kind == ScheduleBuilderPreviewLine.LineKind.Trip)
+                            Consider(line.Trip);
+                    }
+                }
+            }
+
+            foreach (var list in new[] { MCTripList, TripsFound, PreviewReserves, PreviewReservesWillCalls })
+            {
+                if (list == null)
+                    continue;
+                foreach (var t in list)
+                    Consider(t);
+            }
+
+            foreach (var t in PreviewReservesReroute ?? Enumerable.Empty<MCDownloadedTrip>())
+                Consider(t);
+
+            return best;
+        }
+
+        private static bool TripHasRicherScheduleFields(MCDownloadedTrip candidate, MCDownloadedTrip current)
+        {
+            if (candidate == null)
+                return false;
+            if (current == null)
+                return true;
+
+            return ScheduleFieldScore(candidate) > ScheduleFieldScore(current);
+        }
+
+        private static int ScheduleFieldScore(MCDownloadedTrip trip)
+        {
+            if (trip == null)
+                return 0;
+
+            int score = 0;
+            if (!string.IsNullOrWhiteSpace(trip.PUTelephone)) score += 4;
+            if (!string.IsNullOrWhiteSpace(trip.DOTelephone)) score += 4;
+            if (!string.IsNullOrWhiteSpace(trip.PUStreet)) score++;
+            if (!string.IsNullOrWhiteSpace(trip.DOStreet)) score++;
+            if (!string.IsNullOrWhiteSpace(trip.PUTime)) score++;
+            if (!string.IsNullOrWhiteSpace(trip.DOTime)) score++;
+            if (!string.IsNullOrWhiteSpace(trip.ClientFullName)) score++;
+            return score;
         }
 
         /// <summary>Re-bucket Reserves lists after banned / no-go rules change (unban, remove town).</summary>

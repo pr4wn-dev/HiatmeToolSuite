@@ -57,7 +57,7 @@ namespace Hiatme_Tool_Suite_v3
 
             public int AddRow(string[] cells)
             {
-                int width = ColumnCount;
+                int width = WorkbookExportColumnCount;
                 if (cells != null && cells.Length > width)
                     width = cells.Length;
 
@@ -318,15 +318,16 @@ namespace Hiatme_Tool_Suite_v3
 
         private static string FormatCsvRow(IReadOnlyList<string> cells)
         {
-            var parts = new string[ColumnCount];
-            for (int i = 0; i < ColumnCount; i++)
+            int width = WorkbookExportColumnCount;
+            var parts = new string[width];
+            for (int i = 0; i < width; i++)
                 parts[i] = i < cells?.Count ? (cells[i] ?? "") : "";
-            return string.Format(
-                "\"{0}\",\"{1}\",\"{2}\",\"{3}\",\"{4}\",\"{5}\",\"{6}\",\"{7}\",\"{8}\",\"{9}\",\"{10}\",\"{11}\",\"{12}\",\"{13}\"",
-                Escape(parts[0]), Escape(parts[1]), Escape(parts[2]), Escape(parts[3]),
-                Escape(parts[4]), Escape(parts[5]), Escape(parts[6]), Escape(parts[7]),
-                Escape(parts[8]), Escape(parts[9]), Escape(parts[10]), Escape(parts[11]),
-                Escape(parts[12]), Escape(parts[13]));
+
+            var quoted = new string[width];
+            for (int i = 0; i < width; i++)
+                quoted[i] = "\"" + Escape(parts[i]) + "\"";
+
+            return string.Join(",", quoted);
         }
 
         private static string Escape(string value) => (value ?? "").Replace("\"", "\"\"");

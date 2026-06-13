@@ -480,11 +480,23 @@ namespace Hiatme_Tool_Suite_v3
             return -1;
         }
 
+        internal static string NormalizeTripNumberKey(string tripNumber)
+        {
+            string tn = (tripNumber ?? "").Trim();
+            if (tn.Length >= 2 && tn.StartsWith("1-", StringComparison.OrdinalIgnoreCase))
+                tn = tn.Substring(2).Trim();
+            return tn;
+        }
+
         internal static bool TripEquals(MCDownloadedTrip a, MCDownloadedTrip b)
         {
             if (a == null || b == null) return false;
             if (ReferenceEquals(a, b)) return true;
-            return string.Equals(a.TripNumber, b.TripNumber, StringComparison.OrdinalIgnoreCase);
+            string ka = NormalizeTripNumberKey(a.TripNumber);
+            string kb = NormalizeTripNumberKey(b.TripNumber);
+            if (ka.Length == 0 || kb.Length == 0)
+                return false;
+            return string.Equals(ka, kb, StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>Reorder trip lines inside one gap-delimited group (1-based group number).</summary>

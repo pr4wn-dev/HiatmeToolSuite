@@ -21,6 +21,10 @@ namespace Hiatme_Tool_Suite_v3
 
         public List<MCDownloadedTrip> AllTrips { get; } = new List<MCDownloadedTrip>();
 
+        /// <summary>Trip numbers marked rerouted on Modivcare (__FSRR) anywhere in the loaded package.</summary>
+        public HashSet<string> ReroutedTripNumbers { get; } =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         public string SourceDescription { get; set; } = "";
 
         public DateTime? ServiceDate { get; set; }
@@ -50,6 +54,7 @@ namespace Hiatme_Tool_Suite_v3
 
                 if (tab.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
                 {
+                    CollectReroutedFromCsv(result, path);
                     result.ReserveFileTrips.AddRange(LoadTripsFromTripCsv(path));
                     continue;
                 }
@@ -70,6 +75,7 @@ namespace Hiatme_Tool_Suite_v3
 
             foreach (var pair in driverFiles)
             {
+                CollectReroutedFromCsv(result, pair.Path);
                 var lines = ScheduleBuilderGroupInference.BuildDriverLines(
                     pair.Path, pair.Tab, weekdayName, out string note);
                 AddDriver(result, pair.Tab, lines, note);
@@ -105,6 +111,7 @@ namespace Hiatme_Tool_Suite_v3
                     string tab = pair.Tab;
                     if (tab.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
                     {
+                        CollectReroutedFromCsv(result, pair.CsvPath);
                         result.ReserveFileTrips.AddRange(LoadTripsFromTripCsv(pair.CsvPath));
                         continue;
                     }
@@ -132,6 +139,7 @@ namespace Hiatme_Tool_Suite_v3
 
                 foreach (var pair in driverSheets)
                 {
+                    CollectReroutedFromCsv(result, pair.CsvPath);
                     var lines = ScheduleBuilderGroupInference.BuildDriverLines(
                         pair.CsvPath, pair.Tab, weekdayName, out string note);
                     AddDriver(result, pair.Tab, lines, note);
@@ -187,8 +195,15 @@ namespace Hiatme_Tool_Suite_v3
             {
                 if (trip == null) continue;
                 string tn = (trip.TripNumber ?? "").Trim();
-                if (tn.Length > 0 && !seen.Add(tn))
+                string key = ScheduleBuilderReroutedTrips.TripNumberKey(tn);
+                if (key.Length > 0 && !seen.Add(key))
                     continue;
+
+                if (ScheduleBuilderReroutedTrips.TripNumberKeySetContains(load.ReroutedTripNumbers, tn))
+                {
+                    reroutes.Add(trip);
+                    continue;
+                }
 
                 switch (ScheduleBuilderReserveBuckets.Classify(trip))
                 {
@@ -218,6 +233,7 @@ namespace Hiatme_Tool_Suite_v3
             lines = lines ?? new List<ScheduleBuilderPreviewLine>();
             result.DriverLines[tab] = lines;
             result.DriverGroupingNotes[tab] = groupingNote ?? "";
+            CollectReroutedFromLines(result, lines);
 
             var trips = new List<MCDownloadedTrip>();
             foreach (var line in lines)
@@ -284,6 +300,47 @@ namespace Hiatme_Tool_Suite_v3
                     return true;
             }
             return false;
+        }
+
+        private static void CollectReroutedFromCsv(ScheduleBuilderLoadResult result, string csvPath)
+        {
+            if (result == null || string.IsNullOrWhiteSpace(csvPath))
+                return;
+            CollectReroutedFromSlots(result, SupeyTemplateCsvLoader.LoadSlotsFromFile(csvPath));
+        }
+
+        private static void CollectReroutedFromSlots(
+            ScheduleBuilderLoadResult result,
+            IList<SupeyTemplateSlot> slots)
+        {
+            if (result == null || slots == null)
+                return;
+            foreach (var slot in slots)
+            {
+                if (slot?.Kind != SupeyTemplateSlot.SlotKind.Trip || slot.TemplateTrip == null)
+                    continue;
+                if (!slot.ReroutedOnModivcare)
+                    continue;
+                ScheduleBuilderReroutedTrips.AddTripNumberKey(
+                    result.ReroutedTripNumbers, slot.TemplateTrip.TripNumber);
+            }
+        }
+
+        private static void CollectReroutedFromLines(
+            ScheduleBuilderLoadResult result,
+            IList<ScheduleBuilderPreviewLine> lines)
+        {
+            if (result == null || lines == null)
+                return;
+            foreach (var line in lines)
+            {
+                if (line?.Kind != ScheduleBuilderPreviewLine.LineKind.Trip || line.Trip == null)
+                    continue;
+                if (!line.ReroutedOnModivcare)
+                    continue;
+                ScheduleBuilderReroutedTrips.AddTripNumberKey(
+                    result.ReroutedTripNumbers, line.Trip.TripNumber);
+            }
         }
 
         private static string MakeSafeFileName(string name)

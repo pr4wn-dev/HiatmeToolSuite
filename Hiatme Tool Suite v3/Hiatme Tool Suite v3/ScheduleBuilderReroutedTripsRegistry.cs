@@ -35,6 +35,9 @@ namespace Hiatme_Tool_Suite_v3
         [JsonProperty("pu_city")]
         public string PUCity { get; set; }
 
+        [JsonProperty("pu_telephone")]
+        public string PUTelephone { get; set; }
+
         [JsonProperty("pu_time")]
         public string PUTime { get; set; }
 
@@ -43,6 +46,9 @@ namespace Hiatme_Tool_Suite_v3
 
         [JsonProperty("do_city")]
         public string DOCITY { get; set; }
+
+        [JsonProperty("do_telephone")]
+        public string DOTelephone { get; set; }
 
         [JsonProperty("do_time")]
         public string DOTime { get; set; }
@@ -85,9 +91,11 @@ namespace Hiatme_Tool_Suite_v3
                 ClientFullName = full,
                 PUStreet = (trip.PUStreet ?? "").Trim(),
                 PUCity = (trip.PUCity ?? "").Trim(),
+                PUTelephone = (trip.PUTelephone ?? "").Trim(),
                 PUTime = (trip.PUTime ?? "").Trim(),
                 DOStreet = (trip.DOStreet ?? "").Trim(),
                 DOCITY = (trip.DOCITY ?? "").Trim(),
+                DOTelephone = (trip.DOTelephone ?? "").Trim(),
                 DOTime = (trip.DOTime ?? "").Trim(),
                 SchedDOTime = (trip.SchedDOTime ?? "").Trim(),
                 Age = (trip.Age ?? "").Trim(),
@@ -114,9 +122,11 @@ namespace Hiatme_Tool_Suite_v3
                 DriverNameParsed = "Reserves",
                 PUStreet = (PUStreet ?? "").Trim(),
                 PUCity = (PUCity ?? "").Trim(),
+                PUTelephone = (PUTelephone ?? "").Trim(),
                 PUTime = (PUTime ?? "").Trim(),
                 DOStreet = (DOStreet ?? "").Trim(),
                 DOCITY = (DOCITY ?? "").Trim(),
+                DOTelephone = (DOTelephone ?? "").Trim(),
                 DOTime = (DOTime ?? "").Trim(),
                 SchedDOTime = (SchedDOTime ?? "").Trim(),
                 Age = (Age ?? "").Trim(),
@@ -155,6 +165,27 @@ namespace Hiatme_Tool_Suite_v3
 
         public static string FormatServiceDate(DateTime serviceDate) =>
             serviceDate.Date.ToString("yyyy-MM-dd");
+
+        public static HashSet<string> UnionReroutedTripNumbers(
+            IEnumerable<string> first,
+            IEnumerable<string> second)
+        {
+            var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (first != null)
+            {
+                foreach (var raw in first)
+                    AddTripNumberKey(set, raw);
+            }
+            if (second != null)
+            {
+                foreach (var raw in second)
+                    AddTripNumberKey(set, raw);
+            }
+            return set;
+        }
+
+        private static void AddTripNumberKey(ISet<string> keys, string tripNumber) =>
+            ScheduleBuilderReroutedTrips.AddTripNumberKey(keys, tripNumber);
 
         public static async Task<RerouteRegistryRecordResult> RecordRerouteAsync(
             HiatmeAiSettings settings,
@@ -207,7 +238,7 @@ namespace Hiatme_Tool_Suite_v3
                         settings, serviceDate, cancellationToken).ConfigureAwait(false);
                     if (serverRecords != null)
                     {
-                        records = serverRecords;
+                        records = MergeRecordLists(records, serverRecords);
                         TrySaveLocal(serviceDate, records);
                     }
                     else
@@ -222,16 +253,24 @@ namespace Hiatme_Tool_Suite_v3
 
             foreach (var record in records)
             {
-                string tn = NormalizeTripNumber(record?.TripNumber);
+                string tn = ScheduleBuilderReroutedTrips.TripNumberKey(record?.TripNumber);
                 if (tn.Length == 0)
                     continue;
 
                 merge.ReroutedTripNumbers.Add(tn);
 
-                if (builder.TripExistsInPreview(tn))
-                    continue;
-
                 var ghost = record.ToTrip();
+                var existing = builder.FindTripInPreviewByNumber(record.TripNumber);
+                if (existing != null)
+                    existing.MergeMissingScheduleFieldsFrom(ghost);
+
+                if (builder.TripExistsInPreview(tn))
+                {
+                    if (existing != null)
+                        builder.MoveTripToPreviewReservesReroute(existing);
+                    continue;
+                }
+
                 if (builder.TryAddSharedReroutedGhost(ghost))
                     merge.GhostsAdded++;
             }
@@ -248,11 +287,7 @@ namespace Hiatme_Tool_Suite_v3
 
             var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var raw in reroutedTripNumbers)
-            {
-                string tn = NormalizeTripNumber(raw);
-                if (tn.Length > 0)
-                    keys.Add(tn);
-            }
+                ScheduleBuilderReroutedTrips.AddTripNumberKey(keys, raw);
             if (keys.Count == 0)
                 return;
 
@@ -265,7 +300,7 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     if (line?.Kind != ScheduleBuilderPreviewLine.LineKind.Trip || line.Trip == null)
                         continue;
-                    if (keys.Contains(NormalizeTripNumber(line.Trip.TripNumber)))
+                    if (ScheduleBuilderReroutedTrips.TripNumberKeySetContains(keys, line.Trip.TripNumber))
                         line.ReroutedOnModivcare = true;
                 }
             }
@@ -345,6 +380,31 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        /// <summary>Union local + server reroute records (server wins field conflicts).</summary>
+        internal static List<ScheduleBuilderReroutedTripRecord> MergeRecordLists(
+            IList<ScheduleBuilderReroutedTripRecord> local,
+            IList<ScheduleBuilderReroutedTripRecord> server)
+        {
+            var merged = new List<ScheduleBuilderReroutedTripRecord>();
+            if (local != null)
+            {
+                foreach (var record in local)
+                {
+                    if (record != null)
+                        UpsertRecord(merged, record);
+                }
+            }
+            if (server != null)
+            {
+                foreach (var record in server)
+                {
+                    if (record != null)
+                        UpsertRecord(merged, record);
+                }
+            }
+            return merged;
+        }
+
         private static void UpsertRecord(
             IList<ScheduleBuilderReroutedTripRecord> trips,
             ScheduleBuilderReroutedTripRecord record)
@@ -352,10 +412,10 @@ namespace Hiatme_Tool_Suite_v3
             if (trips == null || record == null)
                 return;
 
-            string key = NormalizeTripNumber(record.TripNumber);
+            string key = ScheduleBuilderReroutedTrips.TripNumberKey(record.TripNumber);
             for (int i = 0; i < trips.Count; i++)
             {
-                if (TripNumbersEqual(trips[i]?.TripNumber, key))
+                if (ScheduleBuilderReroutedTrips.TripNumberKeysMatch(trips[i]?.TripNumber, key))
                 {
                     trips[i] = record;
                     return;
@@ -364,9 +424,7 @@ namespace Hiatme_Tool_Suite_v3
             trips.Add(record);
         }
 
-        private static string NormalizeTripNumber(string raw) => (raw ?? "").Trim();
-
-        private static bool TripNumbersEqual(string a, string b) =>
-            string.Equals(NormalizeTripNumber(a), NormalizeTripNumber(b), StringComparison.OrdinalIgnoreCase);
+        private static string NormalizeTripNumber(string raw) =>
+            ScheduleBuilderReroutedTrips.TripNumberKey(raw);
     }
 }

@@ -166,9 +166,9 @@ namespace Hiatme_Tool_Suite_v3
             foreach (var t in trips)
             {
                 if (t == null) continue;
-                string tn = (t.TripNumber ?? "").Trim();
-                if (tn.Length > 0)
-                    seen.Add(tn);
+                string key = ScheduleBuilderReroutedTrips.TripNumberKey(t.TripNumber);
+                if (key.Length > 0)
+                    seen.Add(key);
             }
             return seen;
         }
@@ -181,9 +181,7 @@ namespace Hiatme_Tool_Suite_v3
             bool removed = false;
             for (int i = list.Count - 1; i >= 0; i--)
             {
-                var candidate = list[i];
-                if (candidate != null
-                    && string.Equals(candidate.TripNumber, trip.TripNumber, StringComparison.OrdinalIgnoreCase))
+                if (ScheduleBuilderPreviewDrag.TripEquals(list[i], trip))
                 {
                     list.RemoveAt(i);
                     removed = true;
@@ -207,10 +205,31 @@ namespace Hiatme_Tool_Suite_v3
             changed |= RemoveTripFromList(willCalls, trip);
 
             var seen = BuildTripNumberSet(reroutes);
-            if (TryAddTripUnique(reroutes, seen, trip))
+            if (TryMergeTripIntoList(reroutes, trip))
+                changed = true;
+            else if (TryAddTripUnique(reroutes, seen, trip))
                 changed = true;
 
             return changed;
+        }
+
+        /// <summary>If the trip number is already in the list, merge missing fields (e.g. phones onto registry ghosts).</summary>
+        private static bool TryMergeTripIntoList(IList<MCDownloadedTrip> list, MCDownloadedTrip trip)
+        {
+            if (list == null || trip == null)
+                return false;
+
+            for (int i = 0; i < list.Count; i++)
+            {
+                var existing = list[i];
+                if (!ScheduleBuilderPreviewDrag.TripEquals(existing, trip))
+                    continue;
+
+                existing.MergeMissingScheduleFieldsFrom(trip);
+                return true;
+            }
+
+            return false;
         }
 
         /// <summary>Remove one trip from every driver preview tab (not Reserves).</summary>
@@ -241,10 +260,10 @@ namespace Hiatme_Tool_Suite_v3
         private static bool TryAddTripUnique(IList<MCDownloadedTrip> list, HashSet<string> seen, MCDownloadedTrip trip)
         {
             if (list == null || trip == null) return false;
-            string tn = (trip.TripNumber ?? "").Trim();
-            if (tn.Length > 0)
+            string key = ScheduleBuilderReroutedTrips.TripNumberKey(trip.TripNumber);
+            if (key.Length > 0)
             {
-                if (!seen.Add(tn))
+                if (!seen.Add(key))
                     return false;
             }
             list.Add(trip);

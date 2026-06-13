@@ -280,5 +280,50 @@ namespace Hiatme_Tool_Suite_v3
             Alerts = new List<string>();
             Assignable = true;
         }
+
+        /// <summary>Copy non-empty schedule fields from <paramref name="source"/> (phones, addresses, times, etc.).</summary>
+        internal void MergeMissingScheduleFieldsFrom(MCDownloadedTrip source)
+        {
+            if (source == null)
+                return;
+
+            Date = PreferNonEmpty(Date, source.Date);
+            ClientFirstName = PreferNonEmpty(ClientFirstName, source.ClientFirstName);
+            ClientLastName = PreferNonEmpty(ClientLastName, source.ClientLastName);
+            ClientFullName = PreferNonEmpty(ClientFullName, source.ClientFullName);
+            PUStreet = PreferNonEmpty(PUStreet, source.PUStreet);
+            PUCity = PreferNonEmpty(PUCity, source.PUCity);
+            PUTelephone = PreferNonEmpty(PUTelephone, source.PUTelephone);
+            PUTime = PreferNonEmpty(PUTime, source.PUTime);
+            DOStreet = PreferNonEmpty(DOStreet, source.DOStreet);
+            DOCITY = PreferNonEmpty(DOCITY, source.DOCITY);
+            DOTelephone = PreferNonEmpty(DOTelephone, source.DOTelephone);
+            DOTime = PreferNonEmpty(DOTime, source.DOTime);
+            SchedDOTime = PreferNonEmpty(SchedDOTime, source.SchedDOTime);
+            Age = PreferNonEmpty(Age, source.Age);
+            Miles = PreferNonEmpty(Miles, source.Miles);
+            Comments = PreferScheduleComment(Comments, source.Comments);
+        }
+
+        private static string PreferNonEmpty(string keep, string add)
+        {
+            if (!string.IsNullOrWhiteSpace(keep))
+                return keep.Trim();
+            return (add ?? "").Trim();
+        }
+
+        private static string PreferScheduleComment(string keep, string add)
+        {
+            if (IsReroutePlaceholderComment(keep))
+                return PreferNonEmpty(null, add);
+            return PreferNonEmpty(keep, add);
+        }
+
+        private static bool IsReroutePlaceholderComment(string comments)
+        {
+            comments = (comments ?? "").Trim();
+            return comments.Length == 0
+                || comments.IndexOf("Rerouted on Modivcare", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
     }
 }

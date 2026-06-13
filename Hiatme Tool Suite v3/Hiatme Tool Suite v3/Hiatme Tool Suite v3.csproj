@@ -260,6 +260,7 @@
     <Compile Include="MCBatchLink.cs" />
     <Compile Include="MCBatchRecords.cs" />
     <Compile Include="MCTripDownloader.cs" />
+    <Compile Include="ModivcareDelimitedTripParser.cs" />
     <Compile Include="MCDriversAndVehicles.cs" />
     <Compile Include="MCLoginHandler.cs" />
     <Compile Include="ModivcareRequestErrors.cs" />

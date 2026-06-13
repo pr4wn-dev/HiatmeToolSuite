@@ -294,72 +294,8 @@ namespace Hiatme_Tool_Suite_v3
         }
         public void BuildTripObjects(string data)
         {
-            MCTripList = new List<MCDownloadedTrip>();
-            using (StringReader reader = new StringReader(data))
-            {
-                string line;
-                while ((line = reader.ReadLine()) != null)
-                {
-
-                    //Initialize a new trip object
-                    MCDownloadedTrip trip = new MCDownloadedTrip();
-                    //split trip line into different components
-                    string[] tripsubitems = line.Split(new string[] { "\",\"" }, StringSplitOptions.None);
-
-                    //if too little subitems then trip is disposed
-                    if (tripsubitems.Length < 10)
-                    {
-                        //Console.WriteLine("Trip is fake");
-                    }
-                    else
-                    {
-                        //Console.WriteLine("Line: " + line);
-                        //trip is good so lets create object and add it to the list
-                        
-                        trip.TripNumber = tripsubitems[1].Replace("\"", "").Replace(" ","");
-                        trip.Date = tripsubitems[2].Replace("\"", "");
-                        trip.ClientFullName = tripsubitems[4].Replace("\"", "");
-                        trip.PUStreet = tripsubitems[7].Replace("\"", "");
-                        trip.PUCity = tripsubitems[10].Replace("\"", "");
-                        trip.PUTelephone = tripsubitems[13].Replace("\"", "");
-                        trip.PUTime = tripsubitems[14].Replace("\"", "");
-                        trip.DOStreet = tripsubitems[16].Replace("\"", "");
-                        trip.DOCITY = tripsubitems[19].Replace("\"", "");
-                        trip.DOTelephone = tripsubitems[22].Replace("\"", "");
-                        // Column 23 = scheduled_dropoff, 24 = appointment_time. The website's
-                        // timing rules use appointment_time for A-leg DO deadlines and fall back
-                        // to scheduled_dropoff for B/C-legs (and for A-legs without an appt).
-                        // We capture both so the scheduler can pick the right one per leg.
-                        trip.SchedDOTime = tripsubitems[23].Replace("\"", "");
-                        trip.DOTime = tripsubitems[24].Replace("\"", "");
-                        trip.Age = tripsubitems[25].Replace("\"", "");
-                        trip.Miles = tripsubitems[33].Replace("\"", "");
-                        trip.Comments = tripsubitems[34].Replace("\"", "");
-
-                        MCTripList.Add(trip);
-                        /*
-                        Console.WriteLine(trip.TripNumber);
-                        Console.WriteLine(trip.Date);
-                        Console.WriteLine(trip.ClientFirstName);
-                        Console.WriteLine(trip.ClientLastName);
-                        Console.WriteLine(trip.PUStreet);
-                        Console.WriteLine(trip.PUCity);
-                        Console.WriteLine(trip.PUTelephone);
-                        Console.WriteLine(trip.PUTime);
-                        Console.WriteLine(trip.DOStreet);
-                        Console.WriteLine(trip.DOCITY);
-                        Console.WriteLine(trip.DOTelephone);
-                        Console.WriteLine(trip.DOTime);
-                        Console.WriteLine(trip.Age);
-                        Console.WriteLine(trip.Miles);
-                        Console.WriteLine(trip.Comments);
-                        */
-                    }
-
-                }
-            }
+            MCTripList = ModivcareDelimitedTripParser.ParseDownloadText(data);
             Console.WriteLine("Modivcare Downloaded Trips: " + MCTripList.Count.ToString());
-
         }
         private static List<string> ExtractFromBody(string body, string start, string end)
         {

@@ -1360,13 +1360,23 @@ namespace Hiatme_Tool_Suite_v3
                     var rerouteMerge = await ScheduleBuilderReroutedTripsRegistry.MergeIntoBuilderAsync(
                         fsbuilder, serviceDate, HiatmeAiSettings.Load()).ConfigureAwait(true);
 
+                    var reroutedKeys = ScheduleBuilderReroutedTripsRegistry.UnionReroutedTripNumbers(
+                        load.ReroutedTripNumbers,
+                        rerouteMerge.ReroutedTripNumbers);
+                    fsbuilder.ReconcileReroutedTripsForPreview(reroutedKeys);
+
                     var driverSync = await SyncFsDriversDuringBuildAsync(
                         fsbuilder.PreviewDriverLines.Keys,
                         SetScheduleBuilderStatus).ConfigureAwait(true);
 
                     BindScheduleBuilderPreview(fsbuilder);
                     ScheduleBuilderReroutedTripsRegistry.MarkReroutedOnPreview(
-                        _fsLinesByTab, rerouteMerge.ReroutedTripNumbers);
+                        _fsLinesByTab, reroutedKeys);
+                    int rerAfterLoad = fsbuilder.PreviewReservesReroute?.Count ?? 0;
+                    if (rerAfterLoad > 0)
+                        ShowFsTripsForTab("Reserves");
+                    else if (!string.IsNullOrWhiteSpace(_fsActiveDriverTab))
+                        ShowFsTripsForTab(_fsActiveDriverTab);
 
                     if (ScheduleBuilderPreviewUndo.LinesByTabContainsGap(_fsLinesByTab))
                     {
@@ -1574,6 +1584,8 @@ namespace Hiatme_Tool_Suite_v3
 
                 var rerouteMerge = await ScheduleBuilderReroutedTripsRegistry.MergeIntoBuilderAsync(
                     fsbuilder, fsbdatepicker.Value.Date, HiatmeAiSettings.Load()).ConfigureAwait(true);
+
+                fsbuilder.ReconcileReroutedTripsForPreview(rerouteMerge.ReroutedTripNumbers);
 
                 var driverSync = await SyncFsDriversDuringBuildAsync(
                     fsbuilder.PreviewDriverLines.Keys,
