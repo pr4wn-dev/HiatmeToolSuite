@@ -139,11 +139,24 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     var cells = new Dictionary<int, string>();
                     int maxCol = 0;
+                    int nextCol = 1;
                     foreach (var cell in row.Elements(Ns + "c"))
                     {
-                        string colLetters = new string((cell.Attribute("r")?.Value ?? "A1")
-                            .TakeWhile(char.IsLetter).ToArray());
-                        int colIndex = ColumnLettersToIndex(colLetters);
+                        string cellRef = cell.Attribute("r")?.Value;
+                        int colIndex;
+                        if (!string.IsNullOrEmpty(cellRef))
+                        {
+                            string colLetters = new string(cellRef.TakeWhile(char.IsLetter).ToArray());
+                            colIndex = ColumnLettersToIndex(colLetters);
+                            nextCol = colIndex + 1;
+                        }
+                        else
+                        {
+                            // LibreOffice / Excel sometimes omit cell refs — place in order.
+                            colIndex = nextCol;
+                            nextCol++;
+                        }
+
                         if (colIndex > maxCol)
                             maxCol = colIndex;
 
@@ -157,7 +170,7 @@ namespace Hiatme_Tool_Suite_v3
                     }
 
                     var line = new List<string>();
-                    for (int c = 1; c <= Math.Max(maxCol, 14); c++)
+                    for (int c = 1; c <= Math.Max(maxCol, ScheduleBuilderPreviewCsvExport.WorkbookExportColumnCount); c++)
                         line.Add(cells.TryGetValue(c, out string v) ? v ?? "" : "");
                     rows.Add(line);
                 }
@@ -169,10 +182,13 @@ namespace Hiatme_Tool_Suite_v3
         private static string ReadCellValue(XElement cell, IList<string> sharedStrings)
         {
             string type = cell.Attribute("t")?.Value ?? "";
+
+            var isEl = cell.Element(Ns + "is");
+            if (isEl != null)
+                return string.Concat(isEl.Descendants(Ns + "t").Select(t => t.Value));
+
             if (type == "inlineStr")
-            {
                 return string.Concat(cell.Descendants(Ns + "t").Select(t => t.Value));
-            }
 
             var v = cell.Element(Ns + "v");
             if (v == null)
@@ -186,6 +202,9 @@ namespace Hiatme_Tool_Suite_v3
                     return sharedStrings[idx] ?? "";
                 return raw;
             }
+
+            if (type == "str")
+                return raw;
 
             if (type == "b")
                 return raw == "1" ? "TRUE" : "FALSE";
@@ -271,12 +290,13 @@ namespace Hiatme_Tool_Suite_v3
                     continue;
                 }
 
-                for (int i = 0; i < row.Count; i++)
+                int colCount = Math.Max(row.Count, ScheduleBuilderPreviewCsvExport.WorkbookExportColumnCount);
+                for (int i = 0; i < colCount; i++)
                 {
                     if (i > 0)
                         sb.Append(',');
                     sb.Append('"');
-                    sb.Append((row[i] ?? "").Replace("\"", "\"\""));
+                    sb.Append((i < row.Count ? row[i] ?? "" : "").Replace("\"", "\"\""));
                     sb.Append('"');
                 }
                 sb.AppendLine();

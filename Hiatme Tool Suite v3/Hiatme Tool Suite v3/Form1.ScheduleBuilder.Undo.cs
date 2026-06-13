@@ -10,9 +10,22 @@ namespace Hiatme_Tool_Suite_v3
     {
         private readonly ScheduleBuilderPreviewUndoStack _fsUndoStack = new ScheduleBuilderPreviewUndoStack();
 
-        private void FsClearUndoHistory()
+        private void FsClearUndoHistory(string reason = null)
         {
             _fsUndoStack.Clear();
+            if (!string.IsNullOrWhiteSpace(reason))
+                SetScheduleBuilderStatus(reason);
+        }
+
+        private ScheduleBuilderUndoEntry FsMakeUndoSnapshot(string label)
+        {
+            return new ScheduleBuilderUndoEntry
+            {
+                Label = label,
+                LinesByTab = ScheduleBuilderPreviewUndo.CloneLinesByTab(_fsLinesByTab),
+                CutTrip = _fsCutTrip,
+                CutTripReserveBand = _fsCutTripReserveBand,
+            };
         }
 
         private void FsPushUndoSnapshot(string label)
@@ -20,13 +33,7 @@ namespace Hiatme_Tool_Suite_v3
             if (!_fsHasPreview || string.IsNullOrWhiteSpace(label))
                 return;
 
-            _fsUndoStack.Push(new ScheduleBuilderUndoEntry
-            {
-                Label = label,
-                LinesByTab = ScheduleBuilderPreviewUndo.CloneLinesByTab(_fsLinesByTab),
-                CutTrip = _fsCutTrip,
-                CutTripReserveBand = _fsCutTripReserveBand,
-            });
+            _fsUndoStack.PushBeforeEdit(FsMakeUndoSnapshot(label));
         }
 
         private void FsUndoScheduleEdit()
@@ -34,10 +41,31 @@ namespace Hiatme_Tool_Suite_v3
             if (!_fsHasPreview || !_fsUndoStack.CanUndo)
                 return;
 
-            var entry = _fsUndoStack.Pop();
-            if (entry?.LinesByTab == null)
+            var restore = _fsUndoStack.PopUndo();
+            if (restore?.LinesByTab == null)
                 return;
 
+            _fsUndoStack.PushRedo(FsMakeUndoSnapshot(restore.Label));
+            FsApplyUndoEntry(restore);
+            _ = FsHistoryRefreshAsync("Undid " + restore.Label + ".");
+        }
+
+        private void FsRedoScheduleEdit()
+        {
+            if (!_fsHasPreview || !_fsUndoStack.CanRedo)
+                return;
+
+            var restore = _fsUndoStack.PopRedo();
+            if (restore?.LinesByTab == null)
+                return;
+
+            _fsUndoStack.PushUndoCheckpoint(FsMakeUndoSnapshot(restore.Label));
+            FsApplyUndoEntry(restore);
+            _ = FsHistoryRefreshAsync("Redid " + restore.Label + ".");
+        }
+
+        private void FsApplyUndoEntry(ScheduleBuilderUndoEntry entry)
+        {
             _fsLinesByTab.Clear();
             foreach (var kv in entry.LinesByTab)
                 _fsLinesByTab[kv.Key] = kv.Value;
@@ -57,15 +85,14 @@ namespace Hiatme_Tool_Suite_v3
                 ShowFsTripsForTab(_fsDriverTabOrder[0]);
 
             SyncFsPreviewCsvsForExport();
-            _ = FsUndoRefreshAsync(entry.Label);
         }
 
-        private async Task FsUndoRefreshAsync(string label)
+        private async Task FsHistoryRefreshAsync(string statusText)
         {
             await RefreshFsMapForCurrentTabAsync().ConfigureAwait(true);
             FsTripsLv_SelectionChangedUpdateMap();
-            string text = string.IsNullOrWhiteSpace(label) ? "Undo." : "Undid " + label + ".";
-            SetScheduleBuilderStatus(text);
+            if (!string.IsNullOrWhiteSpace(statusText))
+                SetScheduleBuilderStatus(statusText);
         }
 
         private void FsApplyAllPreviewLinesFromDictionary(
@@ -108,14 +135,75 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
-        private void FsTripsLv_KeyDown_Undo(object sender, KeyEventArgs e)
+        private void FsTripsLv_KeyDown_ScheduleShortcuts(object sender, KeyEventArgs e)
         {
-            if (e.Control && e.KeyCode == Keys.Z)
+            if (!e.Control)
+                return;
+
+            if (e.KeyCode == Keys.Z)
             {
                 e.Handled = true;
                 e.SuppressKeyPress = true;
                 FsUndoScheduleEdit();
+                return;
             }
+
+            if (e.KeyCode == Keys.Y)
+            {
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+                FsRedoScheduleEdit();
+                return;
+            }
+
+            if (e.KeyCode == Keys.X)
+            {
+                if (FsTryPrepareKeyboardTripAction(out _))
+                {
+                    e.Handled = true;
+                    e.SuppressKeyPress = true;
+                    FsCutSelectedTrip();
+                }
+
+                return;
+            }
+
+            if (e.KeyCode == Keys.V)
+            {
+                if (FsHasCutTrip && FsTryPrepareKeyboardTripAction(out _))
+                {
+                    e.Handled = true;
+                    e.SuppressKeyPress = true;
+                    FsInsertFromContextMenu(below: false);
+                }
+            }
+        }
+
+        private bool FsTryPrepareKeyboardTripAction(out MCDownloadedTrip trip)
+        {
+            trip = null;
+            if (_fsTripsLv == null || _fsTripsLv.SelectedItems.Count == 0)
+                return false;
+
+            var item = _fsTripsLv.SelectedItems[0];
+            _fsTripsCtxHitItem = item;
+            _fsTripsCtxTrip = null;
+            _fsTripsCtxGroup = null;
+
+            if (item.Tag is FsPreviewTripTag tripTag && tripTag.Trip != null)
+            {
+                trip = tripTag.Trip;
+                _fsTripsCtxTrip = trip;
+                _fsTripsCtxGroup = tripTag.Group;
+                return true;
+            }
+
+            if (item.Tag is FsPreviewGapTag || item.Tag is FsPreviewNoteTag)
+                return true;
+
+            trip = GetFsTripFromListItem(item);
+            _fsTripsCtxTrip = trip;
+            return trip != null;
         }
 
         private string FsUndoMenuText()
@@ -124,6 +212,14 @@ namespace Hiatme_Tool_Suite_v3
                 return "Undo";
             string label = (_fsUndoStack.NextUndoLabel ?? "").Trim();
             return string.IsNullOrEmpty(label) ? "Undo" : "Undo " + label;
+        }
+
+        private string FsRedoMenuText()
+        {
+            if (!_fsUndoStack.CanRedo)
+                return "Redo";
+            string label = (_fsUndoStack.NextRedoLabel ?? "").Trim();
+            return string.IsNullOrEmpty(label) ? "Redo" : "Redo " + label;
         }
     }
 }

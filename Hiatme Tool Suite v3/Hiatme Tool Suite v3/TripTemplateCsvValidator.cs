@@ -162,6 +162,9 @@ namespace Hiatme_Tool_Suite_v3
 
             string Cell(int i) => i < rowValues.Length ? (rowValues[i] ?? "").Replace("\"", "").Trim() : "";
 
+            if (ScheduleBuilderGapMeta.RowHasGapMarker(rowValues))
+                return true;
+
             if (!IsPlaceholderTripNumber(Cell(0)) && !string.IsNullOrEmpty(Cell(0)))
                 return false;
 

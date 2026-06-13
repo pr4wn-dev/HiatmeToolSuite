@@ -1161,18 +1161,20 @@ namespace Hiatme_Tool_Suite_v3
 
             var workbookTabs = BuildWorkbookTabsFromPreview();
 
+            // Prefer our xlsx writer (preserves gap markers, group colors, column N metadata).
+            // Excel COM CSV import drops leading empty columns and breaks blank-row round-trip.
+            if (workbookTabs != null && workbookTabs.Count > 0)
+            {
+                await Task.Run(() => ScheduleBuilderXlsxWriter.WriteWorkbookFromTabs(path, workbookTabs))
+                    .ConfigureAwait(false);
+                await FinishWorkbookExportAsync(path).ConfigureAwait(false);
+                return;
+            }
+
             if (!IsExcelAvailable())
             {
-                if (workbookTabs != null && workbookTabs.Count > 0)
-                {
-                    await Task.Run(() => ScheduleBuilderXlsxWriter.WriteWorkbookFromTabs(path, workbookTabs))
-                        .ConfigureAwait(false);
-                }
-                else
-                {
-                    await Task.Run(() => ScheduleBuilderXlsxWriter.WriteWorkbookFromCsvFiles(path, fileList))
-                        .ConfigureAwait(false);
-                }
+                await Task.Run(() => ScheduleBuilderXlsxWriter.WriteWorkbookFromCsvFiles(path, fileList))
+                    .ConfigureAwait(false);
                 await FinishWorkbookExportAsync(path).ConfigureAwait(false);
                 return;
             }

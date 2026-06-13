@@ -32,8 +32,18 @@ namespace Hiatme_Tool_Suite_v3
                 if (rowValues == null || rowValues.Length == 0)
                     continue;
 
-                for (int i = 0; i < rowValues.Length && i < 14; i++)
+                for (int i = 0; i < rowValues.Length && i < ScheduleBuilderPreviewCsvExport.WorkbookExportColumnCount; i++)
                     rowValues[i] = (rowValues[i] ?? "").Replace("\"", "").Trim();
+
+                if (ScheduleBuilderGapMeta.RowHasGapMarker(rowValues))
+                {
+                    slots.Add(new SupeyTemplateSlot
+                    {
+                        Kind = SupeyTemplateSlot.SlotKind.Gap,
+                        NoteText = "",
+                    });
+                    continue;
+                }
 
                 if (rowValues.Length < 14)
                 {
@@ -51,14 +61,13 @@ namespace Hiatme_Tool_Suite_v3
                 if (TripTemplateCsvValidator.IsLikelyHeaderRow(rowValues))
                     continue;
 
-                if (rowValues.Length >= 14
-                    && ScheduleBuilderGroupHeaderMeta.TryDecode(rowValues[13], out int groupNumber))
+                if (ScheduleBuilderGroupHeaderMeta.TryDecodeRow(rowValues, out int groupNumber, out string headerNote))
                 {
                     slots.Add(new SupeyTemplateSlot
                     {
                         Kind = SupeyTemplateSlot.SlotKind.GroupHeader,
                         GroupNumber = groupNumber,
-                        NoteText = rowValues[0] ?? "",
+                        NoteText = headerNote ?? "",
                     });
                     continue;
                 }

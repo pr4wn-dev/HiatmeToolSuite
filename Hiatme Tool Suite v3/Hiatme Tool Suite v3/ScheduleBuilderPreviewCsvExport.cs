@@ -11,6 +11,11 @@ namespace Hiatme_Tool_Suite_v3
     internal static class ScheduleBuilderPreviewCsvExport
     {
         public const int ColumnCount = 14;
+        /// <summary>Hidden column O (0-based index 14) — save/load metadata only, not part of the trip grid.</summary>
+        public const int WorkbookMetaColumnIndex = 14;
+        public const int WorkbookExportColumnCount = 15;
+        /// <summary>Merge A–M; column N stays empty in the visible schedule.</summary>
+        public const int MergeBarLastCol = ColumnCount - 2;
 
         public sealed class Options
         {
@@ -52,8 +57,12 @@ namespace Hiatme_Tool_Suite_v3
 
             public int AddRow(string[] cells)
             {
-                var row = new List<string>(ColumnCount);
-                for (int i = 0; i < ColumnCount; i++)
+                int width = ColumnCount;
+                if (cells != null && cells.Length > width)
+                    width = cells.Length;
+
+                var row = new List<string>(width);
+                for (int i = 0; i < width; i++)
                     row.Add(i < cells?.Length ? (cells[i] ?? "") : "");
                 Rows.Add(row);
                 return Rows.Count - 1;
@@ -99,8 +108,7 @@ namespace Hiatme_Tool_Suite_v3
                     continue;
 
                 bool reserves = kv.Key.Equals("Reserves", StringComparison.OrdinalIgnoreCase);
-                var lines = ScheduleBuilderTemplateSlots.CollapseConsecutivePreviewGaps(
-                    kv.Value ?? new List<ScheduleBuilderPreviewLine>());
+                var lines = kv.Value ?? new List<ScheduleBuilderPreviewLine>();
                 var tab = new WorkbookTab { TabName = kv.Key };
                 if (reserves)
                     AppendReservesContent(tab, lines, options);
@@ -122,8 +130,7 @@ namespace Hiatme_Tool_Suite_v3
                 throw new ArgumentException("CSV path is required.", nameof(csvPath));
 
             options = options ?? Options.TripsOnly;
-            lines = ScheduleBuilderTemplateSlots.CollapseConsecutivePreviewGaps(
-                lines ?? Array.Empty<ScheduleBuilderPreviewLine>());
+            lines = lines ?? Array.Empty<ScheduleBuilderPreviewLine>();
 
             var tab = new WorkbookTab
             {
@@ -162,7 +169,7 @@ namespace Hiatme_Tool_Suite_v3
                     if (!options.IncludeGaps)
                         continue;
 
-                    tab.AddRow(EmptyCells());
+                    tab.AddRow(BuildGapCells());
                     continue;
                 }
 
@@ -174,7 +181,7 @@ namespace Hiatme_Tool_Suite_v3
                     var headerGroup = FindGroupByNumber(groups, line.GroupNumber);
                     Color color = headerGroup?.DisplayColor ?? SupeyGroupPalette.For(line.GroupNumber);
                     int noteRow = tab.AddRow(BuildGroupHeaderCells(line.GroupNumber, line.GroupNoteText ?? ""));
-                    tab.AddMergeBar(noteRow, color);
+                    tab.AddMergeBar(noteRow, color, endCol: MergeBarLastCol);
                     lastHeaderGroup = headerGroup;
                     continue;
                 }
@@ -188,7 +195,7 @@ namespace Hiatme_Tool_Suite_v3
                     if (g != null && !ReferenceEquals(g, lastHeaderGroup))
                     {
                         int noteRow = tab.AddRow(BuildGroupHeaderCells(g.GroupNumber, ""));
-                        tab.AddMergeBar(noteRow, g.DisplayColor);
+                        tab.AddMergeBar(noteRow, g.DisplayColor, endCol: MergeBarLastCol);
                         lastHeaderGroup = g;
                     }
                 }
@@ -247,9 +254,19 @@ namespace Hiatme_Tool_Suite_v3
 
         private static string[] BuildGroupHeaderCells(int groupNumber, string noteText)
         {
-            var cells = EmptyCells();
+            var cells = EmptyWorkbookRow();
             cells[0] = noteText ?? "";
-            cells[13] = ScheduleBuilderGroupHeaderMeta.Encode(groupNumber);
+            cells[WorkbookMetaColumnIndex] = ScheduleBuilderGroupHeaderMeta.Encode(groupNumber);
+            return cells;
+        }
+
+        private static string[] BuildGapCells() => EmptyCells();
+
+        private static string[] EmptyWorkbookRow()
+        {
+            var cells = new string[WorkbookExportColumnCount];
+            for (int i = 0; i < WorkbookExportColumnCount; i++)
+                cells[i] = "";
             return cells;
         }
 

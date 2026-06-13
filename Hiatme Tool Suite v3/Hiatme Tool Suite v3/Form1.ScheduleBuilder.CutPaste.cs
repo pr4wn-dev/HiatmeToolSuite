@@ -126,6 +126,41 @@ namespace Hiatme_Tool_Suite_v3
             SetScheduleBuilderStatus("Blank row inserted.");
         }
 
+        private void FsDeleteBlankRow()
+        {
+            if (string.IsNullOrWhiteSpace(_fsActiveDriverTab) || !_fsHasPreview)
+                return;
+
+            if (_fsActiveDriverTab.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
+                return;
+
+            if (!(_fsTripsCtxHitItem?.Tag is FsPreviewGapTag gapTag) || gapTag.PreviewLineIndex < 0)
+            {
+                SetScheduleBuilderStatus("Right-click a blank row to delete it.");
+                return;
+            }
+
+            string tab = _fsActiveDriverTab;
+            if (!_fsLinesByTab.TryGetValue(tab, out var lines) || lines == null)
+                return;
+
+            int idx = gapTag.PreviewLineIndex;
+            if (idx < 0 || idx >= lines.Count
+                || lines[idx]?.Kind != ScheduleBuilderPreviewLine.LineKind.Gap)
+            {
+                SetScheduleBuilderStatus("Could not delete this row.");
+                return;
+            }
+
+            FsPushUndoSnapshot("delete blank row");
+            lines.RemoveAt(idx);
+            FsCommitPreviewLinesForTab(tab, lines);
+            ShowFsTripsForTab(tab);
+            SyncFsPreviewCsvsForExport();
+            _ = RefreshFsMapForCurrentTabAsync();
+            SetScheduleBuilderStatus("Blank row deleted.");
+        }
+
         private async Task FsRefreshAfterTripMoveAsync()
         {
             await RefreshFsMapForCurrentTabAsync().ConfigureAwait(true);

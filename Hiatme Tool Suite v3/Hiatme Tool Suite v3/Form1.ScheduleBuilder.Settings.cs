@@ -158,6 +158,8 @@ namespace Hiatme_Tool_Suite_v3
             if (_fsShowGaps)
                 return;
             _fsShowGaps = true;
+            Settings.Default.FsShowGaps = true;
+            Settings.Default.Save();
             if (_fsSettingsShowGaps != null)
                 _fsSettingsShowGaps.Checked = true;
         }
@@ -166,7 +168,7 @@ namespace Hiatme_Tool_Suite_v3
         {
             return new ScheduleBuilderPreviewCsvExport.Options
             {
-                IncludeGaps = FsShowGapsEnabled,
+                IncludeGaps = true,
                 // Colored spacer row at top of each group — no group number text on the saved sheet.
                 IncludeGroupHeaders = FsShowGroupColorsEnabled,
                 IncludeReserveSections = true,

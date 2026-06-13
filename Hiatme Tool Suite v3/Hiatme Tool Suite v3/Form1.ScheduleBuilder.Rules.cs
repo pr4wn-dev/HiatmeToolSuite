@@ -1044,6 +1044,8 @@ namespace Hiatme_Tool_Suite_v3
 
             if (!_fsHasPreview || fsbuilder == null) return;
 
+            FsClearUndoHistory("Rules applied — undo history cleared.");
+
             if (pullBannedFromDrivers)
                 fsbuilder.RemoveBannedTripsFromDriverPreview();
             else

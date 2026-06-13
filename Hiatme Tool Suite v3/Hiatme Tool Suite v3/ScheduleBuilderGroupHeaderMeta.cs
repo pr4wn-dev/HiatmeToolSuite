@@ -50,5 +50,32 @@ namespace Hiatme_Tool_Suite_v3
 
             return false;
         }
+
+        /// <summary>Decode group number from hidden column O (legacy: column N or A).</summary>
+        public static bool TryDecodeRow(string[] rowValues, out int groupNumber, out string noteText)
+        {
+            groupNumber = 0;
+            noteText = "";
+            if (rowValues == null || rowValues.Length == 0)
+                return false;
+
+            string colA = (rowValues[0] ?? "").Trim();
+            string colN = rowValues.Length >= ScheduleBuilderPreviewCsvExport.ColumnCount
+                ? (rowValues[ScheduleBuilderPreviewCsvExport.ColumnCount - 1] ?? "").Trim()
+                : "";
+            string colO = rowValues.Length > ScheduleBuilderPreviewCsvExport.WorkbookMetaColumnIndex
+                ? (rowValues[ScheduleBuilderPreviewCsvExport.WorkbookMetaColumnIndex] ?? "").Trim()
+                : "";
+
+            if (!TryDecode(colO, out groupNumber)
+                && !TryDecode(colN, out groupNumber)
+                && !TryDecode(colA, out groupNumber))
+                return false;
+
+            noteText = colA;
+            if (TryDecode(colA, out _))
+                noteText = "";
+            return true;
+        }
     }
 }

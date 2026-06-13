@@ -89,7 +89,7 @@ namespace Hiatme_Tool_Suite_v3
                 }
             }
 
-            return ScheduleBuilderTemplateSlots.CollapseConsecutivePreviewGaps(lines);
+            return lines;
         }
 
         public static List<ScheduleBuilderPreviewLine> InferPickupTimeGapLines(

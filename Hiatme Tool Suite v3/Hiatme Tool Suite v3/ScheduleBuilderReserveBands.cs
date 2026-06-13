@@ -90,7 +90,7 @@ namespace Hiatme_Tool_Suite_v3
                     kept.Add(line);
                 }
 
-                driverLines[tab] = ScheduleBuilderTemplateSlots.CollapseConsecutivePreviewGaps(kept);
+                driverLines[tab] = kept;
             }
 
             return pulled;

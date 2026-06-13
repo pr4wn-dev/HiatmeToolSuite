@@ -658,7 +658,7 @@ namespace Hiatme_Tool_Suite_v3
 
             _fsTripsLv.MouseUp += FsTripsLv_MouseUp_ShowContextMenu;
 
-            _fsTripsLv.KeyDown += FsTripsLv_KeyDown_Undo;
+            _fsTripsLv.KeyDown += FsTripsLv_KeyDown_ScheduleShortcuts;
 
             WireFsTripsListDragDrop();
 
@@ -1349,7 +1349,12 @@ namespace Hiatme_Tool_Suite_v3
 
                     BindScheduleBuilderPreview(fsbuilder);
 
-
+                    if (ScheduleBuilderPreviewUndo.LinesByTabContainsGap(_fsLinesByTab))
+                    {
+                        FsRevealGapsForManualInsert();
+                        if (!string.IsNullOrWhiteSpace(_fsActiveDriverTab))
+                            ShowFsTripsForTab(_fsActiveDriverTab);
+                    }
 
                     int drivers = fsbuilder.PreviewDriverLines.Count;
 
@@ -1398,7 +1403,8 @@ namespace Hiatme_Tool_Suite_v3
                             : "")
 
                         + ". Groups: " + groupingSummary + "."
-                        + FormatFsDriverSyncNote(driverSync));
+                        + FormatFsDriverSyncNote(driverSync)
+                        + " Undo history cleared.");
 
                 }
 
@@ -1592,7 +1598,8 @@ namespace Hiatme_Tool_Suite_v3
 
                     + trips + " trip(s), " + resMsg
 
-                    + "." + FormatFsDriverSyncNote(driverSync);
+                    + "." + FormatFsDriverSyncNote(driverSync)
+                    + " Undo history cleared.";
 
                 SetScheduleBuilderStatus(buildSummary + " Saving workbook…");
 

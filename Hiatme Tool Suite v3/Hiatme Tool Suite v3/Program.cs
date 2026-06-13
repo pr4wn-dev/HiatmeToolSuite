@@ -70,8 +70,15 @@ namespace Hiatme_Tool_Suite_v3
 
         /// <summary>The main entry point for the application.</summary>
         [STAThread]
-        private static void Main()
+        private static void Main(string[] args)
         {
+            if (args != null && args.Length > 0
+                && args[0].Equals("--gap-roundtrip-test", StringComparison.OrdinalIgnoreCase))
+            {
+                Environment.Exit(ScheduleBuilderGapRoundTripSmoke.Run());
+                return;
+            }
+
             Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
             Application.ThreadException += (_, e) =>
             {

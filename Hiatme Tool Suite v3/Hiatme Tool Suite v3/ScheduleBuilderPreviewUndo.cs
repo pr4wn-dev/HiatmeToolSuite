@@ -54,27 +54,70 @@ namespace Hiatme_Tool_Suite_v3
 
             return dict;
         }
+
+        internal static bool LinesByTabContainsGap(
+            IDictionary<string, List<ScheduleBuilderPreviewLine>> linesByTab)
+        {
+            if (linesByTab == null)
+                return false;
+
+            foreach (var kv in linesByTab)
+            {
+                if (kv.Value == null)
+                    continue;
+                foreach (var line in kv.Value)
+                {
+                    if (line?.Kind == ScheduleBuilderPreviewLine.LineKind.Gap)
+                        return true;
+                }
+            }
+
+            return false;
+        }
     }
 
     internal sealed class ScheduleBuilderPreviewUndoStack
     {
         private readonly LinkedList<ScheduleBuilderUndoEntry> _undo = new LinkedList<ScheduleBuilderUndoEntry>();
+        private readonly LinkedList<ScheduleBuilderUndoEntry> _redo = new LinkedList<ScheduleBuilderUndoEntry>();
 
         internal bool CanUndo => _undo.Count > 0;
 
+        internal bool CanRedo => _redo.Count > 0;
+
         internal string NextUndoLabel => CanUndo ? _undo.First.Value.Label : null;
 
-        internal void Push(ScheduleBuilderUndoEntry entry)
+        internal string NextRedoLabel => CanRedo ? _redo.First.Value.Label : null;
+
+        internal void PushBeforeEdit(ScheduleBuilderUndoEntry entry)
         {
             if (entry == null)
                 return;
 
             _undo.AddFirst(entry);
-            while (_undo.Count > ScheduleBuilderPreviewUndo.MaxDepth)
-                _undo.RemoveLast();
+            Trim(_undo);
+            _redo.Clear();
         }
 
-        internal ScheduleBuilderUndoEntry Pop()
+        internal void PushUndoCheckpoint(ScheduleBuilderUndoEntry entry)
+        {
+            if (entry == null)
+                return;
+
+            _undo.AddFirst(entry);
+            Trim(_undo);
+        }
+
+        internal void PushRedo(ScheduleBuilderUndoEntry entry)
+        {
+            if (entry == null)
+                return;
+
+            _redo.AddFirst(entry);
+            Trim(_redo);
+        }
+
+        internal ScheduleBuilderUndoEntry PopUndo()
         {
             if (!CanUndo)
                 return null;
@@ -84,9 +127,26 @@ namespace Hiatme_Tool_Suite_v3
             return entry;
         }
 
+        internal ScheduleBuilderUndoEntry PopRedo()
+        {
+            if (!CanRedo)
+                return null;
+
+            var entry = _redo.First.Value;
+            _redo.RemoveFirst();
+            return entry;
+        }
+
         internal void Clear()
         {
             _undo.Clear();
+            _redo.Clear();
+        }
+
+        private static void Trim(LinkedList<ScheduleBuilderUndoEntry> stack)
+        {
+            while (stack.Count > ScheduleBuilderPreviewUndo.MaxDepth)
+                stack.RemoveLast();
         }
     }
 }

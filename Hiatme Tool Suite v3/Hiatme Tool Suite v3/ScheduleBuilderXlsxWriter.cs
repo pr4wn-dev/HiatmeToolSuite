@@ -439,13 +439,35 @@ namespace Hiatme_Tool_Suite_v3
                         new XAttribute("t", "s"),
                         new XAttribute("s", style),
                         new XElement(Ns + "v", sharedIndex[value])));
+
+                    int colCount = Math.Max(row.Count, ScheduleBuilderPreviewCsvExport.WorkbookExportColumnCount);
+                    for (int c = 0; c < colCount; c++)
+                    {
+                        if (c >= mergeBar.StartCol && c <= mergeBar.EndCol)
+                            continue;
+
+                        string metaValue = c < row.Count ? (row[c] ?? "") : "";
+                        if (string.IsNullOrEmpty(metaValue))
+                            continue;
+
+                        string metaRef = IndexToColumnLetters(c + 1) + (r + 1);
+                        rowEl.Add(new XElement(Ns + "c",
+                            new XAttribute("r", metaRef),
+                            new XAttribute("t", "s"),
+                            new XAttribute("s", defaultStyle),
+                            new XElement(Ns + "v", sharedIndex[metaValue])));
+                    }
                 }
                 else
                 {
-                    int colCount = Math.Max(row.Count, ScheduleBuilderPreviewCsvExport.ColumnCount);
+                    int colCount = Math.Max(row.Count, ScheduleBuilderPreviewCsvExport.WorkbookExportColumnCount);
                     for (int c = 0; c < colCount; c++)
                     {
                         string value = c < row.Count ? (row[c] ?? "") : "";
+                        // Skip empty cells except hidden metadata in column O.
+                        if (string.IsNullOrEmpty(value))
+                            continue;
+
                         string cellRef = IndexToColumnLetters(c + 1) + (r + 1);
                         int style = defaultStyle;
                         if (fills != null
@@ -468,7 +490,7 @@ namespace Hiatme_Tool_Suite_v3
             int lastRow = rows?.Count ?? 0;
             if (lastRow > 0)
             {
-                string lastCol = IndexToColumnLetters(ScheduleBuilderPreviewCsvExport.ColumnCount);
+                string lastCol = IndexToColumnLetters(ScheduleBuilderPreviewCsvExport.WorkbookExportColumnCount);
                 worksheet.Add(new XElement(Ns + "dimension",
                     new XAttribute("ref", "A1:" + lastCol + lastRow)));
             }
@@ -479,8 +501,9 @@ namespace Hiatme_Tool_Suite_v3
 
             var colWidths = ComputeColumnWidths(
                 rows,
-                ScheduleBuilderPreviewCsvExport.ColumnCount,
+                ScheduleBuilderPreviewCsvExport.WorkbookExportColumnCount,
                 mergeByRow.Keys);
+            colWidths[ScheduleBuilderPreviewCsvExport.WorkbookMetaColumnIndex] = 0;
             worksheet.Add(BuildColsElement(colWidths));
             worksheet.Add(sheetData);
             if (mergeBars != null && mergeBars.Count > 0)
@@ -594,11 +617,14 @@ namespace Hiatme_Tool_Suite_v3
             cols.Add(new XAttribute("count", widths.Count));
             for (int i = 0; i < widths.Count; i++)
             {
-                cols.Add(new XElement(Ns + "col",
+                var col = new XElement(Ns + "col",
                     new XAttribute("min", i + 1),
                     new XAttribute("max", i + 1),
                     new XAttribute("width", widths[i].ToString("0.##", CultureInfo.InvariantCulture)),
-                    new XAttribute("customWidth", "1")));
+                    new XAttribute("customWidth", "1"));
+                if (widths[i] <= 0)
+                    col.Add(new XAttribute("hidden", "1"));
+                cols.Add(col);
             }
 
             return cols;

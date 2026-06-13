@@ -20,8 +20,11 @@ namespace Hiatme_Tool_Suite_v3
         private ToolStripMenuItem _fsTripsCtxGeocodeDriverHome;
         private ToolStripMenuItem _fsTripsCtxCutTrip;
         private ToolStripMenuItem _fsTripsCtxUndo;
+        private ToolStripMenuItem _fsTripsCtxRedo;
+        private ToolStripMenuItem _fsTripsCtxPasteTrip;
         private ToolStripMenuItem _fsTripsCtxInsertAbove;
         private ToolStripMenuItem _fsTripsCtxInsertBelow;
+        private ToolStripMenuItem _fsTripsCtxDeleteRow;
         private ToolStripMenuItem _fsTripsCtxClearCut;
         private ToolStripMenuItem _fsTripsCtxEditGroupNote;
         private MCDownloadedTrip _fsTripsCtxTrip;
@@ -120,6 +123,8 @@ namespace Hiatme_Tool_Suite_v3
             {
                 BackColor = DarkContextMenuRenderer.Background,
                 ForeColor = DarkContextMenuRenderer.ForeColor,
+                ShortcutKeys = Keys.Control | Keys.X,
+                ShowShortcutKeys = true,
             };
             _fsTripsCtxCutTrip.Click += (s, e) => FsCutSelectedTrip();
 
@@ -131,6 +136,24 @@ namespace Hiatme_Tool_Suite_v3
                 ShowShortcutKeys = true,
             };
             _fsTripsCtxUndo.Click += (s, e) => FsUndoScheduleEdit();
+
+            _fsTripsCtxRedo = new ToolStripMenuItem("Redo")
+            {
+                BackColor = DarkContextMenuRenderer.Background,
+                ForeColor = DarkContextMenuRenderer.ForeColor,
+                ShortcutKeys = Keys.Control | Keys.Y,
+                ShowShortcutKeys = true,
+            };
+            _fsTripsCtxRedo.Click += (s, e) => FsRedoScheduleEdit();
+
+            _fsTripsCtxPasteTrip = new ToolStripMenuItem("Paste trip")
+            {
+                BackColor = DarkContextMenuRenderer.Background,
+                ForeColor = DarkContextMenuRenderer.ForeColor,
+                ShortcutKeys = Keys.Control | Keys.V,
+                ShowShortcutKeys = true,
+            };
+            _fsTripsCtxPasteTrip.Click += (s, e) => FsInsertFromContextMenu(below: false);
 
             _fsTripsCtxInsertAbove = new ToolStripMenuItem("Insert above")
             {
@@ -145,6 +168,13 @@ namespace Hiatme_Tool_Suite_v3
                 ForeColor = DarkContextMenuRenderer.ForeColor,
             };
             _fsTripsCtxInsertBelow.Click += (s, e) => FsInsertFromContextMenu(below: true);
+
+            _fsTripsCtxDeleteRow = new ToolStripMenuItem("Delete blank row")
+            {
+                BackColor = DarkContextMenuRenderer.Background,
+                ForeColor = DarkContextMenuRenderer.ForeColor,
+            };
+            _fsTripsCtxDeleteRow.Click += (s, e) => FsDeleteBlankRow();
 
             _fsTripsCtxClearCut = new ToolStripMenuItem("Clear cut trip")
             {
@@ -168,9 +198,12 @@ namespace Hiatme_Tool_Suite_v3
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxUnbanClient);
             _fsTripsCtxMenu.Items.Add(new ToolStripSeparator());
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxCutTrip);
+            _fsTripsCtxMenu.Items.Add(_fsTripsCtxPasteTrip);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxUndo);
+            _fsTripsCtxMenu.Items.Add(_fsTripsCtxRedo);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxInsertAbove);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxInsertBelow);
+            _fsTripsCtxMenu.Items.Add(_fsTripsCtxDeleteRow);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxClearCut);
             _fsTripsCtxMenu.Items.Add(new ToolStripSeparator());
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxEditGroupNote);
@@ -252,10 +285,17 @@ namespace Hiatme_Tool_Suite_v3
             bool canInsertCut = canInsertAt && FsHasCutTrip;
 
             _fsTripsCtxCutTrip.Enabled = hasTrip && canMoveTrips && !FsHasCutTrip;
+            _fsTripsCtxPasteTrip.Enabled = canInsertCut;
+            _fsTripsCtxPasteTrip.Text = "Paste trip" + FsCutTripMenuSuffix();
             _fsTripsCtxUndo.Enabled = _fsUndoStack.CanUndo;
             _fsTripsCtxUndo.Text = FsUndoMenuText();
+            _fsTripsCtxRedo.Enabled = _fsUndoStack.CanRedo;
+            _fsTripsCtxRedo.Text = FsRedoMenuText();
             _fsTripsCtxInsertAbove.Enabled = FsHasCutTrip ? canInsertCut : canInsertBlank;
             _fsTripsCtxInsertBelow.Enabled = FsHasCutTrip ? canInsertCut : canInsertBlank;
+            bool canDeleteGap = canMoveTrips && !isReserves
+                && _fsTripsCtxHitItem?.Tag is FsPreviewGapTag;
+            _fsTripsCtxDeleteRow.Enabled = canDeleteGap;
             _fsTripsCtxClearCut.Enabled = FsHasCutTrip;
             _fsTripsCtxInsertAbove.Text = FsHasCutTrip
                 ? "Insert above" + FsCutTripMenuSuffix()
