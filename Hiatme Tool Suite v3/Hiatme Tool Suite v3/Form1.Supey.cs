@@ -1881,7 +1881,7 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
-        /// <summary>Edit OK: roster JSON, email registry, AI server, optional WellRyde — one result dialog.</summary>
+        /// <summary>Edit OK: roster JSON, email registry, AI server, optional WellRyde — status bar summary.</summary>
         private async Task CommitDriverEditAsync(
             SupeyDriverProfile existing,
             SupeyDriverProfile edited,
@@ -1939,11 +1939,6 @@ namespace Hiatme_Tool_Suite_v3
                 summary += "\r\nWellRyde: skipped (new driver — link via Pull from WellRyde first).";
 
             SetDriverWellRydePushStatus(summary.Replace("\r\n", " · "));
-            MessageBox.Show(this, summary, "Driver saved",
-                MessageBoxButtons.OK,
-                disk.Ok && serverOk && (!pushWellRyde || wrOk)
-                    ? MessageBoxIcon.Information
-                    : MessageBoxIcon.Warning);
         }
 
         private void SaveSupeyRosterToDisk(bool showOk)
