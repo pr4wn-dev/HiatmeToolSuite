@@ -928,6 +928,7 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             var noteTag = e.Item?.Tag as FsPreviewNoteTag;
+            var tripTag = e.Item?.Tag as FsPreviewTripTag;
             var sectionTag = e.Item?.Tag as FsPreviewSectionHeaderTag;
             bool isReservesTab = _fsActiveDriverTab != null
                 && _fsActiveDriverTab.Equals("Reserves", StringComparison.OrdinalIgnoreCase);
@@ -951,10 +952,15 @@ namespace Hiatme_Tool_Suite_v3
             bool isSection = sectionTag != null;
 
             bool isNote = noteTag != null;
+            bool rerouted = tripTag?.ReroutedOnModivcare == true;
 
             Color rowBg = sel ? SupeyTheme.ListSelected : SupeyTheme.ListBody;
 
-            if (!sel && isSection)
+            if (!sel && rerouted)
+
+                rowBg = ScheduleBuilderPreviewStyle.ReroutedTripBackColor;
+
+            else if (!sel && isSection)
 
                 rowBg = isReservesTab
                     ? sectionTag.SectionColor
@@ -970,7 +976,11 @@ namespace Hiatme_Tool_Suite_v3
 
             Color fill = rowBg;
 
-            if (!sel && !isGap && !isNote && e.ColumnIndex == 0 && FsShowGroupColorsEnabled
+            if (sel && rerouted)
+
+                fill = ScheduleBuilderPreviewStyle.ReroutedTripSelectedBackColor;
+
+            else if (!sel && !isGap && !isNote && !rerouted && e.ColumnIndex == 0 && FsShowGroupColorsEnabled
                 && !isReservesTab
 
                 && e.SubItem != null && e.SubItem.BackColor != Color.Empty
@@ -988,6 +998,10 @@ namespace Hiatme_Tool_Suite_v3
             var bounds = new Rectangle(cellBounds.Left + 6, cellBounds.Top, cellBounds.Width - 6, cellBounds.Height);
 
             Color textColor = sel ? SupeyTheme.ListSelectedText : SupeyTheme.ListText;
+
+            if (!sel && rerouted)
+
+                textColor = Color.White;
 
             if (!sel && isSection && !isReservesTab && e.ColumnIndex == 2)
 
@@ -2626,7 +2640,7 @@ namespace Hiatme_Tool_Suite_v3
 
                     lastHeaderGroup = g;
 
-                    _fsTripsLv.Items.Add(CreateFsTripListItem(g, line.Trip, li));
+                    _fsTripsLv.Items.Add(CreateFsTripListItem(g, line.Trip, li, line.ReroutedOnModivcare));
 
                 }
 
@@ -2717,7 +2731,7 @@ namespace Hiatme_Tool_Suite_v3
 
                     var g = FindFsGroupForTrip(groups, line.Trip);
 
-                    AddFsReserveTripListItem(line.Trip, line.ReserveBandColor, g, li);
+                    AddFsReserveTripListItem(line.Trip, line.ReserveBandColor, g, li, line.ReroutedOnModivcare);
 
                 }
 
@@ -2755,7 +2769,12 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-        private void AddFsReserveTripListItem(MCDownloadedTrip trip, Color? bandColor, SupeyTripCluster group, int previewLineIndex)
+        private void AddFsReserveTripListItem(
+            MCDownloadedTrip trip,
+            Color? bandColor,
+            SupeyTripCluster group,
+            int previewLineIndex,
+            bool reroutedOnModivcare = false)
 
         {
 
@@ -2791,7 +2810,14 @@ namespace Hiatme_Tool_Suite_v3
 
             lvi.SubItems.Add(trip.Comments ?? "");
 
-            lvi.Tag = new FsPreviewTripTag(group, trip) { PreviewLineIndex = previewLineIndex };
+            lvi.Tag = new FsPreviewTripTag(group, trip)
+            {
+                PreviewLineIndex = previewLineIndex,
+                ReroutedOnModivcare = reroutedOnModivcare,
+            };
+
+            if (reroutedOnModivcare)
+                ApplyFsReroutedTripRowStyle(lvi);
 
             _fsTripsLv.Items.Add(lvi);
 
@@ -2918,7 +2944,11 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-        private ListViewItem CreateFsTripListItem(SupeyTripCluster g, MCDownloadedTrip trip, int previewLineIndex)
+        private ListViewItem CreateFsTripListItem(
+            SupeyTripCluster g,
+            MCDownloadedTrip trip,
+            int previewLineIndex,
+            bool reroutedOnModivcare = false)
 
         {
 
@@ -2928,17 +2958,25 @@ namespace Hiatme_Tool_Suite_v3
 
             lvi.UseItemStyleForSubItems = false;
 
-            if (g != null && FsShowGroupColorsEnabled)
+            lvi.Tag = g != null
+                ? (object)new FsPreviewTripTag(g, trip)
+                {
+                    PreviewLineIndex = previewLineIndex,
+                    ReroutedOnModivcare = reroutedOnModivcare,
+                }
+                : trip;
+
+            if (reroutedOnModivcare)
+
+                ApplyFsReroutedTripRowStyle(lvi);
+
+            else if (g != null && FsShowGroupColorsEnabled)
 
             {
 
                 lvi.SubItems[0].BackColor = g.DisplayColor;
 
             }
-
-            lvi.Tag = g != null
-                ? (object)new FsPreviewTripTag(g, trip) { PreviewLineIndex = previewLineIndex }
-                : trip;
 
             lvi.SubItems.Add(trip.TripNumber ?? "");
 
@@ -2964,6 +3002,17 @@ namespace Hiatme_Tool_Suite_v3
 
             return lvi;
 
+        }
+
+        private static void ApplyFsReroutedTripRowStyle(ListViewItem lvi)
+        {
+            if (lvi == null)
+                return;
+
+            Color c = ScheduleBuilderPreviewStyle.ReroutedTripBackColor;
+            lvi.BackColor = c;
+            for (int i = 0; i < lvi.SubItems.Count; i++)
+                lvi.SubItems[i].BackColor = c;
         }
 
     }

@@ -173,6 +173,71 @@ namespace Hiatme_Tool_Suite_v3
             return seen;
         }
 
+        private static bool RemoveTripFromList(IList<MCDownloadedTrip> list, MCDownloadedTrip trip)
+        {
+            if (list == null || trip == null)
+                return false;
+
+            bool removed = false;
+            for (int i = list.Count - 1; i >= 0; i--)
+            {
+                var candidate = list[i];
+                if (candidate != null
+                    && string.Equals(candidate.TripNumber, trip.TripNumber, StringComparison.OrdinalIgnoreCase))
+                {
+                    list.RemoveAt(i);
+                    removed = true;
+                }
+            }
+
+            return removed;
+        }
+
+        /// <summary>Move a trip into the Reserves → Reroutes bucket lists (deduped).</summary>
+        public static bool MoveTripToReroutesBucket(
+            MCDownloadedTrip trip,
+            IList<MCDownloadedTrip> reservers,
+            IList<MCDownloadedTrip> reroutes,
+            IList<MCDownloadedTrip> willCalls)
+        {
+            if (trip == null || reroutes == null)
+                return false;
+
+            bool changed = RemoveTripFromList(reservers, trip);
+            changed |= RemoveTripFromList(willCalls, trip);
+
+            var seen = BuildTripNumberSet(reroutes);
+            if (TryAddTripUnique(reroutes, seen, trip))
+                changed = true;
+
+            return changed;
+        }
+
+        /// <summary>Remove one trip from every driver preview tab (not Reserves).</summary>
+        public static int PullTripFromDriverLines(
+            IDictionary<string, List<ScheduleBuilderPreviewLine>> driverLines,
+            MCDownloadedTrip trip)
+        {
+            if (driverLines == null || trip == null)
+                return 0;
+
+            int pulled = 0;
+            foreach (string tab in driverLines.Keys.ToList())
+            {
+                if (tab.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (!driverLines.TryGetValue(tab, out var lines) || lines == null)
+                    continue;
+                if (!ScheduleBuilderPreviewDrag.TryRemoveTrip(lines, trip))
+                    continue;
+
+                driverLines[tab] = ScheduleBuilderGroupHeaderReconcile.Reconcile(lines);
+                pulled++;
+            }
+
+            return pulled;
+        }
+
         private static bool TryAddTripUnique(IList<MCDownloadedTrip> list, HashSet<string> seen, MCDownloadedTrip trip)
         {
             if (list == null || trip == null) return false;

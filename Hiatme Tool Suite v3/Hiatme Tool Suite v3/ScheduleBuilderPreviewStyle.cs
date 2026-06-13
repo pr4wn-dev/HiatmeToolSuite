@@ -21,5 +21,10 @@ namespace Hiatme_Tool_Suite_v3
 
         /// <summary>Reserve section title bars — always white so every bucket matches.</summary>
         public static Color ReserveSectionHeaderText => Color.White;
+
+        /// <summary>Trip rows rerouted on Modivcare (list + workbook fill).</summary>
+        public static Color ReroutedTripBackColor => Color.FromArgb(140, 48, 48);
+
+        public static Color ReroutedTripSelectedBackColor => Color.FromArgb(170, 58, 58);
     }
 }

@@ -19,6 +19,8 @@ namespace Hiatme_Tool_Suite_v3
         public MCDownloadedTrip TemplateTrip { get; set; }
         /// <summary>Live Modivcare trip when template row matched (trip slots only).</summary>
         public MCDownloadedTrip MatchedLiveTrip { get; set; }
+        /// <summary>Trip was rerouted on Modivcare (column O metadata on saved rows).</summary>
+        public bool ReroutedOnModivcare { get; set; }
 
         public bool IsMatched => MatchedLiveTrip != null;
     }

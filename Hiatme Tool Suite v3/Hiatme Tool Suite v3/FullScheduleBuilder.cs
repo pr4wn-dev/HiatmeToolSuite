@@ -395,6 +395,49 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        /// <summary>After Modivcare reroute — bucket under Reserves → Reroutes and pull off driver tabs.</summary>
+        internal bool MoveTripToPreviewReservesReroute(MCDownloadedTrip trip)
+        {
+            if (trip == null)
+                return false;
+
+            var reservers = PreviewReserves ?? new List<MCDownloadedTrip>();
+            var reroutes = PreviewReservesReroute ?? new List<MCDownloadedTrip>();
+            var willCalls = PreviewReservesWillCalls ?? new List<MCDownloadedTrip>();
+
+            bool changed = ScheduleBuilderReserveBuckets.MoveTripToReroutesBucket(
+                trip, reservers, reroutes, willCalls);
+
+            var dict = PreviewDriverLines as Dictionary<string, List<ScheduleBuilderPreviewLine>>;
+            if (dict != null)
+            {
+                int pulled = ScheduleBuilderReserveBuckets.PullTripFromDriverLines(dict, trip);
+                if (pulled > 0)
+                {
+                    changed = true;
+                    if (driverTripList != null)
+                    {
+                        foreach (var kv in dict)
+                        {
+                            var trips = new List<MCDownloadedTrip>();
+                            foreach (var line in kv.Value ?? Enumerable.Empty<ScheduleBuilderPreviewLine>())
+                            {
+                                if (line?.Kind == ScheduleBuilderPreviewLine.LineKind.Trip && line.Trip != null)
+                                    trips.Add(line.Trip);
+                            }
+                            driverTripList[kv.Key] = trips;
+                        }
+                    }
+                }
+            }
+
+            PreviewReserves = reservers;
+            PreviewReservesReroute = reroutes;
+            PreviewReservesWillCalls = willCalls;
+
+            return changed;
+        }
+
         /// <summary>Re-bucket Reserves lists after banned / no-go rules change (unban, remove town).</summary>
         internal void RebucketPreviewReserves()
         {

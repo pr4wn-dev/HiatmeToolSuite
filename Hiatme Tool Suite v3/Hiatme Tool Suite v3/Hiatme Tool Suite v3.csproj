@@ -163,6 +163,9 @@
     <Compile Include="ScheduleBuilderPreviewGroups.cs" />
     <Compile Include="ScheduleBuilderGroupNotes.cs" />
     <Compile Include="ScheduleBuilderGroupColors.cs" />
+    <Compile Include="ScheduleBuilderRerouteMeta.cs" />
+    <Compile Include="ScheduleBuilderReroutedTrips.cs" />
+    <Compile Include="MCTripRerouter.cs" />
     <Compile Include="ScheduleBuilderGroupHeaderMeta.cs" />
     <Compile Include="ScheduleBuilderGapMeta.cs" />
     <Compile Include="ScheduleBuilderGapRoundTripSmoke.cs" />
@@ -201,6 +204,10 @@
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="Form1.ScheduleBuilder.CutPaste.cs">
+      <DependentUpon>Form1.cs</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Form1.ScheduleBuilder.Reroute.cs">
       <DependentUpon>Form1.cs</DependentUpon>
       <SubType>Form</SubType>
     </Compile>
@@ -254,6 +261,7 @@
     <Compile Include="MCTripDownloader.cs" />
     <Compile Include="MCDriversAndVehicles.cs" />
     <Compile Include="MCLoginHandler.cs" />
+    <Compile Include="ModivcareRequestErrors.cs" />
     <Compile Include="UpdateClient.cs" />
     <Compile Include="UserSettingsMigration.cs" />
     <Compile Include="UpdatePrompt.cs">

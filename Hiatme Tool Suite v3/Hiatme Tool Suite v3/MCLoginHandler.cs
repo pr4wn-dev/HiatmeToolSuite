@@ -42,6 +42,8 @@ namespace Hiatme_Tool_Suite_v3
         public string EventValidationToken { get; set; }
         public string EventArguement { get; set; }
         public bool IntentionalLogout { get; set; }
+        /// <summary>Last <see cref="ProbeSessionAsync"/> failed due to network, not an expired cookie.</summary>
+        public bool LastProbeWasUnreachable { get; private set; }
 
         // Cache last-good creds so the handler can self-heal after server-side session expiry without
         // bothering Form1 for them. Plaintext is fine here — Properties.Settings already stores them in plaintext.
@@ -113,9 +115,11 @@ namespace Hiatme_Tool_Suite_v3
                     return false;
                 }
             }
-            catch
+            catch (Exception ex)
             {
                 Connected = false;
+                if (ModivcareRequestErrors.IsUnreachable(ex))
+                    LastProbeWasUnreachable = true;
                 return false;
             }
             //MessageBox.Show("Modivcare login success!");
@@ -152,6 +156,7 @@ namespace Hiatme_Tool_Suite_v3
         /// </summary>
         public async Task<bool> ProbeSessionAsync()
         {
+            LastProbeWasUnreachable = false;
             try
             {
                 using (var req = new HttpRequestMessage(HttpMethod.Get,
@@ -164,8 +169,10 @@ namespace Hiatme_Tool_Suite_v3
                     return res.IsSuccessStatusCode;
                 }
             }
-            catch
+            catch (Exception ex)
             {
+                if (ModivcareRequestErrors.IsUnreachable(ex))
+                    LastProbeWasUnreachable = true;
                 return false;
             }
         }

@@ -29,6 +29,7 @@ namespace Hiatme_Tool_Suite_v3
         private ToolStripMenuItem _fsTripsCtxEditGroupNote;
         private ToolStripMenuItem _fsTripsCtxChangeGroupColor;
         private ToolStripMenuItem _fsTripsCtxResetGroupColor;
+        private ToolStripMenuItem _fsTripsCtxRerouteModivcare;
         private MCDownloadedTrip _fsTripsCtxTrip;
         private SupeyTripCluster _fsTripsCtxGroup;
         private FsPreviewNoteTag _fsTripsCtxNoteTag;
@@ -210,8 +211,16 @@ namespace Hiatme_Tool_Suite_v3
             };
             _fsTripsCtxResetGroupColor.Click += (s, e) => FsResetGroupColorFromContext();
 
+            _fsTripsCtxRerouteModivcare = new ToolStripMenuItem("Reroute on Modivcare…")
+            {
+                BackColor = DarkContextMenuRenderer.Background,
+                ForeColor = DarkContextMenuRenderer.ForeColor,
+            };
+            _fsTripsCtxRerouteModivcare.Click += (s, e) => FsRerouteTripOnModivcareFromContext();
+
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxBanClient);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxUnbanClient);
+            _fsTripsCtxMenu.Items.Add(_fsTripsCtxRerouteModivcare);
             _fsTripsCtxMenu.Items.Add(new ToolStripSeparator());
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxCutTrip);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxPasteTrip);
@@ -324,6 +333,15 @@ namespace Hiatme_Tool_Suite_v3
 
             _fsTripsCtxBanClient.Enabled = hasTrip;
             _fsTripsCtxUnbanClient.Enabled = hasTrip && isBanned;
+            bool alreadyRerouted = hasTrip
+                && _fsLinesByTab.TryGetValue(_fsActiveDriverTab ?? "", out var rerouteLines)
+                && rerouteLines != null
+                && ScheduleBuilderReroutedTrips.IsMarked(rerouteLines, _fsTripsCtxTrip);
+            _fsTripsCtxRerouteModivcare.Enabled = hasTrip && hasBuild && !alreadyRerouted;
+            if (hasTrip && alreadyRerouted)
+                _fsTripsCtxRerouteModivcare.Text = "Reroute on Modivcare (already marked)";
+            else
+                _fsTripsCtxRerouteModivcare.Text = "Reroute on Modivcare…";
             _fsTripsCtxFocusMap.Enabled = hasTrip
                 && _fsMap != null
                 && _fsMap.Visible

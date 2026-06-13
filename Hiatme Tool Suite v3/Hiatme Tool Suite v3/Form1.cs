@@ -2053,6 +2053,16 @@ namespace Hiatme_Tool_Suite_v3
                 if (alive)
                     return true;
 
+                if (mcLoginHandler.LastProbeWasUnreachable)
+                {
+                    MessageBox.Show(
+                        ModivcareRequestErrors.UnreachableMessage,
+                        "Modivcare",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+                    return false;
+                }
+
                 // Server-side session is dead. Suppress the PropertyChanged auto-relogin while we re-auth in-band
                 // so it doesn't double-fire MCLogin() (which would run on screen creds and may MessageBox).
                 mcLoginHandler.PropertyChanged -= UpdateMCConnectionStatus;
@@ -2110,7 +2120,18 @@ namespace Hiatme_Tool_Suite_v3
 
             if (!mcLoginHandler.Connected)
             {
-                MessageBox.Show("Modivcare login was not accepted.");
+                if (mcLoginHandler.LastProbeWasUnreachable)
+                {
+                    MessageBox.Show(
+                        ModivcareRequestErrors.UnreachableMessage,
+                        "Modivcare",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+                }
+                else
+                {
+                    MessageBox.Show("Modivcare login was not accepted.");
+                }
                 EnableMCLogin();
                 return false;
             }

@@ -60,6 +60,7 @@ namespace Hiatme_Tool_Suite_v3
         public SupeyTripCluster Group { get; }
         public MCDownloadedTrip Trip { get; }
         public int PreviewLineIndex { get; set; } = -1;
+        public bool ReroutedOnModivcare { get; set; }
 
         public FsPreviewTripTag(SupeyTripCluster g, MCDownloadedTrip t)
         {

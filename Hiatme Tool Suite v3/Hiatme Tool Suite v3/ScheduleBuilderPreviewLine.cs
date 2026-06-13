@@ -22,6 +22,8 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>Custom route group color; null uses the default palette for this group number.</summary>
         public Color? GroupColorOverride { get; set; }
         public MCDownloadedTrip Trip { get; set; }
+        /// <summary>Trip was submitted for reroute on Modivcare; shown with a red row in the list.</summary>
+        public bool ReroutedOnModivcare { get; set; }
         /// <summary>Grp swatch on Reserves tab (reservers / reroute sections).</summary>
         public Color? ReserveBandColor { get; set; }
     }

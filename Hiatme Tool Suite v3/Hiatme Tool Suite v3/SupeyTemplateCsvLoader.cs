@@ -89,6 +89,7 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     Kind = SupeyTemplateSlot.SlotKind.Trip,
                     TemplateTrip = TemplateTripRowParser.FromRow(rowValues),
+                    ReroutedOnModivcare = ScheduleBuilderRerouteMeta.RowIsRerouted(rowValues),
                 });
             }
 

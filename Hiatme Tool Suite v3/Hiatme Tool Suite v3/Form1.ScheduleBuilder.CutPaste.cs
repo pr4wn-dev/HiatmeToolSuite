@@ -18,6 +18,7 @@ namespace Hiatme_Tool_Suite_v3
         {
             _fsCutTrip = null;
             _fsCutTripReserveBand = null;
+            _fsCutTripRerouted = false;
         }
 
         private void FsCutSelectedTrip()
@@ -30,6 +31,7 @@ namespace Hiatme_Tool_Suite_v3
                 return;
 
             _fsCutTripReserveBand = FsFindTripReserveBand(lines, _fsTripsCtxTrip);
+            _fsCutTripRerouted = ScheduleBuilderReroutedTrips.IsMarked(lines, _fsTripsCtxTrip);
             FsPushUndoSnapshot("cut trip");
             if (!ScheduleBuilderPreviewDrag.TryRemoveTrip(lines, _fsTripsCtxTrip))
                 return;
@@ -67,6 +69,7 @@ namespace Hiatme_Tool_Suite_v3
             string tab = _fsActiveDriverTab;
             MCDownloadedTrip trip = _fsCutTrip;
             Color? cutReserveBand = _fsCutTripReserveBand;
+            bool cutRerouted = _fsCutTripRerouted;
             FsClearCutTrip();
 
             _fsPreserveRouteChangeBaseline = true;
@@ -83,7 +86,7 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             FsPushUndoSnapshot("insert trip");
-            ScheduleBuilderPreviewDrag.InsertTripLine(lines, trip, insertBeforeLine, reserveBand);
+            ScheduleBuilderPreviewDrag.InsertTripLine(lines, trip, insertBeforeLine, reserveBand, cutRerouted);
 
             FsCommitPreviewLinesForTab(tab, lines);
             ShowFsTripsForTab(tab);

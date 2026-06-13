@@ -200,7 +200,9 @@ namespace Hiatme_Tool_Suite_v3
                     }
                 }
 
-                tab.AddRow(BuildTripCells(line.Trip));
+                int tripRow = tab.AddRow(BuildTripCells(line));
+                if (line.ReroutedOnModivcare)
+                    tab.FillRow(tripRow, ScheduleBuilderPreviewStyle.ReroutedTripBackColor);
             }
         }
 
@@ -240,7 +242,9 @@ namespace Hiatme_Tool_Suite_v3
 
                 if (line.Kind == ScheduleBuilderPreviewLine.LineKind.Trip && line.Trip != null)
                 {
-                    tab.AddRow(BuildTripCells(line.Trip));
+                    int tripRow = tab.AddRow(BuildTripCells(line));
+                    if (line.ReroutedOnModivcare)
+                        tab.FillRow(tripRow, ScheduleBuilderPreviewStyle.ReroutedTripBackColor);
                 }
             }
         }
@@ -270,28 +274,38 @@ namespace Hiatme_Tool_Suite_v3
             return cells;
         }
 
+        private static string[] BuildTripCells(ScheduleBuilderPreviewLine line)
+        {
+            if (line?.Trip == null)
+                return EmptyCells();
+
+            var cells = BuildTripCells(line.Trip);
+            if (line.ReroutedOnModivcare)
+                cells[WorkbookMetaColumnIndex] = ScheduleBuilderRerouteMeta.Encode();
+            return cells;
+        }
+
         private static string[] BuildTripCells(MCDownloadedTrip trip)
         {
             if (trip == null)
                 return EmptyCells();
 
-            return new[]
-            {
-                trip.TripNumber ?? "",
-                trip.Date ?? "",
-                trip.ClientFullName ?? "",
-                trip.PUStreet ?? "",
-                trip.PUCity ?? "",
-                trip.PUTelephone ?? "",
-                trip.PUTime ?? "",
-                trip.DOStreet ?? "",
-                trip.DOCITY ?? "",
-                trip.DOTelephone ?? "",
-                trip.DOTime ?? "",
-                trip.Age ?? "",
-                trip.Miles ?? "",
-                trip.Comments ?? "",
-            };
+            var cells = EmptyWorkbookRow();
+            cells[0] = trip.TripNumber ?? "";
+            cells[1] = trip.Date ?? "";
+            cells[2] = trip.ClientFullName ?? "";
+            cells[3] = trip.PUStreet ?? "";
+            cells[4] = trip.PUCity ?? "";
+            cells[5] = trip.PUTelephone ?? "";
+            cells[6] = trip.PUTime ?? "";
+            cells[7] = trip.DOStreet ?? "";
+            cells[8] = trip.DOCITY ?? "";
+            cells[9] = trip.DOTelephone ?? "";
+            cells[10] = trip.DOTime ?? "";
+            cells[11] = trip.Age ?? "";
+            cells[12] = trip.Miles ?? "";
+            cells[13] = trip.Comments ?? "";
+            return cells;
         }
 
         private static string[] EmptyCells()

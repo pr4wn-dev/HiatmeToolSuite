@@ -281,7 +281,8 @@ namespace Hiatme_Tool_Suite_v3
             IList<ScheduleBuilderPreviewLine> lines,
             MCDownloadedTrip trip,
             int insertBeforeLineIndex,
-            Color? reserveBandColor = null)
+            Color? reserveBandColor = null,
+            bool reroutedOnModivcare = false)
         {
             if (lines == null || trip == null) return;
             if (FindTripLine(lines, trip) >= 0) return;
@@ -291,6 +292,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 Kind = ScheduleBuilderPreviewLine.LineKind.Trip,
                 Trip = trip,
+                ReroutedOnModivcare = reroutedOnModivcare,
             };
             if (reserveBandColor.HasValue)
                 line.ReserveBandColor = reserveBandColor.Value;
@@ -478,7 +480,7 @@ namespace Hiatme_Tool_Suite_v3
             return -1;
         }
 
-        private static bool TripEquals(MCDownloadedTrip a, MCDownloadedTrip b)
+        internal static bool TripEquals(MCDownloadedTrip a, MCDownloadedTrip b)
         {
             if (a == null || b == null) return false;
             if (ReferenceEquals(a, b)) return true;

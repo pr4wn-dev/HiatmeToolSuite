@@ -85,6 +85,7 @@ namespace Hiatme_Tool_Suite_v3
                     {
                         Kind = ScheduleBuilderPreviewLine.LineKind.Trip,
                         Trip = slot.TemplateTrip,
+                        ReroutedOnModivcare = slot.ReroutedOnModivcare,
                     });
                 }
             }
