@@ -34,6 +34,7 @@ namespace Hiatme_Tool_Suite_v3
                     SectionTitle = line.SectionTitle,
                     GroupNoteText = line.GroupNoteText,
                     GroupNumber = line.GroupNumber,
+                    GroupColorOverride = line.GroupColorOverride,
                     Trip = line.Trip,
                     ReserveBandColor = line.ReserveBandColor,
                 });

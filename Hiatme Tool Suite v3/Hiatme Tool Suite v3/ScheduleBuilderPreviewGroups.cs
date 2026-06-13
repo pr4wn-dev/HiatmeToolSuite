@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -48,6 +49,9 @@ namespace Hiatme_Tool_Suite_v3
 
             foreach (var g in groups)
                 FinalizePickupWindow(g);
+
+            var lineList = lines as IList<ScheduleBuilderPreviewLine> ?? lines?.ToList();
+            ScheduleBuilderGroupColors.ApplyOverridesFromLines(lineList, groups);
             return groups;
         }
 

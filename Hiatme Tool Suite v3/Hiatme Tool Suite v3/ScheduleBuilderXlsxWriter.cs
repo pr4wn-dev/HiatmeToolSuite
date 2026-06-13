@@ -91,9 +91,6 @@ namespace Hiatme_Tool_Suite_v3
             if (!string.IsNullOrEmpty(dir))
                 Directory.CreateDirectory(dir);
 
-            if (File.Exists(outputPath))
-                File.Delete(outputPath);
-
             var sharedStrings = new List<string>();
             var sharedIndex = new Dictionary<string, int>(StringComparer.Ordinal);
             int IndexOfShared(string value)
@@ -121,6 +118,9 @@ namespace Hiatme_Tool_Suite_v3
             var colorToStyle = BuildColorStyleMap(sheets);
             int defaultStyle = colorToStyle.TryGetValue(Color.Empty, out int ds) ? ds : 0;
 
+            if (File.Exists(outputPath))
+                File.Delete(outputPath);
+
             using (var zip = ZipFile.Open(outputPath, ZipArchiveMode.Create))
             {
                 WriteEntry(zip, "[Content_Types].xml", BuildContentTypes(sheets.Count));
@@ -143,6 +143,61 @@ namespace Hiatme_Tool_Suite_v3
                 }
             }
         }
+
+        internal static bool IsFileInUse(IOException ex)
+        {
+            if (ex == null)
+                return false;
+            string msg = ex.Message ?? "";
+            return msg.IndexOf("being used by another process", StringComparison.OrdinalIgnoreCase) >= 0
+                || msg.IndexOf("used by another process", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        internal static bool IsFileLockError(Exception ex)
+        {
+            if (ex == null)
+                return false;
+
+            if (ex is AggregateException aggregate)
+            {
+                foreach (var inner in aggregate.Flatten().InnerExceptions)
+                {
+                    if (IsFileLockError(inner))
+                        return true;
+                }
+                return false;
+            }
+
+            for (var cur = ex; cur != null; cur = cur.InnerException)
+            {
+                if (cur is IOException io && IsFileInUse(io))
+                    return true;
+                string msg = cur.Message ?? "";
+                if (msg.IndexOf("is open in another program", StringComparison.OrdinalIgnoreCase) >= 0)
+                    return true;
+            }
+
+            return false;
+        }
+
+        internal static Exception UnwrapException(Exception ex)
+        {
+            if (ex is AggregateException aggregate)
+                return aggregate.GetBaseException() ?? ex;
+            return ex;
+        }
+
+        internal static InvalidOperationException CreateFileInUseException(string path, Exception inner)
+        {
+            string name = Path.GetFileName(path ?? "");
+            if (string.IsNullOrEmpty(name))
+                name = "the workbook";
+            return new InvalidOperationException(
+                "Cannot save because \"" + name + "\" is open in another program.\n\n"
+                + "Close LibreOffice Calc or Excel on that file, then save again.",
+                inner);
+        }
+
 
         private static Dictionary<Color, int> BuildColorStyleMap(
             IReadOnlyList<(string Name, List<List<string>> Rows, Dictionary<(int Row, int Col), Color> Fills, List<ScheduleBuilderPreviewCsvExport.WorkbookTab.RowMergeBar> MergeBars)> sheets)

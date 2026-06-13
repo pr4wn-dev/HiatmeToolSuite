@@ -1165,7 +1165,8 @@ namespace Hiatme_Tool_Suite_v3
             // Excel COM CSV import drops leading empty columns and breaks blank-row round-trip.
             if (workbookTabs != null && workbookTabs.Count > 0)
             {
-                await Task.Run(() => ScheduleBuilderXlsxWriter.WriteWorkbookFromTabs(path, workbookTabs))
+                await RunWorkbookWriteAsync(path,
+                    () => ScheduleBuilderXlsxWriter.WriteWorkbookFromTabs(path, workbookTabs))
                     .ConfigureAwait(false);
                 await FinishWorkbookExportAsync(path).ConfigureAwait(false);
                 return;
@@ -1173,7 +1174,8 @@ namespace Hiatme_Tool_Suite_v3
 
             if (!IsExcelAvailable())
             {
-                await Task.Run(() => ScheduleBuilderXlsxWriter.WriteWorkbookFromCsvFiles(path, fileList))
+                await RunWorkbookWriteAsync(path,
+                    () => ScheduleBuilderXlsxWriter.WriteWorkbookFromCsvFiles(path, fileList))
                     .ConfigureAwait(false);
                 await FinishWorkbookExportAsync(path).ConfigureAwait(false);
                 return;
@@ -1303,12 +1305,14 @@ namespace Hiatme_Tool_Suite_v3
                 try { newWorkbook?.Close(false); xlApp?.Quit(); } catch { }
                 if (workbookTabs != null && workbookTabs.Count > 0)
                 {
-                    await Task.Run(() => ScheduleBuilderXlsxWriter.WriteWorkbookFromTabs(path, workbookTabs))
+                    await RunWorkbookWriteAsync(path,
+                        () => ScheduleBuilderXlsxWriter.WriteWorkbookFromTabs(path, workbookTabs))
                         .ConfigureAwait(false);
                 }
                 else
                 {
-                    await Task.Run(() => ScheduleBuilderXlsxWriter.WriteWorkbookFromCsvFiles(path, fileList))
+                    await RunWorkbookWriteAsync(path,
+                        () => ScheduleBuilderXlsxWriter.WriteWorkbookFromCsvFiles(path, fileList))
                         .ConfigureAwait(false);
                 }
                 await FinishWorkbookExportAsync(path).ConfigureAwait(false);
@@ -1355,6 +1359,40 @@ namespace Hiatme_Tool_Suite_v3
                     inner,
                     "Building or saving the final .xlsx from the CSV files in Template Temps");
             }
+        }
+
+        private static async Task RunWorkbookWriteAsync(string path, System.Action write)
+        {
+            // Catch inside the worker so IOException is never user-unhandled on the thread pool
+            // (Visual Studio breaks on that before await observes the faulted task).
+            Exception fault = await Task.Run(() =>
+            {
+                try
+                {
+                    write();
+                    return (Exception)null;
+                }
+                catch (Exception ex)
+                {
+                    return ex;
+                }
+            }).ConfigureAwait(false);
+
+            if (fault == null)
+                return;
+
+            fault = ScheduleBuilderXlsxWriter.UnwrapException(fault);
+            if (!ScheduleBuilderXlsxWriter.IsFileLockError(fault))
+                throw fault;
+
+            throw new ScheduleBuilderException(
+                "CreateWorkbook",
+                path,
+                null,
+                null,
+                0,
+                ScheduleBuilderXlsxWriter.CreateFileInUseException(path, fault),
+                "—");
         }
 
         private async Task FinishWorkbookExportAsync(string path)

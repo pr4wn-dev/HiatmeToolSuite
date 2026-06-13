@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 
 namespace Hiatme_Tool_Suite_v3
 {
@@ -17,6 +18,7 @@ namespace Hiatme_Tool_Suite_v3
             var result = new List<ScheduleBuilderPreviewLine>(lines.Count);
             var segmentTrips = new List<ScheduleBuilderPreviewLine>();
             string pendingNote = null;
+            Color? pendingColorOverride = null;
             int groupNumber = 0;
 
             void FlushSegment()
@@ -24,24 +26,27 @@ namespace Hiatme_Tool_Suite_v3
                 if (segmentTrips.Count == 0)
                 {
                     pendingNote = null;
+                    pendingColorOverride = null;
                     return;
                 }
 
                 groupNumber++;
                 string note = (pendingNote ?? "").Trim();
-                if (note.Length > 0)
+                if (note.Length > 0 || pendingColorOverride.HasValue)
                 {
                     result.Add(new ScheduleBuilderPreviewLine
                     {
                         Kind = ScheduleBuilderPreviewLine.LineKind.GroupHeader,
                         GroupNumber = groupNumber,
                         GroupNoteText = note,
+                        GroupColorOverride = pendingColorOverride,
                     });
                 }
 
                 result.AddRange(segmentTrips);
                 segmentTrips.Clear();
                 pendingNote = null;
+                pendingColorOverride = null;
             }
 
             foreach (var line in lines)
@@ -54,6 +59,7 @@ namespace Hiatme_Tool_Suite_v3
                     case ScheduleBuilderPreviewLine.LineKind.GroupHeader:
                         FlushSegment();
                         pendingNote = line.GroupNoteText;
+                        pendingColorOverride = line.GroupColorOverride;
                         break;
 
                     case ScheduleBuilderPreviewLine.LineKind.Gap:

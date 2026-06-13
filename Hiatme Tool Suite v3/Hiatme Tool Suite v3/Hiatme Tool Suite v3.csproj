@@ -162,6 +162,7 @@
     <Compile Include="ScheduleBuilderXlsxWriter.cs" />
     <Compile Include="ScheduleBuilderPreviewGroups.cs" />
     <Compile Include="ScheduleBuilderGroupNotes.cs" />
+    <Compile Include="ScheduleBuilderGroupColors.cs" />
     <Compile Include="ScheduleBuilderGroupHeaderMeta.cs" />
     <Compile Include="ScheduleBuilderGapMeta.cs" />
     <Compile Include="ScheduleBuilderGapRoundTripSmoke.cs" />

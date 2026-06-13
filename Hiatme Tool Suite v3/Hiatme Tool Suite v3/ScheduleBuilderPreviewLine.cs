@@ -19,6 +19,8 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>User note on a route group header (merged cell in export).</summary>
         public string GroupNoteText { get; set; }
         public int GroupNumber { get; set; }
+        /// <summary>Custom route group color; null uses the default palette for this group number.</summary>
+        public Color? GroupColorOverride { get; set; }
         public MCDownloadedTrip Trip { get; set; }
         /// <summary>Grp swatch on Reserves tab (reservers / reroute sections).</summary>
         public Color? ReserveBandColor { get; set; }

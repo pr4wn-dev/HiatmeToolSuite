@@ -27,6 +27,8 @@ namespace Hiatme_Tool_Suite_v3
         private ToolStripMenuItem _fsTripsCtxDeleteRow;
         private ToolStripMenuItem _fsTripsCtxClearCut;
         private ToolStripMenuItem _fsTripsCtxEditGroupNote;
+        private ToolStripMenuItem _fsTripsCtxChangeGroupColor;
+        private ToolStripMenuItem _fsTripsCtxResetGroupColor;
         private MCDownloadedTrip _fsTripsCtxTrip;
         private SupeyTripCluster _fsTripsCtxGroup;
         private FsPreviewNoteTag _fsTripsCtxNoteTag;
@@ -194,6 +196,20 @@ namespace Hiatme_Tool_Suite_v3
             };
             _fsTripsCtxEditGroupNote.Click += (s, e) => FsEditGroupNoteFromContext();
 
+            _fsTripsCtxChangeGroupColor = new ToolStripMenuItem("Change group color")
+            {
+                BackColor = DarkContextMenuRenderer.Background,
+                ForeColor = DarkContextMenuRenderer.ForeColor,
+            };
+            _fsTripsCtxChangeGroupColor.Click += (s, e) => FsChangeGroupColorFromContext();
+
+            _fsTripsCtxResetGroupColor = new ToolStripMenuItem("Reset group color to default")
+            {
+                BackColor = DarkContextMenuRenderer.Background,
+                ForeColor = DarkContextMenuRenderer.ForeColor,
+            };
+            _fsTripsCtxResetGroupColor.Click += (s, e) => FsResetGroupColorFromContext();
+
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxBanClient);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxUnbanClient);
             _fsTripsCtxMenu.Items.Add(new ToolStripSeparator());
@@ -207,6 +223,8 @@ namespace Hiatme_Tool_Suite_v3
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxClearCut);
             _fsTripsCtxMenu.Items.Add(new ToolStripSeparator());
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxEditGroupNote);
+            _fsTripsCtxMenu.Items.Add(_fsTripsCtxChangeGroupColor);
+            _fsTripsCtxMenu.Items.Add(_fsTripsCtxResetGroupColor);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxAutoSortGroup);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxGeocodeDriverHome);
             _fsTripsCtxMenu.Items.Add(new ToolStripSeparator());
@@ -318,6 +336,29 @@ namespace Hiatme_Tool_Suite_v3
             _fsTripsCtxEditGroupNote.Enabled = _fsTripsCtxNoteTag?.Group != null
                 && !isReserves
                 && FsShowGroupColorsEnabled;
+
+            bool canChangeGroupColor = _fsTripsCtxGroup != null
+                && !isReserves
+                && FsShowGroupColorsEnabled
+                && hasBuild;
+            _fsTripsCtxChangeGroupColor.Enabled = canChangeGroupColor;
+            bool hasColorOverride = canChangeGroupColor
+                && _fsLinesByTab.TryGetValue(_fsActiveDriverTab ?? "", out var colorLines)
+                && colorLines != null
+                && ScheduleBuilderGroupColors.GetOverride(colorLines, _fsTripsCtxGroup.GroupNumber).HasValue;
+            _fsTripsCtxResetGroupColor.Enabled = hasColorOverride;
+            if (canChangeGroupColor)
+            {
+                _fsTripsCtxChangeGroupColor.Text = "Change group color — group "
+                    + _fsTripsCtxGroup.GroupNumber;
+                _fsTripsCtxResetGroupColor.Text = "Reset group color — group "
+                    + _fsTripsCtxGroup.GroupNumber;
+            }
+            else
+            {
+                _fsTripsCtxChangeGroupColor.Text = "Change group color";
+                _fsTripsCtxResetGroupColor.Text = "Reset group color to default";
+            }
 
             if (_fsTripsCtxNoteTag?.Group != null)
             {
@@ -487,6 +528,75 @@ namespace Hiatme_Tool_Suite_v3
                 ? "Group " + groupNumber + " note cleared."
                 : "Group " + groupNumber + " note saved.";
             SetScheduleBuilderStatus(status);
+        }
+
+        private void FsChangeGroupColorFromContext()
+        {
+            if (_fsTripsCtxGroup == null
+                || string.IsNullOrWhiteSpace(_fsActiveDriverTab)
+                || !_fsHasPreview)
+                return;
+
+            int groupNumber = _fsTripsCtxGroup.GroupNumber;
+            Color initial = _fsTripsCtxGroup.DisplayColor;
+            if (_fsLinesByTab.TryGetValue(_fsActiveDriverTab, out var existing) && existing != null)
+            {
+                var overrideColor = ScheduleBuilderGroupColors.GetOverride(existing, groupNumber);
+                if (overrideColor.HasValue)
+                    initial = overrideColor.Value;
+            }
+
+            using (var dlg = new ColorDialog())
+            {
+                dlg.Color = initial;
+                dlg.FullOpen = true;
+                if (dlg.ShowDialog(this) != DialogResult.OK)
+                    return;
+
+                FsApplyGroupColor(groupNumber, _fsTripsCtxGroup, dlg.Color, "change group color");
+            }
+        }
+
+        private void FsResetGroupColorFromContext()
+        {
+            if (_fsTripsCtxGroup == null
+                || string.IsNullOrWhiteSpace(_fsActiveDriverTab)
+                || !_fsHasPreview)
+                return;
+
+            FsApplyGroupColor(
+                _fsTripsCtxGroup.GroupNumber,
+                _fsTripsCtxGroup,
+                null,
+                "reset group color");
+        }
+
+        private void FsApplyGroupColor(
+            int groupNumber,
+            SupeyTripCluster group,
+            Color? color,
+            string undoLabel)
+        {
+            if (!_fsLinesByTab.TryGetValue(_fsActiveDriverTab, out var lines) || lines == null)
+                return;
+
+            ScheduleBuilderGroupHeaderReconcile.ReconcileInPlace(lines);
+            var groups = ScheduleBuilderPreviewGroups.BuildFromPreviewLines(lines);
+            group = FindFsGroupByNumber(groups, groupNumber) ?? group;
+            if (group == null)
+                return;
+
+            FsPushUndoSnapshot(undoLabel);
+            ScheduleBuilderGroupColors.ApplyColor(lines, groups, group, color);
+            FsCommitPreviewLinesForTab(_fsActiveDriverTab, lines);
+            ShowFsTripsForTab(_fsActiveDriverTab);
+            SyncFsPreviewCsvsForExport();
+            _ = RefreshFsMapForCurrentTabAsync();
+
+            if (color.HasValue)
+                SetScheduleBuilderStatus("Group " + groupNumber + " color updated.");
+            else
+                SetScheduleBuilderStatus("Group " + groupNumber + " color reset to default.");
         }
 
         private string FsPromptGroupNoteText(string title, string prompt, string initial)
