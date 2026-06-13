@@ -438,6 +438,58 @@ namespace Hiatme_Tool_Suite_v3
             return changed;
         }
 
+        internal bool TripExistsInPreview(string tripNumber)
+        {
+            string tn = (tripNumber ?? "").Trim();
+            if (tn.Length == 0)
+                return false;
+
+            bool Match(MCDownloadedTrip t) =>
+                string.Equals((t?.TripNumber ?? "").Trim(), tn, StringComparison.OrdinalIgnoreCase);
+
+            if (MCTripList?.Any(Match) == true)
+                return true;
+            if (TripsFound?.Any(Match) == true)
+                return true;
+
+            var reserveLists = new[] { PreviewReserves, PreviewReservesReroute, PreviewReservesWillCalls };
+            foreach (var list in reserveLists)
+            {
+                if (list?.Any(Match) == true)
+                    return true;
+            }
+
+            if (PreviewDriverLines == null)
+                return false;
+
+            foreach (var kv in PreviewDriverLines)
+            {
+                foreach (var line in kv.Value ?? Enumerable.Empty<ScheduleBuilderPreviewLine>())
+                {
+                    if (line?.Kind == ScheduleBuilderPreviewLine.LineKind.Trip && Match(line.Trip))
+                        return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>Shared registry ghost — trip rerouted on Modivcare but no longer in download.</summary>
+        internal bool TryAddSharedReroutedGhost(MCDownloadedTrip ghost)
+        {
+            if (ghost == null || string.IsNullOrWhiteSpace(ghost.TripNumber))
+                return false;
+            if (TripExistsInPreview(ghost.TripNumber))
+                return false;
+
+            var reroutes = PreviewReservesReroute ?? new List<MCDownloadedTrip>();
+            reroutes.Add(ghost);
+            PreviewReservesReroute = reroutes;
+            if (TripsFound != null)
+                TripsFound.Add(ghost);
+            return true;
+        }
+
         /// <summary>Re-bucket Reserves lists after banned / no-go rules change (unban, remove town).</summary>
         internal void RebucketPreviewReserves()
         {

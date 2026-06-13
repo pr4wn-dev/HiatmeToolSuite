@@ -93,6 +93,22 @@ namespace Hiatme_Tool_Suite_v3
                     successMsg += "\n\nAlready in Reserves → Reroutes — marked red.";
                 }
 
+                var aiSettings = HiatmeAiSettings.Load();
+                var recordResult = await ScheduleBuilderReroutedTripsRegistry.RecordRerouteAsync(
+                    aiSettings,
+                    fsbdatepicker?.Value.Date ?? DateTime.Today,
+                    trip,
+                    aiSettings.ResolvedClientId()).ConfigureAwait(true);
+
+                if (recordResult.LocalSaved && !recordResult.ServerSaved && HiatmeGeoSettings.UseServer)
+                {
+                    successMsg += "\n\nSaved on this PC — office server offline; other desks may not see this reroute yet.";
+                }
+                else if (recordResult.LocalSaved && recordResult.ServerSaved)
+                {
+                    successMsg += "\n\nShared with office server — other desks will see this on BUILD.";
+                }
+
                 MessageBox.Show(this, successMsg, "Reroute on Modivcare",
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
 

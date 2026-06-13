@@ -519,6 +519,84 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        public static async Task<List<ScheduleBuilderReroutedTripRecord>> GetReroutedTripsAsync(
+            HiatmeAiSettings settings,
+            DateTime serviceDate,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null)
+                return null;
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl))
+                return null;
+            try
+            {
+                string sd = ScheduleBuilderReroutedTripsRegistry.FormatServiceDate(serviceDate);
+                string url = baseUrl + "/api/hiatme/rerouted-trips?service_date="
+                    + Uri.EscapeDataString(sd);
+                using (var req = new HttpRequestMessage(HttpMethod.Get, url))
+                {
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
+                    {
+                        if (!resp.IsSuccessStatusCode)
+                            return null;
+                        var root = JObject.Parse(await resp.Content.ReadAsStringAsync().ConfigureAwait(false));
+                        var arr = root["trips"] as JArray ?? new JArray();
+                        if (arr.Count == 0)
+                            return new List<ScheduleBuilderReroutedTripRecord>();
+                        return arr.ToObject<List<ScheduleBuilderReroutedTripRecord>>()
+                            ?? new List<ScheduleBuilderReroutedTripRecord>();
+                    }
+                }
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        public static async Task<bool> AddReroutedTripAsync(
+            HiatmeAiSettings settings,
+            DateTime serviceDate,
+            ScheduleBuilderReroutedTripRecord trip,
+            string reroutedBy = "",
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null || trip == null)
+                return false;
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl))
+                return false;
+            try
+            {
+                var payload = new JObject
+                {
+                    ["service_date"] = ScheduleBuilderReroutedTripsRegistry.FormatServiceDate(serviceDate),
+                    ["rerouted_by"] = reroutedBy ?? "",
+                    ["trip"] = JObject.FromObject(trip),
+                };
+                using (var req = new HttpRequestMessage(HttpMethod.Post, baseUrl + "/api/hiatme/rerouted-trips"))
+                {
+                    req.Content = new StringContent(
+                        payload.ToString(Formatting.None),
+                        Encoding.UTF8,
+                        "application/json");
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
+                        return resp.IsSuccessStatusCode;
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         public static async Task<bool> SetOutOfAreaAsync(
             HiatmeAiSettings settings,
             IList<string> areas,

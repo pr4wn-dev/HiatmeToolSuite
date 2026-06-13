@@ -1357,11 +1357,16 @@ namespace Hiatme_Tool_Suite_v3
 
                     fsbuilder.ApplyLoadedSchedule(load);
 
+                    var rerouteMerge = await ScheduleBuilderReroutedTripsRegistry.MergeIntoBuilderAsync(
+                        fsbuilder, serviceDate, HiatmeAiSettings.Load()).ConfigureAwait(true);
+
                     var driverSync = await SyncFsDriversDuringBuildAsync(
                         fsbuilder.PreviewDriverLines.Keys,
                         SetScheduleBuilderStatus).ConfigureAwait(true);
 
                     BindScheduleBuilderPreview(fsbuilder);
+                    ScheduleBuilderReroutedTripsRegistry.MarkReroutedOnPreview(
+                        _fsLinesByTab, rerouteMerge.ReroutedTripNumbers);
 
                     if (ScheduleBuilderPreviewUndo.LinesByTabContainsGap(_fsLinesByTab))
                     {
@@ -1414,6 +1419,11 @@ namespace Hiatme_Tool_Suite_v3
 
                               + (rer > 0 ? ", " + rer + " reroute(s)" : "")
 
+                            : "")
+
+                        + (rerouteMerge.GhostsAdded > 0
+                            ? ", " + rerouteMerge.GhostsAdded + " rerouted ghost"
+                              + (rerouteMerge.GhostsAdded == 1 ? "" : "s")
                             : "")
 
                         + ". Groups: " + groupingSummary + "."
@@ -1562,11 +1572,16 @@ namespace Hiatme_Tool_Suite_v3
 
                 await fsbuilder.BuildPreviewAsync(fsbdatepicker.Value, mcLoginHandler).ConfigureAwait(true);
 
+                var rerouteMerge = await ScheduleBuilderReroutedTripsRegistry.MergeIntoBuilderAsync(
+                    fsbuilder, fsbdatepicker.Value.Date, HiatmeAiSettings.Load()).ConfigureAwait(true);
+
                 var driverSync = await SyncFsDriversDuringBuildAsync(
                     fsbuilder.PreviewDriverLines.Keys,
                     OnBuildStatus).ConfigureAwait(true);
 
                 BindScheduleBuilderPreview(fsbuilder);
+                ScheduleBuilderReroutedTripsRegistry.MarkReroutedOnPreview(
+                    _fsLinesByTab, rerouteMerge.ReroutedTripNumbers);
 
                 int drivers = fsbuilder.PreviewDriverLines.Count;
 
@@ -1607,6 +1622,10 @@ namespace Hiatme_Tool_Suite_v3
                 if (rer > 0)
 
                     resMsg += ", " + rer + " reroute" + (rer == 1 ? "" : "s");
+
+                if (rerouteMerge.GhostsAdded > 0)
+                    resMsg += ", " + rerouteMerge.GhostsAdded + " rerouted ghost"
+                        + (rerouteMerge.GhostsAdded == 1 ? "" : "s");
 
                 string buildSummary = "Built — " + drivers + " driver tab(s), "
 

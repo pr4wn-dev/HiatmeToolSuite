@@ -165,6 +165,7 @@
     <Compile Include="ScheduleBuilderGroupColors.cs" />
     <Compile Include="ScheduleBuilderRerouteMeta.cs" />
     <Compile Include="ScheduleBuilderReroutedTrips.cs" />
+    <Compile Include="ScheduleBuilderReroutedTripsRegistry.cs" />
     <Compile Include="MCTripRerouter.cs" />
     <Compile Include="ScheduleBuilderGroupHeaderMeta.cs" />
     <Compile Include="ScheduleBuilderGapMeta.cs" />
