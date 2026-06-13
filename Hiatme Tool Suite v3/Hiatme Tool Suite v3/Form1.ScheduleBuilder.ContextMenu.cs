@@ -127,14 +127,14 @@ namespace Hiatme_Tool_Suite_v3
                 BackColor = DarkContextMenuRenderer.Background,
                 ForeColor = DarkContextMenuRenderer.ForeColor,
             };
-            _fsTripsCtxInsertAbove.Click += (s, e) => FsInsertCutTrip(below: false);
+            _fsTripsCtxInsertAbove.Click += (s, e) => FsInsertFromContextMenu(below: false);
 
             _fsTripsCtxInsertBelow = new ToolStripMenuItem("Insert below")
             {
                 BackColor = DarkContextMenuRenderer.Background,
                 ForeColor = DarkContextMenuRenderer.ForeColor,
             };
-            _fsTripsCtxInsertBelow.Click += (s, e) => FsInsertCutTrip(below: true);
+            _fsTripsCtxInsertBelow.Click += (s, e) => FsInsertFromContextMenu(below: true);
 
             _fsTripsCtxClearCut = new ToolStripMenuItem("Clear cut trip")
             {
@@ -201,6 +201,11 @@ namespace Hiatme_Tool_Suite_v3
                     _fsTripsCtxTrip = tripTag.Trip;
                     _fsTripsCtxGroup = tripTag.Group;
                 }
+                else if (hit.Item.Tag is FsPreviewGapTag)
+                {
+                    hit.Item.Selected = true;
+                    hit.Item.Focused = true;
+                }
                 else
                     _fsTripsCtxTrip = GetFsTripFromListItem(hit.Item);
 
@@ -231,18 +236,20 @@ namespace Hiatme_Tool_Suite_v3
                 && (!string.IsNullOrWhiteSpace(activeDriverProfile.HomeStreet)
                     || !string.IsNullOrWhiteSpace(activeDriverProfile.HomeCity));
             bool canGeocodeDriverHome = !isReserves && hasHomeAddress && ScheduleOsrmGate.PreviewGeoOk;
-            bool canInsertCut = FsCanInsertCutTripAtContext();
+            bool canInsertAt = canMoveTrips && FsCanInsertAtContext();
+            bool canInsertBlank = canInsertAt && !isReserves;
+            bool canInsertCut = canInsertAt && FsHasCutTrip;
 
             _fsTripsCtxCutTrip.Enabled = hasTrip && canMoveTrips && !FsHasCutTrip;
-            _fsTripsCtxInsertAbove.Enabled = canInsertCut;
-            _fsTripsCtxInsertBelow.Enabled = canInsertCut;
+            _fsTripsCtxInsertAbove.Enabled = FsHasCutTrip ? canInsertCut : canInsertBlank;
+            _fsTripsCtxInsertBelow.Enabled = FsHasCutTrip ? canInsertCut : canInsertBlank;
             _fsTripsCtxClearCut.Enabled = FsHasCutTrip;
             _fsTripsCtxInsertAbove.Text = FsHasCutTrip
                 ? "Insert above" + FsCutTripMenuSuffix()
-                : "Insert above";
+                : "Insert above — new row";
             _fsTripsCtxInsertBelow.Text = FsHasCutTrip
                 ? "Insert below" + FsCutTripMenuSuffix()
-                : "Insert below";
+                : "Insert below — new row";
 
             _fsTripsCtxBanClient.Enabled = hasTrip;
             _fsTripsCtxUnbanClient.Enabled = hasTrip && isBanned;
@@ -562,7 +569,6 @@ namespace Hiatme_Tool_Suite_v3
                 return;
             }
 
-            lines = ScheduleBuilderTemplateSlots.CollapseConsecutivePreviewGaps(lines);
             FsCommitPreviewLinesForTab(tab, lines);
 
             ShowFsTripsForTab(tab);

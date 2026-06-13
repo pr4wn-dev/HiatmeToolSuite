@@ -152,6 +152,16 @@ namespace Hiatme_Tool_Suite_v3
 
         internal bool FsShowGroupColorsEnabled => _fsShowGroupColors;
 
+        /// <summary>Show gap rows in the list after a manual insert so the new row is visible.</summary>
+        internal void FsRevealGapsForManualInsert()
+        {
+            if (_fsShowGaps)
+                return;
+            _fsShowGaps = true;
+            if (_fsSettingsShowGaps != null)
+                _fsSettingsShowGaps.Checked = true;
+        }
+
         internal ScheduleBuilderPreviewCsvExport.Options MakeFsPreviewCsvExportOptions()
         {
             return new ScheduleBuilderPreviewCsvExport.Options

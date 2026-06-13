@@ -292,7 +292,6 @@ namespace Hiatme_Tool_Suite_v3
                 _fsTripDragInsertLine,
                 _fsTripDragMerge);
 
-            lines = ScheduleBuilderTemplateSlots.CollapseConsecutivePreviewGaps(lines);
             FsCommitPreviewLinesForTab(tab, lines);
 
             if (fsbuilder?.PreviewDriverLines != null)

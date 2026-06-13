@@ -297,6 +297,90 @@ namespace Hiatme_Tool_Suite_v3
             lines.Insert(insert, line);
         }
 
+        /// <summary>Insert a blank gap/spacer row (Excel-style insert row).</summary>
+        internal static void InsertGapLine(IList<ScheduleBuilderPreviewLine> lines, int insertBeforeLineIndex)
+        {
+            if (lines == null) return;
+
+            int insert = Math.Max(0, Math.Min(insertBeforeLineIndex, lines.Count));
+            lines.Insert(insert, new ScheduleBuilderPreviewLine
+            {
+                Kind = ScheduleBuilderPreviewLine.LineKind.Gap,
+                GapNoteText = "",
+            });
+        }
+
+        /// <summary>
+        /// Map a context-menu ListView row to an index in the preview <paramref name="lines"/> list.
+        /// ListView trip/gap counts omit group headers and hidden gaps — use tag line indices instead.
+        /// </summary>
+        internal static bool TryResolveInsertLineIndex(
+            IList<ScheduleBuilderPreviewLine> lines,
+            ListViewItem item,
+            bool below,
+            out int insertIndex)
+        {
+            insertIndex = 0;
+            if (lines == null)
+                return false;
+
+            if (item == null)
+            {
+                insertIndex = lines.Count;
+                return true;
+            }
+
+            if (item.Tag is FsPreviewNoteTag noteTag)
+            {
+                if (noteTag.PreviewLineIndex < 0)
+                    return false;
+                if (below)
+                {
+                    insertIndex = FindInsertIndexBelowNoteBar(lines, noteTag.PreviewLineIndex);
+                    return true;
+                }
+
+                insertIndex = noteTag.PreviewLineIndex;
+                return true;
+            }
+
+            int lineIdx = FsPreviewLineRef.GetLineIndex(item.Tag);
+            if (lineIdx < 0)
+                return false;
+
+            // Gap row: above = before this spacer, below = after it (Excel insert-row on a blank line).
+            if (item.Tag is FsPreviewGapTag)
+            {
+                insertIndex = below ? lineIdx + 1 : lineIdx;
+                insertIndex = Math.Max(0, Math.Min(insertIndex, lines.Count));
+                return true;
+            }
+
+            insertIndex = below ? lineIdx + 1 : lineIdx;
+            insertIndex = Math.Max(0, Math.Min(insertIndex, lines.Count));
+            return true;
+        }
+
+        private static int FindInsertIndexBelowNoteBar(IList<ScheduleBuilderPreviewLine> lines, int anchorLineIdx)
+        {
+            if (anchorLineIdx >= 0
+                && anchorLineIdx < lines.Count
+                && lines[anchorLineIdx]?.Kind == ScheduleBuilderPreviewLine.LineKind.GroupHeader)
+            {
+                for (int i = anchorLineIdx + 1; i < lines.Count; i++)
+                {
+                    var kind = lines[i]?.Kind;
+                    if (kind == ScheduleBuilderPreviewLine.LineKind.Trip
+                        || kind == ScheduleBuilderPreviewLine.LineKind.Gap)
+                        return i;
+                }
+
+                return lines.Count;
+            }
+
+            return Math.Max(0, Math.Min(anchorLineIdx, lines.Count));
+        }
+
         internal static Color? ResolveReserveBandForInsert(IList<ScheduleBuilderPreviewLine> lines, int insertIndex)
         {
             if (lines == null || lines.Count == 0)

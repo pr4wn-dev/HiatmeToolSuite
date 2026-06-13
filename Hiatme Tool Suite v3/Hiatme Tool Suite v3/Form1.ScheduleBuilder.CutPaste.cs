@@ -34,7 +34,6 @@ namespace Hiatme_Tool_Suite_v3
                 return;
 
             _fsCutTrip = _fsTripsCtxTrip;
-            lines = ScheduleBuilderTemplateSlots.CollapseConsecutivePreviewGaps(lines);
             FsCommitPreviewLinesForTab(tab, lines);
             ShowFsTripsForTab(tab);
             _ = RefreshFsMapForCurrentTabAsync();
@@ -43,6 +42,14 @@ namespace Hiatme_Tool_Suite_v3
             SetScheduleBuilderStatus(string.IsNullOrEmpty(num)
                 ? "Trip cut — right-click a row · Insert above or Insert below."
                 : "Trip " + num + " cut — right-click a row · Insert above or Insert below.");
+        }
+
+        private void FsInsertFromContextMenu(bool below)
+        {
+            if (FsHasCutTrip)
+                FsInsertCutTrip(below);
+            else
+                FsInsertBlankRow(below);
         }
 
         private void FsInsertCutTrip(bool below)
@@ -76,7 +83,6 @@ namespace Hiatme_Tool_Suite_v3
 
             ScheduleBuilderPreviewDrag.InsertTripLine(lines, trip, insertBeforeLine, reserveBand);
 
-            lines = ScheduleBuilderTemplateSlots.CollapseConsecutivePreviewGaps(lines);
             FsCommitPreviewLinesForTab(tab, lines);
             ShowFsTripsForTab(tab);
             SelectFsTripInListView(trip);
@@ -88,56 +94,67 @@ namespace Hiatme_Tool_Suite_v3
                 : "Trip " + num + " inserted — map updating…");
         }
 
+        private void FsInsertBlankRow(bool below)
+        {
+            if (FsHasCutTrip || string.IsNullOrWhiteSpace(_fsActiveDriverTab) || !_fsHasPreview)
+                return;
+
+            if (_fsActiveDriverTab.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
+                return;
+
+            if (!TryResolveFsInsertBeforeLine(_fsTripsCtxHitItem, below, out int insertBeforeLine))
+            {
+                SetScheduleBuilderStatus("Could not insert here — right-click a trip, gap, or group row.");
+                return;
+            }
+
+            string tab = _fsActiveDriverTab;
+            if (!_fsLinesByTab.TryGetValue(tab, out var lines) || lines == null)
+                return;
+
+            FsRevealGapsForManualInsert();
+            ScheduleBuilderPreviewDrag.InsertGapLine(lines, insertBeforeLine);
+            // Keep consecutive spacers — collapse would undo insert-from-gap immediately.
+            FsCommitPreviewLinesForTab(tab, lines);
+            ShowFsTripsForTab(tab);
+            SyncFsPreviewCsvsForExport();
+            _ = RefreshFsMapForCurrentTabAsync();
+
+            SetScheduleBuilderStatus("Blank row inserted.");
+        }
+
         private async Task FsRefreshAfterTripMoveAsync()
         {
             await RefreshFsMapForCurrentTabAsync().ConfigureAwait(true);
             FsTripsLv_SelectionChangedUpdateMap();
         }
 
-        /// <summary>Line index among trip+gap rows where a cut trip should be inserted (Excel-style).</summary>
+        /// <summary>Line index in preview lines where insert should occur.</summary>
         private bool TryResolveFsInsertBeforeLine(ListViewItem item, bool below, out int insertBeforeLine)
         {
             insertBeforeLine = 0;
-            if (_fsTripsLv == null)
+            if (_fsTripsLv == null || string.IsNullOrWhiteSpace(_fsActiveDriverTab))
                 return false;
 
-            if (item == null)
-            {
-                insertBeforeLine = ScheduleBuilderPreviewDrag.CountTripAndGapLines(_fsTripsLv);
-                return true;
-            }
-
-            if (item.Tag is FsPreviewSectionHeaderTag)
+            if (!_fsLinesByTab.TryGetValue(_fsActiveDriverTab, out var lines) || lines == null)
                 return false;
 
-            if (item.Tag is FsPreviewNoteTag)
-            {
-                int firstInGroup = ScheduleBuilderPreviewDrag.ListViewIndexToLineIndex(
-                    _fsTripsLv, item.Index + 1, out _, out _);
-                if (firstInGroup < 0)
-                    firstInGroup = ScheduleBuilderPreviewDrag.CountTripAndGapLines(_fsTripsLv);
-                insertBeforeLine = below ? firstInGroup + 1 : firstInGroup;
-                return true;
-            }
-
-            int line = ScheduleBuilderPreviewDrag.ListViewIndexToLineIndex(
-                _fsTripsLv, item.Index, out _, out _);
-            if (line < 0)
-                return false;
-
-            insertBeforeLine = below ? line + 1 : line;
-            return true;
+            return ScheduleBuilderPreviewDrag.TryResolveInsertLineIndex(lines, item, below, out insertBeforeLine);
         }
 
-        private bool FsCanInsertCutTripAtContext()
+        private bool FsCanInsertAtContext()
         {
-            if (!FsHasCutTrip || !_fsHasPreview || string.IsNullOrWhiteSpace(_fsActiveDriverTab))
+            if (!_fsHasPreview || string.IsNullOrWhiteSpace(_fsActiveDriverTab))
                 return false;
             if (_fsTripsCtxHitItem == null)
-                return ScheduleBuilderPreviewDrag.CountTripAndGapLines(_fsTripsLv) >= 0;
-            if (_fsTripsCtxHitItem.Tag is FsPreviewSectionHeaderTag)
-                return false;
-            return true;
+                return true;
+            if (_fsTripsCtxHitItem.Tag is FsPreviewSectionHeaderTag sectionTag)
+                return sectionTag.PreviewLineIndex >= 0;
+            return ScheduleBuilderPreviewDrag.TryResolveInsertLineIndex(
+                _fsLinesByTab.TryGetValue(_fsActiveDriverTab, out var lines) ? lines : null,
+                _fsTripsCtxHitItem,
+                below: false,
+                out _);
         }
 
         private static Color? FsFindTripReserveBand(IList<ScheduleBuilderPreviewLine> lines, MCDownloadedTrip trip)

@@ -770,7 +770,7 @@ namespace Hiatme_Tool_Suite_v3
             try
             {
                 ClearFsTripsListSelection();
-                ShowFsTripsForTab(tabName);
+                ShowFsTripsForTab(tabName, preserveScroll: false);
             }
             finally
             {
@@ -2499,7 +2499,7 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-        private void ShowFsTripsForTab(string tabName)
+        private void ShowFsTripsForTab(string tabName, bool preserveScroll = true)
 
         {
 
@@ -2507,7 +2507,13 @@ namespace Hiatme_Tool_Suite_v3
 
                 return;
 
-
+            int scrollAnchorLine = -1;
+            int scrollAnchorItemIndex = -1;
+            if (preserveScroll && _fsTripsLv.Items.Count > 0 && _fsTripsLv.TopItem != null)
+            {
+                scrollAnchorLine = FsPreviewLineRef.GetLineIndex(_fsTripsLv.TopItem.Tag);
+                scrollAnchorItemIndex = _fsTripsLv.TopItem.Index;
+            }
 
             _fsTripsLv.ListViewItemSorter = null;
 
@@ -2529,13 +2535,14 @@ namespace Hiatme_Tool_Suite_v3
 
                     _fsTripsLv.EndUpdate();
 
+                    if (preserveScroll)
+                        FsRestoreTripsListViewScroll(scrollAnchorLine, scrollAnchorItemIndex);
+
                     ListViewMinWidthEnforcer.ScheduleRecompute(_fsTripsLv);
 
                     return;
 
                 }
-
-                lines = ScheduleBuilderTemplateSlots.CollapseConsecutivePreviewGaps(lines);
 
                 var groups = FsShowGroupColorsEnabled
                     ? ScheduleBuilderPreviewGroups.BuildFromPreviewLines(lines)
@@ -2560,7 +2567,7 @@ namespace Hiatme_Tool_Suite_v3
                         lastHeaderGroup = null;
 
                         if (FsShowGapsEnabled)
-                            AddFsTemplateGapRow();
+                            AddFsTemplateGapRow(li);
 
                         continue;
 
@@ -2580,7 +2587,7 @@ namespace Hiatme_Tool_Suite_v3
 
                             {
 
-                                AddFsGroupNoteRow(headerGroup, line.GroupNoteText);
+                                AddFsGroupNoteRow(headerGroup, line.GroupNoteText, li);
 
                                 lastHeaderGroup = headerGroup;
 
@@ -2602,13 +2609,13 @@ namespace Hiatme_Tool_Suite_v3
 
                     {
 
-                        AddFsGroupNoteRow(g, null);
+                        AddFsGroupNoteRow(g, null, li);
 
                     }
 
                     lastHeaderGroup = g;
 
-                    _fsTripsLv.Items.Add(CreateFsTripListItem(g, line.Trip));
+                    _fsTripsLv.Items.Add(CreateFsTripListItem(g, line.Trip, li));
 
                 }
 
@@ -2616,8 +2623,53 @@ namespace Hiatme_Tool_Suite_v3
 
             _fsTripsLv.EndUpdate();
 
+            if (preserveScroll)
+                FsRestoreTripsListViewScroll(scrollAnchorLine, scrollAnchorItemIndex);
+
             ListViewMinWidthEnforcer.ScheduleRecompute(_fsTripsLv);
 
+        }
+
+        private void FsRestoreTripsListViewScroll(int previewLineIndex, int fallbackItemIndex)
+        {
+            if (_fsTripsLv == null || _fsTripsLv.Items.Count == 0)
+                return;
+
+            ListViewItem top = null;
+            if (previewLineIndex >= 0)
+            {
+                int bestDist = int.MaxValue;
+                foreach (ListViewItem item in _fsTripsLv.Items)
+                {
+                    int line = FsPreviewLineRef.GetLineIndex(item.Tag);
+                    if (line < 0)
+                        continue;
+                    int dist = Math.Abs(line - previewLineIndex);
+                    if (dist < bestDist)
+                    {
+                        bestDist = dist;
+                        top = item;
+                    }
+                }
+            }
+
+            if (top == null && fallbackItemIndex >= 0)
+            {
+                int idx = Math.Min(fallbackItemIndex, _fsTripsLv.Items.Count - 1);
+                top = _fsTripsLv.Items[idx];
+            }
+
+            if (top == null)
+                return;
+
+            try
+            {
+                _fsTripsLv.TopItem = top;
+            }
+            catch
+            {
+                // ListView can reject TopItem during layout; ignore.
+            }
         }
 
 
@@ -2630,9 +2682,11 @@ namespace Hiatme_Tool_Suite_v3
 
             _fsGroupsByTab["Reserves"] = groups;
 
-            foreach (var line in lines ?? Enumerable.Empty<ScheduleBuilderPreviewLine>())
+            for (int li = 0; li < (lines?.Count ?? 0); li++)
 
             {
+
+                var line = lines[li];
 
                 if (line == null) continue;
 
@@ -2640,7 +2694,7 @@ namespace Hiatme_Tool_Suite_v3
 
                 {
 
-                    AddFsReservesSectionHeader(line.SectionTitle, line.ReserveBandColor);
+                    AddFsReservesSectionHeader(line.SectionTitle, line.ReserveBandColor, li);
 
                     continue;
 
@@ -2652,7 +2706,7 @@ namespace Hiatme_Tool_Suite_v3
 
                     var g = FindFsGroupForTrip(groups, line.Trip);
 
-                    AddFsReserveTripListItem(line.Trip, line.ReserveBandColor, g);
+                    AddFsReserveTripListItem(line.Trip, line.ReserveBandColor, g, li);
 
                 }
 
@@ -2662,7 +2716,7 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-        private void AddFsReservesSectionHeader(string title, Color? sectionColor)
+        private void AddFsReservesSectionHeader(string title, Color? sectionColor, int previewLineIndex)
 
         {
 
@@ -2682,7 +2736,7 @@ namespace Hiatme_Tool_Suite_v3
                 lvi.SubItems[i].BackColor = c;
             }
 
-            lvi.Tag = new FsPreviewSectionHeaderTag(title, c);
+            lvi.Tag = new FsPreviewSectionHeaderTag(title, c) { PreviewLineIndex = previewLineIndex };
 
             _fsTripsLv.Items.Add(lvi);
 
@@ -2690,7 +2744,7 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-        private void AddFsReserveTripListItem(MCDownloadedTrip trip, Color? bandColor, SupeyTripCluster group)
+        private void AddFsReserveTripListItem(MCDownloadedTrip trip, Color? bandColor, SupeyTripCluster group, int previewLineIndex)
 
         {
 
@@ -2726,7 +2780,7 @@ namespace Hiatme_Tool_Suite_v3
 
             lvi.SubItems.Add(trip.Comments ?? "");
 
-            lvi.Tag = new FsPreviewTripTag(group, trip);
+            lvi.Tag = new FsPreviewTripTag(group, trip) { PreviewLineIndex = previewLineIndex };
 
             _fsTripsLv.Items.Add(lvi);
 
@@ -2799,7 +2853,7 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-        private void AddFsTemplateGapRow()
+        private void AddFsTemplateGapRow(int previewLineIndex)
 
         {
 
@@ -2813,7 +2867,7 @@ namespace Hiatme_Tool_Suite_v3
 
                 lvi.SubItems[c].BackColor = SupeyTheme.ListBody;
 
-            lvi.Tag = new FsPreviewGapTag();
+            lvi.Tag = new FsPreviewGapTag { PreviewLineIndex = previewLineIndex };
 
             _fsTripsLv.Items.Add(lvi);
 
@@ -2821,7 +2875,7 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-        private void AddFsGroupNoteRow(SupeyTripCluster g, string noteText)
+        private void AddFsGroupNoteRow(SupeyTripCluster g, string noteText, int previewLineIndex)
 
         {
 
@@ -2845,7 +2899,7 @@ namespace Hiatme_Tool_Suite_v3
                 lvi.SubItems[c].BackColor = bar;
             }
 
-            lvi.Tag = new FsPreviewNoteTag(g, note);
+            lvi.Tag = new FsPreviewNoteTag(g, note) { PreviewLineIndex = previewLineIndex };
 
             _fsTripsLv.Items.Add(lvi);
 
@@ -2853,7 +2907,7 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-        private ListViewItem CreateFsTripListItem(SupeyTripCluster g, MCDownloadedTrip trip)
+        private ListViewItem CreateFsTripListItem(SupeyTripCluster g, MCDownloadedTrip trip, int previewLineIndex)
 
         {
 
@@ -2871,7 +2925,9 @@ namespace Hiatme_Tool_Suite_v3
 
             }
 
-            lvi.Tag = g != null ? (object)new FsPreviewTripTag(g, trip) : trip;
+            lvi.Tag = g != null
+                ? (object)new FsPreviewTripTag(g, trip) { PreviewLineIndex = previewLineIndex }
+                : trip;
 
             lvi.SubItems.Add(trip.TripNumber ?? "");
 
