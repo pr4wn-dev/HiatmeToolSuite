@@ -658,6 +658,8 @@ namespace Hiatme_Tool_Suite_v3
 
             _fsTripsLv.MouseUp += FsTripsLv_MouseUp_ShowContextMenu;
 
+            _fsTripsLv.KeyDown += FsTripsLv_KeyDown_Undo;
+
             WireFsTripsListDragDrop();
 
             if (FsTripDragDropEnabled)
@@ -1698,6 +1700,8 @@ namespace Hiatme_Tool_Suite_v3
             _fsLinesByTab.Clear();
 
             _fsGroupsByTab.Clear();
+
+            FsClearUndoHistory();
 
             _fsTripsLv.Items.Clear();
 

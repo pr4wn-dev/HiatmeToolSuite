@@ -19,6 +19,7 @@ namespace Hiatme_Tool_Suite_v3
         private ToolStripMenuItem _fsTripsCtxAutoSortGroup;
         private ToolStripMenuItem _fsTripsCtxGeocodeDriverHome;
         private ToolStripMenuItem _fsTripsCtxCutTrip;
+        private ToolStripMenuItem _fsTripsCtxUndo;
         private ToolStripMenuItem _fsTripsCtxInsertAbove;
         private ToolStripMenuItem _fsTripsCtxInsertBelow;
         private ToolStripMenuItem _fsTripsCtxClearCut;
@@ -122,6 +123,15 @@ namespace Hiatme_Tool_Suite_v3
             };
             _fsTripsCtxCutTrip.Click += (s, e) => FsCutSelectedTrip();
 
+            _fsTripsCtxUndo = new ToolStripMenuItem("Undo")
+            {
+                BackColor = DarkContextMenuRenderer.Background,
+                ForeColor = DarkContextMenuRenderer.ForeColor,
+                ShortcutKeys = Keys.Control | Keys.Z,
+                ShowShortcutKeys = true,
+            };
+            _fsTripsCtxUndo.Click += (s, e) => FsUndoScheduleEdit();
+
             _fsTripsCtxInsertAbove = new ToolStripMenuItem("Insert above")
             {
                 BackColor = DarkContextMenuRenderer.Background,
@@ -158,6 +168,7 @@ namespace Hiatme_Tool_Suite_v3
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxUnbanClient);
             _fsTripsCtxMenu.Items.Add(new ToolStripSeparator());
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxCutTrip);
+            _fsTripsCtxMenu.Items.Add(_fsTripsCtxUndo);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxInsertAbove);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxInsertBelow);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxClearCut);
@@ -241,6 +252,8 @@ namespace Hiatme_Tool_Suite_v3
             bool canInsertCut = canInsertAt && FsHasCutTrip;
 
             _fsTripsCtxCutTrip.Enabled = hasTrip && canMoveTrips && !FsHasCutTrip;
+            _fsTripsCtxUndo.Enabled = _fsUndoStack.CanUndo;
+            _fsTripsCtxUndo.Text = FsUndoMenuText();
             _fsTripsCtxInsertAbove.Enabled = FsHasCutTrip ? canInsertCut : canInsertBlank;
             _fsTripsCtxInsertBelow.Enabled = FsHasCutTrip ? canInsertCut : canInsertBlank;
             _fsTripsCtxClearCut.Enabled = FsHasCutTrip;
@@ -424,6 +437,7 @@ namespace Hiatme_Tool_Suite_v3
             if (group == null)
                 return;
 
+            FsPushUndoSnapshot("edit group note");
             ScheduleBuilderGroupNotes.ApplyNote(lines, groups, group, edited);
             FsCommitPreviewLinesForTab(_fsActiveDriverTab, lines);
             ShowFsTripsForTab(_fsActiveDriverTab);
@@ -562,6 +576,7 @@ namespace Hiatme_Tool_Suite_v3
                 return;
             }
 
+            FsPushUndoSnapshot("auto-sort group");
             if (!ScheduleBuilderPreviewDrag.ApplyTripOrderToGroup(
                     lines, groupNumber, bestOrder))
             {

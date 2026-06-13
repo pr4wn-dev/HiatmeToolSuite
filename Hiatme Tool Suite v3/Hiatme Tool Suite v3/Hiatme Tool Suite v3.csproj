@@ -205,6 +205,11 @@
       <DependentUpon>Form1.cs</DependentUpon>
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="ScheduleBuilderPreviewUndo.cs" />
+    <Compile Include="Form1.ScheduleBuilder.Undo.cs">
+      <DependentUpon>Form1.cs</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="Form1.ScheduleBuilder.Drivers.cs">
       <DependentUpon>Form1.cs</DependentUpon>
       <SubType>Form</SubType>

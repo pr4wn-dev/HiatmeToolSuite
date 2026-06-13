@@ -30,6 +30,7 @@ namespace Hiatme_Tool_Suite_v3
                 return;
 
             _fsCutTripReserveBand = FsFindTripReserveBand(lines, _fsTripsCtxTrip);
+            FsPushUndoSnapshot("cut trip");
             if (!ScheduleBuilderPreviewDrag.TryRemoveTrip(lines, _fsTripsCtxTrip))
                 return;
 
@@ -81,6 +82,7 @@ namespace Hiatme_Tool_Suite_v3
                     ?? ScheduleBuilderPreviewDrag.ResolveReserveBandForInsert(lines, insertBeforeLine);
             }
 
+            FsPushUndoSnapshot("insert trip");
             ScheduleBuilderPreviewDrag.InsertTripLine(lines, trip, insertBeforeLine, reserveBand);
 
             FsCommitPreviewLinesForTab(tab, lines);
@@ -113,6 +115,7 @@ namespace Hiatme_Tool_Suite_v3
                 return;
 
             FsRevealGapsForManualInsert();
+            FsPushUndoSnapshot("insert blank row");
             ScheduleBuilderPreviewDrag.InsertGapLine(lines, insertBeforeLine);
             // Keep consecutive spacers — collapse would undo insert-from-gap immediately.
             FsCommitPreviewLinesForTab(tab, lines);
