@@ -2138,7 +2138,7 @@ namespace Hiatme_Tool_Suite_v3
         private bool _syncingLegend;
 
         /// <summary>Active list-driven map filter; legend clicks are ignored while filtered.</summary>
-        public FsMapDisplayMode MapDisplayFilter { get; private set; } = FsMapDisplayMode.AllDriverTrips;
+        public FsMapDisplayMode MapDisplayFilter { get; private set; } = FsMapDisplayMode.SelectedGroup;
 
         private static GMapRoute AddClusterRouteToOverlay(
             GMapOverlay overlay,

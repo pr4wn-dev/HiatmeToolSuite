@@ -82,6 +82,10 @@ namespace Hiatme_Tool_Suite_v3
 
         private bool _fsShowAllGroupsOnNextMapLoad;
 
+        private bool _fsFocusFirstGroupAfterPreviewBind;
+
+        private bool _fsRunMapFinalizeAfterRefresh;
+
         private bool _fsCenterMaineAfterBuild;
 
         private Dictionary<string, GeoPoint> _fsMapPickupByTrip =
@@ -773,9 +777,8 @@ namespace Hiatme_Tool_Suite_v3
 
             }
 
-            SetFsMapDisplayMode(FsMapDisplayMode.AllDriverTrips, applyFilter: false);
-
-            _fsShowAllGroupsOnNextMapLoad = true;
+            // Keep the user's map display mode (default: selected group only).
+            _fsShowAllGroupsOnNextMapLoad = _fsMapDisplayMode == FsMapDisplayMode.AllDriverTrips;
 
             PushFsMapSelectionSuppress();
             try
@@ -1394,6 +1397,9 @@ namespace Hiatme_Tool_Suite_v3
                             ShowFsTripsForTab(_fsActiveDriverTab);
                     }
 
+                    _fsFocusFirstGroupAfterPreviewBind = true;
+                    FsSyncMapToTripListSelectionAfterPreviewBind();
+
                     int drivers = fsbuilder.PreviewDriverLines.Count;
 
                     int trips = fsbuilder.PreviewDriverLines.Values.Sum(
@@ -1803,6 +1809,7 @@ namespace Hiatme_Tool_Suite_v3
 
             RebuildFsDriverTabs(tabNames);
 
+            _fsFocusFirstGroupAfterPreviewBind = true;
             _fsCenterMaineAfterBuild = true;
 
             // First driver tab (right of Reserves) so the map loads route groups, not an empty reserves view.
@@ -1861,7 +1868,73 @@ namespace Hiatme_Tool_Suite_v3
                     _fsMap.ShowAllGroups();
             }
 
-            ApplyFsMapDisplayFilter(autoFit: false);
+            FsSyncMapToTripListSelectionAfterPreviewBind();
+        }
+
+        /// <summary>
+        /// After BUILD/LOAD: pick the first group when requested, then always push list
+        /// selection to the map (ShowDriverPlan resets overlays — filter must run after it).
+        /// </summary>
+        private void FsSyncMapToTripListSelectionAfterPreviewBind()
+        {
+            if (_fsMap == null || !_fsMap.Visible || !ScheduleOsrmGate.PreviewRoutingOk)
+                return;
+
+            if (_fsFocusFirstGroupAfterPreviewBind)
+            {
+                string tab = _fsActiveDriverTab;
+                if (string.IsNullOrWhiteSpace(tab) || tab.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
+                    _fsFocusFirstGroupAfterPreviewBind = false;
+                else if (_fsTripsLv != null && _fsTripsLv.Items.Count > 0)
+                    TrySelectFirstGroupOnActiveDriverTab();
+            }
+
+            if (_fsTripsLv != null && _fsTripsLv.SelectedItems.Count > 0)
+            {
+                _fsFocusFirstGroupAfterPreviewBind = false;
+                _fsMap.SetMapDisplayFilterMode(_fsMapDisplayMode);
+                FsTripsLv_SelectionChangedUpdateMap();
+            }
+            else if (!_fsFocusFirstGroupAfterPreviewBind)
+            {
+                ApplyFsMapDisplayFilter(autoFit: false);
+            }
+        }
+
+        private bool TrySelectFirstGroupOnActiveDriverTab()
+        {
+            if (_fsTripsLv == null || _fsTripsLv.Items.Count == 0)
+                return false;
+
+            string tab = _fsActiveDriverTab;
+            if (_fsGroupsByTab.TryGetValue(tab ?? "", out var groups) && groups != null)
+            {
+                foreach (var g in groups)
+                {
+                    if (g == null || g.GroupNumber <= 0)
+                        continue;
+
+                    FsSelectGroupInListView(g.GroupNumber);
+                    if (_fsTripsLv.SelectedItems.Count > 0)
+                        return true;
+                }
+            }
+
+            foreach (ListViewItem item in _fsTripsLv.Items)
+            {
+                if (item.Tag is FsPreviewGapTag || item.Tag is FsPreviewSectionHeaderTag)
+                    continue;
+                if (item.Tag is FsPreviewNoteTag || item.Tag is FsPreviewTripTag)
+                {
+                    _fsTripsLv.SelectedItems.Clear();
+                    item.Selected = true;
+                    item.Focused = true;
+                    item.EnsureVisible();
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private async Task RefreshFsMapForCurrentTabAsync()
@@ -2056,7 +2129,7 @@ namespace Hiatme_Tool_Suite_v3
             if (centerMaineAfterBuild || !SupeyMapWorkspace.HasValidMapPins(plan))
                 _fsMap.CenterOnMaineHub();
 
-            FinalizeFsMapAfterRefresh();
+            _fsRunMapFinalizeAfterRefresh = true;
 
             int pinCount = pickup.Count + dropoff.Count;
 
@@ -2099,6 +2172,11 @@ namespace Hiatme_Tool_Suite_v3
             finally
             {
                 PopFsMapSelectionSuppress();
+                if (_fsRunMapFinalizeAfterRefresh)
+                {
+                    _fsRunMapFinalizeAfterRefresh = false;
+                    FinalizeFsMapAfterRefresh();
+                }
             }
 
         }

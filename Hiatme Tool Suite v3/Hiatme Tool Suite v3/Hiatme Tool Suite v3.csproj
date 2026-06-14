@@ -162,6 +162,7 @@
     <Compile Include="ScheduleBuilderXlsxWriter.cs" />
     <Compile Include="ScheduleBuilderGmailMailer.cs" />
     <Compile Include="ScheduleBuilderGmailDefaults.cs" />
+    <Compile Include="ScheduleEmailSendConfirmForm.cs" />
     <Compile Include="ScheduleEmailRecipientsForm.cs">
       <SubType>Form</SubType>
     </Compile>

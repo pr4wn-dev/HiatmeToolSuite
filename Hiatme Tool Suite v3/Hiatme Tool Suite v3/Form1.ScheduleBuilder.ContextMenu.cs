@@ -18,6 +18,7 @@ namespace Hiatme_Tool_Suite_v3
         private ToolStripMenuItem _fsTripsCtxCopySelectedTrip;
         private ToolStripMenuItem _fsTripsCtxAutoSortGroup;
         private ToolStripMenuItem _fsTripsCtxGeocodeDriverHome;
+        private ToolStripMenuItem _fsTripsCtxEmailDriver;
         private ToolStripMenuItem _fsTripsCtxCutTrip;
         private ToolStripMenuItem _fsTripsCtxUndo;
         private ToolStripMenuItem _fsTripsCtxRedo;
@@ -121,6 +122,13 @@ namespace Hiatme_Tool_Suite_v3
             {
                 _ = FsGeocodeActiveTabDriverHomeAsync();
             };
+
+            _fsTripsCtxEmailDriver = new ToolStripMenuItem("Email schedule to driver…")
+            {
+                BackColor = DarkContextMenuRenderer.Background,
+                ForeColor = DarkContextMenuRenderer.ForeColor,
+            };
+            _fsTripsCtxEmailDriver.Click += (s, e) => _ = FsEmailActiveDriverFromContextAsync();
 
             _fsTripsCtxCutTrip = new ToolStripMenuItem("Cut trip")
             {
@@ -236,6 +244,7 @@ namespace Hiatme_Tool_Suite_v3
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxResetGroupColor);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxAutoSortGroup);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxGeocodeDriverHome);
+            _fsTripsCtxMenu.Items.Add(_fsTripsCtxEmailDriver);
             _fsTripsCtxMenu.Items.Add(new ToolStripSeparator());
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxFocusMap);
             _fsTripsCtxMenu.Items.Add(new ToolStripSeparator());
@@ -413,6 +422,24 @@ namespace Hiatme_Tool_Suite_v3
             else
             {
                 _fsTripsCtxGeocodeDriverHome.Text = "Geocode driver home";
+            }
+
+            bool driverHasEmail = activeDriverProfile != null
+                && !string.IsNullOrWhiteSpace(activeDriverProfile.Email);
+            bool canEmailDriver = hasBuild && !isReserves && driverHasEmail;
+            _fsTripsCtxEmailDriver.Enabled = canEmailDriver;
+            if (canEmailDriver && activeDriverProfile != null)
+            {
+                _fsTripsCtxEmailDriver.Text = "Email schedule to driver — "
+                    + (activeDriverProfile.Name ?? _fsActiveDriverTab ?? "driver").Trim();
+            }
+            else if (hasBuild && !isReserves && activeDriverProfile != null)
+            {
+                _fsTripsCtxEmailDriver.Text = "Email schedule to driver (no email on roster)";
+            }
+            else
+            {
+                _fsTripsCtxEmailDriver.Text = "Email schedule to driver…";
             }
 
             if (hasTrip)

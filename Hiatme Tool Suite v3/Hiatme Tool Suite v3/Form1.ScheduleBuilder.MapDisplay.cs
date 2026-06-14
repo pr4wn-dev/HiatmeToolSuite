@@ -14,7 +14,7 @@ namespace Hiatme_Tool_Suite_v3
         private FsMapModeIconButton _fsMapModeTripsBtn;
         private Label _fsMapModeHintLbl;
         private ToolTip _fsMapModeTip;
-        private FsMapDisplayMode _fsMapDisplayMode = FsMapDisplayMode.AllDriverTrips;
+        private FsMapDisplayMode _fsMapDisplayMode = FsMapDisplayMode.SelectedGroup;
 
         private const int FsMapModeToolbarHeight = 36;
 

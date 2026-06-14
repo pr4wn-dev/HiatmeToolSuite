@@ -168,6 +168,88 @@ namespace Hiatme_Tool_Suite_v3
             if (sendPlan.Count == 0)
                 return;
 
+            var recipients = sendPlan
+                .Select(x => (x.Email, x.DisplayName))
+                .ToList();
+            await FsSendWorkbookEmailsAsync(recipients, serviceDate, gmailUser, gmailPass, showResultPopup: true)
+                .ConfigureAwait(true);
+        }
+
+        /// <summary>Right-click on schedule preview — email the active driver tab's roster entry.</summary>
+        internal async Task FsEmailActiveDriverFromContextAsync()
+        {
+            if (fsbuilder == null || !_fsHasPreview)
+            {
+                SetScheduleBuilderStatus("Build or load a schedule first.");
+                return;
+            }
+
+            string tab = (_fsActiveDriverTab ?? "").Trim();
+            if (tab.Length == 0 || tab.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
+                return;
+
+            if (!TryGetGmailCredentialsForMailer(out string gmailUser, out string gmailPass))
+            {
+                MessageBox.Show(this,
+                    "Office Gmail is not set up yet.\r\n\r\n"
+                    + "An admin needs to fill in hiatme_config\\gmail_default.json once before distributing the app.\r\n\r\n"
+                    + "Or use Login → Gmail to enter your own Gmail App Password.",
+                    "Schedule Builder",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+                return;
+            }
+
+            EnsureFsDriverRosterLoaded();
+            ScheduleBuilderDriverEmailsRegistry.ApplyLocalRegistryToRoster(_supeyRoster);
+
+            if (fsbdatepicker != null)
+                fsbuilder.ApplyServiceDate(fsbdatepicker.Value);
+
+            await SyncFsDriverEmailsAsync(reportOffline: true).ConfigureAwait(true);
+
+            var profile = ScheduleBuilderDriverMapRouting.FindProfileForScheduleTab(_supeyRoster, tab);
+            string email = (profile?.Email ?? "").Trim();
+            string displayName = (profile?.Name ?? "").Trim();
+            if (displayName.Length == 0)
+                displayName = tab;
+
+            if (email.Length == 0)
+            {
+                MessageBox.Show(this,
+                    "This driver has no email on the roster.\r\n\r\n"
+                    + "Edit the driver on the Drivers tab or Pull from WellRyde.",
+                    "Schedule Builder",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+                return;
+            }
+
+            DateTime serviceDate = fsbuilder.ServiceDate;
+            using (var confirm = new ScheduleEmailSendConfirmForm(displayName, email, serviceDate, gmailUser))
+            {
+                if (confirm.ShowDialog(this) != DialogResult.OK)
+                    return;
+            }
+
+            await FsSendWorkbookEmailsAsync(
+                new List<(string Email, string DisplayName)> { (email, displayName) },
+                serviceDate,
+                gmailUser,
+                gmailPass,
+                showResultPopup: false).ConfigureAwait(true);
+        }
+
+        private async Task FsSendWorkbookEmailsAsync(
+            IList<(string Email, string DisplayName)> recipients,
+            DateTime serviceDate,
+            string gmailUser,
+            string gmailPass,
+            bool showResultPopup)
+        {
+            if (recipients == null || recipients.Count == 0)
+                return;
+
             SyncFsPreviewCsvsForExport();
             var exportOptions = MakeFsPreviewCsvExportOptions();
 
@@ -195,7 +277,7 @@ namespace Hiatme_Tool_Suite_v3
                 var tabs = ScheduleBuilderPreviewCsvExport.BuildWorkbookTabs(_fsLinesByTab, exportOptions);
                 ScheduleBuilderXlsxWriter.WriteWorkbookFromTabs(attachmentPath, tabs);
 
-                foreach (var item in sendPlan)
+                foreach (var item in recipients)
                 {
                     SetScheduleBuilderStatus("Emailing " + item.DisplayName + "…");
 
@@ -220,16 +302,19 @@ namespace Hiatme_Tool_Suite_v3
                 if (failures.Count == 0)
                 {
                     SetScheduleBuilderStatus("Emailed " + sent + " driver schedule" + (sent == 1 ? "" : "s") + ".");
-                    MessageBox.Show(this,
-                        "Sent " + sent + " schedule email" + (sent == 1 ? "" : "s") + ".",
-                        "Schedule Builder",
-                        MessageBoxButtons.OK,
-                        MessageBoxIcon.Information);
+                    if (showResultPopup)
+                    {
+                        MessageBox.Show(this,
+                            "Sent " + sent + " schedule email" + (sent == 1 ? "" : "s") + ".",
+                            "Schedule Builder",
+                            MessageBoxButtons.OK,
+                            MessageBoxIcon.Information);
+                    }
                 }
                 else
                 {
                     var sb = new StringBuilder();
-                    sb.AppendLine("Sent " + sent + " of " + sendPlan.Count + ".");
+                    sb.AppendLine("Sent " + sent + " of " + recipients.Count + ".");
                     sb.AppendLine();
                     sb.AppendLine("Failed:");
                     foreach (string f in failures)
