@@ -139,6 +139,8 @@ namespace Hiatme_Tool_Suite_v3
             InitializeMCLoginHandler();
             InitializeHiatmeLoginHandler();
             InitializeComponent();;
+            loginPassTB.Enter += (_, __) => BeginGmailPersonalEntryIfOfficeMode();
+            loginUserTB.Enter += (_, __) => BeginGmailPersonalEntryIfOfficeMode();
             InitializeScheduleBuilderTab();
             ApplyHiddenToolTabs();
             // Tabs added after the designer-baked ImageStream need their icon injected before the first tab strip paint.
@@ -1397,6 +1399,7 @@ namespace Hiatme_Tool_Suite_v3
                     EnableGmailLogin();
                     break;
             }
+            UpdateGmailDefaultButtonVisibility();
         }
         private async void loginBtn_Click(object sender, EventArgs e)
         {
@@ -1453,6 +1456,12 @@ namespace Hiatme_Tool_Suite_v3
                     hidegiftimer.Start();
                     break;
                 case 3:
+                    if (Properties.Settings.Default.gmailUseOfficeDefault
+                        && ScheduleBuilderGmailDefaults.IsConfigured())
+                    {
+                        hidegiftimer.Start();
+                        break;
+                    }
                     await GmailLoginTestAsync();
                     hidegiftimer.Start();
                     break;
@@ -1972,31 +1981,67 @@ namespace Hiatme_Tool_Suite_v3
 
         private void LoadGmailCredentials()
         {
+            loginCodeTB.Text = "Not Applicable";
+
+            if (Properties.Settings.Default.gmailUseOfficeDefault
+                && ScheduleBuilderGmailDefaults.TryGet(out string officeAddress, out _))
+            {
+                ApplyGmailOfficeDefaultUi(officeAddress);
+                return;
+            }
+
+            loginPassTB.Enabled = true;
+            loginSwitch.Enabled = true;
+
             if (!string.IsNullOrWhiteSpace(Properties.Settings.Default.gmailUserName))
             {
-                loginCodeTB.Text = "Not Applicable";
                 loginUserTB.Text = Properties.Settings.Default.gmailUserName;
                 loginPassTB.Text = Properties.Settings.Default.gmailUserPass ?? string.Empty;
                 loginSwitch.Checked = true;
+                SetWrPbLightImage(1);
             }
             else
             {
-                loginCodeTB.Text = "Not Applicable";
                 loginUserTB.Text = string.Empty;
                 loginPassTB.Text = string.Empty;
                 loginSwitch.Checked = false;
+                SetWrPbLightImage(0);
             }
+        }
+
+        private void ApplyGmailOfficeDefaultUi(string officeAddress)
+        {
+            loginUserTB.Text = officeAddress ?? string.Empty;
+            loginPassTB.Text = string.Empty;
+            loginPassTB.Enabled = false;
+            loginSwitch.Checked = false;
+            loginSwitch.Enabled = false;
+            loginBtn.Text = "Ready";
+            loginBtn.Enabled = false;
+            SetWrPbLightImage(1);
         }
 
         private void EnableGmailLogin()
         {
-            SetWrPbLightImage(0);
             loginCodeTB.Enabled = false;
             loginUserTB.Enabled = true;
+            loginBtn.Text = "Test my Gmail";
+            loginCB.SelectedIndex = 3;
+
+            if (Properties.Settings.Default.gmailUseOfficeDefault
+                && ScheduleBuilderGmailDefaults.TryGet(out string officeAddress, out _))
+            {
+                ApplyGmailOfficeDefaultUi(officeAddress);
+                UpdateGmailDefaultButtonVisibility();
+                return;
+            }
+
+            SetWrPbLightImage(0);
             loginPassTB.Enabled = true;
             loginSwitch.Enabled = true;
-            loginBtn.Text = "Test login";
-            loginCB.SelectedIndex = 3;
+            loginBtn.Enabled = true;
+            loginBtn.Text = "Test my Gmail";
+            UpdateGmailDefaultButtonVisibility();
             loginCB.Focus();
         }
 
@@ -2007,8 +2052,97 @@ namespace Hiatme_Tool_Suite_v3
             loginUserTB.Enabled = true;
             loginPassTB.Enabled = true;
             loginSwitch.Enabled = true;
-            loginBtn.Text = "Test login";
+            loginBtn.Enabled = true;
+            loginBtn.Text = "Test my Gmail";
             loginCB.SelectedIndex = 3;
+            UpdateGmailDefaultButtonVisibility();
+        }
+
+        private void UpdateGmailDefaultButtonVisibility()
+        {
+            if (materialCard3 == null || loginSwitch == null)
+                return;
+
+            bool gmailSelected = loginCB != null && loginCB.SelectedIndex == 3;
+
+            if (gmailDefaultBtn != null)
+            {
+                gmailDefaultBtn.Visible = gmailSelected;
+                if (gmailSelected)
+                {
+                    bool configured = ScheduleBuilderGmailDefaults.IsConfigured();
+                    gmailDefaultBtn.Enabled = configured;
+                    gmailDefaultBtn.Text = configured
+                        ? "Use office email (default)"
+                        : "Office email not configured";
+
+                    int cardW = materialCard3.ClientSize.Width;
+                    int btnW = Math.Min(286, Math.Max(180, cardW - 16));
+                    gmailDefaultBtn.SetBounds((cardW - btnW) / 2, 261, btnW, 36);
+                }
+            }
+
+            loginSwitch.Location = new Point(
+                loginSwitch.Location.X,
+                gmailSelected ? 304 : 266);
+
+            materialCard3.Size = new Size(
+                materialCard3.Width,
+                gmailSelected ? 354 : 318);
+
+            if (materialCard2 != null)
+            {
+                materialCard2.Location = new Point(
+                    materialCard2.Location.X,
+                    gmailSelected ? 420 : 386);
+            }
+
+            if (loginPanel != null)
+            {
+                loginPanel.Size = new Size(
+                    loginPanel.Width,
+                    gmailSelected ? 494 : 458);
+            }
+        }
+
+        private void gmailDefaultBtn_Click(object sender, EventArgs e)
+        {
+            if (!ScheduleBuilderGmailDefaults.TryGet(out string address, out _))
+            {
+                MessageBox.Show(
+                    "Office Gmail is not configured yet.\r\n\r\n"
+                    + "An admin fills this in once before distributing the app:\r\n"
+                    + ScheduleBuilderGmailDefaults.ConfigPath,
+                    "Gmail",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+                return;
+            }
+
+            Properties.Settings.Default.gmailUseOfficeDefault = true;
+            try { Properties.Settings.Default.Save(); } catch { /* best effort */ }
+
+            loginCB.SelectedIndex = 3;
+            ApplyGmailOfficeDefaultUi(address);
+        }
+
+        private void BeginGmailPersonalEntryIfOfficeMode()
+        {
+            if (loginCB == null || loginCB.SelectedIndex != 3)
+                return;
+            if (!Properties.Settings.Default.gmailUseOfficeDefault)
+                return;
+
+            Properties.Settings.Default.gmailUseOfficeDefault = false;
+            try { Properties.Settings.Default.Save(); } catch { /* best effort */ }
+
+            loginUserTB.Text = string.Empty;
+            loginPassTB.Text = string.Empty;
+            loginPassTB.Enabled = true;
+            loginSwitch.Enabled = true;
+            loginBtn.Enabled = true;
+            loginBtn.Text = "Test my Gmail";
+            SetWrPbLightImage(0);
         }
 
         private async Task GmailLoginTestAsync()
@@ -2019,7 +2153,9 @@ namespace Hiatme_Tool_Suite_v3
 
             if (string.IsNullOrEmpty(address) || string.IsNullOrEmpty(password))
             {
-                MessageBox.Show("Enter your Gmail address and password (or App Password).");
+                MessageBox.Show(
+                    "Enter your own Gmail address and App Password, then click Test my Gmail.\r\n\r\n"
+                    + "Or click Use office email — no login needed for other users.");
                 return;
             }
 
@@ -2027,21 +2163,19 @@ namespace Hiatme_Tool_Suite_v3
             try
             {
                 await ScheduleBuilderGmailMailer.TestConnectionAsync(address, password).ConfigureAwait(true);
+                Properties.Settings.Default.gmailUseOfficeDefault = false;
                 GmailSaveCredentials(address, password);
+                loginPassTB.Enabled = true;
+                loginSwitch.Enabled = true;
                 DisableGmailLogin();
-                MessageBox.Show(
-                    "Gmail credentials verified. A test message was sent to your inbox.",
-                    "Gmail",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Information);
             }
             catch (Exception ex)
             {
+                string detail = ex.Message ?? "Unknown error";
+                if (ex.InnerException != null && !string.IsNullOrWhiteSpace(ex.InnerException.Message))
+                    detail = ex.Message + "\r\n\r\n" + ex.InnerException.Message;
                 MessageBox.Show(
-                    "Gmail login failed.\r\n\r\n"
-                    + ex.Message
-                    + "\r\n\r\nIf you use 2-step verification, create a Google App Password "
-                    + "(Google Account → Security → App passwords) and use that here instead of your normal password.",
+                    "Gmail login failed.\r\n\r\n" + detail,
                     "Gmail",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Warning);
@@ -2053,6 +2187,7 @@ namespace Hiatme_Tool_Suite_v3
         {
             try
             {
+                ScheduleBuilderGmailMailer.NormalizeCredentials(ref user, ref pass);
                 if (loginSwitch.Checked == false)
                 {
                     Properties.Settings.Default.gmailUserName = string.Empty;

@@ -40,6 +40,7 @@
             this.tabPage1 = new System.Windows.Forms.TabPage();
             this.loginPanel = new MaterialSkin.Controls.MaterialCard();
             this.materialCard3 = new MaterialSkin.Controls.MaterialCard();
+            this.gmailDefaultBtn = new MaterialSkin.Controls.MaterialButton();
             this.loginSwitch = new MaterialSkin.Controls.MaterialSwitch();
             this.loginCB = new MaterialSkin.Controls.MaterialComboBox();
             this.loginCodeTB = new MaterialSkin.Controls.MaterialTextBox();
@@ -333,6 +334,7 @@
             // 
             this.materialCard3.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(255)))), ((int)(((byte)(255)))), ((int)(((byte)(255)))));
             this.materialCard3.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
+            this.materialCard3.Controls.Add(this.gmailDefaultBtn);
             this.materialCard3.Controls.Add(this.loginSwitch);
             this.materialCard3.Controls.Add(this.loginCB);
             this.materialCard3.Controls.Add(this.loginCodeTB);
@@ -364,6 +366,28 @@
             this.loginSwitch.TabIndex = 3;
             this.loginSwitch.Text = "Remember Credentials";
             this.loginSwitch.UseVisualStyleBackColor = true;
+            // 
+            // gmailDefaultBtn
+            // 
+            this.gmailDefaultBtn.AutoSize = false;
+            this.gmailDefaultBtn.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
+            this.gmailDefaultBtn.Density = MaterialSkin.Controls.MaterialButton.MaterialButtonDensity.Default;
+            this.gmailDefaultBtn.Depth = 0;
+            this.gmailDefaultBtn.HighEmphasis = true;
+            this.gmailDefaultBtn.Icon = null;
+            this.gmailDefaultBtn.Location = new System.Drawing.Point(8, 261);
+            this.gmailDefaultBtn.Margin = new System.Windows.Forms.Padding(0);
+            this.gmailDefaultBtn.MouseState = MaterialSkin.MouseState.HOVER;
+            this.gmailDefaultBtn.Name = "gmailDefaultBtn";
+            this.gmailDefaultBtn.NoAccentTextColor = System.Drawing.Color.Empty;
+            this.gmailDefaultBtn.Size = new System.Drawing.Size(286, 36);
+            this.gmailDefaultBtn.TabIndex = 6;
+            this.gmailDefaultBtn.Text = "Use office email (default)";
+            this.gmailDefaultBtn.Type = MaterialSkin.Controls.MaterialButton.MaterialButtonType.Outlined;
+            this.gmailDefaultBtn.UseAccentColor = false;
+            this.gmailDefaultBtn.UseVisualStyleBackColor = true;
+            this.gmailDefaultBtn.Visible = false;
+            this.gmailDefaultBtn.Click += new System.EventHandler(this.gmailDefaultBtn_Click);
             // 
             // loginCB
             // 
@@ -2603,6 +2627,7 @@
         private MaterialSkin.Controls.MaterialTextBox loginUserTB;
         private MaterialSkin.Controls.MaterialTextBox loginCodeTB;
         private MaterialSkin.Controls.MaterialButton loginBtn;
+        private MaterialSkin.Controls.MaterialButton gmailDefaultBtn;
         private MaterialSkin.Controls.MaterialSwitch loginSwitch;
         private System.Windows.Forms.PictureBox wrPBLight;
         private System.Windows.Forms.ImageList lightImageList;

@@ -13,13 +13,23 @@ namespace Hiatme_Tool_Suite_v3
         public const string SmtpHost = "smtp.gmail.com";
         public const int SmtpPort = 587;
 
+        /// <summary>Trim address; strip spaces from Google App Passwords pasted as "abcd efgh …".</summary>
+        internal static void NormalizeCredentials(ref string fromAddress, ref string password)
+        {
+            fromAddress = (fromAddress ?? "").Trim();
+            password = (password ?? "").Trim();
+            if (password.IndexOf(' ') >= 0)
+                password = password.Replace(" ", "");
+        }
+
         public static async Task TestConnectionAsync(
             string fromAddress,
             string password,
             CancellationToken cancellationToken = default)
         {
-            fromAddress = (fromAddress ?? "").Trim();
-            password = password ?? "";
+            NormalizeCredentials(ref fromAddress, ref password);
+            if (fromAddress.Length == 0 || password.Length == 0)
+                throw new InvalidOperationException("Gmail address and password (or App Password) are required.");
 
             await Task.Run(() =>
             {
@@ -30,8 +40,7 @@ namespace Hiatme_Tool_Suite_v3
                     msg.Body =
                         "If you received this message, Gmail credentials are working for Schedule Builder email.";
                     msg.IsBodyHtml = false;
-                    using (var client = CreateClient(fromAddress, password))
-                        client.Send(msg);
+                    SendMessage(fromAddress, password, msg);
                 }
             }, cancellationToken).ConfigureAwait(false);
         }
@@ -45,9 +54,8 @@ namespace Hiatme_Tool_Suite_v3
             string attachmentPath,
             CancellationToken cancellationToken = default)
         {
-            fromAddress = (fromAddress ?? "").Trim();
+            NormalizeCredentials(ref fromAddress, ref password);
             toAddress = (toAddress ?? "").Trim();
-            password = password ?? "";
 
             if (!File.Exists(attachmentPath))
                 throw new FileNotFoundException("Schedule attachment was not found.", attachmentPath);
@@ -69,14 +77,46 @@ namespace Hiatme_Tool_Suite_v3
                     msg.Body = body;
                     msg.IsBodyHtml = false;
                     msg.Attachments.Add(new Attachment(attachmentPath));
-                    using (var client = CreateClient(fromAddress, password))
-                        client.Send(msg);
+                    SendMessage(fromAddress, password, msg);
                 }
             }, cancellationToken).ConfigureAwait(false);
         }
 
+        private static void SendMessage(string user, string pass, MailMessage msg)
+        {
+            try
+            {
+                using (var client = CreateClient(user, pass))
+                    client.Send(msg);
+            }
+            catch (SmtpException ex)
+            {
+                throw new InvalidOperationException(DescribeSmtpFailure(ex), ex);
+            }
+        }
+
+        private static string DescribeSmtpFailure(SmtpException ex)
+        {
+            string raw = (ex.Message ?? "").Trim();
+            string lower = raw.ToLowerInvariant();
+            if (lower.Contains("5.7.0") || lower.Contains("authentication required")
+                || lower.Contains("not authenticated") || lower.Contains("535"))
+            {
+                return "Gmail rejected the login (5.7.0 Authentication Required).\r\n\r\n"
+                    + "Google no longer accepts your normal Gmail password for SMTP.\r\n"
+                    + "Use a Google App Password:\r\n"
+                    + "  1. Google Account → Security → turn on 2-Step Verification\r\n"
+                    + "  2. Security → App passwords → create one for Mail\r\n"
+                    + "  3. Paste the 16-character App Password here (spaces are OK)\r\n\r\n"
+                    + "Server: " + raw;
+            }
+
+            return string.IsNullOrEmpty(raw) ? "Gmail SMTP send failed." : raw;
+        }
+
         private static SmtpClient CreateClient(string user, string pass)
         {
+            EnsureTls();
             return new SmtpClient(SmtpHost, SmtpPort)
             {
                 EnableSsl = true,
@@ -85,6 +125,18 @@ namespace Hiatme_Tool_Suite_v3
                 Credentials = new NetworkCredential(user, pass),
                 Timeout = 120000,
             };
+        }
+
+        private static void EnsureTls()
+        {
+            try
+            {
+                ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
+            }
+            catch
+            {
+                /* best effort */
+            }
         }
 
         internal static string SanitizeFileNamePart(string raw)

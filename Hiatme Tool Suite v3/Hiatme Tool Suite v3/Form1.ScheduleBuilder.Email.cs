@@ -36,8 +36,8 @@ namespace Hiatme_Tool_Suite_v3
             var tip = SupeyToolTip.Create(autoPopDelay: 14000, initialDelay: 400);
             tip.SetToolTip(_fsEmailSchedulesBtn,
                 "Email each driver the full schedule workbook (.xlsx, all tabs) using Gmail. "
-                + "Set Gmail credentials in Login → Gmail (use a Google App Password if 2-step verification is on). "
-                + "Driver emails come from the roster (Pull from WellRyde or edit driver).");
+                + "Uses the office Gmail account automatically — no login needed. "
+                + "Optional: Login → Gmail → enter your own Gmail App Password instead.");
 
             host.Controls.Add(_fsEmailSchedulesBtn);
             host.Resize += (s, e) => PositionFsEmailSchedulesButton();
@@ -61,20 +61,37 @@ namespace Hiatme_Tool_Suite_v3
 
         private bool TryGetGmailCredentialsForMailer(out string address, out string password)
         {
-            address = (Properties.Settings.Default.gmailUserName ?? "").Trim();
-            password = Properties.Settings.Default.gmailUserPass ?? "";
+            address = string.Empty;
+            password = string.Empty;
 
-            if (loginCB != null && loginCB.SelectedIndex == 3)
+            bool useOffice = Properties.Settings.Default.gmailUseOfficeDefault;
+            if (!useOffice)
             {
-                string onScreenUser = (loginUserTB?.Text ?? "").Trim();
-                string onScreenPass = loginPassTB?.Text ?? "";
+                address = (Properties.Settings.Default.gmailUserName ?? "").Trim();
+                password = Properties.Settings.Default.gmailUserPass ?? "";
 
-                if (!string.IsNullOrEmpty(onScreenUser))
-                    address = onScreenUser;
-                if (!string.IsNullOrEmpty(onScreenPass))
-                    password = onScreenPass;
+                if (loginCB != null && loginCB.SelectedIndex == 3)
+                {
+                    string onScreenUser = (loginUserTB?.Text ?? "").Trim();
+                    string onScreenPass = loginPassTB?.Text ?? "";
+                    if (!string.IsNullOrEmpty(onScreenUser))
+                        address = onScreenUser;
+                    if (!string.IsNullOrEmpty(onScreenPass))
+                        password = onScreenPass;
+                }
+
+                ScheduleBuilderGmailMailer.NormalizeCredentials(ref address, ref password);
+                if (!string.IsNullOrEmpty(address) && !string.IsNullOrEmpty(password))
+                    return true;
             }
 
+            if (ScheduleBuilderGmailDefaults.TryGet(out address, out password))
+                return true;
+
+            // Last resort: personal creds even if office mode was on but json missing.
+            address = (Properties.Settings.Default.gmailUserName ?? "").Trim();
+            password = Properties.Settings.Default.gmailUserPass ?? "";
+            ScheduleBuilderGmailMailer.NormalizeCredentials(ref address, ref password);
             return !string.IsNullOrEmpty(address) && !string.IsNullOrEmpty(password);
         }
 
@@ -89,9 +106,9 @@ namespace Hiatme_Tool_Suite_v3
             if (!TryGetGmailCredentialsForMailer(out string gmailUser, out string gmailPass))
             {
                 MessageBox.Show(this,
-                    "Gmail credentials are not saved.\r\n\r\n"
-                    + "Open Login → Gmail, enter your Gmail address and password (or App Password), "
-                    + "turn on Remember credentials, and click Test login.",
+                    "Office Gmail is not set up yet.\r\n\r\n"
+                    + "An admin needs to fill in hiatme_config\\gmail_default.json once before distributing the app.\r\n\r\n"
+                    + "Or use Login → Gmail to enter your own Gmail App Password.",
                     "Schedule Builder",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Information);
@@ -122,59 +139,42 @@ namespace Hiatme_Tool_Suite_v3
                 return;
             }
 
-            var sendPlan = new List<(string TabName, string Email, string DisplayName)>();
-            var missingEmail = new List<string>();
-
+            var recipientEntries = new List<ScheduleEmailRecipientEntry>();
             foreach (string tab in driverTabs)
             {
                 var profile = ScheduleBuilderDriverMapRouting.FindProfileForScheduleTab(_supeyRoster, tab);
-                string email = (profile?.Email ?? "").Trim();
-                string display = profile?.Name ?? tab;
-
-                if (string.IsNullOrEmpty(email))
+                recipientEntries.Add(new ScheduleEmailRecipientEntry
                 {
-                    missingEmail.Add(tab);
-                    continue;
-                }
-
-                sendPlan.Add((tab, email, display));
+                    TabName = tab,
+                    DisplayName = profile?.Name ?? tab,
+                    Email = (profile?.Email ?? "").Trim(),
+                });
             }
 
-            if (sendPlan.Count == 0)
+            if (recipientEntries.All(r => !r.CanSend))
             {
-                var sb = new StringBuilder();
-                sb.AppendLine("No drivers are ready to email.");
-                sb.AppendLine();
-                sb.AppendLine("Add an email for each driver on the roster (Pull from WellRyde or Edit driver).");
-                if (missingEmail.Count > 0)
-                {
-                    sb.AppendLine();
-                    sb.AppendLine("Missing email for:");
-                    foreach (string n in missingEmail)
-                        sb.AppendLine("  · " + n);
-                }
-
-                MessageBox.Show(this, sb.ToString(), "Schedule Builder",
-                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show(this,
+                    "No drivers have an email on the roster.\r\n\r\n"
+                    + "Add emails via Pull from WellRyde or Edit driver on the Drivers tab.",
+                    "Schedule Builder",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
                 return;
             }
 
-            var confirm = new StringBuilder();
-            confirm.AppendLine("Send the full schedule workbook for " + serviceDate.ToString("MMMM d, yyyy") + "?");
-            confirm.AppendLine("(Same .xlsx — all driver tabs — attached to each email.)");
-            confirm.AppendLine();
-            confirm.AppendLine("From: " + gmailUser);
-            confirm.AppendLine("Recipients (" + sendPlan.Count + "):");
-            foreach (var item in sendPlan)
-                confirm.AppendLine("  · " + item.DisplayName + " → " + item.Email);
-            if (missingEmail.Count > 0)
+            List<(string TabName, string Email, string DisplayName)> sendPlan;
+            using (var picker = new ScheduleEmailRecipientsForm(recipientEntries, serviceDate, gmailUser))
             {
-                confirm.AppendLine();
-                confirm.AppendLine("Skipped (no email on roster): " + string.Join(", ", missingEmail));
+                if (picker.ShowDialog(this) != DialogResult.OK)
+                    return;
+
+                sendPlan = (picker.SelectedRecipients ?? Array.Empty<ScheduleEmailRecipientEntry>())
+                    .Where(r => r != null && r.CanSend)
+                    .Select(r => (r.TabName, r.Email.Trim(), r.DisplayName ?? r.TabName))
+                    .ToList();
             }
 
-            if (MessageBox.Show(this, confirm.ToString(), "Email driver schedules",
-                    MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+            if (sendPlan.Count == 0)
                 return;
 
             SyncFsPreviewCsvsForExport();

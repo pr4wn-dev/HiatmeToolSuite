@@ -4,6 +4,7 @@ AIagent/
 # Local AI connection (contains API token) — never commit
 **/hiatme_ai.defaults.json
 **/hiatme_ai.json
+**/hiatme_config/gmail_default.json
 
 # Visual Studio
 .vs/

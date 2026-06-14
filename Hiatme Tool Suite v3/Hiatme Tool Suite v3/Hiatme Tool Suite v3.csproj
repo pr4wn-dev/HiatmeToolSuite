@@ -161,6 +161,13 @@
     <Compile Include="ScheduleBuilderXlsxReader.cs" />
     <Compile Include="ScheduleBuilderXlsxWriter.cs" />
     <Compile Include="ScheduleBuilderGmailMailer.cs" />
+    <Compile Include="ScheduleBuilderGmailDefaults.cs" />
+    <Compile Include="ScheduleEmailRecipientsForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="ScheduleEmailRecipientsForm.Designer.cs">
+      <DependentUpon>ScheduleEmailRecipientsForm.cs</DependentUpon>
+    </Compile>
     <Compile Include="ScheduleBuilderPreviewGroups.cs" />
     <Compile Include="ScheduleBuilderGroupNotes.cs" />
     <Compile Include="ScheduleBuilderGroupColors.cs" />
@@ -516,6 +523,12 @@
     </Compile>
     <!-- Local hiatme_ai.defaults.json (gitignored) copies to bin; else example without token. -->
     <None Include="hiatme_config\out_of_area.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="hiatme_config\gmail_default.example.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="hiatme_config\gmail_default.json" Condition="Exists('hiatme_config\gmail_default.json')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Include="dispatch_rules\accepted.json">

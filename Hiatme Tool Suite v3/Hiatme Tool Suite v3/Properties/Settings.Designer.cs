@@ -133,6 +133,18 @@ namespace Hiatme_Tool_Suite_v3.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("True")]
+        public bool gmailUseOfficeDefault {
+            get {
+                return ((bool)(this["gmailUseOfficeDefault"]));
+            }
+            set {
+                this["gmailUseOfficeDefault"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
         [global::System.Configuration.DefaultSettingValueAttribute("")]
         public string wrPortalLogLevel {
             get {
