@@ -1,0 +1,1196 @@
+{
+  "files": 117,
+  "groups_with_notes": 210,
+  "together_note_groups": 63,
+  "top_do_waves": [
+    {
+      "hub": "MANLEY_AUBURN",
+      "do_min": 510,
+      "groups": 188
+    },
+    {
+      "hub": "FALCON_LEW",
+      "do_min": 480,
+      "groups": 155
+    },
+    {
+      "hub": "MINOT_AUBURN",
+      "do_min": 480,
+      "groups": 132
+    },
+    {
+      "hub": "OTHER|LEWISTON",
+      "do_min": null,
+      "groups": 128
+    },
+    {
+      "hub": "OTHER|AUBURN",
+      "do_min": null,
+      "groups": 88
+    },
+    {
+      "hub": "MINOT_AUBURN",
+      "do_min": 510,
+      "groups": 87
+    },
+    {
+      "hub": "646_MAIN_LEW",
+      "do_min": 540,
+      "groups": 77
+    },
+    {
+      "hub": "20_EAST_LEW",
+      "do_min": 540,
+      "groups": 63
+    },
+    {
+      "hub": "23_CROSS_AUBURN",
+      "do_min": 540,
+      "groups": 34
+    },
+    {
+      "hub": "OTHER|LEWISTON",
+      "do_min": 480,
+      "groups": 33
+    },
+    {
+      "hub": "23_CROSS_AUBURN",
+      "do_min": 600,
+      "groups": 32
+    },
+    {
+      "hub": "OTHER|SABATTUS",
+      "do_min": null,
+      "groups": 29
+    },
+    {
+      "hub": "OTHER|TURNER",
+      "do_min": null,
+      "groups": 27
+    },
+    {
+      "hub": "STRAWBERRY_LEW",
+      "do_min": 540,
+      "groups": 26
+    },
+    {
+      "hub": "OTHER|AUBURN",
+      "do_min": 480,
+      "groups": 25
+    },
+    {
+      "hub": "OTHER|AUBURN",
+      "do_min": 540,
+      "groups": 25
+    },
+    {
+      "hub": "OTHER|LEWISTON",
+      "do_min": 540,
+      "groups": 25
+    },
+    {
+      "hub": "OTHER|GREENE",
+      "do_min": null,
+      "groups": 22
+    },
+    {
+      "hub": "OTHER|LEWISTON",
+      "do_min": 510,
+      "groups": 20
+    },
+    {
+      "hub": "FALCON_LEW",
+      "do_min": 540,
+      "groups": 20
+    },
+    {
+      "hub": "646_MAIN_LEW",
+      "do_min": 480,
+      "groups": 19
+    },
+    {
+      "hub": "23_CROSS_AUBURN",
+      "do_min": 480,
+      "groups": 17
+    },
+    {
+      "hub": "OTHER|HEBRON",
+      "do_min": null,
+      "groups": 17
+    },
+    {
+      "hub": "OTHER|SOUTH PARIS",
+      "do_min": null,
+      "groups": 16
+    },
+    {
+      "hub": "STRAWBERRY_LEW",
+      "do_min": 510,
+      "groups": 13
+    }
+  ],
+  "driver_hub_leaders": [
+    {
+      "driver": "Aaron C",
+      "hub": "MANLEY_AUBURN",
+      "groups": 99
+    },
+    {
+      "driver": "Jamie B",
+      "hub": "MANLEY_AUBURN",
+      "groups": 75
+    },
+    {
+      "driver": "Shiloh M",
+      "hub": "MINOT_AUBURN",
+      "groups": 71
+    },
+    {
+      "driver": "Dean D",
+      "hub": "FALCON_LEW",
+      "groups": 61
+    },
+    {
+      "driver": "Remie D",
+      "hub": "MINOT_AUBURN",
+      "groups": 54
+    },
+    {
+      "driver": "Richard B",
+      "hub": "MINOT_AUBURN",
+      "groups": 52
+    },
+    {
+      "driver": "Jeffrey B",
+      "hub": "646_MAIN_LEW",
+      "groups": 43
+    },
+    {
+      "driver": "Shiloh M",
+      "hub": "OTHER|LEWISTON",
+      "groups": 43
+    },
+    {
+      "driver": "Richard B",
+      "hub": "FALCON_LEW",
+      "groups": 41
+    },
+    {
+      "driver": "Dean D",
+      "hub": "OTHER|LEWISTON",
+      "groups": 40
+    },
+    {
+      "driver": "Jeffrey B",
+      "hub": "OTHER|LEWISTON",
+      "groups": 37
+    },
+    {
+      "driver": "Remie D",
+      "hub": "FALCON_LEW",
+      "groups": 36
+    },
+    {
+      "driver": "Aaron C",
+      "hub": "OTHER|LEWISTON",
+      "groups": 36
+    },
+    {
+      "driver": "Bobby Y",
+      "hub": "20_EAST_LEW",
+      "groups": 36
+    },
+    {
+      "driver": "Richard B",
+      "hub": "OTHER|LEWISTON",
+      "groups": 32
+    },
+    {
+      "driver": "Shiloh M",
+      "hub": "OTHER|AUBURN",
+      "groups": 31
+    },
+    {
+      "driver": "Cherie G",
+      "hub": "646_MAIN_LEW",
+      "groups": 29
+    },
+    {
+      "driver": "Dean D",
+      "hub": "OTHER|AUBURN",
+      "groups": 27
+    },
+    {
+      "driver": "Jamie B",
+      "hub": "OTHER|LEWISTON",
+      "groups": 25
+    },
+    {
+      "driver": "Dean D",
+      "hub": "MINOT_AUBURN",
+      "groups": 24
+    },
+    {
+      "driver": "Jeffrey B",
+      "hub": "OTHER|AUBURN",
+      "groups": 23
+    },
+    {
+      "driver": "Jeffrey B",
+      "hub": "FALCON_LEW",
+      "groups": 23
+    },
+    {
+      "driver": "Richard B",
+      "hub": "OTHER|AUBURN",
+      "groups": 23
+    },
+    {
+      "driver": "Shiloh M",
+      "hub": "FALCON_LEW",
+      "groups": 22
+    },
+    {
+      "driver": "Aaron C",
+      "hub": "OTHER|AUBURN",
+      "groups": 21
+    },
+    {
+      "driver": "Jamie B",
+      "hub": "OTHER|AUBURN",
+      "groups": 19
+    },
+    {
+      "driver": "Jamie B",
+      "hub": "23_CROSS_AUBURN",
+      "groups": 18
+    },
+    {
+      "driver": "Shiloh M",
+      "hub": "OTHER|GREENE",
+      "groups": 18
+    },
+    {
+      "driver": "Bobby Y",
+      "hub": "OTHER|AUBURN",
+      "groups": 17
+    },
+    {
+      "driver": "Jeffrey B",
+      "hub": "20_EAST_LEW",
+      "groups": 17
+    },
+    {
+      "driver": "Jeffrey B",
+      "hub": "63_BROAD_AUBURN",
+      "groups": 17
+    },
+    {
+      "driver": "Bobby Y",
+      "hub": "23_CROSS_AUBURN",
+      "groups": 17
+    },
+    {
+      "driver": "Jamie B",
+      "hub": "20_EAST_LEW",
+      "groups": 15
+    },
+    {
+      "driver": "Aaron C",
+      "hub": "MINOT_AUBURN",
+      "groups": 14
+    },
+    {
+      "driver": "Remie D",
+      "hub": "STRAWBERRY_LEW",
+      "groups": 14
+    },
+    {
+      "driver": "Bobby Y",
+      "hub": "646_MAIN_LEW",
+      "groups": 13
+    },
+    {
+      "driver": "Jamie B",
+      "hub": "MINOT_AUBURN",
+      "groups": 13
+    },
+    {
+      "driver": "Remie D",
+      "hub": "23_CROSS_AUBURN",
+      "groups": 13
+    },
+    {
+      "driver": "Dean D",
+      "hub": "MANLEY_AUBURN",
+      "groups": 13
+    },
+    {
+      "driver": "Cherie G",
+      "hub": "STRAWBERRY_LEW",
+      "groups": 13
+    }
+  ],
+  "profile_best_drivers_sample": {
+    "MECHANIC FALLS|FALCON_LEW|480": [
+      [
+        "Remie D",
+        34
+      ],
+      [
+        "Richard B",
+        14
+      ],
+      [
+        "Jamie B",
+        3
+      ],
+      [
+        "Jeffrey B",
+        1
+      ],
+      [
+        "Shiloh M",
+        1
+      ]
+    ],
+    "POLAND|FALCON_LEW|480": [
+      [
+        "Remie D",
+        25
+      ],
+      [
+        "Richard B",
+        1
+      ]
+    ],
+    "NEW GLOUCESTER|FALCON_LEW|480": [
+      [
+        "Remie D",
+        27
+      ]
+    ],
+    "AUBURN|FALCON_LEW|480": [
+      [
+        "Dean D",
+        208
+      ],
+      [
+        "Remie D",
+        70
+      ],
+      [
+        "Shiloh M",
+        67
+      ],
+      [
+        "Richard B",
+        58
+      ],
+      [
+        "Jeffrey B",
+        50
+      ]
+    ],
+    "LEWISTON|FALCON_LEW|480": [
+      [
+        "Dean D",
+        348
+      ],
+      [
+        "Richard B",
+        83
+      ],
+      [
+        "Jeffrey B",
+        69
+      ],
+      [
+        "Shiloh M",
+        40
+      ],
+      [
+        "Remie D",
+        36
+      ]
+    ],
+    "OXFORD|646_MAIN_LEW|540": [
+      [
+        "Bobby Y",
+        17
+      ],
+      [
+        "Shiloh M",
+        10
+      ]
+    ],
+    "SOUTH PARIS|646_MAIN_LEW|540": [
+      [
+        "Shiloh M",
+        7
+      ],
+      [
+        "Bobby Y",
+        6
+      ],
+      [
+        "Jamie B",
+        1
+      ]
+    ],
+    "HARTFORD|646_MAIN_LEW|540": [
+      [
+        "Bobby Y",
+        5
+      ]
+    ],
+    "SABATTUS|646_MAIN_LEW|540": [
+      [
+        "Jeffrey B",
+        59
+      ],
+      [
+        "Cherie G",
+        23
+      ],
+      [
+        "Jamie B",
+        1
+      ]
+    ],
+    "WALES|646_MAIN_LEW|540": [
+      [
+        "Cherie G",
+        23
+      ],
+      [
+        "Jeffrey B",
+        4
+      ]
+    ],
+    "GREENE|646_MAIN_LEW|540": [
+      [
+        "Cherie G",
+        18
+      ],
+      [
+        "Jeffrey B",
+        4
+      ],
+      [
+        "Remie D",
+        2
+      ]
+    ],
+    "SABATTUS|646_MAIN_LEW|480": [
+      [
+        "Jeffrey B",
+        28
+      ]
+    ],
+    "LISBON FALLS|646_MAIN_LEW|480": [
+      [
+        "Jeffrey B",
+        11
+      ]
+    ],
+    "LEWISTON|646_MAIN_LEW|480": [
+      [
+        "Jeffrey B",
+        106
+      ]
+    ],
+    "AUBURN|646_MAIN_LEW|480": [
+      [
+        "Jeffrey B",
+        46
+      ]
+    ],
+    "GREENE|MANLEY_AUBURN|510": [
+      [
+        "Aaron C",
+        206
+      ],
+      [
+        "Jamie B",
+        4
+      ],
+      [
+        "Shiloh M",
+        1
+      ]
+    ],
+    "LEWISTON|MANLEY_AUBURN|510": [
+      [
+        "Aaron C",
+        569
+      ],
+      [
+        "Jamie B",
+        153
+      ],
+      [
+        "Dean D",
+        47
+      ],
+      [
+        "Cherie G",
+        30
+      ],
+      [
+        "Shiloh M",
+        17
+      ]
+    ],
+    "AUBURN|MANLEY_AUBURN|510": [
+      [
+        "Jamie B",
+        288
+      ],
+      [
+        "Aaron C",
+        226
+      ],
+      [
+        "Dean D",
+        26
+      ],
+      [
+        "Remie D",
+        12
+      ],
+      [
+        "Cherie G",
+        3
+      ]
+    ],
+    "LEEDS|MANLEY_AUBURN|510": [
+      [
+        "Aaron C",
+        44
+      ],
+      [
+        "Jamie B",
+        1
+      ]
+    ],
+    "BUCKFIELD|OTHER|LEWISTON|480": [
+      [
+        "Richard B",
+        5
+      ]
+    ],
+    "TURNER|OTHER|LEWISTON|480": [
+      [
+        "Richard B",
+        16
+      ],
+      [
+        "Jamie B",
+        1
+      ],
+      [
+        "Shiloh M",
+        1
+      ]
+    ],
+    "AUBURN|OTHER|LEWISTON|480": [
+      [
+        "Jeffrey B",
+        51
+      ],
+      [
+        "Shiloh M",
+        33
+      ],
+      [
+        "Richard B",
+        17
+      ],
+      [
+        "Dean D",
+        15
+      ],
+      [
+        "Jamie B",
+        15
+      ]
+    ],
+    "LEWISTON|OTHER|LEWISTON|480": [
+      [
+        "Jeffrey B",
+        88
+      ],
+      [
+        "Shiloh M",
+        64
+      ],
+      [
+        "Dean D",
+        30
+      ],
+      [
+        "Richard B",
+        25
+      ],
+      [
+        "Jamie B",
+        18
+      ]
+    ],
+    "LISBON FALLS|OTHER|LEWISTON|480": [
+      [
+        "Jeffrey B",
+        16
+      ],
+      [
+        "Shiloh M",
+        4
+      ],
+      [
+        "Richard B",
+        3
+      ],
+      [
+        "Dean D",
+        1
+      ]
+    ],
+    "LISBON|OTHER|LEWISTON|480": [
+      [
+        "Jeffrey B",
+        21
+      ],
+      [
+        "Richard B",
+        6
+      ]
+    ],
+    "WEST PARIS|MINOT_AUBURN|480": [
+      [
+        "Jamie B",
+        5
+      ]
+    ],
+    "HEBRON|MINOT_AUBURN|480": [
+      [
+        "Remie D",
+        42
+      ],
+      [
+        "Richard B",
+        30
+      ],
+      [
+        "Jamie B",
+        8
+      ],
+      [
+        "Jaime B",
+        1
+      ]
+    ],
+    "MINOT|MINOT_AUBURN|480": [
+      [
+        "Richard B",
+        12
+      ],
+      [
+        "Jamie B",
+        10
+      ],
+      [
+        "Jaime B",
+        2
+      ]
+    ],
+    "POLAND|MINOT_AUBURN|480": [
+      [
+        "Remie D",
+        82
+      ],
+      [
+        "Jamie B",
+        1
+      ]
+    ],
+    "AUBURN|MINOT_AUBURN|480": [
+      [
+        "Shiloh M",
+        144
+      ],
+      [
+        "Richard B",
+        59
+      ],
+      [
+        "Remie D",
+        30
+      ],
+      [
+        "Jamie B",
+        23
+      ],
+      [
+        "Dean D",
+        11
+      ]
+    ],
+    "SOUTH PARIS|MINOT_AUBURN|480": [
+      [
+        "Shiloh M",
+        15
+      ],
+      [
+        "Richard B",
+        12
+      ],
+      [
+        "Jamie B",
+        2
+      ],
+      [
+        "Dean D",
+        2
+      ],
+      [
+        "Remie D",
+        1
+      ]
+    ],
+    "TURNER|MINOT_AUBURN|480": [
+      [
+        "Richard B",
+        73
+      ],
+      [
+        "Shiloh M",
+        2
+      ],
+      [
+        "Dean D",
+        2
+      ],
+      [
+        "Jamie B",
+        1
+      ]
+    ],
+    "LEWISTON|MINOT_AUBURN|480": [
+      [
+        "Shiloh M",
+        272
+      ],
+      [
+        "Richard B",
+        92
+      ],
+      [
+        "Jamie B",
+        20
+      ],
+      [
+        "Dean D",
+        18
+      ],
+      [
+        "Jeffrey B",
+        13
+      ]
+    ],
+    "SABATTUS|OTHER|LEWISTON|480": [
+      [
+        "Jeffrey B",
+        24
+      ],
+      [
+        "Shiloh M",
+        7
+      ],
+      [
+        "Dean D",
+        2
+      ],
+      [
+        "Jamie B",
+        1
+      ]
+    ],
+    "GREENE|23_CROSS_AUBURN|540": [
+      [
+        "Cherie G",
+        6
+      ],
+      [
+        "Jeffrey B",
+        1
+      ]
+    ],
+    "WALES|23_CROSS_AUBURN|540": [
+      [
+        "Cherie G",
+        3
+      ]
+    ],
+    "LEWISTON|OTHER|AUBURN|480": [
+      [
+        "Dean D",
+        94
+      ],
+      [
+        "Jeffrey B",
+        24
+      ],
+      [
+        "Shiloh M",
+        21
+      ],
+      [
+        "Richard B",
+        18
+      ]
+    ],
+    "AUBURN|OTHER|AUBURN|480": [
+      [
+        "Dean D",
+        48
+      ],
+      [
+        "Shiloh M",
+        14
+      ],
+      [
+        "Jeffrey B",
+        11
+      ],
+      [
+        "Richard B",
+        11
+      ]
+    ],
+    "SABATTUS|OTHER|AUBURN|480": [
+      [
+        "Dean D",
+        6
+      ],
+      [
+        "Jeffrey B",
+        5
+      ],
+      [
+        "Shiloh M",
+        1
+      ]
+    ],
+    "LISBON|OTHER|AUBURN|480": [
+      [
+        "Dean D",
+        4
+      ],
+      [
+        "Jeffrey B",
+        3
+      ],
+      [
+        "Richard B",
+        1
+      ],
+      [
+        "Shiloh M",
+        1
+      ]
+    ],
+    "LISBON FALLS|OTHER|AUBURN|480": [
+      [
+        "Jeffrey B",
+        3
+      ],
+      [
+        "Dean D",
+        3
+      ],
+      [
+        "Shiloh M",
+        2
+      ],
+      [
+        "Richard B",
+        1
+      ]
+    ],
+    "GREENE|OTHER|LEWISTON|510": [
+      [
+        "Aaron C",
+        10
+      ]
+    ],
+    "LEWISTON|OTHER|LEWISTON|510": [
+      [
+        "Shiloh M",
+        46
+      ],
+      [
+        "Aaron C",
+        41
+      ],
+      [
+        "Jamie B",
+        27
+      ],
+      [
+        "Richard B",
+        22
+      ],
+      [
+        "Dean D",
+        14
+      ]
+    ],
+    "AUBURN|OTHER|LEWISTON|510": [
+      [
+        "Richard B",
+        19
+      ],
+      [
+        "Shiloh M",
+        17
+      ],
+      [
+        "Aaron C",
+        15
+      ],
+      [
+        "Jamie B",
+        14
+      ],
+      [
+        "Dean D",
+        2
+      ]
+    ],
+    "LEEDS|OTHER|LEWISTON|510": [
+      [
+        "Aaron C",
+        5
+      ]
+    ],
+    "BUCKFIELD|MINOT_AUBURN|510": [
+      [
+        "Richard B",
+        14
+      ]
+    ],
+    "TURNER|MINOT_AUBURN|510": [
+      [
+        "Richard B",
+        41
+      ],
+      [
+        "Shiloh M",
+        5
+      ],
+      [
+        "Jamie B",
+        2
+      ]
+    ],
+    "HEBRON|MINOT_AUBURN|510": [
+      [
+        "Richard B",
+        21
+      ],
+      [
+        "Remie D",
+        3
+      ],
+      [
+        "Jamie B",
+        1
+      ]
+    ],
+    "LEWISTON|MINOT_AUBURN|510": [
+      [
+        "Shiloh M",
+        140
+      ],
+      [
+        "Dean D",
+        75
+      ],
+      [
+        "Richard B",
+        72
+      ],
+      [
+        "Aaron C",
+        54
+      ],
+      [
+        "Cherie G",
+        15
+      ]
+    ],
+    "AUBURN|MINOT_AUBURN|510": [
+      [
+        "Richard B",
+        78
+      ],
+      [
+        "Shiloh M",
+        45
+      ],
+      [
+        "Aaron C",
+        30
+      ],
+      [
+        "Dean D",
+        21
+      ],
+      [
+        "Jamie B",
+        21
+      ]
+    ],
+    "NEW GLOUCESTER|MINOT_AUBURN|510": [
+      [
+        "Richard B",
+        1
+      ],
+      [
+        "Aaron C",
+        1
+      ]
+    ],
+    "SOUTH PARIS|MANLEY_AUBURN|510": [
+      [
+        "Jamie B",
+        146
+      ],
+      [
+        "Aaron C",
+        4
+      ]
+    ],
+    "HEBRON|MANLEY_AUBURN|510": [
+      [
+        "Jamie B",
+        24
+      ]
+    ],
+    "MINOT|MANLEY_AUBURN|510": [
+      [
+        "Jamie B",
+        30
+      ],
+      [
+        "Aaron C",
+        4
+      ]
+    ],
+    "TURNER|MANLEY_AUBURN|510": [
+      [
+        "Jamie B",
+        16
+      ],
+      [
+        "Aaron C",
+        2
+      ]
+    ],
+    "SABATTUS|MANLEY_AUBURN|510": [
+      [
+        "Jamie B",
+        17
+      ],
+      [
+        "Dean D",
+        17
+      ],
+      [
+        "Cherie G",
+        16
+      ],
+      [
+        "Aaron C",
+        3
+      ],
+      [
+        "Shiloh M",
+        3
+      ]
+    ],
+    "SABATTUS|MINOT_AUBURN|480": [
+      [
+        "Shiloh M",
+        31
+      ],
+      [
+        "Dean D",
+        5
+      ],
+      [
+        "Jeffrey B",
+        3
+      ],
+      [
+        "Richard B",
+        3
+      ],
+      [
+        "Jamie B",
+        1
+      ]
+    ],
+    "SOUTH PARIS|20_EAST_LEW|540": [
+      [
+        "Bobby Y",
+        36
+      ],
+      [
+        "Shiloh M",
+        5
+      ],
+      [
+        "Richard B",
+        1
+      ]
+    ],
+    "LEWISTON|646_MAIN_LEW|540": [
+      [
+        "Jeffrey B",
+        85
+      ],
+      [
+        "Cherie G",
+        19
+      ],
+      [
+        "Jamie B",
+        5
+      ],
+      [
+        "Remie D",
+        1
+      ]
+    ],
+    "SABATTUS|FALCON_LEW|480": [
+      [
+        "Jeffrey B",
+        19
+      ],
+      [
+        "Dean D",
+        10
+      ],
+      [
+        "Richard B",
+        4
+      ],
+      [
+        "Jamie B",
+        1
+      ]
+    ]
+  }
+}

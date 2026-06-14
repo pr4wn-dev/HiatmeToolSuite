@@ -61,6 +61,7 @@ namespace Hiatme_Tool_Suite_v3
                     sourceTab,
                     _fsLinesByTab,
                     _supeyRoster,
+                    fsbdatepicker?.Value,
                     progress,
                     CancellationToken.None).ConfigureAwait(true);
 
@@ -68,7 +69,8 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     MessageBox.Show(this,
                         "No driver suggestions found for this trip.\r\n\r\n"
-                        + "Driver tabs may be empty, or no placement passed timing checks.",
+                        + "No feasible merge into an existing clinic wave, and no open batch slot "
+                        + "where the driver is free before this pickup window closes.",
                         "Schedule Builder",
                         MessageBoxButtons.OK,
                         MessageBoxIcon.Information);

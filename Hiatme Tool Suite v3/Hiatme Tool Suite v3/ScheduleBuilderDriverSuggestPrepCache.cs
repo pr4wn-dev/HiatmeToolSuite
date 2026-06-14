@@ -103,10 +103,8 @@ namespace Hiatme_Tool_Suite_v3
             if (c == null)
                 return;
 
+            // Desk row order = pickup tour (same as saved schedules). Do not PU-sort here.
             SupeyClusterRouting.ApplyManualEditTour(c);
-
-            if (c.Trips.Count >= 2)
-                ApplySuggestFeasibilityTour(c);
 
             if (prepCache != null && prepCache.TryApply(c))
                 return;
@@ -175,19 +173,6 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             prepCache?.Store(c);
-        }
-
-        private static void ApplySuggestFeasibilityTour(SupeyTripCluster c)
-        {
-            if (c == null || c.Trips.Count < 2)
-                return;
-
-            var puOrder = Enumerable.Range(0, c.Trips.Count)
-                .OrderBy(i => SupeyTripTimes.TryParsePU(c.Trips[i]) ?? TimeSpan.MaxValue)
-                .ThenBy(i => (c.Trips[i]?.TripNumber ?? "").Trim(), StringComparer.OrdinalIgnoreCase)
-                .ToList();
-            SupeyClusterRouting.ApplyOrdersPublic(
-                c, puOrder, SupeyClusterRouting.BuildDeadlineDropoffOrderPublic(c));
         }
 
         private static GeoPoint GetTripPickup(SupeyTripCluster c, int tripIdx)

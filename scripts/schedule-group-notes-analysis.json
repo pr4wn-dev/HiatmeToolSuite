@@ -1,0 +1,689 @@
+{
+  "files_scanned": 117,
+  "schedule_note_rows": 777,
+  "unique_notes": 436,
+  "by_category": {
+    "other": 291,
+    "early_pickup_time": 165,
+    "pick_up_together": 133,
+    "get_client": 77,
+    "start_time": 77,
+    "round_trip": 42,
+    "come_to_office": 29,
+    "pick_up_in_order": 22,
+    "will_call": 11,
+    "drop_order": 11,
+    "dont_be_late": 9,
+    "usual_set": 6
+  },
+  "top_raw_notes": [
+    {
+      "note": "pick up togther",
+      "count": 82
+    },
+    {
+      "note": "round trip",
+      "count": 40
+    },
+    {
+      "note": "6:50 pick up",
+      "count": 38
+    },
+    {
+      "note": "650 am start",
+      "count": 36
+    },
+    {
+      "note": "get burkhardt",
+      "count": 25
+    },
+    {
+      "note": "come to office",
+      "count": 23
+    },
+    {
+      "note": "645 am start",
+      "count": 19
+    },
+    {
+      "note": "6:50 pickup",
+      "count": 15
+    },
+    {
+      "note": "7:00 pick up",
+      "count": 12
+    },
+    {
+      "note": "pick up together",
+      "count": 7
+    },
+    {
+      "note": "pick up togther in order",
+      "count": 6
+    },
+    {
+      "note": "7am start",
+      "count": 5
+    },
+    {
+      "note": "chip change",
+      "count": 4
+    },
+    {
+      "note": "usual set",
+      "count": 4
+    },
+    {
+      "note": "togther",
+      "count": 3
+    },
+    {
+      "note": "st arnold will call",
+      "count": 3
+    },
+    {
+      "note": "650 am start don’t be late",
+      "count": 3
+    },
+    {
+      "note": "come out to office",
+      "count": 3
+    },
+    {
+      "note": "st arnold will call will be on you",
+      "count": 3
+    },
+    {
+      "note": "6:45 pickup",
+      "count": 2
+    },
+    {
+      "note": "3333333",
+      "count": 2
+    },
+    {
+      "note": "drop nowland then thuotte",
+      "count": 2
+    },
+    {
+      "note": "ccccccccccccccc",
+      "count": 2
+    },
+    {
+      "note": "7:00 pickup",
+      "count": 2
+    },
+    {
+      "note": "9:10 pick up",
+      "count": 2
+    },
+    {
+      "note": "12:15 pick up",
+      "count": 2
+    },
+    {
+      "note": "1:00 pickup",
+      "count": 2
+    },
+    {
+      "note": "6:50 start",
+      "count": 2
+    },
+    {
+      "note": "bring hiscock with you",
+      "count": 2
+    },
+    {
+      "note": "10:10 pickup",
+      "count": 2
+    },
+    {
+      "note": "9:20 pickup",
+      "count": 2
+    },
+    {
+      "note": "sssssssssssssssss",
+      "count": 2
+    },
+    {
+      "note": "9:40 pick up",
+      "count": 2
+    },
+    {
+      "note": "pic togther",
+      "count": 2
+    },
+    {
+      "note": "6:45 pick up",
+      "count": 2
+    },
+    {
+      "note": "hhhhhhhhhhhhhhh",
+      "count": 2
+    },
+    {
+      "note": "broke down",
+      "count": 2
+    },
+    {
+      "note": "eeeeeeeeeeeeeee",
+      "count": 2
+    },
+    {
+      "note": "650 start",
+      "count": 2
+    },
+    {
+      "note": "mmmmmmmmmmmm",
+      "count": 2
+    },
+    {
+      "note": "ward and heino all the way out back",
+      "count": 2
+    },
+    {
+      "note": "650 am first pick up",
+      "count": 2
+    },
+    {
+      "note": "pick up with rioux",
+      "count": 2
+    },
+    {
+      "note": "take pike from auburn to sabattus",
+      "count": 2
+    },
+    {
+      "note": "10 am cpr test",
+      "count": 2
+    },
+    {
+      "note": "pick up early",
+      "count": 2
+    },
+    {
+      "note": "get burkhardt from jeff",
+      "count": 2
+    },
+    {
+      "note": "7:30 drop off",
+      "count": 2
+    },
+    {
+      "note": "10:30 pick up",
+      "count": 1
+    },
+    {
+      "note": "8:30 pick up for both",
+      "count": 1
+    },
+    {
+      "note": "dr appt….",
+      "count": 1
+    },
+    {
+      "note": "office",
+      "count": 1
+    },
+    {
+      "note": "woods get fron seat",
+      "count": 1
+    },
+    {
+      "note": "pick up with pepin",
+      "count": 1
+    },
+    {
+      "note": "220 pick up and drop then get martin",
+      "count": 1
+    },
+    {
+      "note": "pick up togther in order all going to auburn",
+      "count": 1
+    },
+    {
+      "note": "6:45 start 7:40 drop off",
+      "count": 1
+    },
+    {
+      "note": "st arnolds will call will be on you",
+      "count": 1
+    },
+    {
+      "note": "turnpike to sabattus",
+      "count": 1
+    },
+    {
+      "note": "ward heino and huckabey out back",
+      "count": 1
+    }
+  ],
+  "examples_by_category": {
+    "early_pickup_time": [
+      {
+        "note": "7:00 PICK UP",
+        "file": "Schedule for April 1 2026.xlsx",
+        "driver": "Shiloh M",
+        "row": 1
+      },
+      {
+        "note": "6:50 pickup",
+        "file": "Schedule for April 1 2026.xlsx",
+        "driver": "Dean D",
+        "row": 1
+      },
+      {
+        "note": "645 am start",
+        "file": "Schedule for April 10 2026.xlsx",
+        "driver": "Shiloh M",
+        "row": 1
+      },
+      {
+        "note": "645 am start",
+        "file": "Schedule for April 10 2026.xlsx",
+        "driver": "Dean D",
+        "row": 1
+      },
+      {
+        "note": "6:45 START 7:40 DROP OFF",
+        "file": "Schedule for April 13 2026.xlsx",
+        "driver": "Shiloh M",
+        "row": 1
+      }
+    ],
+    "get_client": [
+      {
+        "note": "GET BURKHARDT",
+        "file": "Schedule for April 1 2026.xlsx",
+        "driver": "Shiloh M",
+        "row": 2
+      },
+      {
+        "note": "WOODS GET FRON SEAT",
+        "file": "Schedule for April 10 2026.xlsx",
+        "driver": "Richard B",
+        "row": 36
+      },
+      {
+        "note": "220 pick up and drop then get martin",
+        "file": "Schedule for April 10 2026.xlsx",
+        "driver": "Dean D",
+        "row": 35
+      },
+      {
+        "note": "get Burkhardt from jeff Brown going with you to 1512",
+        "file": "Schedule for April 14 2026.xlsx",
+        "driver": "Shiloh M",
+        "row": 8
+      },
+      {
+        "note": "pick up drop soper get conroy on your wau thru lewiston",
+        "file": "Schedule for April 14 2026.xlsx",
+        "driver": "Shiloh M",
+        "row": 20
+      }
+    ],
+    "other": [
+      {
+        "note": "10:30 PICK UP",
+        "file": "Schedule for April 1 2026.xlsx",
+        "driver": "Shiloh M",
+        "row": 14
+      },
+      {
+        "note": "8:30 PICK UP FOR BOTH",
+        "file": "Schedule for April 1 2026.xlsx",
+        "driver": "Dean D",
+        "row": 7
+      },
+      {
+        "note": "Dr appt….",
+        "file": "Schedule for April 10 2026.xlsx",
+        "driver": "Remie D",
+        "row": 7
+      },
+      {
+        "note": "OFFICE",
+        "file": "Schedule for April 10 2026.xlsx",
+        "driver": "Aaron C",
+        "row": 18
+      },
+      {
+        "note": "PICK UP WITH PEPIN",
+        "file": "Schedule for April 10 2026.xlsx",
+        "driver": "Shiloh M",
+        "row": 36
+      }
+    ],
+    "come_to_office": [
+      {
+        "note": "COME TO OFFICE",
+        "file": "Schedule for April 1 2026.xlsx",
+        "driver": "Dean D",
+        "row": 26
+      },
+      {
+        "note": "COME TO OFFICE",
+        "file": "Schedule for April 13 2026.xlsx",
+        "driver": "Jeffrey B",
+        "row": 26
+      },
+      {
+        "note": "COME TO OFFICE",
+        "file": "Schedule for April 15 2026.xlsx",
+        "driver": "Shiloh M",
+        "row": 24
+      },
+      {
+        "note": "COME TO OFFICE",
+        "file": "Schedule for April 15 2026.xlsx",
+        "driver": "Dean D",
+        "row": 24
+      },
+      {
+        "note": "chip swap come to office as soon as u clear",
+        "file": "Schedule for April 6 2026.xlsx",
+        "driver": "Richard B",
+        "row": 18
+      }
+    ],
+    "round_trip": [
+      {
+        "note": "Round Trip",
+        "file": "Schedule for April 10 2026.xlsx",
+        "driver": "Richard B",
+        "row": 13
+      },
+      {
+        "note": "ROUND TRIP",
+        "file": "Schedule for April 13 2026.xlsx",
+        "driver": "Jamie B",
+        "row": 10
+      },
+      {
+        "note": "Round Trip",
+        "file": "Schedule for April 14 2026.xlsx",
+        "driver": "Shiloh M",
+        "row": 13
+      },
+      {
+        "note": "ROUND TRIP",
+        "file": "Schedule for April 15 2026.xlsx",
+        "driver": "Shiloh M",
+        "row": 14
+      },
+      {
+        "note": "round trip",
+        "file": "Schedule for April 20 2026.xlsx",
+        "driver": "Jeffrey B",
+        "row": 25
+      }
+    ],
+    "start_time": [
+      {
+        "note": "645 am start",
+        "file": "Schedule for April 10 2026.xlsx",
+        "driver": "Shiloh M",
+        "row": 1
+      },
+      {
+        "note": "645 am start",
+        "file": "Schedule for April 10 2026.xlsx",
+        "driver": "Dean D",
+        "row": 1
+      },
+      {
+        "note": "645 am start",
+        "file": "Schedule for April 14 2026.xlsx",
+        "driver": "Shiloh M",
+        "row": 1
+      },
+      {
+        "note": "645 am start",
+        "file": "Schedule for April 14 2026.xlsx",
+        "driver": "Dean D",
+        "row": 1
+      },
+      {
+        "note": "645 am start don’t be late/",
+        "file": "Schedule for April 16 2026.xlsx",
+        "driver": "Shiloh M",
+        "row": 1
+      }
+    ],
+    "pick_up_together": [
+      {
+        "note": "pick up togther",
+        "file": "Schedule for April 10 2026.xlsx",
+        "driver": "Shiloh M",
+        "row": 14
+      },
+      {
+        "note": "pick up togther in order all going to Auburn",
+        "file": "Schedule for April 10 2026.xlsx",
+        "driver": "Dean D",
+        "row": 39
+      },
+      {
+        "note": "1055 pick up pick up togther",
+        "file": "Schedule for April 14 2026.xlsx",
+        "driver": "Dean D",
+        "row": 26
+      },
+      {
+        "note": "pick up togther",
+        "file": "Schedule for April 14 2026.xlsx",
+        "driver": "Dean D",
+        "row": 48
+      },
+      {
+        "note": "PICK UP TOGETHER",
+        "file": "Schedule for April 15 2026.xlsx",
+        "driver": "Dean D",
+        "row": 9
+      }
+    ],
+    "pick_up_in_order": [
+      {
+        "note": "pick up togther in order all going to Auburn",
+        "file": "Schedule for April 10 2026.xlsx",
+        "driver": "Dean D",
+        "row": 39
+      },
+      {
+        "note": "pick up togther in order",
+        "file": "Schedule for April 2 2026.xlsx",
+        "driver": "Dean D",
+        "row": 36
+      },
+      {
+        "note": "pick up togther in order 1120 start",
+        "file": "Schedule for April 20 2026.xlsx",
+        "driver": "Dean D",
+        "row": 13
+      },
+      {
+        "note": "PICK UP IN ORDER DROP CHILD, TAKE PIKE TO SABATTUS",
+        "file": "Schedule for April 21 2026.xlsx",
+        "driver": "Dean D",
+        "row": 37
+      },
+      {
+        "note": "pick up in order drop mason,oullet,drouin,nowland",
+        "file": "Schedule for April 22 2026.xlsx",
+        "driver": "Dean D",
+        "row": 35
+      }
+    ],
+    "will_call": [
+      {
+        "note": "ST ARNOLDS WILL CALL WILL BE ON YOU",
+        "file": "Schedule for April 13 2026.xlsx",
+        "driver": "Shiloh M",
+        "row": 14
+      },
+      {
+        "note": "ST ARNOLD WILL CALL",
+        "file": "Schedule for April 27 2026.xlsx",
+        "driver": "Shiloh M",
+        "row": 12
+      },
+      {
+        "note": "YOU WILL HAVE A WILL CALL FOR ST ARNOLD I WILL LET YOU KNOW WHEN SHES READY",
+        "file": "Schedule for February 2 2026.xlsx",
+        "driver": "Shiloh M",
+        "row": 9
+      },
+      {
+        "note": "YOU WILL HAVE A WILL CALL FOR ST ARNOLD ASSIGNED TO YOU.",
+        "file": "Schedule for January 19 2026.xlsx",
+        "driver": "Jeffrey B",
+        "row": 4
+      },
+      {
+        "note": "WILL CALL FOR KIYOKO ST ARNOLD",
+        "file": "Schedule for March 16 2026.xlsx",
+        "driver": "Shiloh M",
+        "row": 14
+      }
+    ],
+    "dont_be_late": [
+      {
+        "note": "645 am start don’t be late/",
+        "file": "Schedule for April 16 2026.xlsx",
+        "driver": "Shiloh M",
+        "row": 1
+      },
+      {
+        "note": "stop by golden nozel vacume van out on your way to office be on time!!",
+        "file": "Schedule for April 6 2026.xlsx",
+        "driver": "Shiloh M",
+        "row": 17
+      },
+      {
+        "note": "650 am start don’t be late",
+        "file": "Schedule for February 11 2026.xlsx",
+        "driver": "Shiloh M",
+        "row": 1
+      },
+      {
+        "note": "650 am start don’t be late",
+        "file": "Schedule for February 19 2026.xlsx",
+        "driver": "Shiloh M",
+        "row": 1
+      },
+      {
+        "note": "915 start the pick up togther don’t be late",
+        "file": "Schedule for January 16 2026.xlsx",
+        "driver": "Dean D",
+        "row": 14
+      }
+    ],
+    "drop_order": [
+      {
+        "note": "PICK UP TOGETHER. DROP ZACHERY FIRST",
+        "file": "Schedule for April 17 2026.xlsx",
+        "driver": "Dean D",
+        "row": 25
+      },
+      {
+        "note": "DROP TAYLOR FIRST",
+        "file": "Schedule for April 29 2026.xlsx",
+        "driver": "Dean D",
+        "row": 32
+      },
+      {
+        "note": "Drop them off in order maker,hardy,martin,",
+        "file": "Schedule for April 8 2026.xlsx",
+        "driver": "Dean D",
+        "row": 35
+      },
+      {
+        "note": "pick up togther drop crowell,135 third in that order",
+        "file": "Schedule for February 9 2026.xlsx",
+        "driver": "Dean D",
+        "row": 21
+      },
+      {
+        "note": "pick 400 center st drop rioux pick up marquise drop marquise,tardiff in that order",
+        "file": "Schedule for January 16 2026.xlsx",
+        "driver": "Dean D",
+        "row": 24
+      }
+    ],
+    "usual_set": [
+      {
+        "note": "usual set up up pick pepin,charest drop charest pick twins drop 80 strawberry",
+        "file": "Schedule for February 17 2026.xlsx",
+        "driver": "Dean D",
+        "row": 7
+      },
+      {
+        "note": "usual set",
+        "file": "Schedule for February 25 2026.xlsx",
+        "driver": "Shiloh M",
+        "row": 29
+      },
+      {
+        "note": "usual set up",
+        "file": "Schedule for January 20 2026.xlsx",
+        "driver": "Shiloh M",
+        "row": 39
+      },
+      {
+        "note": "usual set",
+        "file": "Schedule for January 20 2026.xlsx",
+        "driver": "Dean D",
+        "row": 35
+      },
+      {
+        "note": "usual set",
+        "file": "Schedule for March 3 2026.xlsx",
+        "driver": "Shiloh M",
+        "row": 30
+      }
+    ]
+  },
+  "drivers_with_most_notes": [
+    [
+      "Dean D",
+      318
+    ],
+    [
+      "Shiloh M",
+      245
+    ],
+    [
+      "Richard B",
+      64
+    ],
+    [
+      "Jeffrey B",
+      48
+    ],
+    [
+      "Remie D",
+      44
+    ],
+    [
+      "Aaron C",
+      36
+    ],
+    [
+      "Jamie B",
+      17
+    ],
+    [
+      "Cherie G",
+      2
+    ],
+    [
+      "Bobby Y",
+      2
+    ],
+    [
+      "Jaime B",
+      1
+    ]
+  ]
+}

@@ -1,0 +1,1064 @@
+{
+  "stats": {
+    "files": 117,
+    "driver_sheets": 987,
+    "trips": 18585,
+    "groups": 6980,
+    "blank_row_group_breaks": 6145,
+    "inferred_90min_would_split": 84
+  },
+  "group_size_distribution": {
+    "1": 2429,
+    "2": 1623,
+    "3": 1059,
+    "4": 705,
+    "5": 518,
+    "6": 398,
+    "7": 172,
+    "8": 45,
+    "9": 11,
+    "10": 7,
+    "11": 5,
+    "21": 3
+  },
+  "pu_span_minutes_p75": 30,
+  "pu_span_minutes_max": 575,
+  "do_span_minutes_p75": 30,
+  "groups_with_2plus_pu_cities_pct": 36.2,
+  "groups_with_3plus_pu_cities_pct": 10.4,
+  "pu_cities_per_group_p75": 2.0,
+  "desk_order_vs_pu_chronological": {
+    "reordered": 1016,
+    "pu_chronological": 3044
+  },
+  "inter_group_gap_minutes_p75": 50,
+  "inter_group_gap_negative_count": 737,
+  "inter_group_gap_under_30_count": 1907,
+  "same_do_time_batch_sizes": {
+    "2": 611,
+    "3": 481,
+    "4": 354,
+    "5": 162,
+    "6": 21
+  },
+  "a_leg_8am_do_wave_sizes": {
+    "3": 171,
+    "4": 144,
+    "2": 120,
+    "5": 74,
+    "6": 12
+  },
+  "note_pattern_counts": {
+    "door_to_door": 3899,
+    "cannot_leave_unattended": 2411,
+    "one_way": 463,
+    "non_verbal": 428,
+    "cannot_drop_before": 279,
+    "needs_assistance": 225,
+    "requests_later_pu": 178,
+    "pick_up_at_door": 111,
+    "call_first": 70,
+    "ready_for_pu_at": 43,
+    "wheelchair": 2
+  },
+  "note_examples": {
+    "cannot_leave_unattended": [
+      "1997-09-30 00:00:00 15 SO/UTS/CANNOT BE LEFT UNATTENDED",
+      "1986-02-19 00:00:00 21 SO/ONE WAY/ALONE/UTS/DOOR TO DOOR/NON VERBAL/CANT LEAVE UNATTENDED/READY FOR PU",
+      "1998-10-07 00:00:00 9 SO/ATS/CANNOT BE LEFT UNATTENDED/CALL 207-520-9884 OR 207-739-9441 AND STAFF WIL"
+    ],
+    "pick_up_at_door": [
+      "1978-03-12 00:00:00 7 SO/ATS/PICK UP AT DOOR NOT GATE",
+      "1978-03-12 00:00:00 7 SO/ATS/PICK UP AT DOOR NOT GATE",
+      "1978-03-12 00:00:00 7 SO/ATS/PICK UP AT DOOR NOT GATE"
+    ],
+    "door_to_door": [
+      "1974-04-15 00:00:00 1 SO/ATS/DOOR TO DOOR",
+      "1986-02-19 00:00:00 21 SO/ONE WAY/ALONE/UTS/DOOR TO DOOR/NON VERBAL/CANT LEAVE UNATTENDED/READY FOR PU",
+      "1996-05-14 00:00:00 2 SO/ATS/DOOR TO DOOR"
+    ],
+    "one_way": [
+      "1986-02-19 00:00:00 21 SO/ONE WAY/ALONE/UTS/DOOR TO DOOR/NON VERBAL/CANT LEAVE UNATTENDED/READY FOR PU",
+      "1978-11-05 00:00:00 2 SO/ATS/ONE WAY",
+      "1991-09-20 00:00:00 2 ONE WAY"
+    ],
+    "non_verbal": [
+      "1986-02-19 00:00:00 21 SO/ONE WAY/ALONE/UTS/DOOR TO DOOR/NON VERBAL/CANT LEAVE UNATTENDED/READY FOR PU",
+      "1994-03-30 00:00:00 9 SO/UTS/DOOR TO DOOR/NON-VERBAL",
+      "1957-08-20 00:00:00 13 SO/UTS/DO NOT LEAVE UNATTENDED/NON-VERBAL/ALWAYS REQ BACKSEAT"
+    ],
+    "needs_assistance": [
+      "1988-06-21 00:00:00 10 SO/ ATS/ NEEDS ASSISTANCE OPENING VEHICLE DOOR",
+      "1988-06-21 00:00:00 9 SO/ ATS/ NEEDS ASSISTANCE OPENING VEHICLE DOOR",
+      "1988-06-21 00:00:00 10 SO/ ATS / NEEDS ASSISTANCE OPENING VEHICLE DOOR"
+    ],
+    "call_first": [
+      "1965-06-10 00:00:00 3 CELL Y TEXT Y/CALL BEFORE/UPON ARRIVAL/",
+      "1965-06-10 00:00:00 3 CELL Y TEXT Y/CALL BEFORE/UPON ARRIVAL/",
+      "1957-10-29 00:00:00 2 CELL-TEXT/PLEASE CALL BEFORE ARRIVAL TO HAVE TIME TO COME OUT FRONT"
+    ],
+    "requests_later_pu": [
+      "1989-04-28 00:00:00 6 SO/ATS/DOOR TO DOOR/REQUESTS LATER PU",
+      "1989-04-28 00:00:00 6 SO/ATS/DOOR TO DOOR/REQUESTS LATER PU",
+      "1998-09-18 00:00:00 6 SO/ATS/DOOR TO DOOR/REQUESTS LATER A LEG PICK UP"
+    ],
+    "cannot_drop_before": [
+      "1991-10-22 00:00:00 15 SO/ ATS/ DOOR-TO-DOOR/ CANNOT BE DROPPED OFF BEFORE 1030",
+      "1991-10-22 00:00:00 15 SO/ ATS/ DOOR-TO-DOOR/ CANNOT BE DROPPED OFF BEFORE 1030",
+      "1977-03-27 00:00:00 12 SO/ATS/CANNOT BE DROPPED OFF BEFORE 0800/CANNOT BE LEFT UNATTENDED/ENSURE STAFF"
+    ],
+    "ready_for_pu_at": [
+      "1966-10-23 00:00:00 1 SO/ONE WAY/READY FOR PU AT 2PM/ALONE/ATS",
+      "1966-10-23 00:00:00 1 SO/ONE WAY/READY FOR PU AT 2PM/ALONE/ATS",
+      "1966-10-23 00:00:00 1 SO/ONE WAY/READY FOR PU AT 2PM/ALONE/ATS"
+    ],
+    "wheelchair": [
+      "1965-04-30 00:00:00 10 BARIATRIC MWC/265LBS/5'1/TF/",
+      "1965-04-30 00:00:00 10 BARIATRIC MWC/265LBS/5'1/TF/"
+    ]
+  },
+  "leg_mix_in_group": {
+    "A": 3289,
+    "B": 2791,
+    "A,B": 828,
+    "B,C": 51,
+    "A,B,C": 12,
+    "C": 5,
+    "A,C": 4
+  },
+  "concurrent_pu_within_14_distribution": {
+    "2": 1431,
+    "3": 937,
+    "4": 637,
+    "1": 536,
+    "5": 341,
+    "6": 143,
+    "7": 31,
+    "8": 3,
+    "10": 1
+  },
+  "concurrent_pu_within_29_distribution": {
+    "2": 1408,
+    "3": 957,
+    "4": 686,
+    "5": 455,
+    "6": 266,
+    "1": 191,
+    "7": 74,
+    "8": 16,
+    "9": 5,
+    "10": 2
+  },
+  "concurrent_pu_within_120_distribution": {
+    "2": 1421,
+    "3": 957,
+    "4": 625,
+    "5": 464,
+    "6": 370,
+    "7": 151,
+    "8": 41,
+    "9": 13,
+    "1": 8,
+    "10": 5,
+    "11": 5
+  },
+  "desk_first_trip_pu_minus_group_min_pu": {
+    "p75": 0,
+    "nonzero_pct": 10.0
+  },
+  "clients_with_a_and_b_same_driver_top20": [
+    [
+      "THEBERGE, STACY L",
+      111
+    ],
+    [
+      "QUADROS, LAURA L",
+      100
+    ],
+    [
+      "JOLICOEUR, JEFFREY",
+      99
+    ],
+    [
+      "HOLT, CARMAN G",
+      68
+    ],
+    [
+      "PHILLIPS, MICAH J",
+      67
+    ],
+    [
+      "CARLMARK, ZOEY LAUREN",
+      60
+    ],
+    [
+      "BURKHARDT, JOEL DAVID",
+      37
+    ],
+    [
+      "TANCREL, LINDSEY M",
+      37
+    ],
+    [
+      "LOZIER, SUSAN A.",
+      34
+    ],
+    [
+      "SWAN, SHERI S",
+      33
+    ],
+    [
+      "TAYLOR, FREDERICK R",
+      33
+    ],
+    [
+      "PEPIN, CULLEN R",
+      30
+    ],
+    [
+      "LATHAM, SHAYLEA",
+      30
+    ],
+    [
+      "TUTTLE, SIERRA B",
+      28
+    ],
+    [
+      "LEDDY, AMANDA",
+      26
+    ],
+    [
+      "SCHWARTZ, RYAN B",
+      26
+    ],
+    [
+      "LIZOTTE, TAMMY M",
+      25
+    ],
+    [
+      "GRIBBIN, JR, DANIEL M",
+      25
+    ],
+    [
+      "DUFRESNE, JACLYN N",
+      24
+    ],
+    [
+      "DESROCHERS, DAVID P",
+      23
+    ]
+  ],
+  "examples_multi_city_groups": [
+    {
+      "file": "Schedule for April 1 2026.xlsx",
+      "driver": "Remie D",
+      "group": 1,
+      "pu_cities": [
+        "AUBURN",
+        "MECHANIC FALLS",
+        "NEW GLOUCESTER",
+        "POLAND"
+      ],
+      "pu_span_min": 30,
+      "trips": [
+        [
+          "1-10083-A",
+          430,
+          "MECHANIC FALLS"
+        ],
+        [
+          "1-11124-A",
+          430,
+          "POLAND"
+        ],
+        [
+          "1-65652-A",
+          415,
+          "NEW GLOUCESTER"
+        ],
+        [
+          "1-11109-A",
+          445,
+          "AUBURN"
+        ]
+      ]
+    },
+    {
+      "file": "Schedule for April 1 2026.xlsx",
+      "driver": "Bobby Y",
+      "group": 1,
+      "pu_cities": [
+        "HARTFORD",
+        "OXFORD",
+        "SOUTH PARIS"
+      ],
+      "pu_span_min": 15,
+      "trips": [
+        [
+          "1-12546-A",
+          475,
+          "OXFORD"
+        ],
+        [
+          "1-11387-A",
+          475,
+          "SOUTH PARIS"
+        ],
+        [
+          "1-11954-A",
+          490,
+          "HARTFORD"
+        ]
+      ]
+    },
+    {
+      "file": "Schedule for April 1 2026.xlsx",
+      "driver": "Cherie G",
+      "group": 1,
+      "pu_cities": [
+        "GREENE",
+        "SABATTUS",
+        "WALES"
+      ],
+      "pu_span_min": 20,
+      "trips": [
+        [
+          "1-11451-A",
+          490,
+          "SABATTUS"
+        ],
+        [
+          "1-9985-A",
+          510,
+          "WALES"
+        ],
+        [
+          "1-11826-A",
+          510,
+          "GREENE"
+        ]
+      ]
+    },
+    {
+      "file": "Schedule for April 1 2026.xlsx",
+      "driver": "Jeffrey B",
+      "group": 1,
+      "pu_cities": [
+        "AUBURN",
+        "LEWISTON",
+        "LISBON FALLS",
+        "SABATTUS"
+      ],
+      "pu_span_min": 60,
+      "trips": [
+        [
+          "1-11273-A",
+          400,
+          "SABATTUS"
+        ],
+        [
+          "1-10754-A",
+          415,
+          "LISBON FALLS"
+        ],
+        [
+          "1-62754-A",
+          455,
+          "LEWISTON"
+        ],
+        [
+          "1-11299-A",
+          450,
+          "AUBURN"
+        ],
+        [
+          "1-11159-A",
+          455,
+          "LEWISTON"
+        ],
+        [
+          "1-61600-A",
+          460,
+          "AUBURN"
+        ]
+      ]
+    },
+    {
+      "file": "Schedule for April 1 2026.xlsx",
+      "driver": "Aaron C",
+      "group": 5,
+      "pu_cities": [
+        "GREENE",
+        "LEEDS",
+        "LEWISTON"
+      ],
+      "pu_span_min": 25,
+      "trips": [
+        [
+          "1-10828-A",
+          595,
+          "LEEDS"
+        ],
+        [
+          "1-10053-A",
+          595,
+          "GREENE"
+        ],
+        [
+          "1-10568-A",
+          610,
+          "LEWISTON"
+        ],
+        [
+          "1-11622-A",
+          620,
+          "LEWISTON"
+        ]
+      ]
+    },
+    {
+      "file": "Schedule for April 1 2026.xlsx",
+      "driver": "Richard B",
+      "group": 1,
+      "pu_cities": [
+        "AUBURN",
+        "BUCKFIELD",
+        "TURNER"
+      ],
+      "pu_span_min": 40,
+      "trips": [
+        [
+          "1-11099-A",
+          430,
+          "BUCKFIELD"
+        ],
+        [
+          "1-11567-A",
+          415,
+          "TURNER"
+        ],
+        [
+          "1-11004-A",
+          445,
+          "TURNER"
+        ],
+        [
+          "1-75019-A",
+          455,
+          "AUBURN"
+        ]
+      ]
+    },
+    {
+      "file": "Schedule for April 1 2026.xlsx",
+      "driver": "Richard B",
+      "group": 6,
+      "pu_cities": [
+        "LEWISTON",
+        "LISBON",
+        "LISBON FALLS"
+      ],
+      "pu_span_min": 40,
+      "trips": [
+        [
+          "1-11467-A",
+          655,
+          "LISBON FALLS"
+        ],
+        [
+          "1-11174-A",
+          670,
+          "LISBON"
+        ],
+        [
+          "1-87370-A",
+          695,
+          "LEWISTON"
+        ]
+      ]
+    },
+    {
+      "file": "Schedule for April 1 2026.xlsx",
+      "driver": "Jamie B",
+      "group": 1,
+      "pu_cities": [
+        "AUBURN",
+        "HEBRON",
+        "MINOT",
+        "POLAND",
+        "WEST PARIS"
+      ],
+      "pu_span_min": 75,
+      "trips": [
+        [
+          "1-11421-A",
+          410,
+          "WEST PARIS"
+        ],
+        [
+          "1-12130-A",
+          415,
+          "HEBRON"
+        ],
+        [
+          "1-12778-A",
+          430,
+          "MINOT"
+        ],
+        [
+          "1-10792-A",
+          430,
+          "MINOT"
+        ],
+        [
+          "1-10832-A",
+          430,
+          "POLAND"
+        ],
+        [
+          "1-11775-A",
+          485,
+          "AUBURN"
+        ]
+      ]
+    }
+  ],
+  "examples_wide_pu_span": [
+    {
+      "file": "Schedule for April 1 2026.xlsx",
+      "driver": "Jeffrey B",
+      "pu_span": 60,
+      "trips": [
+        [
+          "1-11273-A",
+          400,
+          "SABATTUS"
+        ],
+        [
+          "1-10754-A",
+          415,
+          "LISBON FALLS"
+        ],
+        [
+          "1-62754-A",
+          455,
+          "LEWISTON"
+        ],
+        [
+          "1-11299-A",
+          450,
+          "AUBURN"
+        ],
+        [
+          "1-11159-A",
+          455,
+          "LEWISTON"
+        ],
+        [
+          "1-61600-A",
+          460,
+          "AUBURN"
+        ]
+      ]
+    },
+    {
+      "file": "Schedule for April 1 2026.xlsx",
+      "driver": "Aaron C",
+      "pu_span": 60,
+      "trips": [
+        [
+          "1-11680-A",
+          405,
+          "GREENE"
+        ],
+        [
+          "1-10854-A",
+          415,
+          "GREENE"
+        ],
+        [
+          "1-11888-A",
+          460,
+          "LEWISTON"
+        ],
+        [
+          "1-12056-A",
+          460,
+          "LEWISTON"
+        ],
+        [
+          "1-12177-A",
+          465,
+          "LEWISTON"
+        ]
+      ]
+    },
+    {
+      "file": "Schedule for April 1 2026.xlsx",
+      "driver": "Jamie B",
+      "pu_span": 75,
+      "trips": [
+        [
+          "1-11421-A",
+          410,
+          "WEST PARIS"
+        ],
+        [
+          "1-12130-A",
+          415,
+          "HEBRON"
+        ],
+        [
+          "1-12778-A",
+          430,
+          "MINOT"
+        ],
+        [
+          "1-10792-A",
+          430,
+          "MINOT"
+        ],
+        [
+          "1-10832-A",
+          430,
+          "POLAND"
+        ],
+        [
+          "1-11775-A",
+          485,
+          "AUBURN"
+        ]
+      ]
+    },
+    {
+      "file": "Schedule for April 10 2026.xlsx",
+      "driver": "Remie D",
+      "pu_span": 470,
+      "trips": [
+        [
+          "1-9218-A",
+          430,
+          "MECHANIC FALLS"
+        ],
+        [
+          "1-9726-A",
+          430,
+          "POLAND"
+        ],
+        [
+          "1-9708-A",
+          445,
+          "AUBURN"
+        ],
+        [
+          "1-9282-A",
+          515,
+          "LEWISTON"
+        ],
+        [
+          "1-9558-A",
+          520,
+          "LEWISTON"
+        ],
+        [
+          "1-9726-B",
+          750,
+          "AUBURN"
+        ],
+        [
+          "1-10420-B",
+          750,
+          "AUBURN"
+        ],
+        [
+          "1-9484-B",
+          900,
+          "AUBURN"
+        ],
+        [
+          "1-9218-B",
+          900,
+          "LEWISTON"
+        ],
+        [
+          "1-55365-B",
+          900,
+          "LEWISTON"
+        ]
+      ]
+    },
+    {
+      "file": "Schedule for April 10 2026.xlsx",
+      "driver": "Aaron C",
+      "pu_span": 80,
+      "trips": [
+        [
+          "1-10169-A",
+          405,
+          "GREENE"
+        ],
+        [
+          "1-9424-A",
+          415,
+          "GREENE"
+        ],
+        [
+          "1-9742-A",
+          475,
+          "LEWISTON"
+        ],
+        [
+          "1-10286-A",
+          460,
+          "LEWISTON"
+        ],
+        [
+          "1-10785-A",
+          485,
+          "LEWISTON"
+        ],
+        [
+          "1-10382-A",
+          460,
+          "LEWISTON"
+        ]
+      ]
+    },
+    {
+      "file": "Schedule for April 10 2026.xlsx",
+      "driver": "Richard B",
+      "pu_span": 70,
+      "trips": [
+        [
+          "1-9702-A",
+          430,
+          "BUCKFIELD"
+        ],
+        [
+          "1-10094-A",
+          415,
+          "TURNER"
+        ],
+        [
+          "1-10790-A",
+          435,
+          "TURNER"
+        ],
+        [
+          "1-9431-A",
+          445,
+          "TURNER"
+        ],
+        [
+          "1-9983-A",
+          450,
+          "HEBRON"
+        ],
+        [
+          "1-10221-A",
+          485,
+          "LEWISTON"
+        ],
+        [
+          "1-10119-A",
+          460,
+          "LEWISTON"
+        ]
+      ]
+    },
+    {
+      "file": "Schedule for April 10 2026.xlsx",
+      "driver": "Richard B",
+      "pu_span": 155,
+      "trips": [
+        [
+          "1-9484-A",
+          565,
+          "NEW GLOUCESTER"
+        ],
+        [
+          "1-68098-A",
+          610,
+          "LEWISTON"
+        ],
+        [
+          "1-68098-B",
+          720,
+          "GARDINER"
+        ]
+      ]
+    },
+    {
+      "file": "Schedule for April 10 2026.xlsx",
+      "driver": "Jamie B",
+      "pu_span": 70,
+      "trips": [
+        [
+          "1-59913-A",
+          445,
+          "SOUTH PARIS"
+        ],
+        [
+          "1-10420-A",
+          415,
+          "HEBRON"
+        ],
+        [
+          "1-10448-A",
+          465,
+          "LEWISTON"
+        ],
+        [
+          "1-9249-A",
+          465,
+          "LEWISTON"
+        ],
+        [
+          "1-10219-A",
+          485,
+          "AUBURN"
+        ]
+      ]
+    }
+  ],
+  "examples_inter_group_tight": [
+    {
+      "file": "Schedule for April 1 2026.xlsx",
+      "driver": "Jeffrey B",
+      "gap_min": 20,
+      "prev_do": 540,
+      "next_pu": 560
+    },
+    {
+      "file": "Schedule for April 1 2026.xlsx",
+      "driver": "Jeffrey B",
+      "gap_min": 15,
+      "prev_do": 735,
+      "next_pu": 750
+    },
+    {
+      "file": "Schedule for April 1 2026.xlsx",
+      "driver": "Jeffrey B",
+      "gap_min": 0,
+      "prev_do": 780,
+      "next_pu": 780
+    },
+    {
+      "file": "Schedule for April 1 2026.xlsx",
+      "driver": "Aaron C",
+      "gap_min": 0,
+      "prev_do": 510,
+      "next_pu": 510
+    },
+    {
+      "file": "Schedule for April 1 2026.xlsx",
+      "driver": "Aaron C",
+      "gap_min": 0,
+      "prev_do": 540,
+      "next_pu": 540
+    },
+    {
+      "file": "Schedule for April 1 2026.xlsx",
+      "driver": "Aaron C",
+      "gap_min": 0,
+      "prev_do": 660,
+      "next_pu": 660
+    },
+    {
+      "file": "Schedule for April 1 2026.xlsx",
+      "driver": "Aaron C",
+      "gap_min": 0,
+      "prev_do": 720,
+      "next_pu": 720
+    },
+    {
+      "file": "Schedule for April 1 2026.xlsx",
+      "driver": "Aaron C",
+      "gap_min": 0,
+      "prev_do": 990,
+      "next_pu": 990
+    }
+  ],
+  "examples_desk_reorder": [
+    {
+      "file": "Schedule for April 1 2026.xlsx",
+      "driver": "Remie D",
+      "desk": [
+        [
+          "1-10083-A",
+          430,
+          "MECHANIC FALLS"
+        ],
+        [
+          "1-11124-A",
+          430,
+          "POLAND"
+        ],
+        [
+          "1-65652-A",
+          415,
+          "NEW GLOUCESTER"
+        ],
+        [
+          "1-11109-A",
+          445,
+          "AUBURN"
+        ]
+      ],
+      "pu_sorted": [
+        415,
+        430,
+        430,
+        445
+      ]
+    },
+    {
+      "file": "Schedule for April 1 2026.xlsx",
+      "driver": "Remie D",
+      "desk": [
+        [
+          "1-12761-A",
+          870,
+          "AUBURN"
+        ],
+        [
+          "1-10776-B",
+          840,
+          "AUBURN"
+        ],
+        [
+          "1-10792-B",
+          870,
+          "AUBURN"
+        ],
+        [
+          "1-12778-B",
+          870,
+          "AUBURN"
+        ]
+      ],
+      "pu_sorted": [
+        840,
+        870,
+        870,
+        870
+      ]
+    },
+    {
+      "file": "Schedule for April 1 2026.xlsx",
+      "driver": "Jeffrey B",
+      "desk": [
+        [
+          "1-11273-A",
+          400,
+          "SABATTUS"
+        ],
+        [
+          "1-10754-A",
+          415,
+          "LISBON FALLS"
+        ],
+        [
+          "1-62754-A",
+          455,
+          "LEWISTON"
+        ],
+        [
+          "1-11299-A",
+          450,
+          "AUBURN"
+        ],
+        [
+          "1-11159-A",
+          455,
+          "LEWISTON"
+        ],
+        [
+          "1-61600-A",
+          460,
+          "AUBURN"
+        ]
+      ],
+      "pu_sorted": [
+        400,
+        415,
+        450,
+        455,
+        455,
+        460
+      ]
+    },
+    {
+      "file": "Schedule for April 1 2026.xlsx",
+      "driver": "Jeffrey B",
+      "desk": [
+        [
+          "1-68992-A",
+          815,
+          "AUBURN"
+        ],
+        [
+          "1-10213-B",
+          810,
+          "LEWISTON"
+        ]
+      ],
+      "pu_sorted": [
+        810,
+        815
+      ]
+    },
+    {
+      "file": "Schedule for April 1 2026.xlsx",
+      "driver": "Richard B",
+      "desk": [
+        [
+          "1-11099-A",
+          430,
+          "BUCKFIELD"
+        ],
+        [
+          "1-11567-A",
+          415,
+          "TURNER"
+        ],
+        [
+          "1-11004-A",
+          445,
+          "TURNER"
+        ],
+        [
+          "1-75019-A",
+          455,
+          "AUBURN"
+        ]
+      ],
+      "pu_sorted": [
+        415,
+        430,
+        445,
+        455
+      ]
+    },
+    {
+      "file": "Schedule for April 1 2026.xlsx",
+      "driver": "Richard B",
+      "desk": [
+        [
+          "1-10752-A",
+          487,
+          "LEWISTON"
+        ],
+        [
+          "1-12650-A",
+          485,
+          "LEWISTON"
+        ]
+      ],
+      "pu_sorted": [
+        485,
+        487
+      ]
+    }
+  ]
+}
