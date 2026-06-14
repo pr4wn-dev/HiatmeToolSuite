@@ -139,8 +139,6 @@ namespace Hiatme_Tool_Suite_v3
             InitializeMCLoginHandler();
             InitializeHiatmeLoginHandler();
             InitializeComponent();;
-            loginPassTB.Enter += (_, __) => BeginGmailPersonalEntryIfOfficeMode();
-            loginUserTB.Enter += (_, __) => BeginGmailPersonalEntryIfOfficeMode();
             InitializeScheduleBuilderTab();
             ApplyHiddenToolTabs();
             // Tabs added after the designer-baked ImageStream need their icon injected before the first tab strip paint.
@@ -1490,24 +1488,26 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
-        private void SaveWRCredentials(string code, string user, string pass)
+        private void SaveWRCredentials(string code, string user, string pass, bool userInitiatedLogin = true)
         {
             try
             {
                 if (loginSwitch.Checked == false)
                 {
-                    Properties.Settings.Default.wrCompanyCode = "";
-                    Properties.Settings.Default.wrUserName = "";
-                    Properties.Settings.Default.wrUserPass = "";
-                    Properties.Settings.Default.Save();
+                    if (userInitiatedLogin)
+                    {
+                        Properties.Settings.Default.wrCompanyCode = "";
+                        Properties.Settings.Default.wrUserName = "";
+                        Properties.Settings.Default.wrUserPass = "";
+                        Properties.Settings.Default.Save();
+                    }
+                    return;
                 }
-                else
-                {
-                    Properties.Settings.Default.wrCompanyCode = code ?? "";
-                    Properties.Settings.Default.wrUserName = user ?? "";
-                    Properties.Settings.Default.wrUserPass = pass ?? "";
-                    Properties.Settings.Default.Save();
-                }
+
+                Properties.Settings.Default.wrCompanyCode = code ?? "";
+                Properties.Settings.Default.wrUserName = user ?? "";
+                Properties.Settings.Default.wrUserPass = pass ?? "";
+                Properties.Settings.Default.Save();
             }
             catch
             {
@@ -2014,7 +2014,7 @@ namespace Hiatme_Tool_Suite_v3
             loginUserTB.Text = officeAddress ?? string.Empty;
             loginPassTB.Text = string.Empty;
             loginPassTB.Enabled = false;
-            loginSwitch.Checked = false;
+            // Do not touch loginSwitch.Checked — it is shared with WellRyde/Modivcare/Hiatme.
             loginSwitch.Enabled = false;
             loginBtn.Text = "Ready";
             loginBtn.Enabled = false;
@@ -2183,22 +2183,24 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
-        private void GmailSaveCredentials(string user, string pass)
+        private void GmailSaveCredentials(string user, string pass, bool userInitiatedLogin = true)
         {
             try
             {
                 ScheduleBuilderGmailMailer.NormalizeCredentials(ref user, ref pass);
                 if (loginSwitch.Checked == false)
                 {
-                    Properties.Settings.Default.gmailUserName = string.Empty;
-                    Properties.Settings.Default.gmailUserPass = string.Empty;
-                }
-                else
-                {
-                    Properties.Settings.Default.gmailUserName = user ?? string.Empty;
-                    Properties.Settings.Default.gmailUserPass = pass ?? string.Empty;
+                    if (userInitiatedLogin)
+                    {
+                        Properties.Settings.Default.gmailUserName = string.Empty;
+                        Properties.Settings.Default.gmailUserPass = string.Empty;
+                        Properties.Settings.Default.Save();
+                    }
+                    return;
                 }
 
+                Properties.Settings.Default.gmailUserName = user ?? string.Empty;
+                Properties.Settings.Default.gmailUserPass = pass ?? string.Empty;
                 Properties.Settings.Default.Save();
             }
             catch
@@ -2251,11 +2253,12 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         /// <summary>POST Modivcare login; optional save when Remember credentials applies.</summary>
-        private async Task PerformModivcareLoginWithCredentialsAsync(string username, string password, bool saveOnSuccess)
+        private async Task PerformModivcareLoginWithCredentialsAsync(
+            string username, string password, bool saveOnSuccess, bool userInitiatedLogin = true)
         {
             await mcLoginHandler.Login(username, password);
             if (mcLoginHandler.Connected && saveOnSuccess)
-                SaveMCCredentials(username, password);
+                SaveMCCredentials(username, password, userInitiatedLogin);
         }
 
         /// <summary>
@@ -2356,7 +2359,8 @@ namespace Hiatme_Tool_Suite_v3
             mcLoginHandler.PropertyChanged -= UpdateMCConnectionStatus;
             try
             {
-                await PerformModivcareLoginWithCredentialsAsync(username, password, saveOnSuccess: true);
+                await PerformModivcareLoginWithCredentialsAsync(
+                    username, password, saveOnSuccess: true, userInitiatedLogin: false);
             }
             finally
             {
@@ -2400,7 +2404,7 @@ namespace Hiatme_Tool_Suite_v3
                 loginSwitch.Checked = false;
             }
         }
-        private void SaveMCCredentials(string user, string pass)
+        private void SaveMCCredentials(string user, string pass, bool userInitiatedLogin = true)
         {
             string username = user;
             string password = pass;
@@ -2409,19 +2413,21 @@ namespace Hiatme_Tool_Suite_v3
             {
                 if (loginSwitch.Checked == false)
                 {
-                    Properties.Settings.Default.mcUserName = "";
-                    Properties.Settings.Default.mcUserPass = "";
-                    Properties.Settings.Default.Save();
+                    if (userInitiatedLogin)
+                    {
+                        Properties.Settings.Default.mcUserName = "";
+                        Properties.Settings.Default.mcUserPass = "";
+                        Properties.Settings.Default.Save();
+                    }
+                    return;
                 }
-                else
-                {
-                    Properties.Settings.Default.mcUserName = username;
-                    Properties.Settings.Default.mcUserPass = password;
-                    Properties.Settings.Default.Save();
-                    // Keep the in-memory reconnect cache aligned with what we just persisted so a later
-                    // password rotation here also fixes auto-reconnect, even before the user restarts.
-                    mcLoginHandler?.PrimeCachedCredentials(username, password);
-                }
+
+                Properties.Settings.Default.mcUserName = username;
+                Properties.Settings.Default.mcUserPass = password;
+                Properties.Settings.Default.Save();
+                // Keep the in-memory reconnect cache aligned with what we just persisted so a later
+                // password rotation here also fixes auto-reconnect, even before the user restarts.
+                mcLoginHandler?.PrimeCachedCredentials(username, password);
             }
             catch
             {

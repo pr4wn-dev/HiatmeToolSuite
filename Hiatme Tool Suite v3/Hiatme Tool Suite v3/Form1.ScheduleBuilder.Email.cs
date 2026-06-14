@@ -129,26 +129,17 @@ namespace Hiatme_Tool_Suite_v3
                     && !n.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
-            if (driverTabs.Count == 0)
+            var recipientEntries = BuildScheduleEmailRecipientEntries(driverTabs);
+
+            if (recipientEntries.Count == 0)
             {
                 MessageBox.Show(this,
-                    "There are no driver tabs to email.",
+                    "No drivers to email.\r\n\r\n"
+                    + "Add drivers on the Drivers tab or build/load a schedule first.",
                     "Schedule Builder",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Information);
                 return;
-            }
-
-            var recipientEntries = new List<ScheduleEmailRecipientEntry>();
-            foreach (string tab in driverTabs)
-            {
-                var profile = ScheduleBuilderDriverMapRouting.FindProfileForScheduleTab(_supeyRoster, tab);
-                recipientEntries.Add(new ScheduleEmailRecipientEntry
-                {
-                    TabName = tab,
-                    DisplayName = profile?.Name ?? tab,
-                    Email = (profile?.Email ?? "").Trim(),
-                });
             }
 
             if (recipientEntries.All(r => !r.CanSend))
@@ -265,6 +256,62 @@ namespace Hiatme_Tool_Suite_v3
                 if (_fsHasPreview)
                     SetFsPreviewExportButtonsEnabled(true);
             }
+        }
+
+        /// <summary>Schedule tabs first, then custom roster drivers not already on a tab.</summary>
+        private List<ScheduleEmailRecipientEntry> BuildScheduleEmailRecipientEntries(
+            IReadOnlyList<string> scheduleTabs)
+        {
+            var entries = new List<ScheduleEmailRecipientEntry>();
+            var linkedProfiles = new HashSet<SupeyDriverProfile>();
+
+            foreach (string tab in scheduleTabs ?? Array.Empty<string>())
+            {
+                if (string.IsNullOrWhiteSpace(tab))
+                    continue;
+
+                string tabTrim = tab.Trim();
+                var profile = ScheduleBuilderDriverMapRouting.FindProfileForScheduleTab(_supeyRoster, tabTrim);
+                if (profile != null)
+                    linkedProfiles.Add(profile);
+
+                entries.Add(new ScheduleEmailRecipientEntry
+                {
+                    TabName = tabTrim,
+                    DisplayName = profile?.Name ?? tabTrim,
+                    Email = (profile?.Email ?? "").Trim(),
+                });
+            }
+
+            var tabNames = new HashSet<string>(
+                entries.Select(e => e.TabName),
+                StringComparer.OrdinalIgnoreCase);
+
+            if (_supeyRoster != null)
+            {
+                foreach (var profile in _supeyRoster)
+                {
+                    if (profile == null || linkedProfiles.Contains(profile))
+                        continue;
+
+                    string name = (profile.Name ?? "").Trim();
+                    string tabKey = (profile.ScheduleTabKey ?? "").Trim();
+                    string label = tabKey.Length > 0 ? tabKey : name;
+                    if (label.Length == 0 || tabNames.Contains(label))
+                        continue;
+
+                    linkedProfiles.Add(profile);
+                    tabNames.Add(label);
+                    entries.Add(new ScheduleEmailRecipientEntry
+                    {
+                        TabName = label,
+                        DisplayName = name.Length > 0 ? name : label,
+                        Email = (profile.Email ?? "").Trim(),
+                    });
+                }
+            }
+
+            return entries;
         }
     }
 }
