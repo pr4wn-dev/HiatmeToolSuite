@@ -19,6 +19,7 @@ namespace Hiatme_Tool_Suite_v3
         private ToolStripMenuItem _fsTripsCtxAutoSortGroup;
         private ToolStripMenuItem _fsTripsCtxGeocodeDriverHome;
         private ToolStripMenuItem _fsTripsCtxEmailDriver;
+        private ToolStripMenuItem _fsTripsCtxSuggestDriver;
         private ToolStripMenuItem _fsTripsCtxCutTrip;
         private ToolStripMenuItem _fsTripsCtxUndo;
         private ToolStripMenuItem _fsTripsCtxRedo;
@@ -130,6 +131,13 @@ namespace Hiatme_Tool_Suite_v3
             };
             _fsTripsCtxEmailDriver.Click += (s, e) => _ = FsEmailActiveDriverFromContextAsync();
 
+            _fsTripsCtxSuggestDriver = new ToolStripMenuItem("Suggest driver for trip…")
+            {
+                BackColor = DarkContextMenuRenderer.Background,
+                ForeColor = DarkContextMenuRenderer.ForeColor,
+            };
+            _fsTripsCtxSuggestDriver.Click += (s, e) => _ = FsSuggestDriverForTripAsync();
+
             _fsTripsCtxCutTrip = new ToolStripMenuItem("Cut trip")
             {
                 BackColor = DarkContextMenuRenderer.Background,
@@ -229,6 +237,7 @@ namespace Hiatme_Tool_Suite_v3
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxBanClient);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxUnbanClient);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxRerouteModivcare);
+            _fsTripsCtxMenu.Items.Add(_fsTripsCtxSuggestDriver);
             _fsTripsCtxMenu.Items.Add(new ToolStripSeparator());
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxCutTrip);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxPasteTrip);
@@ -351,6 +360,16 @@ namespace Hiatme_Tool_Suite_v3
                 _fsTripsCtxRerouteModivcare.Text = "Reroute on Modivcare (already marked)";
             else
                 _fsTripsCtxRerouteModivcare.Text = "Reroute on Modivcare…";
+
+            bool canSuggestDriver = hasTrip && hasBuild && ScheduleOsrmGate.PreviewRoutingOk;
+            _fsTripsCtxSuggestDriver.Enabled = canSuggestDriver;
+            if (canSuggestDriver && isReserves)
+                _fsTripsCtxSuggestDriver.Text = "Suggest driver for reserve trip…";
+            else if (canSuggestDriver)
+                _fsTripsCtxSuggestDriver.Text = "Suggest driver for trip…";
+            else
+                _fsTripsCtxSuggestDriver.Text = "Suggest driver for trip (routing offline)";
+
             _fsTripsCtxFocusMap.Enabled = hasTrip
                 && _fsMap != null
                 && _fsMap.Visible

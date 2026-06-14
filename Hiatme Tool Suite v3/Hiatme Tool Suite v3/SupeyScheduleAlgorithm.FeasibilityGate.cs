@@ -9,6 +9,13 @@ namespace Hiatme_Tool_Suite_v3
             ProjectClusterFeasibilityPublic(SupeyTripCluster c, TimeSpan arrivalAtFirstPU) =>
             ProjectClusterFeasibility(c, arrivalAtFirstPU);
 
+        internal static (bool feasible, TimeSpan end, int worstTripIdx, double worstMinutes)
+            ProjectClusterFeasibilityPublic(
+                SupeyTripCluster c,
+                TimeSpan arrivalAtFirstPU,
+                double doLateMaxMinutes) =>
+            ProjectClusterFeasibility(c, arrivalAtFirstPU, doLateMaxMinutes);
+
         internal static double LegPuLateCapMinutesPublic(SupeyTripCluster cluster) =>
             LegPuLateCapMinutes(cluster);
 

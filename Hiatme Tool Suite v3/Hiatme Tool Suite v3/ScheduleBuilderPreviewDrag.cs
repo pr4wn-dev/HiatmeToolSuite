@@ -469,6 +469,9 @@ namespace Hiatme_Tool_Suite_v3
             lines.Insert(insert, moving);
         }
 
+        internal static int FindTripLineIndex(IList<ScheduleBuilderPreviewLine> lines, MCDownloadedTrip trip) =>
+            FindTripLine(lines, trip);
+
         private static int FindTripLine(IList<ScheduleBuilderPreviewLine> lines, MCDownloadedTrip trip)
         {
             for (int i = 0; i < lines.Count; i++)
