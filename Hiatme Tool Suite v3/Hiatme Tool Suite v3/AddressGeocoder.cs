@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Http;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
@@ -452,27 +453,40 @@ namespace Hiatme_Tool_Suite_v3
         public static async Task<GeoPoint?> ResolveWithFallbacksAsync(string street, string city, string state,
             string zip, string countryCode, CancellationToken token = default)
         {
-            var p = await ResolveAsync(street, city, state, zip, countryCode, token).ConfigureAwait(false);
-            if (p.HasValue) return p;
+            string cleanCity = CleanCityForGeocode(city);
+            string cleanState = (state ?? "").Trim();
+            string cleanZip = ExtractUsZip(zip);
+            var streetVariants = BuildStreetVariants(street);
 
-            // Nominatim resolves US addresses very reliably from "street + zip + state" alone,
-            // so dropping a misspelled city usually wins on the first fallback. Only worth
-            // trying if we actually have a zip — otherwise the request would be too vague.
-            if (!string.IsNullOrWhiteSpace(zip))
+            // 1) Full best-effort variants (street + city + state + zip)
+            for (int i = 0; i < streetVariants.Count; i++)
             {
-                p = await ResolveAsync(street, "", state, zip, countryCode, token).ConfigureAwait(false);
+                var p = await ResolveAsync(
+                    streetVariants[i], cleanCity, cleanState, cleanZip, countryCode, token).ConfigureAwait(false);
                 if (p.HasValue) return p;
             }
 
-            // Final fallback: street + state. Loose enough to risk hitting another street with
-            // the same name in a different city, but for driver homes where the user told us
-            // every address is in Maine, the country/state filter keeps the match in-scope.
-            if (!string.IsNullOrWhiteSpace(state))
+            // 2) Drop city (city is often misspelled in source exports)
+            if (!string.IsNullOrWhiteSpace(cleanZip))
             {
-                p = await ResolveAsync(street, "", state, "", countryCode, token).ConfigureAwait(false);
-                if (p.HasValue) return p;
+                for (int i = 0; i < streetVariants.Count; i++)
+                {
+                    var p = await ResolveAsync(
+                        streetVariants[i], "", cleanState, cleanZip, countryCode, token).ConfigureAwait(false);
+                    if (p.HasValue) return p;
+                }
             }
 
+            // 3) Final fallback: street + state only
+            if (!string.IsNullOrWhiteSpace(cleanState))
+            {
+                for (int i = 0; i < streetVariants.Count; i++)
+                {
+                    var p = await ResolveAsync(
+                        streetVariants[i], "", cleanState, "", countryCode, token).ConfigureAwait(false);
+                    if (p.HasValue) return p;
+                }
+            }
             return null;
         }
 
@@ -512,16 +526,24 @@ namespace Hiatme_Tool_Suite_v3
                     var ai = HiatmeAiSettings.Load();
                     var serverPt = await HiatmeGeoClient.ResolveAsync(
                         ai, street, city, state, zip, countryCode, token).ConfigureAwait(false);
-                    lock (_cache) { _cache[key] = serverPt; }
-                    ScheduleSave();
-                    if (serverPt.HasValue) Interlocked.Increment(ref _hits);
-                    else Interlocked.Increment(ref _misses);
-                    return serverPt;
+                    if (serverPt.HasValue || HiatmeGeoSettings.ServerOnly)
+                    {
+                        lock (_cache) { _cache[key] = serverPt; }
+                        ScheduleSave();
+                        if (serverPt.HasValue) Interlocked.Increment(ref _hits);
+                        else Interlocked.Increment(ref _misses);
+                        return serverPt;
+                    }
+                    // Non-server-only mode: if panel had no match, continue to local lookup.
                 }
                 catch
                 {
-                    Interlocked.Increment(ref _misses);
-                    return null;
+                    if (HiatmeGeoSettings.ServerOnly)
+                    {
+                        Interlocked.Increment(ref _misses);
+                        return null;
+                    }
+                    // Non-server-only mode: temporary panel issues should not block local fallback.
                 }
             }
 
@@ -606,10 +628,10 @@ namespace Hiatme_Tool_Suite_v3
         private static string NormalizeKey(string street, string city, string state = null,
             string zip = null, string countryCode = null)
         {
-            string s = (street ?? "").Trim();
-            string c = (city ?? "").Trim();
+            string s = NormalizeWs(street);
+            string c = CleanCityForGeocode(city);
             string st = (state ?? "").Trim();
-            string zp = (zip ?? "").Trim();
+            string zp = ExtractUsZip(zip);
             string cc = (countryCode ?? "").Trim();
 
             if (s.Length == 0 && c.Length == 0 && st.Length == 0 && zp.Length == 0)
@@ -633,6 +655,55 @@ namespace Hiatme_Tool_Suite_v3
             if (cc.Length > 0) baseKey = baseKey + "|cc=" + cc.ToLowerInvariant();
             return baseKey;
         }
+
+        private static List<string> BuildStreetVariants(string street)
+        {
+            var variants = new List<string>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            void Add(string s)
+            {
+                s = NormalizeWs(s);
+                if (s.Length == 0) return;
+                if (seen.Add(s)) variants.Add(s);
+            }
+
+            string baseStreet = NormalizeWs(street);
+            Add(baseStreet);
+
+            // Remove parenthetical notes often copied into address fields.
+            Add(Regex.Replace(baseStreet, @"\([^)]*\)", " "));
+            // Remove apartment/unit fragments for better base-address geocoding.
+            Add(Regex.Replace(baseStreet, @"\b(APT|APARTMENT|UNIT|STE|SUITE|FL|FLOOR|RM|ROOM|LOT)\b[\s#\-]*[A-Z0-9\-]+.*$", "", RegexOptions.IgnoreCase));
+            // Expand ampersands in named roads/commons.
+            Add(baseStreet.Replace("&", " and "));
+
+            if (variants.Count == 0)
+                variants.Add("");
+            return variants;
+        }
+
+        private static string CleanCityForGeocode(string city)
+        {
+            string c = NormalizeWs(city);
+            if (c.Length == 0) return c;
+
+            // Remove trailing state/zip noise accidentally appended to city.
+            c = Regex.Replace(c, @"\b(ME|MAINE)\b", "", RegexOptions.IgnoreCase);
+            c = Regex.Replace(c, @"\b\d{5}(?:-\d{4})?\b", "");
+            return NormalizeWs(c);
+        }
+
+        private static string ExtractUsZip(string zip)
+        {
+            string z = (zip ?? "").Trim();
+            if (z.Length == 0) return "";
+            var m = Regex.Match(z, @"\b\d{5}(?:-\d{4})?\b");
+            return m.Success ? m.Value : "";
+        }
+
+        private static string NormalizeWs(string s) =>
+            Regex.Replace((s ?? "").Trim(), @"\s+", " ");
     }
 
     /// <summary>Plain (lat, lng) tuple. Decimal degrees, WGS84 — same as GMap.NET expects.</summary>

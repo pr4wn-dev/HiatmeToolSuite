@@ -109,26 +109,48 @@ namespace Hiatme_Tool_Suite_v3
                     },
                 },
             };
-            try
+            for (int attempt = 1; attempt <= 2; attempt++)
             {
-                using (var req = BuildPost(settings, url, body))
-                using (var resp = await SharedHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
+                try
                 {
-                    if (!resp.IsSuccessStatusCode) return null;
-                    var json = JObject.Parse(await resp.Content.ReadAsStringAsync().ConfigureAwait(false));
-                    var results = json["results"] as JArray;
-                    if (results == null || results.Count == 0) return null;
-                    var row = results[0] as JObject;
-                    if (row?["ok"]?.Value<bool>() != true) return null;
-                    double lat = row["lat"]?.Value<double>() ?? 0;
-                    double lon = row["lon"]?.Value<double>() ?? 0;
-                    return new GeoPoint(lat, lon);
+                    using (var req = BuildPost(settings, url, body))
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
+                    {
+                        if (!resp.IsSuccessStatusCode)
+                        {
+                            if (attempt < 2 && IsTransientStatus(resp.StatusCode))
+                            {
+                                await Task.Delay(250, cancellationToken).ConfigureAwait(false);
+                                continue;
+                            }
+                            return null;
+                        }
+
+                        var json = JObject.Parse(await resp.Content.ReadAsStringAsync().ConfigureAwait(false));
+                        var results = json["results"] as JArray;
+                        if (results == null || results.Count == 0) return null;
+                        var row = results[0] as JObject;
+                        if (row?["ok"]?.Value<bool>() != true) return null;
+                        double lat = row["lat"]?.Value<double>() ?? 0;
+                        double lon = row["lon"]?.Value<double>() ?? 0;
+                        return new GeoPoint(lat, lon);
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    return null;
+                }
+                catch
+                {
+                    if (attempt < 2)
+                    {
+                        await Task.Delay(250, cancellationToken).ConfigureAwait(false);
+                        continue;
+                    }
+                    return null;
                 }
             }
-            catch
-            {
-                return null;
-            }
+            return null;
         }
 
         /// <summary>Null if the AIagent host is unreachable; otherwise parsed OSRM result.</summary>
@@ -282,21 +304,47 @@ namespace Hiatme_Tool_Suite_v3
             if (settings == null || queries == null || queries.Count == 0) return null;
             string url = Base(settings) + "/api/hiatme/geocode";
             var body = new JObject { ["queries"] = queries };
-            try
+            for (int attempt = 1; attempt <= 2; attempt++)
             {
-                using (var req = BuildPost(settings, url, body))
-                using (var resp = await SharedHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
+                try
                 {
-                    if (!resp.IsSuccessStatusCode) return null;
-                    var json = JObject.Parse(await resp.Content.ReadAsStringAsync().ConfigureAwait(false));
-                    return json["results"] as JArray;
+                    using (var req = BuildPost(settings, url, body))
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
+                    {
+                        if (!resp.IsSuccessStatusCode)
+                        {
+                            if (attempt < 2 && IsTransientStatus(resp.StatusCode))
+                            {
+                                await Task.Delay(350, cancellationToken).ConfigureAwait(false);
+                                continue;
+                            }
+                            return null;
+                        }
+                        var json = JObject.Parse(await resp.Content.ReadAsStringAsync().ConfigureAwait(false));
+                        return json["results"] as JArray;
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    return null;
+                }
+                catch
+                {
+                    if (attempt < 2)
+                    {
+                        await Task.Delay(350, cancellationToken).ConfigureAwait(false);
+                        continue;
+                    }
+                    return null;
                 }
             }
-            catch
-            {
-                return null;
-            }
+            return null;
         }
+
+        private static bool IsTransientStatus(System.Net.HttpStatusCode code) =>
+            code == System.Net.HttpStatusCode.RequestTimeout
+            || code == (System.Net.HttpStatusCode)429
+            || ((int)code >= 500 && (int)code <= 599);
 
         private static string Base(HiatmeAiSettings settings) =>
             (settings.BaseUrl ?? "").Trim().TrimEnd('/');

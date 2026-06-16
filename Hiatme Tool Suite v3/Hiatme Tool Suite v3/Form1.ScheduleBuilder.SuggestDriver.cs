@@ -78,6 +78,8 @@ namespace Hiatme_Tool_Suite_v3
                     return;
                 }
 
+                SetScheduleBuilderStatus("Suggest driver ready · " + suggestions.Count + " option(s).");
+
                 using (var dlg = new ScheduleDriverSuggestForm(
                     suggestions,
                     trip,
