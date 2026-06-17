@@ -243,11 +243,16 @@
       <DependentUpon>Form1.cs</DependentUpon>
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="Form1.ScheduleBuilder.History.cs">
+      <DependentUpon>Form1.cs</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="Form1.ScheduleBuilder.SuggestDriver.cs">
       <DependentUpon>Form1.cs</DependentUpon>
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="ScheduleBuilderDriverSuggest.cs" />
+    <Compile Include="ScheduleBuilderHistoricalHintContract.cs" />
     <Compile Include="ScheduleBuilderDriverSuggestPrepCache.cs" />
     <Compile Include="ScheduleBuilderSuggestPreviewBinder.cs" />
     <Compile Include="ScheduleDriverSuggestForm.cs" />

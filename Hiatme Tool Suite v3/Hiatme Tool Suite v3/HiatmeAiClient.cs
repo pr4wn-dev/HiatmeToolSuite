@@ -126,6 +126,57 @@ namespace Hiatme_Tool_Suite_v3
         public string TraceId { get; set; }
     }
 
+    internal sealed class HiatmeArchiveStatusResponse
+    {
+        [JsonProperty("enabled")]
+        public bool Enabled { get; set; }
+
+        [JsonProperty("ingested_days")]
+        public int IngestedDays { get; set; }
+
+        [JsonProperty("tracked_files")]
+        public int TrackedFiles { get; set; }
+
+        [JsonProperty("last_run")]
+        public double? LastRunUnixSeconds { get; set; }
+
+        [JsonProperty("desktop_mirror_dirs")]
+        public List<string> DesktopMirrorDirs { get; set; } = new List<string>();
+
+        [JsonProperty("source_dirs")]
+        public List<string> SourceDirs { get; set; } = new List<string>();
+    }
+
+    internal sealed class HiatmeArchiveSyncResponse
+    {
+        [JsonProperty("ok")]
+        public bool Ok { get; set; }
+
+        [JsonProperty("new_or_changed_files")]
+        public int NewOrChangedFiles { get; set; }
+
+        [JsonProperty("updated_service_dates")]
+        public List<string> UpdatedServiceDates { get; set; } = new List<string>();
+
+        [JsonProperty("ingested_days_total")]
+        public int IngestedDaysTotal { get; set; }
+
+        [JsonProperty("errors")]
+        public List<string> Errors { get; set; } = new List<string>();
+    }
+
+    internal sealed class HiatmeArchiveQueryResponse
+    {
+        [JsonProperty("ok")]
+        public bool Ok { get; set; }
+
+        [JsonProperty("total_day_matches")]
+        public int TotalDayMatches { get; set; }
+
+        [JsonProperty("matches")]
+        public JArray Matches { get; set; }
+    }
+
     internal sealed class HiatmeAiPreReviewResponse
     {
         public List<string> Warnings { get; set; } = new List<string>();
@@ -991,6 +1042,127 @@ namespace Hiatme_Tool_Suite_v3
             {
                 return 0;
             }
+        }
+
+        /// <summary>Historical archive status (Desktop mirror + ingested day count).</summary>
+        public static async Task<HiatmeArchiveStatusResponse> GetArchiveStatusAsync(
+            HiatmeAiSettings settings,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null) return null;
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl)) return null;
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Get, baseUrl + "/api/hiatme/archive/status"))
+                {
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
+                    {
+                        if (!resp.IsSuccessStatusCode) return null;
+                        var text = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        return JsonConvert.DeserializeObject<HiatmeArchiveStatusResponse>(text);
+                    }
+                }
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>Trigger archive ingest/reindex pass on AI panel.</summary>
+        public static async Task<HiatmeArchiveSyncResponse> SyncArchiveAsync(
+            HiatmeAiSettings settings,
+            bool force = false,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null) return null;
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl)) return null;
+            string url = baseUrl + "/api/hiatme/archive/ingest";
+            if (force) url += "?force=1";
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Post, url))
+                {
+                    req.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
+                    {
+                        if (!resp.IsSuccessStatusCode) return null;
+                        var text = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        return JsonConvert.DeserializeObject<HiatmeArchiveSyncResponse>(text);
+                    }
+                }
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>Query historical archive for day/driver/client/trip matches.</summary>
+        public static async Task<HiatmeArchiveQueryResponse> QueryArchiveAsync(
+            HiatmeAiSettings settings,
+            string serviceDate = "",
+            string weekday = "",
+            string driver = "",
+            string client = "",
+            string tripNumber = "",
+            int limit = 30,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null) return null;
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl)) return null;
+
+            var qs = new StringBuilder();
+            AppendQuery(qs, "service_date", serviceDate);
+            AppendQuery(qs, "weekday", weekday);
+            AppendQuery(qs, "driver", driver);
+            AppendQuery(qs, "client", client);
+            AppendQuery(qs, "trip_number", tripNumber);
+            AppendQuery(qs, "limit", Math.Max(1, limit).ToString());
+
+            string url = baseUrl + "/api/hiatme/archive/query";
+            if (qs.Length > 0)
+                url += "?" + qs;
+
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Get, url))
+                {
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
+                    {
+                        if (!resp.IsSuccessStatusCode) return null;
+                        var text = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        return JsonConvert.DeserializeObject<HiatmeArchiveQueryResponse>(text);
+                    }
+                }
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static void AppendQuery(StringBuilder sb, string key, string value)
+        {
+            if (sb == null || string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(value))
+                return;
+            if (sb.Length > 0)
+                sb.Append("&");
+            sb.Append(Uri.EscapeDataString(key));
+            sb.Append("=");
+            sb.Append(Uri.EscapeDataString(value.Trim()));
         }
 
         /// <summary>Push the on-screen schedule to the server working copy for this service date.</summary>

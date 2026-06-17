@@ -11,14 +11,20 @@ namespace Hiatme_Tool_Suite_v3
 
         private CheckBox _fsSettingsShowGaps;
         private CheckBox _fsSettingsShowGroupColors;
+        private CheckBox _fsSettingsSafeBuildMode;
+        private CheckBox _fsSettingsAdvancedSuggestHistory;
 
         private bool _fsShowGaps;
         private bool _fsShowGroupColors;
+        private bool _fsSafeBuildMode;
+        private bool _fsAdvancedSuggestHistory;
 
         private void LoadFsScheduleBuilderSettings()
         {
             _fsShowGaps = Settings.Default.FsShowGaps;
             _fsShowGroupColors = Settings.Default.FsShowGroupColors;
+            _fsSafeBuildMode = Settings.Default.FsSafeBuildMode;
+            _fsAdvancedSuggestHistory = Settings.Default.FsEnableAdvancedSuggestHistory;
         }
 
         private void BuildFsSettingsPanel(Panel host)
@@ -51,6 +57,20 @@ namespace Hiatme_Tool_Suite_v3
                 _fsShowGroupColors,
                 out _fsSettingsShowGroupColors,
                 OnFsSettingsShowGroupColorsChanged));
+
+            layout.Controls.Add(MakeFsSettingsOption(
+                "Safe Build Mode",
+                "Build schedule exactly from the normal template-first workflow. Keep this ON for default safe behavior.",
+                _fsSafeBuildMode,
+                out _fsSettingsSafeBuildMode,
+                OnFsSettingsSafeBuildModeChanged));
+
+            layout.Controls.Add(MakeFsSettingsOption(
+                "Advanced suggest assist (history)",
+                "Optional post-build enhancement: Suggest Driver can use historical archive patterns to improve ranking. Feasibility rules still win.",
+                _fsAdvancedSuggestHistory,
+                out _fsSettingsAdvancedSuggestHistory,
+                OnFsSettingsAdvancedSuggestHistoryChanged));
 
             host.Controls.Add(layout);
         }
@@ -131,6 +151,22 @@ namespace Hiatme_Tool_Suite_v3
             ApplyFsDisplaySettings();
         }
 
+        private void OnFsSettingsSafeBuildModeChanged(object sender, EventArgs e)
+        {
+            if (_fsSettingsSafeBuildMode == null) return;
+            _fsSafeBuildMode = _fsSettingsSafeBuildMode.Checked;
+            Settings.Default.FsSafeBuildMode = _fsSafeBuildMode;
+            Settings.Default.Save();
+        }
+
+        private void OnFsSettingsAdvancedSuggestHistoryChanged(object sender, EventArgs e)
+        {
+            if (_fsSettingsAdvancedSuggestHistory == null) return;
+            _fsAdvancedSuggestHistory = _fsSettingsAdvancedSuggestHistory.Checked;
+            Settings.Default.FsEnableAdvancedSuggestHistory = _fsAdvancedSuggestHistory;
+            Settings.Default.Save();
+        }
+
         private void ApplyFsDisplaySettings()
         {
             if (_fsHasPreview && !string.IsNullOrWhiteSpace(_fsActiveDriverTab))
@@ -151,6 +187,10 @@ namespace Hiatme_Tool_Suite_v3
         internal bool FsShowGapsEnabled => _fsShowGaps;
 
         internal bool FsShowGroupColorsEnabled => _fsShowGroupColors;
+
+        internal bool FsSafeBuildModeEnabled => _fsSafeBuildMode;
+
+        internal bool FsAdvancedSuggestHistoryEnabled => _fsAdvancedSuggestHistory;
 
         /// <summary>Show gap rows in the list after a manual insert so the new row is visible.</summary>
         internal void FsRevealGapsForManualInsert()

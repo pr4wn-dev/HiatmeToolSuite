@@ -49,6 +49,34 @@ namespace Hiatme_Tool_Suite_v3
             return exported;
         }
 
+        /// <summary>
+        /// Reads all workbook sheets as row/cell strings without requiring desktop Excel.
+        /// </summary>
+        public static List<(string Tab, List<List<string>> Rows)> ReadWorkbookSheets(string workbookPath)
+        {
+            var sheets = new List<(string Tab, List<List<string>> Rows)>();
+            if (string.IsNullOrWhiteSpace(workbookPath) || !File.Exists(workbookPath))
+                return sheets;
+
+            using (var zip = ZipFile.OpenRead(workbookPath))
+            {
+                var sharedStrings = LoadSharedStrings(zip);
+                var sheetEntries = LoadSheetEntries(zip);
+
+                foreach (var entry in sheetEntries)
+                {
+                    string tab = (entry.Name ?? "").Trim();
+                    if (string.IsNullOrEmpty(tab))
+                        continue;
+
+                    var rows = ReadSheetRows(zip, entry.Path, sharedStrings);
+                    sheets.Add((tab, rows));
+                }
+            }
+
+            return sheets;
+        }
+
         private static List<string> LoadSharedStrings(ZipArchive zip)
         {
             var list = new List<string>();

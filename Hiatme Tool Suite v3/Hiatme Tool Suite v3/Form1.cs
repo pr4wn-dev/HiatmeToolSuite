@@ -95,6 +95,15 @@ namespace Hiatme_Tool_Suite_v3
         /// underlying portal data is only refetched when the user clicks <see cref="tsloadbtn"/>.
         /// </summary>
         private List<WRDownloadedTrip> _tripScoutAllTrips = new List<WRDownloadedTrip>();
+        private bool _tripScoutColumnsAutoFitDone;
+        private System.Windows.Forms.Timer _tripScoutStatusSpinnerTimer;
+        private int _tripScoutStatusSpinnerTick;
+        private string _tripScoutStatusBaseMessage = "";
+        private SupeyMapLoadingOverlay _tripScoutLoadingOverlay;
+        private int _tripScoutLoadingDepth;
+        private SupeyMapLoadingOverlay _analyzerLoadingOverlay;
+        private int _analyzerLoadingDepth;
+        private string _analyzerLoadingBaseMessage = "";
 
         /// <summary>
         /// Removes WIP tabs from <see cref="hiatmeTabControl"/> (and the Material drawer icons).
@@ -197,9 +206,9 @@ namespace Hiatme_Tool_Suite_v3
             if (materialCard10 != null)
                 materialCard10.Resize += (_, __) => LayoutStatusLabelInCard(materialCard10, tcorrectstatuslbl);
 
-            analyzer.UpdateLoadingScreen += loadinggifhandler_update;
-            analyzer.ShowLoadingScreen += loadinggifhandler_showscreen;
-            analyzer.HideLoadingScreen += loadinggifhandler_hidescreen;
+            analyzer.UpdateLoadingScreen += analyzer_loading_update;
+            analyzer.ShowLoadingScreen += analyzer_loading_show;
+            analyzer.HideLoadingScreen += analyzer_loading_hide;
 
             portlbl.Text = portlbl.Text + port_no.ToString();
             // Default login provider is set in the designer before SelectedIndexChanged is wired; sync saved credentials once at show.
@@ -3369,22 +3378,25 @@ namespace Hiatme_Tool_Suite_v3
         // Trip Scout — independent WellRyde trip pull / display, does not share state with the Billing tab.
         private async void tsloadbtn_Click(object sender, EventArgs e)
         {
-            ShowLoadingGif();
+            if (tsloadbtn != null) tsloadbtn.Enabled = false;
+            if (tssearchbox != null) tssearchbox.Enabled = false;
+            string dayLabel = tsdatepicker.Value.ToLongDateString();
+            StartTripScoutStatusSpinner("Status: Trip Scout loading trips for " + dayLabel + "...");
             try
             {
-                await SetLoadingGifLabel("Loading trips");
-                tsstatuslbl.Text = "Status: Loading trips for " + tsdatepicker.Value.ToLongDateString() + "...";
+                await Task.Yield();
 
                 WellRydePortalFilterDataResult fd;
                 List<WRDownloadedTrip> trips;
                 int portalTotalRecords;
                 try
                 {
+                    UpdateTripScoutStatus("Status: Connecting to WellRyde for " + dayLabel + "...");
                     (fd, trips, portalTotalRecords) = await LoadWellRydeTripsForDateWithAuthRetryAsync(tsdatepicker.Value);
                 }
                 catch (Exception ex)
                 {
-                    tsstatuslbl.Text = "Status: WellRyde filterdata error — " + ex.Message;
+                    StopTripScoutStatusSpinner("Status: WellRyde filterdata error — " + ex.Message);
                     MessageBox.Show("WellRyde filterdata: " + ex.Message);
                     return;
                 }
@@ -3393,7 +3405,7 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     var prefix = fd.StatusCode.HasValue ? "HTTP " + (int)fd.StatusCode.Value + " — " : "";
                     var msg = prefix + (fd.ErrorMessage ?? "filterdata failed.");
-                    tsstatuslbl.Text = "Status: " + msg;
+                    StopTripScoutStatusSpinner("Status: " + msg);
                     MessageBox.Show(msg);
                     return;
                 }
@@ -3405,24 +3417,330 @@ namespace Hiatme_Tool_Suite_v3
                 _suppressTripScoutSearch = true;
                 try { tssearchbox.Text = ""; }
                 finally { _suppressTripScoutSearch = false; }
-                BindTripScoutListView(_tripScoutAllTrips, fitColumns: true);
+                UpdateTripScoutStatus("Status: Rendering " + _tripScoutAllTrips.Count + " trips for " + dayLabel + "...");
+                BindTripScoutListView(_tripScoutAllTrips, fitColumns: !_tripScoutColumnsAutoFitDone);
+                _tripScoutColumnsAutoFitDone = true;
 
                 int loadedCount = _tripScoutAllTrips.Count;
                 if (portalTotalRecords > 0 && loadedCount != portalTotalRecords)
                 {
-                    tsstatuslbl.Text = "Status: WellRyde reports " + portalTotalRecords + " trips; " +
-                        loadedCount + " rows parsed for " + tsdatepicker.Value.ToLongDateString() + ".";
+                    StopTripScoutStatusSpinner("Status: WellRyde reports " + portalTotalRecords + " trips; " +
+                        loadedCount + " rows parsed for " + tsdatepicker.Value.ToLongDateString() + ".");
                 }
                 else
                 {
-                    tsstatuslbl.Text = "Status: " + loadedCount + " trips loaded for " +
-                        tsdatepicker.Value.ToLongDateString() + ".";
+                    StopTripScoutStatusSpinner("Status: " + loadedCount + " trips loaded for " +
+                        tsdatepicker.Value.ToLongDateString() + ".");
                 }
             }
             finally
             {
-                hidegiftimer.Start();
+                StopTripScoutStatusSpinner(keepCurrentText: true);
+                if (tsloadbtn != null) tsloadbtn.Enabled = true;
+                if (tssearchbox != null) tssearchbox.Enabled = true;
             }
+        }
+
+        private void StartTripScoutStatusSpinner(string statusText)
+        {
+            _tripScoutStatusBaseMessage = statusText ?? "Status: Loading...";
+            PushTripScoutLoading(_tripScoutStatusBaseMessage);
+            if (_tripScoutStatusSpinnerTimer == null)
+            {
+                _tripScoutStatusSpinnerTimer = new System.Windows.Forms.Timer { Interval = 130 };
+                _tripScoutStatusSpinnerTimer.Tick += (s, e) =>
+                {
+                    _tripScoutStatusSpinnerTick = (_tripScoutStatusSpinnerTick + 1) % 8;
+                    RenderTripScoutSpinnerLabel();
+                };
+            }
+            _tripScoutStatusSpinnerTick = 0;
+            RenderTripScoutSpinnerLabel();
+            _tripScoutStatusSpinnerTimer.Start();
+        }
+
+        private void UpdateTripScoutStatus(string statusText)
+        {
+            _tripScoutStatusBaseMessage = statusText ?? "";
+            SetTripScoutLoadingMessage(_tripScoutStatusBaseMessage);
+            if (_tripScoutStatusSpinnerTimer != null && _tripScoutStatusSpinnerTimer.Enabled)
+                RenderTripScoutSpinnerLabel();
+            else if (tsstatuslbl != null)
+                tsstatuslbl.Text = _tripScoutStatusBaseMessage;
+        }
+
+        private void StopTripScoutStatusSpinner(string finalStatus = null, bool keepCurrentText = false)
+        {
+            _tripScoutStatusSpinnerTimer?.Stop();
+            PopTripScoutLoading();
+            if (keepCurrentText || tsstatuslbl == null)
+                return;
+            if (!string.IsNullOrWhiteSpace(finalStatus))
+                tsstatuslbl.Text = finalStatus;
+            else
+                tsstatuslbl.Text = _tripScoutStatusBaseMessage ?? "";
+        }
+
+        private void EnsureTripScoutLoadingOverlay()
+        {
+            if (tslv == null || tslv.IsDisposed) return;
+            var host = tslv.Parent;
+            if (host == null || host.IsDisposed) return;
+
+            if (_tripScoutLoadingOverlay != null && !_tripScoutLoadingOverlay.IsDisposed &&
+                !ReferenceEquals(_tripScoutLoadingOverlay.Parent, host))
+            {
+                _tripScoutLoadingOverlay.Dispose();
+                _tripScoutLoadingOverlay = null;
+            }
+
+            if (_tripScoutLoadingOverlay == null || _tripScoutLoadingOverlay.IsDisposed)
+            {
+                _tripScoutLoadingOverlay = new SupeyMapLoadingOverlay
+                {
+                    Visible = false,
+                    Anchor = AnchorStyles.None
+                };
+                host.Controls.Add(_tripScoutLoadingOverlay);
+                tslv.Resize += (s, e) => SyncTripScoutLoadingOverlayBounds();
+                tslv.LocationChanged += (s, e) => SyncTripScoutLoadingOverlayBounds();
+                tslv.VisibleChanged += (s, e) => SyncTripScoutLoadingOverlayBounds();
+                host.Resize += (s, e) => SyncTripScoutLoadingOverlayBounds();
+                host.ControlAdded += (s, e) =>
+                {
+                    if (_tripScoutLoadingDepth > 0)
+                        _tripScoutLoadingOverlay?.BringToFront();
+                };
+            }
+
+            SyncTripScoutLoadingOverlayBounds();
+        }
+
+        private void SyncTripScoutLoadingOverlayBounds()
+        {
+            if (_tripScoutLoadingOverlay == null || _tripScoutLoadingOverlay.IsDisposed || tslv == null || tslv.IsDisposed)
+                return;
+
+            _tripScoutLoadingOverlay.Bounds = tslv.Bounds;
+        }
+
+        private void PushTripScoutLoading(string message = null)
+        {
+            if (InvokeRequired)
+            {
+                BeginInvoke(new Action(() => PushTripScoutLoading(message)));
+                return;
+            }
+
+            EnsureTripScoutLoadingOverlay();
+            if (_tripScoutLoadingOverlay == null) return;
+
+            if (!string.IsNullOrWhiteSpace(message))
+                _tripScoutLoadingOverlay.Message = message.Trim();
+
+            _tripScoutLoadingDepth++;
+            if (_tripScoutLoadingDepth == 1)
+            {
+                SyncTripScoutLoadingOverlayBounds();
+                _tripScoutLoadingOverlay.Visible = tslv != null && tslv.Visible;
+                _tripScoutLoadingOverlay.IsAnimating = true;
+                _tripScoutLoadingOverlay.BringToFront();
+            }
+        }
+
+        private void PopTripScoutLoading()
+        {
+            if (InvokeRequired)
+            {
+                BeginInvoke(new Action(PopTripScoutLoading));
+                return;
+            }
+
+            if (_tripScoutLoadingDepth <= 0 || _tripScoutLoadingOverlay == null || _tripScoutLoadingOverlay.IsDisposed)
+                return;
+
+            _tripScoutLoadingDepth--;
+            if (_tripScoutLoadingDepth == 0)
+            {
+                _tripScoutLoadingOverlay.IsAnimating = false;
+                _tripScoutLoadingOverlay.Visible = false;
+            }
+        }
+
+        private void SetTripScoutLoadingMessage(string message)
+        {
+            if (InvokeRequired)
+            {
+                BeginInvoke(new Action(() => SetTripScoutLoadingMessage(message)));
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(message) || _tripScoutLoadingDepth <= 0)
+                return;
+
+            EnsureTripScoutLoadingOverlay();
+            if (_tripScoutLoadingOverlay == null || _tripScoutLoadingOverlay.IsDisposed)
+                return;
+
+            _tripScoutLoadingOverlay.Message = message.Trim();
+            _tripScoutLoadingOverlay.BringToFront();
+        }
+
+        private void RenderTripScoutSpinnerLabel()
+        {
+            if (tsstatuslbl == null)
+                return;
+            char[] frames = { '◴', '◷', '◶', '◵', '◴', '◷', '◶', '◵' };
+            char frame = frames[_tripScoutStatusSpinnerTick % frames.Length];
+            tsstatuslbl.Text = frame + " " + (_tripScoutStatusBaseMessage ?? "");
+        }
+
+        private void analyzer_loading_update(string text)
+        {
+            var msg = string.IsNullOrWhiteSpace(text) ? "Status: Working..." : "Status: " + text.Trim();
+            UpdateAnalyzerStatus(msg);
+        }
+
+        private void analyzer_loading_show()
+        {
+            StartAnalyzerStatusSpinner("Status: Working...");
+        }
+
+        private void analyzer_loading_hide()
+        {
+            StopAnalyzerStatusSpinner(keepCurrentText: true);
+        }
+
+        private void StartAnalyzerStatusSpinner(string statusText)
+        {
+            _analyzerLoadingBaseMessage = statusText ?? "Status: Working...";
+            PushAnalyzerLoading(_analyzerLoadingBaseMessage);
+            if (aastatuslbl != null)
+                aastatuslbl.Text = _analyzerLoadingBaseMessage;
+        }
+
+        private void UpdateAnalyzerStatus(string statusText)
+        {
+            _analyzerLoadingBaseMessage = statusText ?? "";
+            SetAnalyzerLoadingMessage(_analyzerLoadingBaseMessage);
+            if (aastatuslbl != null)
+                aastatuslbl.Text = _analyzerLoadingBaseMessage;
+        }
+
+        private void StopAnalyzerStatusSpinner(string finalStatus = null, bool keepCurrentText = false)
+        {
+            PopAnalyzerLoading();
+            if (keepCurrentText || aastatuslbl == null)
+                return;
+            if (!string.IsNullOrWhiteSpace(finalStatus))
+                aastatuslbl.Text = finalStatus;
+            else
+                aastatuslbl.Text = _analyzerLoadingBaseMessage ?? "";
+        }
+
+        private void EnsureAnalyzerLoadingOverlay()
+        {
+            if (aalv == null || aalv.IsDisposed) return;
+            var host = aalv.Parent;
+            if (host == null || host.IsDisposed) return;
+
+            if (_analyzerLoadingOverlay != null && !_analyzerLoadingOverlay.IsDisposed &&
+                !ReferenceEquals(_analyzerLoadingOverlay.Parent, host))
+            {
+                _analyzerLoadingOverlay.Dispose();
+                _analyzerLoadingOverlay = null;
+            }
+
+            if (_analyzerLoadingOverlay == null || _analyzerLoadingOverlay.IsDisposed)
+            {
+                _analyzerLoadingOverlay = new SupeyMapLoadingOverlay
+                {
+                    Visible = false,
+                    Anchor = AnchorStyles.None
+                };
+                host.Controls.Add(_analyzerLoadingOverlay);
+                aalv.Resize += (s, e) => SyncAnalyzerLoadingOverlayBounds();
+                aalv.LocationChanged += (s, e) => SyncAnalyzerLoadingOverlayBounds();
+                aalv.VisibleChanged += (s, e) => SyncAnalyzerLoadingOverlayBounds();
+                host.Resize += (s, e) => SyncAnalyzerLoadingOverlayBounds();
+                host.ControlAdded += (s, e) =>
+                {
+                    if (_analyzerLoadingDepth > 0)
+                        _analyzerLoadingOverlay?.BringToFront();
+                };
+            }
+
+            SyncAnalyzerLoadingOverlayBounds();
+        }
+
+        private void SyncAnalyzerLoadingOverlayBounds()
+        {
+            if (_analyzerLoadingOverlay == null || _analyzerLoadingOverlay.IsDisposed || aalv == null || aalv.IsDisposed)
+                return;
+
+            _analyzerLoadingOverlay.Bounds = aalv.Bounds;
+        }
+
+        private void PushAnalyzerLoading(string message = null)
+        {
+            if (InvokeRequired)
+            {
+                BeginInvoke(new Action(() => PushAnalyzerLoading(message)));
+                return;
+            }
+
+            EnsureAnalyzerLoadingOverlay();
+            if (_analyzerLoadingOverlay == null) return;
+
+            if (!string.IsNullOrWhiteSpace(message))
+                _analyzerLoadingOverlay.Message = message.Trim();
+
+            _analyzerLoadingDepth++;
+            if (_analyzerLoadingDepth == 1)
+            {
+                SyncAnalyzerLoadingOverlayBounds();
+                _analyzerLoadingOverlay.Visible = aalv != null && aalv.Visible;
+                _analyzerLoadingOverlay.IsAnimating = true;
+                _analyzerLoadingOverlay.BringToFront();
+            }
+        }
+
+        private void PopAnalyzerLoading()
+        {
+            if (InvokeRequired)
+            {
+                BeginInvoke(new Action(PopAnalyzerLoading));
+                return;
+            }
+
+            if (_analyzerLoadingDepth <= 0 || _analyzerLoadingOverlay == null || _analyzerLoadingOverlay.IsDisposed)
+                return;
+
+            _analyzerLoadingDepth--;
+            if (_analyzerLoadingDepth == 0)
+            {
+                _analyzerLoadingOverlay.IsAnimating = false;
+                _analyzerLoadingOverlay.Visible = false;
+            }
+        }
+
+        private void SetAnalyzerLoadingMessage(string message)
+        {
+            if (InvokeRequired)
+            {
+                BeginInvoke(new Action(() => SetAnalyzerLoadingMessage(message)));
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(message) || _analyzerLoadingDepth <= 0)
+                return;
+
+            EnsureAnalyzerLoadingOverlay();
+            if (_analyzerLoadingOverlay == null || _analyzerLoadingOverlay.IsDisposed)
+                return;
+
+            _analyzerLoadingOverlay.Message = message.Trim();
+            _analyzerLoadingOverlay.BringToFront();
         }
 
         /// <summary>True while a programmatic <see cref="tssearchbox"/> mutation is in progress.</summary>
@@ -4455,44 +4773,39 @@ namespace Hiatme_Tool_Suite_v3
         //Auto Ass
         private async void aaloadbtn_Click(object sender, EventArgs e)
         {
-            ShowLoadingGif();
-            
-            await SetLoadingGifLabel("Checking connections");
-            if (await EnsureWellRydePortalSessionForBillingAsync())
-                analyzer.SetWellRydePortalSession(_wellRydeSession);
-            else
-                analyzer.SetWellRydePortalSession(null);
-            if (!await EnsureModivcareSessionAsync())
+            StartAnalyzerStatusSpinner("Status: Checking connections...");
+            try
             {
-                hidegiftimer.Start();
-                return;
-            }
-            analyzer.IntializeAnalyzer(mcLoginHandler);
-            await analyzer.StartAnalysis(aadatepicker.Value.ToLongDateString(), aadatepicker.Value.Day, aadatepicker.Value.Year, aadatepicker.Value);
-            await SetLoadingGifLabel("Downloading trips");
-            await SetLoadingGifLabel("Starting analyzer…");
-            await SetLoadingGifLabel("Load your schedule for selected date (" + aadatepicker.Value.ToLongDateString() + ")");
-            aastatuslbl.Text = "Status: Please choose a schedule to analyze.";
+                if (await EnsureWellRydePortalSessionForBillingAsync())
+                    analyzer.SetWellRydePortalSession(_wellRydeSession);
+                else
+                    analyzer.SetWellRydePortalSession(null);
+                if (!await EnsureModivcareSessionAsync())
+                    return;
 
-            OpenFileDialog openFileDialog1 = new OpenFileDialog
-            {
-                InitialDirectory = @"C:\Users\rneal\OneDrive\Desktop",
-                Title = "Browse Schedule Files",
+                analyzer.IntializeAnalyzer(mcLoginHandler);
+                await analyzer.StartAnalysis(aadatepicker.Value.ToLongDateString(), aadatepicker.Value.Day, aadatepicker.Value.Year, aadatepicker.Value);
+                UpdateAnalyzerStatus("Status: Please choose a schedule to analyze.");
 
-                CheckFileExists = true,
-                CheckPathExists = true,
+                OpenFileDialog openFileDialog1 = new OpenFileDialog
+                {
+                    InitialDirectory = @"C:\Users\rneal\OneDrive\Desktop",
+                    Title = "Browse Schedule Files",
+                    CheckFileExists = true,
+                    CheckPathExists = true,
+                    DefaultExt = ".xlsx",
+                    Filter = "workbook files (*.xlsx)|*.xlsx",
+                    FilterIndex = 2,
+                    RestoreDirectory = true
+                };
 
-                DefaultExt = ".xlsx",
-                Filter = "workbook files (*.xlsx)|*.xlsx",
-                FilterIndex = 2,
-                RestoreDirectory = true
-            };
+                if (openFileDialog1.ShowDialog() != DialogResult.OK)
+                {
+                    StopAnalyzerStatusSpinner("Status: Select a date and click 'Load Schedule' when ready.");
+                    return;
+                }
 
-            if (openFileDialog1.ShowDialog() == DialogResult.OK)
-            {
-                await SetLoadingGifLabel("Splitting schedule");
-                await Task.Delay(1000);
-                aastatuslbl.Text = "Status: Splitting schedule..";
+                UpdateAnalyzerStatus("Status: Splitting schedule...");
                 aalv.Items.Clear();
 
                 try
@@ -4501,137 +4814,114 @@ namespace Hiatme_Tool_Suite_v3
                 }
                 catch (ScheduleLoadException ex)
                 {
-                    hidegiftimer.Start();
                     MessageBox.Show(
                         "Schedule load failed. Fix the problem in your Excel file and try again.\n\n" + ex.Message,
                         "Schedule Load Error",
                         MessageBoxButtons.OK,
                         MessageBoxIcon.Warning);
-                    aastatuslbl.Text = "Status: Schedule load failed. See message for details.";
+                    StopAnalyzerStatusSpinner("Status: Schedule load failed. See message for details.");
                     return;
                 }
                 catch (Exception ex)
                 {
-                    hidegiftimer.Start();
                     MessageBox.Show(
                         "Unexpected error while loading/splitting the schedule.\n\n" + ex.Message,
                         "Schedule Load Error",
                         MessageBoxButtons.OK,
                         MessageBoxIcon.Error);
-                    aastatuslbl.Text = "Status: Schedule load failed.";
+                    StopAnalyzerStatusSpinner("Status: Schedule load failed.");
                     return;
                 }
 
-                await SetLoadingGifLabel("Analyzing schedule…");
-                await Task.Delay(2000);
-
+                UpdateAnalyzerStatus("Status: Analyzing schedule...");
                 try
                 {
                     analyzer.AnalyzeTrips(aadatepicker.Value);
                 }
                 catch (ScheduleAnalysisException ex)
                 {
-                    hidegiftimer.Start();
                     MessageBox.Show(
                         "Analysis failed. Check the schedule or trip data and try again.\n\n" + ex.Message,
                         "Analysis Error",
                         MessageBoxButtons.OK,
                         MessageBoxIcon.Warning);
-                    aastatuslbl.Text = "Status: Analysis failed. See message for details.";
+                    StopAnalyzerStatusSpinner("Status: Analysis failed. See message for details.");
                     return;
                 }
                 catch (Exception ex)
                 {
-                    hidegiftimer.Start();
                     MessageBox.Show(
                         "Unexpected error during analysis.\n\n" + ex.Message,
                         "Analysis Error",
                         MessageBoxButtons.OK,
                         MessageBoxIcon.Error);
-                    aastatuslbl.Text = "Status: Analysis failed.";
+                    StopAnalyzerStatusSpinner("Status: Analysis failed.");
                     return;
                 }
-            }
-            else
-            {
-                await SetLoadingGifLabel("Cancelling process..");
-                hidegiftimer.Start();
-                return;
-            }
 
-            foreach (MCDownloadedTrip loggedtrip in analyzer.loggedScheduleTrips)
-            {
-                bool reservecancel = false;
-                if (loggedtrip.DriverNameParsed == "Reserves")
+                foreach (MCDownloadedTrip loggedtrip in analyzer.loggedScheduleTrips)
                 {
-                    if (loggedtrip.GetAlerts().Contains("Cancelled"))
+                    bool reservecancel = false;
+                    if (loggedtrip.DriverNameParsed == "Reserves")
                     {
-                        reservecancel = true;
+                        if (loggedtrip.GetAlerts().Contains("Cancelled"))
+                        {
+                            reservecancel = true;
+                        }
+                    }
+                    if (!reservecancel)
+                    {
+                        ListViewItem lvi = new ListViewItem();
+                        lvi.Text = loggedtrip.TripNumber;
+                        lvi.SubItems.Add(loggedtrip.Date);
+                        lvi.SubItems.Add(loggedtrip.GetAlerts());
+                        lvi.SubItems.Add(loggedtrip.DriverNameParsed);
+                        lvi.SubItems.Add(loggedtrip.ClientFullName);
+                        lvi.SubItems.Add(FormatTimeOnly(loggedtrip.PUTime));
+                        lvi.SubItems.Add(loggedtrip.PUStreet);
+                        lvi.SubItems.Add(loggedtrip.PUCity);
+                        lvi.SubItems.Add(loggedtrip.PUTelephone);
+                        lvi.SubItems.Add(FormatTimeOnly(loggedtrip.DOTime));
+                        lvi.SubItems.Add(loggedtrip.DOStreet);
+                        lvi.SubItems.Add(loggedtrip.DOCITY);
+                        lvi.SubItems.Add(loggedtrip.DOTelephone);
+                        lvi.SubItems.Add(loggedtrip.Comments);
+                        lvi.BackColor = loggedtrip.GetColor();
+                        aalv.Items.Add(lvi);
                     }
                 }
-                if (!reservecancel)
-                {
-                    ListViewItem lvi = new ListViewItem();
-                    lvi.Text = loggedtrip.TripNumber;
 
-                    lvi.SubItems.Add(loggedtrip.Date);
-                    lvi.SubItems.Add(loggedtrip.GetAlerts());
-                    lvi.SubItems.Add(loggedtrip.DriverNameParsed);
-                    lvi.SubItems.Add(loggedtrip.ClientFullName);
-                    lvi.SubItems.Add(FormatTimeOnly(loggedtrip.PUTime));
-                    lvi.SubItems.Add(loggedtrip.PUStreet);
-                    lvi.SubItems.Add(loggedtrip.PUCity);
-                    lvi.SubItems.Add(loggedtrip.PUTelephone);
-                    lvi.SubItems.Add(FormatTimeOnly(loggedtrip.DOTime));
-                    lvi.SubItems.Add(loggedtrip.DOStreet);
-                    lvi.SubItems.Add(loggedtrip.DOCITY);
-                    lvi.SubItems.Add(loggedtrip.DOTelephone);
-                    lvi.SubItems.Add(loggedtrip.Comments);
-                    lvi.BackColor = loggedtrip.GetColor();
-                    aalv.Items.Add(lvi);
-                }
+                ListViewMinWidthEnforcer.ScheduleRecompute(aalv);
+                reportCard = new ReportCard(hiatmeTabControl.SelectedTab, aaassbtn);
+                reportCard.StartReport(analyzer.gradeList);
 
+                UpdateAnalyzerStatus("Status: Analysis complete. Loading report card...");
+                aalv.Columns[2].Text = "Alerts: " + analyzer.ReturnAlertCount().ToString();
+                int assignPreview = analyzer.GetPlannedWellRydeAssignSlotCount();
+                StopAnalyzerStatusSpinner("Status: Analysis completed with " + analyzer.ReturnAlertCount().ToString() + " alerts. Assign preview: " + assignPreview.ToString() + " trip(s) matched WellRyde for ASSIGN. Re-analyze after schedule changes.");
             }
-            ListViewMinWidthEnforcer.ScheduleRecompute(aalv);
-
-            reportCard = new ReportCard(hiatmeTabControl.SelectedTab, aaassbtn);
-
-            reportCard.StartReport(analyzer.gradeList);
-
-
-            await SetLoadingGifLabel("Analysis complete. Loading report card…");
-
-            
-
-
-            aalv.Columns[2].Text = "Alerts: " + analyzer.ReturnAlertCount().ToString();
-            int assignPreview = analyzer.GetPlannedWellRydeAssignSlotCount();
-            aastatuslbl.Text = "Status: Analysis completed with " + analyzer.ReturnAlertCount().ToString() + " alerts. Assign preview: " + assignPreview.ToString() + " trip(s) matched WellRyde for ASSIGN. Re-analyze after schedule changes.";
-            hidegiftimer.Start();
-
-
+            finally
+            {
+                StopAnalyzerStatusSpinner(keepCurrentText: true);
+            }
         }
         private async void aaassbtn_Click(object sender, EventArgs e)
         {
-            ShowLoadingGif();
+            StartAnalyzerStatusSpinner("Status: Preparing to assign trips...");
             try
             {
-                await SetLoadingGifLabel("Are you sure you want to assign trips?");
                 DialogResult dialogResult = MessageBox.Show("Are you sure you want to assign trips?", "Assign Trips", MessageBoxButtons.YesNo);
                 if (dialogResult == DialogResult.Yes)
                 {
                     //do something
-                    await SetLoadingGifLabel("Preparing to assign trips");
                     aastatuslbl.Text = "Status: Preparing to assign trips..";
                     if (analyzer.drivertablist == null)
                     {
-                        await SetLoadingGifLabel("You must load a schedule to continue. Exiting");
-                        aastatuslbl.Text = "Status: Select a date and click 'Load Schedule' or assign trips when ready.";
-                        hidegiftimer.Start();
+                        StopAnalyzerStatusSpinner("Status: Select a date and click 'Load Schedule' or assign trips when ready.");
                         MessageBox.Show("You must load a schedule to continue.");
                         return;
                     }
-                    await SetLoadingGifLabel("Checking WellRyde connection");
+                    UpdateAnalyzerStatus("Status: Checking WellRyde connection...");
                     if (await EnsureWellRydePortalSessionForBillingAsync())
                         analyzer.SetWellRydePortalSession(_wellRydeSession);
                     else
@@ -4641,42 +4931,38 @@ namespace Hiatme_Tool_Suite_v3
                 else if (dialogResult == DialogResult.No)
                 {
                     //do something else
-                    await SetLoadingGifLabel("Cancelling process..");
-                    hidegiftimer.Start();
-                    aastatuslbl.Text = "Status: Select a date and click 'Load Schedule' or assign trips when ready.";
+                    StopAnalyzerStatusSpinner("Status: Select a date and click 'Load Schedule' or assign trips when ready.");
                     return;
                 }
             }
 
-            catch (Exception ex)
+            catch (Exception)
             {
-                hidegiftimer.Start();
+                StopAnalyzerStatusSpinner("Status: Assign step failed.");
             }
-            await SetLoadingGifLabel("Finalizing process..");
-            hidegiftimer.Start();
+            UpdateAnalyzerStatus("Status: Finalizing process...");
             var baseMsg = "Status: Assign step finished — WellRyde list shows " + analyzer.GetAssignedTripCount().ToString() + " Assigned and " + analyzer.GetReservedTripCount().ToString() + " Reserved.";
             if (!Analyzer.WellRydePortalAssignAndUnassignCallsServer)
-                aastatuslbl.Text = baseMsg + " Assign/unassign from this button does not change the portal yet; assign in the browser if needed.";
+                StopAnalyzerStatusSpinner(baseMsg + " Assign/unassign from this button does not change the portal yet; assign in the browser if needed.");
             else
-                aastatuslbl.Text = baseMsg;
+                StopAnalyzerStatusSpinner(baseMsg);
         }
         private async void aareservesbtn_Click(object sender, EventArgs e)
         {
-            ShowLoadingGif();
-            await SetLoadingGifLabel("Checking connections");
+            StartAnalyzerStatusSpinner("Status: Checking connections...");
             if (await EnsureWellRydePortalSessionForBillingAsync())
                 analyzer.SetWellRydePortalSession(_wellRydeSession);
             else
                 analyzer.SetWellRydePortalSession(null);
             if (!await EnsureModivcareSessionAsync())
             {
-                hidegiftimer.Start();
+                StopAnalyzerStatusSpinner("Status: Could not connect to Modivcare.");
                 return;
             }
             analyzer.IntializeAnalyzer(mcLoginHandler);
 
             await analyzer.PullReserves(aadatepicker.Value.ToLongDateString(), aadatepicker.Value.Day, aadatepicker.Value.Year, aadatepicker.Value);
-            hidegiftimer.Start();
+            StopAnalyzerStatusSpinner("Status: Reserve pull finished.");
         }
 
         //Employee Production
@@ -4691,9 +4977,6 @@ namespace Hiatme_Tool_Suite_v3
             try
             {
                 empStatManager = new EmployeeStatManager(tabPage8, mcLoginHandler);
-                empStatManager.UpdateLoadingScreen += loadinggifhandler_update;
-                empStatManager.ShowLoadingScreen += loadinggifhandler_showscreen;
-                empStatManager.HideLoadingScreen += loadinggifhandler_hidescreen;
 
                 WellRydePortalSession wrSession = null;
                 if (await EnsureWellRydePortalSessionForBillingAsync())
@@ -4705,7 +4988,6 @@ namespace Hiatme_Tool_Suite_v3
             catch (OperationCanceledException)
             {
                 // Newer tab visit or form close cancelled this load.
-                hidegiftimer.Start();
             }
         }
 

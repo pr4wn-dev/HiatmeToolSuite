@@ -1164,6 +1164,13 @@ namespace Hiatme_Tool_Suite_v3
         }
         public async Task SplitFile(string targetPath, string sourceFile)
         {
+            string ext = Path.GetExtension(sourceFile) ?? "";
+            if (ext.Equals(".xlsx", StringComparison.OrdinalIgnoreCase))
+            {
+                await SplitFileWithNativeXlsxReader(targetPath, sourceFile);
+                return;
+            }
+
             bool isSave;
             Microsoft.Office.Interop.Excel.XlFileFormat fileFormat = Microsoft.Office.Interop.Excel.XlFileFormat.xlOpenXMLWorkbook;
 
@@ -1173,7 +1180,24 @@ namespace Hiatme_Tool_Suite_v3
             Microsoft.Office.Interop.Excel.Workbook xlFile = null;
             try
             {
-                xlApp = new Microsoft.Office.Interop.Excel.Application();
+                try
+                {
+                    xlApp = new Microsoft.Office.Interop.Excel.Application();
+                }
+                catch (COMException ex) when ((uint)ex.ErrorCode == 0x80040154u)
+                {
+                    throw new ScheduleLoadException(
+                        sourceFile,
+                        null,
+                        0,
+                        null,
+                        "Excel COM startup",
+                        new InvalidOperationException(
+                            "Microsoft Excel is not installed/registered on this machine (Class not registered: 0x80040154). " +
+                            "Analyzer schedule splitting currently requires desktop Excel. " +
+                            "Install or repair Microsoft Office/Excel, then try again.",
+                            ex));
+                }
                 try
                 {
                     xlFile = xlApp.Workbooks.Open(sourceFile);
@@ -1222,77 +1246,7 @@ namespace Hiatme_Tool_Suite_v3
 
                     if (rows != null)
                     {
-                        int rowIndex = 0;
-                        foreach (string[] row in rows)
-                        {
-                            rowIndex++;
-                            if (row.Length == 0) { continue; }
-                            if (!CheckIfRowIsGood(row)) { continue; }
-                            MCDownloadedTrip drivertrip = new MCDownloadedTrip();
-                            drivertrip.DriverNameParsed = sheetName;
-                            string tripNumberForError = (row.Length > 0 && row[0] != null) ? row[0].ToString() : "";
-                            try
-                            {
-                                for (int a = 0; a < row.Length; a++)
-                                {
-                                    string colName = GetColumnNameForIndex(a);
-                                    switch (a)
-                                    {
-                                        case 0:
-                                            drivertrip.TripNumber = row[a];
-                                            break;
-                                        case 1:
-                                            drivertrip.Date = SafeReturnDateFromMCTime(row[a], sourceFile, sheetName, rowIndex, tripNumberForError, "Date");
-                                            break;
-                                        case 2:
-                                            drivertrip.ClientFullName = row[a];
-                                            break;
-                                        case 3:
-                                            drivertrip.PUStreet = row[a];
-                                            break;
-                                        case 4:
-                                            drivertrip.PUCity = row[a];
-                                            break;
-                                        case 5:
-                                            drivertrip.PUTelephone = row[a];
-                                            break;
-                                        case 6:
-                                            drivertrip.PUTime = SafeParseTime(row[a], sourceFile, sheetName, rowIndex, tripNumberForError, "PU Time");
-                                            break;
-                                        case 7:
-                                            drivertrip.DOStreet = row[a];
-                                            break;
-                                        case 8:
-                                            drivertrip.DOCITY = row[a];
-                                            break;
-                                        case 9:
-                                            drivertrip.DOTelephone = row[a];
-                                            break;
-                                        case 10:
-                                            drivertrip.DOTime = SafeParseTime(row[a], sourceFile, sheetName, rowIndex, tripNumberForError, "DO Time");
-                                            break;
-                                        case 11:
-                                            drivertrip.Age = row[a];
-                                            break;
-                                        case 12:
-                                            drivertrip.Miles = row[a];
-                                            break;
-                                        case 13:
-                                            drivertrip.Comments = row[a];
-                                            break;
-                                    }
-                                }
-                            }
-                            catch (ScheduleLoadException)
-                            {
-                                throw;
-                            }
-                            catch (Exception ex)
-                            {
-                                throw new ScheduleLoadException(sourceFile, sheetName, rowIndex, tripNumberForError, "Parsing row", ex);
-                            }
-                            drivertab.scheduledTrips.Add(drivertrip);
-                        }
+                        AppendTripsFromRows(drivertab, sheetName, rows, sourceFile);
                     }
 
                     drivertab.driverName = sheetName;
@@ -1325,6 +1279,28 @@ namespace Hiatme_Tool_Suite_v3
                     }
                 }
             }
+            catch (ScheduleLoadException)
+            {
+                throw;
+            }
+            catch (COMException ex) when ((uint)ex.ErrorCode == 0x80040154u)
+            {
+                throw new ScheduleLoadException(
+                    sourceFile,
+                    null,
+                    0,
+                    null,
+                    "Excel COM",
+                    new InvalidOperationException(
+                        "Microsoft Excel is not installed/registered on this machine (Class not registered: 0x80040154). " +
+                        "Analyzer schedule splitting currently requires desktop Excel. " +
+                        "Install or repair Microsoft Office/Excel, then try again.",
+                        ex));
+            }
+            catch (Exception ex)
+            {
+                throw new ScheduleLoadException(sourceFile, null, 0, null, "SplitFile", ex);
+            }
             finally
             {
                 if (xlFile != null)
@@ -1338,6 +1314,151 @@ namespace Hiatme_Tool_Suite_v3
                 }
                 GC.Collect();
                 GC.WaitForPendingFinalizers();
+            }
+        }
+
+        private async Task SplitFileWithNativeXlsxReader(string targetPath, string sourceFile)
+        {
+            await Task.Yield();
+            var sheetRows = ScheduleBuilderXlsxReader.ReadWorkbookSheets(sourceFile);
+            foreach (var sheet in sheetRows)
+            {
+                string sheetName = sheet.Tab ?? "";
+                if (string.IsNullOrWhiteSpace(sheetName))
+                    continue;
+
+                var drivertab = new MCDriverTab();
+                string[][] rows = NormalizeRows(sheet.Rows);
+                if (sheetName != "Reserves")
+                    CheckForNotes(rows);
+
+                if (rows != null)
+                    AppendTripsFromRows(drivertab, sheetName, rows, sourceFile);
+
+                drivertab.driverName = sheetName;
+                drivertablist.Add(drivertab);
+
+                try
+                {
+                    WriteRowsToCsv(targetPath, sheetName, rows);
+                }
+                catch (Exception ex)
+                {
+                    string errorMessage = "Error Exporting " + sheetName + System.Environment.NewLine + "Original Message: " + ex.Message;
+                    MessageBox.Show(errorMessage, "Error Exporting", MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
+                }
+            }
+        }
+
+        private static string[][] NormalizeRows(List<List<string>> rows)
+        {
+            if (rows == null || rows.Count == 0)
+                return new string[0][];
+
+            var normalized = new string[rows.Count][];
+            for (int i = 0; i < rows.Count; i++)
+            {
+                var row = rows[i] ?? new List<string>();
+                normalized[i] = row.Select(v => string.IsNullOrWhiteSpace(v) ? null : v).ToArray();
+            }
+            return normalized;
+        }
+
+        private static string CsvQuote(string value)
+        {
+            return "\"" + (value ?? "").Replace("\"", "\"\"") + "\"";
+        }
+
+        private static void WriteRowsToCsv(string targetPath, string sheetName, string[][] rows)
+        {
+            string newFilename = System.IO.Path.Combine(targetPath, sheetName) + ".csv";
+            var sb = new StringBuilder();
+            if (rows != null)
+            {
+                foreach (var row in rows)
+                {
+                    if (row == null || row.Length == 0)
+                    {
+                        sb.AppendLine();
+                        continue;
+                    }
+                    sb.AppendLine(string.Join(",", row.Select(CsvQuote)));
+                }
+            }
+            File.WriteAllText(newFilename, sb.ToString(), Encoding.UTF8);
+        }
+
+        private void AppendTripsFromRows(MCDriverTab drivertab, string sheetName, string[][] rows, string sourceFile)
+        {
+            int rowIndex = 0;
+            foreach (string[] row in rows)
+            {
+                rowIndex++;
+                if (row == null || row.Length == 0) { continue; }
+                if (!CheckIfRowIsGood(row)) { continue; }
+                MCDownloadedTrip drivertrip = new MCDownloadedTrip();
+                drivertrip.DriverNameParsed = sheetName;
+                string tripNumberForError = (row.Length > 0 && row[0] != null) ? row[0].ToString() : "";
+                try
+                {
+                    for (int a = 0; a < row.Length; a++)
+                    {
+                        switch (a)
+                        {
+                            case 0:
+                                drivertrip.TripNumber = row[a];
+                                break;
+                            case 1:
+                                drivertrip.Date = SafeReturnDateFromMCTime(row[a], sourceFile, sheetName, rowIndex, tripNumberForError, "Date");
+                                break;
+                            case 2:
+                                drivertrip.ClientFullName = row[a];
+                                break;
+                            case 3:
+                                drivertrip.PUStreet = row[a];
+                                break;
+                            case 4:
+                                drivertrip.PUCity = row[a];
+                                break;
+                            case 5:
+                                drivertrip.PUTelephone = row[a];
+                                break;
+                            case 6:
+                                drivertrip.PUTime = SafeParseTime(row[a], sourceFile, sheetName, rowIndex, tripNumberForError, "PU Time");
+                                break;
+                            case 7:
+                                drivertrip.DOStreet = row[a];
+                                break;
+                            case 8:
+                                drivertrip.DOCITY = row[a];
+                                break;
+                            case 9:
+                                drivertrip.DOTelephone = row[a];
+                                break;
+                            case 10:
+                                drivertrip.DOTime = SafeParseTime(row[a], sourceFile, sheetName, rowIndex, tripNumberForError, "DO Time");
+                                break;
+                            case 11:
+                                drivertrip.Age = row[a];
+                                break;
+                            case 12:
+                                drivertrip.Miles = row[a];
+                                break;
+                            case 13:
+                                drivertrip.Comments = row[a];
+                                break;
+                        }
+                    }
+                }
+                catch (ScheduleLoadException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    throw new ScheduleLoadException(sourceFile, sheetName, rowIndex, tripNumberForError, "Parsing row", ex);
+                }
+                drivertab.scheduledTrips.Add(drivertrip);
             }
         }
 
@@ -1364,9 +1485,23 @@ namespace Hiatme_Tool_Suite_v3
             try
             {
                 if (string.IsNullOrWhiteSpace(cellValue)) return "";
-                double oa = double.Parse(cellValue, CultureInfo.InvariantCulture);
-                DateTime dt = DateTime.FromOADate(oa);
-                return dt.ToString("HH:mm");
+                string raw = cellValue.Trim();
+                if (double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out double oa))
+                {
+                    DateTime dt = DateTime.FromOADate(oa);
+                    return dt.ToString("HH:mm");
+                }
+
+                if (DateTime.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime parsedInvariant))
+                    return parsedInvariant.ToString("HH:mm");
+                if (DateTime.TryParse(raw, CultureInfo.CurrentCulture, DateTimeStyles.None, out DateTime parsedLocal))
+                    return parsedLocal.ToString("HH:mm");
+
+                var span = SupeyTripTimes.TryParse(raw);
+                if (span.HasValue)
+                    return DateTime.Today.Add(span.Value).ToString("HH:mm");
+
+                throw new FormatException("Unrecognized time format: \"" + raw + "\"");
             }
             catch (Exception ex)
             {

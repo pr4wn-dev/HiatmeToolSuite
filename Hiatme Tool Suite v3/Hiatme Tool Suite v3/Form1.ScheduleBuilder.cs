@@ -64,6 +64,8 @@ namespace Hiatme_Tool_Suite_v3
 
         private SupeyButton _fsSaveBtn;
 
+        private SupeyButton _fsSyncHistoryBtn;
+
         private string _fsPreferredSavePath;
 
         private bool _fsHasPreview;
@@ -168,6 +170,8 @@ namespace Hiatme_Tool_Suite_v3
             {
                 try { await SyncFsDriverEmailsAsync(reportOffline: false).ConfigureAwait(true); }
                 catch { /* offline */ }
+                try { await FsRefreshArchiveStatusAsync(reportOffline: false).ConfigureAwait(true); }
+                catch { /* optional */ }
             }));
         }
 
@@ -357,6 +361,22 @@ namespace Hiatme_Tool_Suite_v3
 
             };
 
+            _fsSyncHistoryBtn = new SupeyButton
+
+            {
+
+                Text = "SYNC HISTORY",
+
+                Kind = SupeyButton.Variant.Secondary,
+
+                Size = new Size(132, 30),
+
+                Margin = new Padding(6, 1, 0, 0),
+
+                Enabled = true,
+
+            };
+
             var saveTip = SupeyToolTip.Create(autoPopDelay: 12000, initialDelay: 400);
 
             _fsSaveBtn.Click += fsSaveBtn_Click;
@@ -366,6 +386,9 @@ namespace Hiatme_Tool_Suite_v3
 
             saveTip.SetToolTip(_fsLoadBtn,
                 "Open a saved .xlsx workbook or driver .csv (Excel not required). Date is read from the file name or trip dates and sets the date picker.");
+            _fsSyncHistoryBtn.Click += async (s, e) => await FsSyncHistoryNowAsync().ConfigureAwait(true);
+            saveTip.SetToolTip(_fsSyncHistoryBtn,
+                "Sync historical schedules from Desktop schedule folders into AI memory.");
 
 
 
@@ -406,6 +429,8 @@ namespace Hiatme_Tool_Suite_v3
             leftFlow.Controls.Add(_fsLoadBtn);
 
             leftFlow.Controls.Add(_fsSaveBtn);
+
+            leftFlow.Controls.Add(_fsSyncHistoryBtn);
 
 
 
@@ -1571,6 +1596,8 @@ namespace Hiatme_Tool_Suite_v3
             try
 
             {
+                if (FsSafeBuildModeEnabled)
+                    SetScheduleBuilderStatus("Safe Build Mode ON — running template-first build…");
 
                 if (!await EnsureModivcareSessionAsync())
 

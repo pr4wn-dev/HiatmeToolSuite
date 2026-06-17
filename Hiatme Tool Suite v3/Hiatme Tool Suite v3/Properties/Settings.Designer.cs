@@ -214,5 +214,29 @@ namespace Hiatme_Tool_Suite_v3.Properties {
                 this["FsShowGroupColors"] = value;
             }
         }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("True")]
+        public bool FsSafeBuildMode {
+            get {
+                return ((bool)(this["FsSafeBuildMode"]));
+            }
+            set {
+                this["FsSafeBuildMode"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("False")]
+        public bool FsEnableAdvancedSuggestHistory {
+            get {
+                return ((bool)(this["FsEnableAdvancedSuggestHistory"]));
+            }
+            set {
+                this["FsEnableAdvancedSuggestHistory"] = value;
+            }
+        }
     }
 }

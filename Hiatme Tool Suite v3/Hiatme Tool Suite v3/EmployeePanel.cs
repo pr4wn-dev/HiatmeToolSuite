@@ -36,6 +36,8 @@ namespace Hiatme_Tool_Suite_v3
         private TableLayoutPanel primaryTable { get; set; }
         private WellRydePortalSession _wellRydePortalSession;
         private DateTime _tripDate;
+        private SupeyMapLoadingOverlay _loadingOverlay;
+        private int _loadingDepth;
 
         public EmployeeStatManager(TabPage formtabpage, MCLoginHandler mclh)
         {
@@ -53,7 +55,8 @@ namespace Hiatme_Tool_Suite_v3
 
         private async Task AsyncUpdateLoadingScreen(string txt, CancellationToken cancellationToken = default)
         {
-            UpdateLoadingScreen(txt);
+            UpdateLocalLoading(txt);
+            UpdateLoadingScreen?.Invoke(txt);
             cancellationToken.ThrowIfCancellationRequested();
             await Task.Yield();
         }
@@ -70,7 +73,8 @@ namespace Hiatme_Tool_Suite_v3
 
                 tabPage.Controls.Clear();
                 cancellationToken.ThrowIfCancellationRequested();
-                ShowLoadingScreen();
+                ShowLocalLoading("Checking connections");
+                ShowLoadingScreen?.Invoke();
                 showedLoadingScreen = true;
                 await AsyncUpdateLoadingScreen("Checking connections", cancellationToken);
                 mCTripDownloader = new MCTripDownloader();
@@ -91,8 +95,9 @@ namespace Hiatme_Tool_Suite_v3
             }
             finally
             {
+                HideLocalLoading();
                 if (showedLoadingScreen)
-                    HideLoadingScreen();
+                    HideLoadingScreen?.Invoke();
             }
         }
         private async Task IntializeConnection()
@@ -532,6 +537,8 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             tabPage.Controls.Add(primaryTable);
+            if (_loadingDepth > 0 && _loadingOverlay != null && !_loadingOverlay.IsDisposed)
+                _loadingOverlay.BringToFront();
         }
 
         private void GenerateEmployeesStats()
@@ -539,6 +546,101 @@ namespace Hiatme_Tool_Suite_v3
             foreach(EmployeeProductionStats eps in employeeStats)
             {
                 eps.GenerateEmployeeStats(wRDownloadedTrips, mCDownloadedTrips, employeeStats.Count);
+            }
+        }
+
+        private void EnsureLocalLoadingOverlay()
+        {
+            if (tabPage == null || tabPage.IsDisposed) return;
+            if (tabPage.InvokeRequired)
+            {
+                tabPage.BeginInvoke((MethodInvoker)EnsureLocalLoadingOverlay);
+                return;
+            }
+
+            if (_loadingOverlay == null || _loadingOverlay.IsDisposed)
+            {
+                _loadingOverlay = new SupeyMapLoadingOverlay { Visible = false };
+                tabPage.Resize += (s, e) => SyncLocalLoadingOverlayBounds();
+            }
+
+            if (!ReferenceEquals(_loadingOverlay.Parent, tabPage))
+                tabPage.Controls.Add(_loadingOverlay);
+
+            SyncLocalLoadingOverlayBounds();
+        }
+
+        private void SyncLocalLoadingOverlayBounds()
+        {
+            if (tabPage == null || tabPage.IsDisposed || _loadingOverlay == null || _loadingOverlay.IsDisposed)
+                return;
+
+            _loadingOverlay.Bounds = tabPage.ClientRectangle;
+        }
+
+        private void ShowLocalLoading(string message = null)
+        {
+            if (tabPage == null || tabPage.IsDisposed) return;
+            if (tabPage.InvokeRequired)
+            {
+                tabPage.BeginInvoke((MethodInvoker)(() => ShowLocalLoading(message)));
+                return;
+            }
+
+            EnsureLocalLoadingOverlay();
+            if (_loadingOverlay == null || _loadingOverlay.IsDisposed)
+                return;
+
+            if (!string.IsNullOrWhiteSpace(message))
+                _loadingOverlay.Message = message.Trim();
+
+            _loadingDepth++;
+            if (_loadingDepth == 1)
+            {
+                SyncLocalLoadingOverlayBounds();
+                _loadingOverlay.Visible = true;
+                _loadingOverlay.IsAnimating = true;
+                _loadingOverlay.BringToFront();
+            }
+        }
+
+        private void UpdateLocalLoading(string message)
+        {
+            if (tabPage == null || tabPage.IsDisposed) return;
+            if (tabPage.InvokeRequired)
+            {
+                tabPage.BeginInvoke((MethodInvoker)(() => UpdateLocalLoading(message)));
+                return;
+            }
+
+            if (_loadingDepth <= 0 || string.IsNullOrWhiteSpace(message))
+                return;
+
+            EnsureLocalLoadingOverlay();
+            if (_loadingOverlay == null || _loadingOverlay.IsDisposed)
+                return;
+
+            _loadingOverlay.Message = message.Trim();
+            _loadingOverlay.BringToFront();
+        }
+
+        private void HideLocalLoading()
+        {
+            if (tabPage == null || tabPage.IsDisposed) return;
+            if (tabPage.InvokeRequired)
+            {
+                tabPage.BeginInvoke((MethodInvoker)HideLocalLoading);
+                return;
+            }
+
+            if (_loadingDepth <= 0 || _loadingOverlay == null || _loadingOverlay.IsDisposed)
+                return;
+
+            _loadingDepth--;
+            if (_loadingDepth == 0)
+            {
+                _loadingOverlay.IsAnimating = false;
+                _loadingOverlay.Visible = false;
             }
         }
 
