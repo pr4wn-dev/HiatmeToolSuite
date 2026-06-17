@@ -1,4 +1,5 @@
 ﻿using MaterialSkin.Controls;
+using CustomControls.RJControls;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -338,7 +339,7 @@ namespace Hiatme_Tool_Suite_v3
                 employeeTable.SetColumnSpan(fullName, 2);
                 employeeTable.Controls.Add(fullName);
 
-                var accuracyLabel = CreateMetricCaptionLabel("Accuracy", "AccuracyLabel");
+                var accuracyLabel = CreateMetricCaptionLabel("Promptness", "AccuracyLabel");
                 employeeTable.Controls.Add(accuracyLabel);
 
                 var accuracyValue = CreateMetricValueLabel("0%", "AccuracyPercentLabel");
@@ -420,7 +421,7 @@ namespace Hiatme_Tool_Suite_v3
 
         private static ProgressBar CreateMetricProgressBar(string name)
         {
-            var bar = new ProgressBar
+            var bar = new RJProgressBar
             {
                 Dock = DockStyle.Fill,
                 Height = 16,
@@ -430,6 +431,14 @@ namespace Hiatme_Tool_Suite_v3
                 Value = 0,
                 Style = ProgressBarStyle.Continuous,
                 Name = name,
+                ChannelColor = Color.FromArgb(56, 62, 73),
+                SliderHeight = 16,
+                ChannelHeight = 16,
+                ShowValue = TextPosition.None,
+                UseValueGradient = true,
+                GradientLowColor = Color.FromArgb(205, 74, 74),
+                GradientMidColor = Color.FromArgb(231, 182, 74),
+                GradientHighColor = Color.FromArgb(88, 194, 118),
             };
             // Keep all metric bars visually consistent even if parent layout refreshes.
             bar.SizeChanged += (s, e) =>

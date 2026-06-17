@@ -32,6 +32,10 @@ namespace CustomControls.RJControls
         private string symbolBefore = "";
         private string symbolAfter = "";
         private bool showMaximun = false;
+        private bool useValueGradient = false;
+        private Color gradientLowColor = Color.FromArgb(200, 70, 70);
+        private Color gradientMidColor = Color.FromArgb(230, 190, 60);
+        private Color gradientHighColor = Color.FromArgb(80, 190, 110);
 
         //Others
         private bool paintedBack = false;
@@ -181,6 +185,50 @@ namespace CustomControls.RJControls
         }
 
         [Category("RJ Code Advance")]
+        public bool UseValueGradient
+        {
+            get => useValueGradient;
+            set
+            {
+                useValueGradient = value;
+                this.Invalidate();
+            }
+        }
+
+        [Category("RJ Code Advance")]
+        public Color GradientLowColor
+        {
+            get => gradientLowColor;
+            set
+            {
+                gradientLowColor = value;
+                this.Invalidate();
+            }
+        }
+
+        [Category("RJ Code Advance")]
+        public Color GradientMidColor
+        {
+            get => gradientMidColor;
+            set
+            {
+                gradientMidColor = value;
+                this.Invalidate();
+            }
+        }
+
+        [Category("RJ Code Advance")]
+        public Color GradientHighColor
+        {
+            get => gradientHighColor;
+            set
+            {
+                gradientHighColor = value;
+                this.Invalidate();
+            }
+        }
+
+        [Category("RJ Code Advance")]
         [Browsable(true)]
         [EditorBrowsable(EditorBrowsableState.Always)]
         public override Font Font
@@ -250,18 +298,34 @@ namespace CustomControls.RJControls
                 double scaleFactor = (((double)this.Value - this.Minimum) / ((double)this.Maximum - this.Minimum));
                 int sliderWidth = (int)(this.Width * scaleFactor);
                 Rectangle rectSlider = new Rectangle(0, 0, sliderWidth, sliderHeight);
-                using (var brushSlider = new SolidBrush(sliderColor))
-                {
-                    if (sliderHeight >= channelHeight)
-                        rectSlider.Y = this.Height - sliderHeight;
-                    else rectSlider.Y = this.Height - ((sliderHeight + channelHeight) / 2);
+                if (sliderHeight >= channelHeight)
+                    rectSlider.Y = this.Height - sliderHeight;
+                else rectSlider.Y = this.Height - ((sliderHeight + channelHeight) / 2);
 
-                    //Painting
-                    if (sliderWidth > 1) //Slider
-                        graph.FillRectangle(brushSlider, rectSlider);
-                    if (showValue != TextPosition.None) //Text
-                        DrawValueText(graph, sliderWidth, rectSlider);
+                //Painting
+                if (sliderWidth > 1) //Slider
+                {
+                    if (useValueGradient)
+                    {
+                        using (var brushSlider = new LinearGradientBrush(rectSlider, gradientLowColor, gradientHighColor, LinearGradientMode.Horizontal))
+                        {
+                            var blend = new ColorBlend
+                            {
+                                Colors = new[] { gradientLowColor, gradientMidColor, gradientHighColor },
+                                Positions = new[] { 0f, 0.5f, 1f }
+                            };
+                            brushSlider.InterpolationColors = blend;
+                            graph.FillRectangle(brushSlider, rectSlider);
+                        }
+                    }
+                    else
+                    {
+                        using (var brushSlider = new SolidBrush(sliderColor))
+                            graph.FillRectangle(brushSlider, rectSlider);
+                    }
                 }
+                if (showValue != TextPosition.None) //Text
+                    DrawValueText(graph, sliderWidth, rectSlider);
             }
             if (this.Value == this.Maximum) stopPainting = true;//Stop painting
             else stopPainting = false; //Keep painting

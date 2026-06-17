@@ -1,12 +1,8 @@
-﻿using GMap.NET.MapProviders;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using System.Windows.Forms;
-using static System.Net.Mime.MediaTypeNames;
 
 namespace Hiatme_Tool_Suite_v3
 {
@@ -16,7 +12,19 @@ namespace Hiatme_Tool_Suite_v3
         public string LastName { get; set; }
         public string FullName { get; set; }
 
-        private int Overhead = 400;
+        private const decimal DefaultGasPricePerGallon = 4.14m;
+        private const decimal DefaultGrandCaravanMpg = 19m;
+        private const decimal DefaultDriverHourlyPay = 16m;
+        private const decimal DefaultDeadheadMilesBetweenTrips = 2.5m;
+        private const decimal DefaultTakeHomeMilesPerDriverPerDay = 18m;
+        private const decimal DefaultAvgDeadheadMinutesBetweenTrips = 7m;
+        private const decimal DefaultPerTripServiceBufferMinutes = 6m;
+        private const decimal DefaultMonthlyInsurancePerVehicle = 210m;
+        private const decimal DefaultMonthlyMaintenancePerVehicle = 120m;
+        private const int DefaultFleetVehicleCount = 9;
+        private const decimal DaysPerMonthForOverhead = 30m;
+        private const decimal DefaultDriverPaidHoursPerDay = 8m;
+        private const int ProfitBarMaximum = 200; // 100 = break-even, >100 = profit zone
         public Label ProfitLabel { get; set; }
         public Label AccuracyLabel { get; set; }
         public Label WorkloadLabel { get; set; }
@@ -29,69 +37,156 @@ namespace Hiatme_Tool_Suite_v3
 
         public void GenerateEmployeeStats(List<WRDownloadedTrip> wrtriplist, List<MCDownloadedTrip> mctriplist, int numofemployees)
         {
-            GenerateProfitStat();
+            GenerateProfitStat(numofemployees);
             GenerateAccuracyStat(wrtriplist, mctriplist, numofemployees);
             GenerateWorkloadStat(wrtriplist, numofemployees);
         }
-        private void GenerateProfitStat()
+
+        private static string NormalizeTripNumber(string tripNumber)
+        {
+            if (string.IsNullOrWhiteSpace(tripNumber))
+                return string.Empty;
+            return tripNumber.Replace(" ", "").Trim().ToUpperInvariant();
+        }
+
+        private static decimal ParseMoneyOrZero(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+                return 0m;
+
+            string cleaned = raw.Trim()
+                .Replace("$", "")
+                .Replace(",", "")
+                .Trim();
+            cleaned = cleaned.Replace("USD", "").Replace("usd", "");
+
+            if (decimal.TryParse(cleaned, NumberStyles.Float, CultureInfo.InvariantCulture, out var inv))
+                return inv;
+            if (decimal.TryParse(cleaned, NumberStyles.Float, CultureInfo.CurrentCulture, out var cur))
+                return cur;
+            return 0m;
+        }
+
+        private static decimal ParseMilesOrZero(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+                return 0m;
+            string cleaned = raw.Trim()
+                .Replace(",", "")
+                .Trim();
+            string lower = cleaned.ToLowerInvariant();
+            lower = lower.Replace("miles", "").Replace("mile", "").Replace("mi", "");
+            cleaned = lower.Trim();
+            if (decimal.TryParse(cleaned, NumberStyles.Float, CultureInfo.InvariantCulture, out var inv))
+                return Math.Max(0m, inv);
+            if (decimal.TryParse(cleaned, NumberStyles.Float, CultureInfo.CurrentCulture, out var cur))
+                return Math.Max(0m, cur);
+            return 0m;
+        }
+
+        private static bool IsBillableTrip(WRDownloadedTrip trip)
+        {
+            if (trip == null)
+                return false;
+            return trip.Status == "Completed" || trip.Status == "Billed";
+        }
+
+        private static decimal GetTripServiceMinutes(WRDownloadedTrip trip)
+        {
+            if (trip == null)
+                return 0m;
+            string pu = string.IsNullOrWhiteSpace(trip.ActualPUTime) ? trip.PUTime : trip.ActualPUTime;
+            string d0 = string.IsNullOrWhiteSpace(trip.ActualDOTime) ? trip.DOTime : trip.ActualDOTime;
+            if (!TryParseClockTime(pu, out DateTime puTime) || !TryParseClockTime(d0, out DateTime doTime))
+                return 0m;
+
+            var diff = (decimal)(doTime - puTime).TotalMinutes;
+            if (diff < 0)
+                diff += 24m * 60m;
+            if (diff > 8m * 60m)
+                return 0m;
+            return diff;
+        }
+
+        private static decimal GetDailyFixedFleetCostPerDriver(int activeDriverCount)
+        {
+            int drivers = Math.Max(1, activeDriverCount);
+            decimal monthlyFleet = DefaultFleetVehicleCount * (DefaultMonthlyInsurancePerVehicle + DefaultMonthlyMaintenancePerVehicle);
+            decimal dailyFleet = monthlyFleet / DaysPerMonthForOverhead;
+            return dailyFleet / drivers;
+        }
+
+        private static decimal GetDailyTakeHomeFuelCost()
+        {
+            return (DefaultTakeHomeMilesPerDriverPerDay / DefaultGrandCaravanMpg) * DefaultGasPricePerGallon;
+        }
+
+        private static decimal GetDriverOperatingCost(List<WRDownloadedTrip> driverTrips, int activeDriverCount)
+        {
+            var completedTrips = (driverTrips ?? new List<WRDownloadedTrip>())
+                .Where(IsBillableTrip)
+                .ToList();
+
+            decimal loadedMiles = completedTrips.Sum(t => ParseMilesOrZero(t.Miles));
+            decimal deadheadMiles = Math.Max(0, completedTrips.Count - 1) * DefaultDeadheadMilesBetweenTrips;
+            decimal totalFuelMiles = loadedMiles + deadheadMiles;
+
+            decimal fuelCost = (totalFuelMiles / DefaultGrandCaravanMpg) * DefaultGasPricePerGallon;
+            decimal takeHomeFuelCost = GetDailyTakeHomeFuelCost();
+
+            decimal serviceMinutes = completedTrips.Sum(GetTripServiceMinutes);
+            decimal deadheadMinutes = Math.Max(0, completedTrips.Count - 1) * DefaultAvgDeadheadMinutesBetweenTrips;
+            decimal bufferMinutes = completedTrips.Count * DefaultPerTripServiceBufferMinutes;
+            decimal laborHours = (serviceMinutes + deadheadMinutes + bufferMinutes) / 60m;
+            laborHours = Math.Max(DefaultDriverPaidHoursPerDay, laborHours);
+            decimal laborCost = laborHours * DefaultDriverHourlyPay;
+
+            decimal fixedCostShare = GetDailyFixedFleetCostPerDriver(activeDriverCount);
+            return fuelCost + takeHomeFuelCost + laborCost + fixedCostShare;
+        }
+
+        private static decimal GetDriverBaselineDailyCost(int activeDriverCount)
+        {
+            decimal fixedCostShare = GetDailyFixedFleetCostPerDriver(activeDriverCount);
+            decimal takeHomeFuelCost = GetDailyTakeHomeFuelCost();
+            decimal baselineLaborCost = DefaultDriverPaidHoursPerDay * DefaultDriverHourlyPay;
+            return fixedCostShare + takeHomeFuelCost + baselineLaborCost;
+        }
+
+        private void GenerateProfitStat(int activeDriverCount)
         {
             if (DriverWRTripList == null)
-            {
                 return;
-            }
-            if (!DriverWRTripList.Any())
-            {
-                return;
-            }
             if (!IsControlAlive(ProfitLabel) || !IsControlAlive(ProfitProgressBar))
                 return;
 
-            decimal profit = 0;
+            decimal revenue = 0;
             foreach (WRDownloadedTrip trip in DriverWRTripList)
             {
-                if (trip == null)
-                    continue;
-                if (trip.Status == "Completed" || trip.Status == "Billed")
-                {
-                    profit += Convert.ToDecimal(trip.Price);
-                }
+                if (IsBillableTrip(trip))
+                    revenue += ParseMoneyOrZero(trip.Price);
             }
-            decimal finalprofit = profit - Overhead;
+
+            decimal baselineCost = GetDriverBaselineDailyCost(activeDriverCount);
+            decimal operatingCost = GetDriverOperatingCost(DriverWRTripList, activeDriverCount);
+            decimal finalprofit = revenue - operatingCost;
             if (!IsControlAlive(ProfitLabel) || !IsControlAlive(ProfitProgressBar))
                 return;
-            ProfitLabel.Text = "$" + Math.Truncate(finalprofit).ToString();
-            GenerateProfitBarValue((int)Math.Truncate(finalprofit));
+
+            ProfitLabel.Text = "$" + Math.Truncate(finalprofit);
+            GenerateProfitBarValue(revenue, baselineCost);
         }
-        private void GenerateProfitBarValue(int profitnumber)
+
+        private void GenerateProfitBarValue(decimal revenue, decimal baselineCost)
         {
             if (!IsControlAlive(ProfitProgressBar))
                 return;
-            if (profitnumber <= 0)
-            {
-                ProfitProgressBar.Value = (400 - Math.Abs(profitnumber)) / 8;
-                ProfitProgressBar.SetState(2);
-                return;
-            }
-
-            if (profitnumber > 0)
-            {
-                if (((400 + profitnumber) / 8) > 100) {
-                    ProfitProgressBar.Value = 100;
-                }
-                else
-                {
-                    ProfitProgressBar.Value = (400 + profitnumber) / 8;
-                }
-
-                ProfitProgressBar.SetState(1);
-                return;
-            }
+            decimal safeBaseline = Math.Max(1m, baselineCost);
+            decimal coveragePct = (revenue / safeBaseline) * 100m;
+            int clamped = (int)Math.Round(Math.Max(0m, Math.Min(ProfitBarMaximum, coveragePct)));
+            ProfitProgressBar.Maximum = ProfitBarMaximum;
+            ProfitProgressBar.Value = clamped;
         }
-
-
-
-
-
 
         /// <summary>Parses clock strings from Modivcare or WellRyde (may be empty, include seconds, or use AM/PM).</summary>
         private static bool TryParseClockTime(string raw, out DateTime time)
@@ -99,6 +194,7 @@ namespace Hiatme_Tool_Suite_v3
             time = default;
             if (string.IsNullOrWhiteSpace(raw))
                 return false;
+
             var s = raw.Trim().Replace("&nbsp;", "").Trim();
             if (s.Length == 0)
                 return false;
@@ -136,15 +232,6 @@ namespace Hiatme_Tool_Suite_v3
                 !TryParseClockTime(wrDo, out DateTime driverdotime))
                 return 0;
 
-
-            //Console.WriteLine(trprcd.RiderCallTime);
-            // if (scheddotime.TimeOfDay.Ticks != 0)
-            //{
-            //  accuracies += 1;
-            //}
-
-
-
             int putimediff = DateTime.Compare(driverputime, schedputime);
             int dotimediff = DateTime.Compare(driverdotime, scheddotime);
 
@@ -152,152 +239,108 @@ namespace Hiatme_Tool_Suite_v3
             {
                 switch (putimediff)
                 {
-                    case 0://times are same
+                    case 0:
                         accuracies += 1;
                         break;
-                    case -1://driver is early
-                        if ((schedputime - driverputime).TotalMinutes <= 30)//driver time is good
-                        {
+                    case -1:
+                        if ((schedputime - driverputime).TotalMinutes <= 30)
                             accuracies += 1;
-                        }
-                        else
-                        {
-                            //AddInaccuracy(dledtripsaddinfo, trprcd.Driver);
-                        }
-                        break; //up to 30 minutes early
-                    case 1://driver is late
-                        if ((driverputime - schedputime).TotalMinutes <= 15)//driver time is good
-                        { 
-                            accuracies += 1;
-                        }
-                        else
-                        {
-                            //AddInaccuracy(dledtripsaddinfo, trprcd.Driver);
-                        }
-                        break;//up to 15 minutes late
-                }
-                switch (dotimediff)
-                {
-                    case 0://times are same
-                        accuracies += 1;
                         break;
-                    case -1://driver is early
-                        if ((scheddotime - driverdotime).TotalMinutes <= 30)//driver time is good
-                        {
+                    case 1:
+                        if ((driverputime - schedputime).TotalMinutes <= 15)
                             accuracies += 1;
-                        }
-                        else
-                        {
-                            //AddInaccuracy(dledtripsaddinfo, trprcd.Driver);
-                        }
-                        break;//up to 30 minutes early
-                    case 1://driver is late
-                        //AddInaccuracy(dledtripsaddinfo, trprcd.Driver);
-                        break;//cant be late
+                        break;
                 }
 
+                switch (dotimediff)
+                {
+                    case 0:
+                        accuracies += 1;
+                        break;
+                    case -1:
+                        if ((scheddotime - driverdotime).TotalMinutes <= 30)
+                            accuracies += 1;
+                        break;
+                    case 1:
+                        break;
+                }
             }
             else
             {
                 switch (putimediff)
                 {
-                    case 0://times are same
+                    case 0:
                         accuracies += 1;
                         break;
-                    case -1://driver is early
-                        //AddInaccuracy(dledtripsaddinfo, trprcd.Driver);
-                        break; //up to 30 minutes late
-                    case 1://driver is late
-                        if ((driverputime - schedputime).TotalMinutes <= 30)//driver time is good
-                        {
+                    case -1:
+                        break;
+                    case 1:
+                        if ((driverputime - schedputime).TotalMinutes <= 30)
                             accuracies += 1;
-                        }
-                        else
-                        {
-                            //AddInaccuracy(dledtripsaddinfo, trprcd.Driver);
-                        }
-                        break;//up to 30 minutes late
+                        break;
                 }
 
                 if (scheddotime.TimeOfDay.Ticks == 0)
                 {
-                    if (driverdotime > schedputime)//driver time is good
-                    {
+                    if (driverdotime > schedputime)
                         accuracies += 1;
-                    }
-                    else
-                    {
-                        //AddInaccuracy(dledtripsaddinfo, trprcd.Driver);
-                    }
                     return accuracies;
                 }
 
                 switch (dotimediff)
                 {
-                    case 0://times are same
+                    case 0:
                         accuracies += 1;
                         break;
-                    case -1://driver is early
-                        if ((scheddotime - driverdotime).TotalMinutes <= 30)//driver time is good
-                        {
+                    case -1:
+                        if ((scheddotime - driverdotime).TotalMinutes <= 30)
                             accuracies += 1;
-                        }
-                        else
-                        {
-                            //AddInaccuracy(dledtripsaddinfo, trprcd.Driver);
-                        }
-                        break;//up to 25 minutes early
-                    case 1://driver is late
-                        //AddInaccuracy(dledtripsaddinfo, trprcd.Driver);
-                        break;//cant be late
+                        break;
+                    case 1:
+                        break;
                 }
             }
 
-
-
-
-
-
-
-
-
-
             return accuracies;
         }
+
         private void GenerateAccuracyStat(List<WRDownloadedTrip> wrdtlist, List<MCDownloadedTrip> mcdledtriplist, int numofworkers)
         {
             if (DriverWRTripList == null)
-            {
                 return;
-            }
             if (!DriverWRTripList.Any())
-            {
                 return;
-            }
             if (!IsControlAlive(AccuracyLabel) || !IsControlAlive(AccuracyProgressBar))
                 return;
+
+            var mcTripsById = new Dictionary<string, MCDownloadedTrip>(StringComparer.OrdinalIgnoreCase);
+            foreach (var mctrip in mcdledtriplist ?? Enumerable.Empty<MCDownloadedTrip>())
+            {
+                if (mctrip == null)
+                    continue;
+                string key = NormalizeTripNumber(mctrip.TripNumber);
+                if (key.Length == 0)
+                    continue;
+                if (!mcTripsById.ContainsKey(key))
+                    mcTripsById[key] = mctrip;
+            }
 
             int tripcounter = 0;
             int accuraciescounter = 0;
             foreach (WRDownloadedTrip wrtrip in DriverWRTripList)
             {
-                if (wrtrip.Status == "Completed" || wrtrip.Status == "Billed")
-                {
-                    foreach (MCDownloadedTrip mctrip in mcdledtriplist)
-                    {
-                        if (mctrip.TripNumber == wrtrip.TripNumber)
-                        {
-                            tripcounter += 2;
-                            int acc = CheckIfDriversTimesAreAccurate(wrtrip, mctrip);
-                            accuraciescounter += acc;
-                            Console.WriteLine(mctrip.TripNumber + ": " + acc);
-                        }
-                    }
-                }
+                if (wrtrip == null)
+                    continue;
+                if (wrtrip.Status != "Completed" && wrtrip.Status != "Billed")
+                    continue;
+
+                string key = NormalizeTripNumber(wrtrip.TripNumber);
+                if (key.Length == 0 || !mcTripsById.TryGetValue(key, out MCDownloadedTrip mctrip))
+                    continue;
+
+                tripcounter += 2;
+                accuraciescounter += CheckIfDriversTimesAreAccurate(wrtrip, mctrip);
             }
-
-
-            Console.WriteLine(tripcounter);
 
             if (tripcounter == 0)
                 return;
@@ -305,7 +348,8 @@ namespace Hiatme_Tool_Suite_v3
             double result = Math.Round((double)accuraciescounter / tripcounter * 100);
             if (!IsControlAlive(AccuracyLabel) || !IsControlAlive(AccuracyProgressBar))
                 return;
-            AccuracyLabel.Text = result.ToString() + "%";
+
+            AccuracyLabel.Text = result + "%";
             GenerateAccuracyBarValue((int)result);
         }
 
@@ -313,69 +357,34 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (!IsControlAlive(AccuracyProgressBar))
                 return;
-            int minacceptableaccuracy = 70;
-            if (accuracy < minacceptableaccuracy)
-            {
-                Console.WriteLine(accuracy);
-                AccuracyProgressBar.Value = accuracy;
-                AccuracyProgressBar.SetState(2);
-                return;
-            }
-            if (accuracy >= minacceptableaccuracy)
-            {
-                AccuracyProgressBar.Value = accuracy;
-                AccuracyProgressBar.SetState(1);
-                return;
-            }
+
+            int max = AccuracyProgressBar.Maximum <= 0 ? 100 : AccuracyProgressBar.Maximum;
+            int clampedAccuracy = Math.Max(0, Math.Min(max, accuracy));
+            AccuracyProgressBar.Maximum = max;
+            AccuracyProgressBar.Value = clampedAccuracy;
         }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
         private void GenerateWorkloadStat(List<WRDownloadedTrip> wrdtlist, int numofworkers)
         {
             if (DriverWRTripList == null)
-            {
                 return;
-            }
             if (!DriverWRTripList.Any())
-            {
                 return;
-            }
             if (!IsControlAlive(WorkloadLabel) || !IsControlAlive(WorkloadProgressBar))
                 return;
 
             double grouptotalrevenue = 0;
             foreach (WRDownloadedTrip trip in wrdtlist)
             {
-                if (trip.Status == "Completed" || trip.Status == "Billed")
-                {
-                    grouptotalrevenue += Convert.ToDouble(trip.Price);
-                }
+                if (IsBillableTrip(trip))
+                    grouptotalrevenue += Convert.ToDouble(ParseMoneyOrZero(trip.Price));
             }
 
             double profit = 0;
             foreach (WRDownloadedTrip trip in DriverWRTripList)
             {
-                if (trip.Status == "Completed" || trip.Status == "Billed")
-                {
-                    profit += Convert.ToDouble(trip.Price);
-                }
+                if (IsBillableTrip(trip))
+                    profit += Convert.ToDouble(ParseMoneyOrZero(trip.Price));
             }
 
             if (grouptotalrevenue <= 0 || numofworkers <= 0)
@@ -384,69 +393,35 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     WorkloadLabel.Text = "0%";
                     WorkloadProgressBar.Value = 0;
-                    WorkloadProgressBar.SetState(1);
                 }
                 return;
             }
 
-            double result = ((double)profit / grouptotalrevenue) * 100;
-
+            double result = (profit / grouptotalrevenue) * 100;
             if (!IsControlAlive(WorkloadLabel) || !IsControlAlive(WorkloadProgressBar))
                 return;
 
             double fairsharepercent = 100 / (double)numofworkers;
-            WorkloadProgressBar.Maximum = (int)Math.Round(fairsharepercent);
+            WorkloadProgressBar.Maximum = Math.Max(1, (int)Math.Round(fairsharepercent));
 
-            WorkloadLabel.Text = Math.Round(result).ToString() + "%";
-
+            WorkloadLabel.Text = Math.Round(result) + "%";
             if (Math.Round(result) > WorkloadProgressBar.Maximum)
-            {
                 result = WorkloadProgressBar.Maximum;
-            }
 
-            GenerateWorkloadBarValue((int)Math.Round(result), numofworkers);
-
+            GenerateWorkloadBarValue((int)Math.Round(result));
         }
-        private void GenerateWorkloadBarValue(int workload, int numofemployees)
+
+        private void GenerateWorkloadBarValue(int workload)
         {
             if (!IsControlAlive(WorkloadProgressBar))
                 return;
-            WorkloadProgressBar.Value = workload;
 
-            int minacceptableworkload = 100 / numofemployees;
-            
-            if (workload == 0)
-            {
-                WorkloadProgressBar.Value = 0;
-                WorkloadProgressBar.SetState(1);
+            int max = WorkloadProgressBar.Maximum <= 0 ? 1 : WorkloadProgressBar.Maximum;
+            int clamped = Math.Max(0, Math.Min(max, workload));
+
+            WorkloadProgressBar.Value = clamped;
+            if (clamped == 0)
                 return;
-            }
-            if (workload < minacceptableworkload)
-            {
-                WorkloadProgressBar.Value = workload;
-                WorkloadProgressBar.SetState(2);
-                return;
-            }
-            if (workload >= minacceptableworkload)
-            {
-                WorkloadProgressBar.Value = workload;
-                WorkloadProgressBar.SetState(1);
-                return;
-            }
         }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     }
 }
