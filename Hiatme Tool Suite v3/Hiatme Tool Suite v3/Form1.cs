@@ -5187,20 +5187,30 @@ namespace Hiatme_Tool_Suite_v3
             _employeeStatsLoadCts?.Dispose();
             _employeeStatsLoadCts = new CancellationTokenSource();
             var loadToken = _employeeStatsLoadCts.Token;
+            EmployeeStatManager manager = null;
             try
             {
                 empStatManager = new EmployeeStatManager(tabPage8, mcLoginHandler);
+                manager = empStatManager;
+                manager.PushLoadingOverlay("Checking connections...");
 
                 WellRydePortalSession wrSession = null;
+                manager.SetLoadingOverlayMessage("Connecting to WellRyde...");
                 if (await EnsureWellRydePortalSessionForBillingAsync())
                     wrSession = _wellRydeSession;
+                manager.SetLoadingOverlayMessage("Connecting to Modivcare...");
                 if (!await EnsureModivcareSessionAsync())
                     return;
+                manager.SetLoadingOverlayMessage("Loading Production dashboard...");
                 await empStatManager.InitializeEmployeeDler(this, wrSession, null, loadToken);
             }
             catch (OperationCanceledException)
             {
                 // Newer tab visit or form close cancelled this load.
+            }
+            finally
+            {
+                manager?.PopLoadingOverlay();
             }
         }
 

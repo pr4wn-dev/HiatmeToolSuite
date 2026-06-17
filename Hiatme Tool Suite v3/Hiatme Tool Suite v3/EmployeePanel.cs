@@ -214,331 +214,230 @@ namespace Hiatme_Tool_Suite_v3
 
         private void GenerateRowsColumnsAndData()
         {
-            int rows = 1;
-            int drivercounter = 0;
-            int maxhorizontalpanels = 5;
-            for (int i = 0; i < employeeStats.Count - 1; i++)
+            int employeeCount = employeeStats?.Count ?? 0;
+            if (employeeCount <= 0)
             {
-                drivercounter++;
-                if (drivercounter == maxhorizontalpanels)
-                {
-                    drivercounter = 0;
-                    rows++;
-                }
+                Columns = 1;
+                Rows = 1;
+                EmptySlots = 0;
+                return;
             }
 
+            int maxhorizontalpanels = ComputeResponsiveColumnCount();
+            int rows = (int)Math.Ceiling(employeeCount / (double)maxhorizontalpanels);
+
             int totalslots = rows * maxhorizontalpanels;
-            EmptySlots = totalslots - employeeStats.Count;
+            EmptySlots = totalslots - employeeCount;
             Columns = maxhorizontalpanels;
             Rows = rows;
         }
+
+        private int ComputeResponsiveColumnCount()
+        {
+            const int minCardWidth = 320;
+            const int maxColumns = 5;
+            const int minColumns = 2;
+
+            int clientWidth = tabPage?.ClientSize.Width ?? 0;
+            if (clientWidth <= 0)
+                return 4;
+
+            // Approximate tab padding/scrollbar + card margins to avoid squished content.
+            int usable = Math.Max(1, clientWidth - 40);
+            int cols = usable / minCardWidth;
+            cols = Math.Max(minColumns, Math.Min(maxColumns, cols));
+            return cols;
+        }
         private void BuildMainTables()
         {
-            //tabPage.Controls.Clear();
-            //ShowLoadingScreen();
-            //create primary employee panel
-            primaryTable = new TableLayoutPanel
+            tabPage.BackColor = SupeyTheme.SurfaceBase;
+            tabPage.ForeColor = SupeyTheme.TextPrimary;
+
+            var scroller = new System.Windows.Forms.Panel
             {
-                Location = new Point(0, 0),
                 Dock = DockStyle.Fill,
-                AutoSize = true,
-                Name = "MainTable",
-                ColumnCount = Columns,
-                RowCount = Rows,
-                AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink,
-                GrowStyle = System.Windows.Forms.TableLayoutPanelGrowStyle.AddRows
+                AutoScroll = true,
+                BackColor = SupeyTheme.SurfaceBase,
+                Padding = new Padding(12),
+                Name = "ProductionScroller",
             };
 
-            for (int i = 0; i < primaryTable.ColumnCount; i++)
+            primaryTable = new TableLayoutPanel
             {
-                primaryTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-            }
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                Name = "MainTable",
+                ColumnCount = Math.Max(1, Columns),
+                RowCount = Math.Max(1, Rows),
+                GrowStyle = TableLayoutPanelGrowStyle.AddRows,
+                BackColor = SupeyTheme.SurfaceBase,
+                Margin = new Padding(0),
+                Padding = new Padding(0),
+            };
+
+            float colPct = 100f / Math.Max(1, primaryTable.ColumnCount);
+            for (int i = 0; i < primaryTable.ColumnCount; i++)
+                primaryTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, colPct));
 
             for (int i = 0; i < primaryTable.RowCount; i++)
+                primaryTable.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+            foreach (EmployeeProductionStats employeestat in employeeStats)
             {
-                primaryTable.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
-            }
-
-
-            //Create employee table to add to new panel
-            foreach(EmployeeProductionStats employeestat in employeeStats) {
-
-                employeeStatPanel = new MaterialCard { Dock = DockStyle.Fill, Tag = employeestat };
-
-                TableLayoutPanel EmployeeTable = new TableLayoutPanel
+                employeeStatPanel = new MaterialCard
                 {
-                    Location = new Point(0, 0),
                     Dock = DockStyle.Fill,
-                    AutoSize = true,
+                    Tag = employeestat,
+                    Margin = new Padding(8),
+                    Padding = new Padding(10),
+                    BackColor = SupeyTheme.SurfaceElevated,
+                    ForeColor = SupeyTheme.TextPrimary,
+                    MouseState = MaterialSkin.MouseState.HOVER,
+                    MinimumSize = new Size(300, 250),
+                };
+
+                TableLayoutPanel employeeTable = new TableLayoutPanel
+                {
+                    Dock = DockStyle.Fill,
+                    AutoSize = false,
                     Name = "EmployeeTable",
                     ColumnCount = 2,
                     RowCount = 7,
-                    AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink,
-                    GrowStyle = System.Windows.Forms.TableLayoutPanelGrowStyle.AddRows
+                    AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                    GrowStyle = TableLayoutPanelGrowStyle.AddRows,
+                    BackColor = SupeyTheme.SurfaceElevated,
+                    Margin = new Padding(0),
+                    Padding = new Padding(4, 2, 4, 2),
                 };
 
-                for (int i = 0; i < EmployeeTable.ColumnCount; i++)
+                employeeTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+                employeeTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+                employeeTable.RowStyles.Add(new RowStyle(SizeType.Absolute, 44f)); // header
+                employeeTable.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f)); // accuracy row
+                employeeTable.RowStyles.Add(new RowStyle(SizeType.Absolute, 22f)); // accuracy bar
+                employeeTable.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f)); // profit row
+                employeeTable.RowStyles.Add(new RowStyle(SizeType.Absolute, 22f)); // profit bar
+                employeeTable.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f)); // workload row
+                employeeTable.RowStyles.Add(new RowStyle(SizeType.Absolute, 22f)); // workload bar
+
+                Label fullName = new Label
                 {
-                    EmployeeTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-                }
-
-                EmployeeTable.RowStyles.Add(new RowStyle(SizeType.Percent, 10));
-                EmployeeTable.RowStyles.Add(new RowStyle(SizeType.Percent, 10));
-                EmployeeTable.RowStyles.Add(new RowStyle(SizeType.Percent, 10));
-                EmployeeTable.RowStyles.Add(new RowStyle(SizeType.Percent, 10));
-                EmployeeTable.RowStyles.Add(new RowStyle(SizeType.Percent, 10));
-                EmployeeTable.RowStyles.Add(new RowStyle(SizeType.Percent, 10));
-                EmployeeTable.RowStyles.Add(new RowStyle(SizeType.Percent, 10));
-
-                //create controls to add to employee panel rows
-
-
-
-
-
-                //add first name label
-                Label employeefullname = new Label
-                {
-                    Location = new Point(0, 0),
+                    Dock = DockStyle.Fill,
                     TextAlign = ContentAlignment.MiddleCenter,
-                    Dock = DockStyle.Fill,
-                    Font = new Font("Segoe UI", 18, FontStyle.Bold),
-                    BackColor = Color.FromArgb(64,64,64),
-                    ForeColor = Color.Gainsboro,
+                    Font = new Font("Segoe UI Semibold", 14f, FontStyle.Bold),
+                    BackColor = SupeyTheme.SurfaceHeader,
+                    ForeColor = SupeyTheme.TextPrimary,
                     BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle,
-                    Text = employeestat.FullName,
-                    Name = "EmployeeFullNameLabel"
+                    Text = employeestat.FullName ?? "",
+                    Name = "EmployeeFullNameLabel",
+                    Height = 40,
+                    Margin = new Padding(0, 0, 0, 8),
+                    Padding = new Padding(4, 4, 4, 4),
                 };
-                EmployeeTable.SetColumnSpan(employeefullname, 2);
-                EmployeeTable.Controls.Add(employeefullname);
+                employeeTable.SetColumnSpan(fullName, 2);
+                employeeTable.Controls.Add(fullName);
 
-                //add accuracy controls
-                Label accuracylabel = new Label
-                {
-                    Location = new Point(0, 0),
-                    Anchor = AnchorStyles.Left,
-                    AutoSize = true,
-                    Font = new Font("Segoe UI", 15, FontStyle.Bold),
-                    BackColor = Color.FromArgb(80, 80, 80),
-                    ForeColor = Color.Gainsboro,
-                    BorderStyle = System.Windows.Forms.BorderStyle.None,
-                    Text = "Accuracy",
-                    Name = "AccuracyLabel"
-                };
-                EmployeeTable.SetColumnSpan(accuracylabel, 1);
-                EmployeeTable.Controls.Add(accuracylabel);
+                var accuracyLabel = CreateMetricCaptionLabel("Accuracy", "AccuracyLabel");
+                employeeTable.Controls.Add(accuracyLabel);
 
-                Label accuracypercentlabel = new Label
-                {
-                    Location = new Point(0, 0),
-                    Anchor = AnchorStyles.Right,
-                    AutoSize = true,
-                    Font = new Font("Segoe UI", 20, FontStyle.Bold),
-                    BackColor = Color.FromArgb(64, 64, 64),
-                    ForeColor = Color.Gainsboro,
-                    BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle,
-                    Text = "0%",
-                    Name = "AccuracyPercentLabel"
-                };
-                employeestat.AccuracyLabel = accuracypercentlabel;
-                EmployeeTable.SetColumnSpan(employeestat.AccuracyLabel, 1);
-                EmployeeTable.Controls.Add(employeestat.AccuracyLabel);
+                var accuracyValue = CreateMetricValueLabel("0%", "AccuracyPercentLabel");
+                employeestat.AccuracyLabel = accuracyValue;
+                employeeTable.Controls.Add(accuracyValue);
 
-                ProgressBar accuracyprogressbar = new ProgressBar
-                {
-                    Location = new Point(0, 0),
-                    Dock = DockStyle.Fill,
-                    Value = 0,
-                    Style = ProgressBarStyle.Continuous,
-                    Name = "AccuracyProgressBar"
-                };
+                var accuracyProgress = CreateMetricProgressBar("AccuracyProgressBar");
+                employeestat.AccuracyProgressBar = accuracyProgress;
+                employeeTable.SetColumnSpan(accuracyProgress, 2);
+                employeeTable.Controls.Add(accuracyProgress);
 
-                employeestat.AccuracyProgressBar = accuracyprogressbar;
-                EmployeeTable.SetColumnSpan(employeestat.AccuracyProgressBar, 2);
-                EmployeeTable.Controls.Add(employeestat.AccuracyProgressBar);
+                var profitLabel = CreateMetricCaptionLabel("Profit", "ProfitLabel");
+                employeeTable.Controls.Add(profitLabel);
 
+                var profitValue = CreateMetricValueLabel("$0", "ProfitAmountLabel");
+                employeestat.ProfitLabel = profitValue;
+                employeeTable.Controls.Add(profitValue);
 
+                var profitProgress = CreateMetricProgressBar("ProfitProgressBar");
+                employeestat.ProfitProgressBar = profitProgress;
+                employeeTable.SetColumnSpan(profitProgress, 2);
+                employeeTable.Controls.Add(profitProgress);
 
+                var workloadLabel = CreateMetricCaptionLabel("Workload", "WorkloadLabel");
+                employeeTable.Controls.Add(workloadLabel);
 
+                var workloadValue = CreateMetricValueLabel("0%", "WorkloadPercentLabel");
+                employeestat.WorkloadLabel = workloadValue;
+                employeeTable.Controls.Add(workloadValue);
 
-                //add revenue controls
-                Label profitlabel = new Label
-                {
-                    Location = new Point(0, 0),
-                    Anchor = AnchorStyles.Left,
-                    AutoSize = true,
-                    Font = new Font("Segoe UI", 15, FontStyle.Bold),
-                    BackColor = Color.FromArgb(80, 80, 80),
-                    ForeColor = Color.Gainsboro,
-                    BorderStyle = System.Windows.Forms.BorderStyle.None,
-                    Text = "Profit",
-                    Name = "ProfitLabel"
-                };
-                EmployeeTable.SetColumnSpan(profitlabel, 1);
-                EmployeeTable.Controls.Add(profitlabel);
+                var workloadProgress = CreateMetricProgressBar("WorkloadProgressBar");
+                employeestat.WorkloadProgressBar = workloadProgress;
+                employeeTable.SetColumnSpan(workloadProgress, 2);
+                employeeTable.Controls.Add(workloadProgress);
 
-                Label profitamountlabel = new Label
-                {
-                    Location = new Point(0, 0),
-                    Anchor = AnchorStyles.Right,
-                    AutoSize = true,
-                    Font = new Font("Segoe UI", 20, FontStyle.Bold),
-                    BackColor = Color.FromArgb(64, 64, 64),
-                    ForeColor = Color.Gainsboro,
-                    BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle,
-                    Text = "$0",
-                    Name = "ProfitAmountLabel"
-                };
-                employeestat.ProfitLabel = profitamountlabel;
-                EmployeeTable.SetColumnSpan(employeestat.ProfitLabel, 1);
-                EmployeeTable.Controls.Add(employeestat.ProfitLabel);
-
-                ProgressBar profitprogressbar = new ProgressBar
-                {
-                    Location = new Point(0, 0),
-                    Dock = DockStyle.Fill,
-                    Value = 0,
-                    Style = ProgressBarStyle.Continuous,
-                    Name = "ProfitProgressBar"
-                };
-                
-                employeestat.ProfitProgressBar = profitprogressbar;
-                EmployeeTable.SetColumnSpan(employeestat.ProfitProgressBar, 2);
-                EmployeeTable.Controls.Add(employeestat.ProfitProgressBar);
-
-
-
-
-
-
-
-                //add workload controls
-                Label workloadlabel = new Label
-                {
-                    Location = new Point(0, 0),
-                    Anchor = AnchorStyles.Left,
-                    AutoSize = true,
-                    Font = new Font("Segoe UI", 15, FontStyle.Bold),
-                    BackColor = Color.FromArgb(80, 80, 80),
-                    ForeColor = Color.Gainsboro,
-                    BorderStyle = System.Windows.Forms.BorderStyle.None,
-                    Text = "Workload",
-                    Name = "WorkloadLabel"
-                };
-                EmployeeTable.SetColumnSpan(workloadlabel, 1);
-                EmployeeTable.Controls.Add(workloadlabel);
-
-                Label workloadpercentlabel = new Label
-                {
-                    Location = new Point(0, 0),
-                    Anchor = AnchorStyles.Right,
-                    AutoSize = true,
-                    Font = new Font("Segoe UI", 20, FontStyle.Bold),
-                    BackColor = Color.FromArgb(64, 64, 64),
-                    ForeColor = Color.Gainsboro,
-                    BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle,
-                    Text = "0%",
-                    Name = "WorkloadPercentLabel"
-                };
-                employeestat.WorkloadLabel = workloadpercentlabel;
-                EmployeeTable.SetColumnSpan(employeestat.WorkloadLabel, 1);
-                EmployeeTable.Controls.Add(employeestat.WorkloadLabel);
-
-                ProgressBar workloadprogressbar = new ProgressBar
-                {
-                    Location = new Point(0, 0),
-                    Dock = DockStyle.Fill,
-                    Value = 0,
-                    Style = ProgressBarStyle.Continuous,
-                    Name = "WorkloadProgressBar"
-                };
-               
-                employeestat.WorkloadProgressBar = workloadprogressbar;
-                EmployeeTable.SetColumnSpan(employeestat.WorkloadProgressBar, 2);
-                EmployeeTable.Controls.Add(employeestat.WorkloadProgressBar);
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-                //add chart
-                /*
-                Chart employeeChart = new Chart
-                {
-                    Location = new Point(0, 0),
-                    Dock = DockStyle.Fill,
-                    AutoSize = true,
-                    
-                    
-                    Name = "EmployeeStatChart"
-                };
-                EmployeeTable.Controls.Add(employeeChart);
-                */
-
-                /*
-                for (int i = 0; i < EmployeeTable.RowCount; i++)
-                {
-                    MaterialCard test = new MaterialCard { Dock = DockStyle.Fill };
-                    EmployeeTable.Controls.Add(test);
-                }
-                */
-
-
-                employeeStatPanel.Controls.Add(EmployeeTable);
+                employeeStatPanel.Controls.Add(employeeTable);
                 primaryTable.Controls.Add(employeeStatPanel);
             }
 
-            tabPage.Controls.Add(primaryTable);
+            scroller.Controls.Add(primaryTable);
+            tabPage.Controls.Add(scroller);
             if (_loadingDepth > 0 && _loadingOverlay != null && !_loadingOverlay.IsDisposed)
                 _loadingOverlay.BringToFront();
+        }
+
+        private static Label CreateMetricCaptionLabel(string text, string name)
+        {
+            return new Label
+            {
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleLeft,
+                AutoSize = true,
+                Font = SupeyTheme.SubHeaderFont,
+                BackColor = SupeyTheme.SurfaceElevated,
+                ForeColor = SupeyTheme.TextSecondary,
+                BorderStyle = System.Windows.Forms.BorderStyle.None,
+                Text = text,
+                Name = name,
+                Margin = new Padding(0, 6, 0, 0),
+            };
+        }
+
+        private static Label CreateMetricValueLabel(string text, string name)
+        {
+            return new Label
+            {
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleRight,
+                AutoSize = true,
+                Font = new Font("Segoe UI Semibold", 13f, FontStyle.Bold),
+                BackColor = SupeyTheme.SurfaceElevated,
+                ForeColor = SupeyTheme.TextPrimary,
+                BorderStyle = System.Windows.Forms.BorderStyle.None,
+                Text = text,
+                Name = name,
+                Margin = new Padding(0, 2, 0, 0),
+            };
+        }
+
+        private static ProgressBar CreateMetricProgressBar(string name)
+        {
+            var bar = new ProgressBar
+            {
+                Dock = DockStyle.Fill,
+                Height = 16,
+                MinimumSize = new Size(0, 16),
+                MaximumSize = new Size(int.MaxValue, 16),
+                Margin = new Padding(0, 3, 0, 3),
+                Value = 0,
+                Style = ProgressBarStyle.Continuous,
+                Name = name,
+            };
+            // Keep all metric bars visually consistent even if parent layout refreshes.
+            bar.SizeChanged += (s, e) =>
+            {
+                if (bar.IsDisposed) return;
+                if (bar.Height != 16) bar.Height = 16;
+            };
+            return bar;
         }
 
         private void GenerateEmployeesStats()
@@ -642,6 +541,21 @@ namespace Hiatme_Tool_Suite_v3
                 _loadingOverlay.IsAnimating = false;
                 _loadingOverlay.Visible = false;
             }
+        }
+
+        public void PushLoadingOverlay(string message = null)
+        {
+            ShowLocalLoading(message);
+        }
+
+        public void SetLoadingOverlayMessage(string message)
+        {
+            UpdateLocalLoading(message);
+        }
+
+        public void PopLoadingOverlay()
+        {
+            HideLocalLoading();
         }
 
 
