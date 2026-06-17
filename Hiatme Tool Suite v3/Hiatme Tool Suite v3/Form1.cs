@@ -101,6 +101,7 @@ namespace Hiatme_Tool_Suite_v3
         private string _tripScoutStatusBaseMessage = "";
         private SupeyMapLoadingOverlay _tripScoutLoadingOverlay;
         private int _tripScoutLoadingDepth;
+        private bool _tripScoutFirstLoadTriggered;
         private SupeyMapLoadingOverlay _analyzerLoadingOverlay;
         private int _analyzerLoadingDepth;
         private string _analyzerLoadingBaseMessage = "";
@@ -3441,6 +3442,24 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        /// <summary>
+        /// Auto-load Trip Scout once per app run (first open of the tab), defaulting the picker to today.
+        /// Subsequent tab visits keep the existing loaded results unless the user manually clicks Load.
+        /// </summary>
+        private void EnsureTripScoutFirstUseLoad()
+        {
+            if (_tripScoutFirstLoadTriggered)
+                return;
+            if (hiatmeTabControl == null || hiatmeTabControl.SelectedTab != tabPage9)
+                return;
+
+            _tripScoutFirstLoadTriggered = true;
+            if (tsdatepicker != null)
+                tsdatepicker.Value = DateTime.Today;
+
+            BeginInvoke((MethodInvoker)(() => tsloadbtn_Click(tsloadbtn, EventArgs.Empty)));
+        }
+
         private void StartTripScoutStatusSpinner(string statusText)
         {
             _tripScoutStatusBaseMessage = statusText ?? "Status: Loading...";
@@ -5480,7 +5499,10 @@ namespace Hiatme_Tool_Suite_v3
                 if (hiatmeTabControl.SelectedTab == tabPage1)
                     pictureBox1?.Invalidate();
                 if (hiatmeTabControl.SelectedTab == tabPage9 && tslv != null)
+                {
                     ScheduleTripScoutColumnFit();
+                    EnsureTripScoutFirstUseLoad();
+                }
             }
             catch
             {
