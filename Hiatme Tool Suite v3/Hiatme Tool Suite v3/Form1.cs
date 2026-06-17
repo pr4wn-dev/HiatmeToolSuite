@@ -99,6 +99,9 @@ namespace Hiatme_Tool_Suite_v3
         private System.Windows.Forms.Timer _tripScoutStatusSpinnerTimer;
         private int _tripScoutStatusSpinnerTick;
         private string _tripScoutStatusBaseMessage = "";
+        private System.Windows.Forms.Panel _tripScoutToolbarPanel;
+        private FlowLayoutPanel _tripScoutToolbarLeftFlow;
+        private FlowLayoutPanel _tripScoutToolbarRightFlow;
         private SupeyMapLoadingOverlay _tripScoutLoadingOverlay;
         private int _tripScoutLoadingDepth;
         private bool _tripScoutFirstLoadTriggered;
@@ -170,6 +173,7 @@ namespace Hiatme_Tool_Suite_v3
             BuildTimeCorrectionTripListContextMenu();
             // Trip Scout right-click menu inherits the listview's dark palette + gets generated person+badge icons.
             ApplyTripScoutContextMenuTheme();
+            ApplyTripScoutVisualTheme();
             // Build the Supey schedule tab UI programmatically (the designer placeholder is intentionally empty).
             if (ShowSupeyScheduleTab)
                 InitializeSupeyTab();
@@ -295,6 +299,205 @@ namespace Hiatme_Tool_Suite_v3
             if (tsTripCtxAssign != null) tsTripCtxAssign.Image = MenuIconFactory.GetAssignIcon();
             if (tsTripCtxUnassign != null) tsTripCtxUnassign.Image = MenuIconFactory.GetUnassignIcon();
             if (tsTripCtxLocate != null) tsTripCtxLocate.Image = MenuIconFactory.GetLocateIcon();
+        }
+
+        /// <summary>
+        /// Makes Trip Scout visually match the Schedule Builder toolbar rhythm.
+        /// Styling only — no behavior changes.
+        /// </summary>
+        private void ApplyTripScoutVisualTheme()
+        {
+            if (tabPage9 != null)
+                tabPage9.BackColor = SupeyTheme.SurfaceBase;
+
+            if (tsmaterialCard != null)
+            {
+                tsmaterialCard.BackColor = SupeyTheme.SurfaceBase;
+                tsmaterialCard.ForeColor = SupeyTheme.TextPrimary;
+                tsmaterialCard.Padding = new Padding(0);
+            }
+
+            if (tsstatuspanel != null)
+            {
+                tsstatuspanel.Visible = true;
+                tsstatuspanel.BackColor = SupeyTheme.SurfaceHeader;
+                tsstatuspanel.ForeColor = SupeyTheme.TextPrimary;
+                tsstatuspanel.Padding = new Padding(0);
+
+                var fill = tsstatuspanel.Controls["tsStatusFillPanel"] as System.Windows.Forms.Panel;
+                if (fill == null)
+                {
+                    fill = new System.Windows.Forms.Panel
+                    {
+                        Name = "tsStatusFillPanel",
+                        Dock = DockStyle.Fill,
+                        BackColor = SupeyTheme.SurfaceStatusBar,
+                        Padding = new Padding(10, 0, 10, 0),
+                    };
+                    tsstatuspanel.Controls.Add(fill);
+                }
+                else
+                {
+                    fill.BackColor = SupeyTheme.SurfaceStatusBar;
+                }
+
+                var divider = fill.Controls["tsStatusTopDivider"] as System.Windows.Forms.Panel;
+                if (divider == null)
+                {
+                    divider = new System.Windows.Forms.Panel
+                    {
+                        Name = "tsStatusTopDivider",
+                        Dock = DockStyle.Top,
+                        Height = 1,
+                        BackColor = SupeyTheme.Divider,
+                    };
+                    fill.Controls.Add(divider);
+                    divider.BringToFront();
+                }
+
+                fill.Resize += (_, __) => LayoutStatusLabelInCard(fill, tsstatuslbl);
+            }
+
+            if (tsstatuslbl != null)
+            {
+                var fill = tsstatuspanel?.Controls["tsStatusFillPanel"] as System.Windows.Forms.Panel;
+                if (fill != null && !ReferenceEquals(tsstatuslbl.Parent, fill))
+                    fill.Controls.Add(tsstatuslbl);
+                tsstatuslbl.AutoSize = false;
+                tsstatuslbl.ForeColor = SupeyTheme.TextSecondary;
+                tsstatuslbl.Font = SupeyTheme.BodyFont;
+                tsstatuslbl.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
+                tsstatuslbl.BackColor = SupeyTheme.SurfaceStatusBar;
+                LayoutStatusLabelInCard(fill ?? tsstatuspanel, tsstatuslbl);
+            }
+
+            if (tslv != null)
+            {
+                tslv.BackColor = SupeyTheme.ListBody;
+                tslv.ForeColor = SupeyTheme.ListText;
+                tslv.Font = ListViewOwnerDrawFonts.Cell;
+                tslv.GridLines = true;
+                tslv.Dock = DockStyle.Fill;
+            }
+
+            EnsureTripScoutToolbarChrome();
+        }
+
+        private void EnsureTripScoutToolbarChrome()
+        {
+            if (tsmaterialCard == null || tslv == null || tssearchbox == null ||
+                tsdatepicker == null || tsloadbtn == null || tsstatuslbl == null)
+                return;
+
+            if (_tripScoutToolbarPanel == null || _tripScoutToolbarPanel.IsDisposed)
+            {
+                _tripScoutToolbarPanel = new System.Windows.Forms.Panel
+                {
+                    Dock = DockStyle.Top,
+                    Height = 56,
+                    BackColor = SupeyTheme.SurfaceHeader,
+                    Padding = new Padding(0),
+                    Name = "tripScoutToolbarPanel",
+                };
+
+                var divider = new System.Windows.Forms.Panel
+                {
+                    Dock = DockStyle.Bottom,
+                    Height = 1,
+                    BackColor = SupeyTheme.Divider,
+                };
+
+                var leftFlow = new FlowLayoutPanel
+                {
+                    Dock = DockStyle.Left,
+                    FlowDirection = FlowDirection.LeftToRight,
+                    WrapContents = false,
+                    AutoSize = true,
+                    AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                    BackColor = SupeyTheme.SurfaceHeader,
+                    Padding = new Padding(12, 12, 0, 0),
+                };
+                _tripScoutToolbarLeftFlow = leftFlow;
+
+                var rightFlow = new FlowLayoutPanel
+                {
+                    Dock = DockStyle.Right,
+                    FlowDirection = FlowDirection.LeftToRight,
+                    WrapContents = false,
+                    AutoSize = true,
+                    AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                    BackColor = SupeyTheme.SurfaceHeader,
+                    Padding = new Padding(0, 12, 12, 0),
+                };
+                _tripScoutToolbarRightFlow = rightFlow;
+
+                var searchLabel = new Label
+                {
+                    Text = "Search",
+                    AutoSize = true,
+                    ForeColor = SupeyTheme.TextSecondary,
+                    BackColor = SupeyTheme.SurfaceHeader,
+                    Font = SupeyTheme.CaptionFont,
+                    Margin = new Padding(0, 8, 8, 0),
+                };
+                var dateLabel = new Label
+                {
+                    Text = "Service date",
+                    AutoSize = true,
+                    ForeColor = SupeyTheme.TextSecondary,
+                    BackColor = SupeyTheme.SurfaceHeader,
+                    Font = SupeyTheme.CaptionFont,
+                    Margin = new Padding(0, 8, 8, 0),
+                };
+
+                tssearchbox.Margin = new Padding(0, 0, 0, 0);
+                tssearchbox.Size = new Size(560, 30);
+                tssearchbox.UseTallSize = false;
+                tssearchbox.Hint = "Search trips by ID, client, driver, address, phone...";
+
+                tsdatepicker.Margin = new Padding(0, 0, 6, 0);
+                tsdatepicker.Size = new Size(232, 30);
+                tsdatepicker.BorderColor = SupeyTheme.BorderSubtle;
+                tsdatepicker.BorderSize = 1;
+                tsdatepicker.Font = new Font("Segoe UI", 9.5f);
+                tsdatepicker.SkinColor = SupeyTheme.SurfaceElevated;
+                tsdatepicker.TextColor = SupeyTheme.TextPrimary;
+
+                tsloadbtn.Text = "LOAD";
+                tsloadbtn.UseAccentColor = false;
+                tsloadbtn.AutoSize = false;
+                tsloadbtn.Size = new Size(96, 30);
+                tsloadbtn.Margin = new Padding(0, 1, 0, 0);
+                tsloadbtn.HighEmphasis = true;
+
+                leftFlow.Controls.Add(searchLabel);
+                leftFlow.Controls.Add(tssearchbox);
+                rightFlow.Controls.Add(MakeFsToolbarSeparator());
+                rightFlow.Controls.Add(dateLabel);
+                rightFlow.Controls.Add(tsdatepicker);
+                rightFlow.Controls.Add(tsloadbtn);
+
+                _tripScoutToolbarPanel.Controls.Add(divider);
+                _tripScoutToolbarPanel.Controls.Add(rightFlow);
+                _tripScoutToolbarPanel.Controls.Add(leftFlow);
+                _tripScoutToolbarPanel.Resize += (_, __) => LayoutTripScoutToolbarControls();
+            }
+
+            if (!ReferenceEquals(_tripScoutToolbarPanel.Parent, tsmaterialCard))
+                tsmaterialCard.Controls.Add(_tripScoutToolbarPanel);
+            LayoutTripScoutToolbarControls();
+        }
+
+        private void LayoutTripScoutToolbarControls()
+        {
+            if (_tripScoutToolbarPanel == null || _tripScoutToolbarPanel.IsDisposed || tssearchbox == null ||
+                _tripScoutToolbarRightFlow == null || _tripScoutToolbarRightFlow.IsDisposed)
+                return;
+
+            int reservedRight = _tripScoutToolbarRightFlow.Width + 56;
+            int available = _tripScoutToolbarPanel.ClientSize.Width - reservedRight;
+            int searchWidth = Math.Max(280, Math.Min(920, available));
+            tssearchbox.Width = searchWidth;
         }
 
         /// <summary>
@@ -4249,17 +4452,8 @@ namespace Hiatme_Tool_Suite_v3
             void fit()
             {
                 if (tslv.IsDisposed || !tslv.IsHandleCreated) return;
-                var savedFont = tslv.Font;
-                try
-                {
-                    // Native auto-size uses ListView.Font; match owner-draw cell font so widths aren't wrong.
-                    tslv.Font = ListViewOwnerDrawFonts.Cell;
-                    tslv.AutoResizeColumns(ColumnHeaderAutoResizeStyle.ColumnContent);
-                }
-                finally
-                {
-                    tslv.Font = savedFont;
-                }
+                // Use our enforcer's batched recompute (single redraw pass). Native
+                // AutoResizeColumns visibly walks columns one-by-one in Trip Scout.
                 ListViewMinWidthEnforcer.Recompute(tslv);
                 if (tsColAlerts != null)
                     tsColAlerts.Width = 0;
@@ -5547,8 +5741,9 @@ namespace Hiatme_Tool_Suite_v3
         private void listView_DrawColumnHeader(object sender, DrawListViewColumnHeaderEventArgs e)
         {
             ListView listView = (ListView)sender;
+            bool isTripScoutList = ReferenceEquals(listView, tslv);
             // Draw the standard header background.
-            Color lvbg = ColorTranslator.FromHtml("#333333");
+            Color lvbg = isTripScoutList ? SupeyTheme.ListHeader : ColorTranslator.FromHtml("#333333");
 
             SolidBrush bluegrayBrush = new SolidBrush(lvbg);
 
@@ -5581,12 +5776,13 @@ namespace Hiatme_Tool_Suite_v3
                     align = TextFormatFlags.Left;
                     break;
             }
-            TextRenderer.DrawText(e.Graphics, e.Header.Text, ListViewOwnerDrawFonts.Header, bounds, Color.Gainsboro,
+            TextRenderer.DrawText(e.Graphics, e.Header.Text, ListViewOwnerDrawFonts.Header, bounds,
+                isTripScoutList ? SupeyTheme.ListHeaderText : Color.Gainsboro,
                 align | TextFormatFlags.SingleLine | TextFormatFlags.GlyphOverhangPadding | TextFormatFlags.VerticalCenter | TextFormatFlags.WordEllipsis);
 
             // Faint divider on the right edge of every header cell so users see the resize grabber
             // (the flat #333333 fill above otherwise hides Windows' default column boundary).
-            using (var dividerPen = new Pen(Color.FromArgb(64, 255, 255, 255), 1f))
+            using (var dividerPen = new Pen(isTripScoutList ? SupeyTheme.ListGrid : Color.FromArgb(64, 255, 255, 255), 1f))
             {
                 e.Graphics.DrawLine(dividerPen, e.Bounds.Right - 1, e.Bounds.Top + 4, e.Bounds.Right - 1, e.Bounds.Bottom - 4);
             }
@@ -5600,7 +5796,7 @@ namespace Hiatme_Tool_Suite_v3
                 Point[] tri = sorter.Order == SortOrder.Ascending
                     ? new[] { new Point(cx, cy + 3), new Point(cx + 8, cy + 3), new Point(cx + 4, cy - 3) }
                     : new[] { new Point(cx, cy - 3), new Point(cx + 8, cy - 3), new Point(cx + 4, cy + 3) };
-                using (var arrowBrush = new SolidBrush(Color.Gainsboro))
+                using (var arrowBrush = new SolidBrush(isTripScoutList ? SupeyTheme.ListHeaderText : Color.Gainsboro))
                 {
                     e.Graphics.FillPolygon(arrowBrush, tri);
                 }
@@ -5611,6 +5807,7 @@ namespace Hiatme_Tool_Suite_v3
         private void listView_DrawItem(object sender, DrawListViewItemEventArgs e)
         {
             ListView listView = (ListView)sender;
+            bool isTripScoutList = ReferenceEquals(listView, tslv);
             if ((e.State & ListViewItemStates.Selected) != 0)
             {
                 if (listView.Focused && e.Item.Selected)
@@ -5618,11 +5815,11 @@ namespace Hiatme_Tool_Suite_v3
 
                     Rectangle R = e.Bounds;
                     R.Inflate(-1, -1);
-                    using (Brush brush = new SolidBrush(Color.RoyalBlue))
+                    using (Brush brush = new SolidBrush(isTripScoutList ? SupeyTheme.ListSelected : Color.RoyalBlue))
                     {
                         e.Graphics.FillRectangle(brush, R);
                     }
-                    using (Pen pen = new Pen(Color.Black, 1.5f))
+                    using (Pen pen = new Pen(isTripScoutList ? SupeyTheme.BorderSubtle : Color.Black, 1.5f))
                     {
                         e.Graphics.DrawRectangle(pen, R);
                     }
@@ -5655,6 +5852,7 @@ namespace Hiatme_Tool_Suite_v3
         private void listView_DrawSubItem(object sender, DrawListViewSubItemEventArgs e)
         {
             ListView listView = (ListView)sender;
+            bool isTripScoutList = ReferenceEquals(listView, tslv);
 
             Rectangle rowBounds = e.Bounds;
             Rectangle bounds = new Rectangle(rowBounds.Left + 10, rowBounds.Top, Math.Max(0, rowBounds.Width - 10 - 1), rowBounds.Height);
@@ -5672,7 +5870,11 @@ namespace Hiatme_Tool_Suite_v3
                     align = TextFormatFlags.Left;
                     break;
             }
-            TextRenderer.DrawText(e.Graphics, e.SubItem.Text, ListViewOwnerDrawFonts.Cell, bounds, Color.White,
+            bool selected = (e.ItemState & ListViewItemStates.Selected) != 0 && listView.Focused;
+            Color textColor = isTripScoutList
+                ? (selected ? SupeyTheme.ListSelectedText : SupeyTheme.ListText)
+                : Color.White;
+            TextRenderer.DrawText(e.Graphics, e.SubItem.Text, ListViewOwnerDrawFonts.Cell, bounds, textColor,
                 align | TextFormatFlags.SingleLine | TextFormatFlags.GlyphOverhangPadding | TextFormatFlags.VerticalCenter | TextFormatFlags.WordEllipsis);
         }
         private void ListView_SizeChanged(object sender, EventArgs e)
