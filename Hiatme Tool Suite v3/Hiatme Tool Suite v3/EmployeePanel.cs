@@ -409,6 +409,7 @@ namespace Hiatme_Tool_Suite_v3
                 Dock = DockStyle.Fill,
                 TextAlign = ContentAlignment.MiddleRight,
                 AutoSize = true,
+                AutoEllipsis = true,
                 Font = new Font("Segoe UI Semibold", 13f, FontStyle.Bold),
                 BackColor = SupeyTheme.SurfaceElevated,
                 ForeColor = SupeyTheme.TextPrimary,

@@ -23,8 +23,15 @@ namespace Hiatme_Tool_Suite_v3
         private const decimal DefaultMonthlyMaintenancePerVehicle = 120m;
         private const int DefaultFleetVehicleCount = 9;
         private const decimal DaysPerMonthForOverhead = 30m;
-        private const decimal DefaultDriverPaidHoursPerDay = 8m;
+        private const decimal DefaultManagerPaidHoursPerDay = 8m;
+        private const decimal ManagerHourlyPay = 23m;
         private const int ProfitBarMaximum = 200; // 100 = break-even, >100 = profit zone
+        private static readonly HashSet<string> ManagerDriverNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "REMIE",
+            "CHERIE",
+            "BOBBY"
+        };
         public Label ProfitLabel { get; set; }
         public Label AccuracyLabel { get; set; }
         public Label WorkloadLabel { get; set; }
@@ -84,6 +91,39 @@ namespace Hiatme_Tool_Suite_v3
             return 0m;
         }
 
+        private static string NormalizeDriverName(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+                return string.Empty;
+            return raw.Trim().ToUpperInvariant();
+        }
+
+        private bool IsManagerDriver()
+        {
+            string full = NormalizeDriverName(FullName);
+            if (full.Length > 0)
+            {
+                foreach (var manager in ManagerDriverNames)
+                {
+                    if (full.Contains(manager))
+                        return true;
+                }
+            }
+
+            string first = NormalizeDriverName(FirstName);
+            return first.Length > 0 && ManagerDriverNames.Contains(first);
+        }
+
+        private decimal GetDriverHourlyPay()
+        {
+            return IsManagerDriver() ? ManagerHourlyPay : DefaultDriverHourlyPay;
+        }
+
+        private decimal GetMinimumPaidHoursForDriver()
+        {
+            return IsManagerDriver() ? DefaultManagerPaidHoursPerDay : 0m;
+        }
+
         private static bool IsBillableTrip(WRDownloadedTrip trip)
         {
             if (trip == null)
@@ -121,7 +161,47 @@ namespace Hiatme_Tool_Suite_v3
             return (DefaultTakeHomeMilesPerDriverPerDay / DefaultGrandCaravanMpg) * DefaultGasPricePerGallon;
         }
 
-        private static decimal GetDriverOperatingCost(List<WRDownloadedTrip> driverTrips, int activeDriverCount)
+        private decimal GetEstimatedDriverHoursForDay(List<WRDownloadedTrip> completedTrips)
+        {
+            decimal minimumHours = GetMinimumPaidHoursForDriver();
+            if (completedTrips == null || completedTrips.Count == 0)
+                return minimumHours;
+
+            decimal serviceMinutes = completedTrips.Sum(GetTripServiceMinutes);
+            decimal deadheadMinutes = Math.Max(0, completedTrips.Count - 1) * DefaultAvgDeadheadMinutesBetweenTrips;
+            decimal bufferMinutes = completedTrips.Count * DefaultPerTripServiceBufferMinutes;
+            decimal taskHours = (serviceMinutes + deadheadMinutes + bufferMinutes) / 60m;
+
+            var timePoints = new List<DateTime>();
+            foreach (var trip in completedTrips)
+            {
+                if (trip == null)
+                    continue;
+                string pu = string.IsNullOrWhiteSpace(trip.ActualPUTime) ? trip.PUTime : trip.ActualPUTime;
+                string d0 = string.IsNullOrWhiteSpace(trip.ActualDOTime) ? trip.DOTime : trip.ActualDOTime;
+                if (TryParseClockTime(pu, out DateTime puTime))
+                    timePoints.Add(puTime);
+                if (TryParseClockTime(d0, out DateTime doTime))
+                    timePoints.Add(doTime);
+            }
+
+            decimal spanHours = 0m;
+            if (timePoints.Count >= 2)
+            {
+                var minTime = timePoints.Min();
+                var maxTime = timePoints.Max();
+                spanHours = (decimal)(maxTime - minTime).TotalHours;
+                if (spanHours < 0m)
+                    spanHours += 24m;
+                if (spanHours > 16m)
+                    spanHours = 16m;
+            }
+
+            decimal estimatedHours = Math.Max(taskHours, spanHours);
+            return Math.Max(minimumHours, estimatedHours);
+        }
+
+        private decimal GetDriverOperatingCost(List<WRDownloadedTrip> driverTrips, int activeDriverCount)
         {
             var completedTrips = (driverTrips ?? new List<WRDownloadedTrip>())
                 .Where(IsBillableTrip)
@@ -134,56 +214,64 @@ namespace Hiatme_Tool_Suite_v3
             decimal fuelCost = (totalFuelMiles / DefaultGrandCaravanMpg) * DefaultGasPricePerGallon;
             decimal takeHomeFuelCost = GetDailyTakeHomeFuelCost();
 
-            decimal serviceMinutes = completedTrips.Sum(GetTripServiceMinutes);
-            decimal deadheadMinutes = Math.Max(0, completedTrips.Count - 1) * DefaultAvgDeadheadMinutesBetweenTrips;
-            decimal bufferMinutes = completedTrips.Count * DefaultPerTripServiceBufferMinutes;
-            decimal laborHours = (serviceMinutes + deadheadMinutes + bufferMinutes) / 60m;
-            laborHours = Math.Max(DefaultDriverPaidHoursPerDay, laborHours);
-            decimal laborCost = laborHours * DefaultDriverHourlyPay;
+            decimal laborHours = GetEstimatedDriverHoursForDay(completedTrips);
+            decimal laborCost = laborHours * GetDriverHourlyPay();
 
             decimal fixedCostShare = GetDailyFixedFleetCostPerDriver(activeDriverCount);
             return fuelCost + takeHomeFuelCost + laborCost + fixedCostShare;
         }
 
-        private static decimal GetDriverBaselineDailyCost(int activeDriverCount)
+        private decimal GetDriverBaselineDailyCost(int activeDriverCount, List<WRDownloadedTrip> driverTrips)
         {
             decimal fixedCostShare = GetDailyFixedFleetCostPerDriver(activeDriverCount);
             decimal takeHomeFuelCost = GetDailyTakeHomeFuelCost();
-            decimal baselineLaborCost = DefaultDriverPaidHoursPerDay * DefaultDriverHourlyPay;
+            var completedTrips = (driverTrips ?? new List<WRDownloadedTrip>())
+                .Where(IsBillableTrip)
+                .ToList();
+            decimal baselineLaborCost = GetEstimatedDriverHoursForDay(completedTrips) * GetDriverHourlyPay();
             return fixedCostShare + takeHomeFuelCost + baselineLaborCost;
         }
 
         private void GenerateProfitStat(int activeDriverCount)
         {
-            if (DriverWRTripList == null)
-                return;
             if (!IsControlAlive(ProfitLabel) || !IsControlAlive(ProfitProgressBar))
                 return;
 
+            var driverTrips = DriverWRTripList ?? new List<WRDownloadedTrip>();
             decimal revenue = 0;
-            foreach (WRDownloadedTrip trip in DriverWRTripList)
+            foreach (WRDownloadedTrip trip in driverTrips)
             {
                 if (IsBillableTrip(trip))
                     revenue += ParseMoneyOrZero(trip.Price);
             }
 
-            decimal baselineCost = GetDriverBaselineDailyCost(activeDriverCount);
-            decimal operatingCost = GetDriverOperatingCost(DriverWRTripList, activeDriverCount);
+            decimal baselineCost = GetDriverBaselineDailyCost(activeDriverCount, driverTrips);
+            decimal operatingCost = GetDriverOperatingCost(driverTrips, activeDriverCount);
             decimal finalprofit = revenue - operatingCost;
             if (!IsControlAlive(ProfitLabel) || !IsControlAlive(ProfitProgressBar))
                 return;
 
-            ProfitLabel.Text = "$" + Math.Truncate(finalprofit);
-            GenerateProfitBarValue(revenue, baselineCost);
+            int net = (int)Math.Truncate(finalprofit);
+            int baseline = (int)Math.Truncate(baselineCost);
+            if (revenue <= 0m)
+            {
+                ProfitLabel.Text = "-$" + baseline + " start cost";
+            }
+            else
+            {
+                ProfitLabel.Text = "$" + net;
+            }
+            GenerateProfitBarValue(finalprofit, baselineCost);
         }
 
-        private void GenerateProfitBarValue(decimal revenue, decimal baselineCost)
+        private void GenerateProfitBarValue(decimal netProfit, decimal baselineCost)
         {
             if (!IsControlAlive(ProfitProgressBar))
                 return;
             decimal safeBaseline = Math.Max(1m, baselineCost);
-            decimal coveragePct = (revenue / safeBaseline) * 100m;
-            int clamped = (int)Math.Round(Math.Max(0m, Math.Min(ProfitBarMaximum, coveragePct)));
+            // 0 = deeply negative day, 100 = break-even, 200 = strong profit.
+            decimal netPosition = 100m + ((netProfit / safeBaseline) * 100m);
+            int clamped = (int)Math.Round(Math.Max(0m, Math.Min(ProfitBarMaximum, netPosition)));
             ProfitProgressBar.Maximum = ProfitBarMaximum;
             ProfitProgressBar.Value = clamped;
         }
