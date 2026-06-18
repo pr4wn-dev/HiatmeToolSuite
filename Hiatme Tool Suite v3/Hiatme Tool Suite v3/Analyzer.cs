@@ -458,14 +458,16 @@ namespace Hiatme_Tool_Suite_v3
                         {
                             if (mcdt.TripNumber.Replace(" ", "") == mcst.TripNumber.Replace(" ", ""))
                             {
-                                if (mcdt.PUStreet != mcst.PUStreet)
+                                // Older Schedule Builder versions pad address cells with trailing
+                                // spaces; normalize whitespace/case so only real address changes flag.
+                                if (!AddressesMatch(mcdt.PUStreet, mcst.PUStreet))
                                 {
                                     CheckIfTripIsAlreadyLogged(mcst, "Address");
                                     mcst.Assignable = false;
                                     break;
                                 }
 
-                                if (mcdt.DOStreet != mcst.DOStreet)
+                                if (!AddressesMatch(mcdt.DOStreet, mcst.DOStreet))
                                 {
                                     CheckIfTripIsAlreadyLogged(mcst, "Address");
                                     mcst.Assignable = false;
@@ -479,6 +481,17 @@ namespace Hiatme_Tool_Suite_v3
                 }
             }
         }
+
+        private static bool AddressesMatch(string a, string b) =>
+            string.Equals(NormalizeAddressForCompare(a), NormalizeAddressForCompare(b), StringComparison.OrdinalIgnoreCase);
+
+        private static string NormalizeAddressForCompare(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return "";
+            return System.Text.RegularExpressions.Regex.Replace(value.Trim(), @"\s+", " ");
+        }
+
         private void CheckForEscorts()
         {
             if (drivertablist.Any() & wellrydeDownloadedTrips.Any())
