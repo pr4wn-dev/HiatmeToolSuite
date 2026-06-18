@@ -375,6 +375,8 @@ namespace Hiatme_Tool_Suite_v3
 
                 Enabled = true,
 
+                Visible = false,
+
             };
 
             var saveTip = SupeyToolTip.Create(autoPopDelay: 12000, initialDelay: 400);
@@ -1174,9 +1176,19 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-            _fsMainSplit.FixedPanel = FixedPanel.None;
+            int total = _fsMainSplit.Height;
 
+            if (total < 80) return;
+
+
+
+            // Trips expands to fill the entire map area; the map collapses behind it.
+            // The user can still drag the splitter down to reveal the map again.
             _fsMainSplit.Panel2MinSize = 72;
+
+            _fsMainSplit.Panel1MinSize = 0;
+
+            _fsMainSplit.FixedPanel = FixedPanel.Panel1;
 
 
 
@@ -1186,17 +1198,16 @@ namespace Hiatme_Tool_Suite_v3
 
             {
 
-                if (_fsSavedMapSplitterDistance > 0)
-
-                    _fsMainSplit.SplitterDistance = _fsSavedMapSplitterDistance;
-
-                else
-
-                    EnsureFsSplitDistance();
+                _fsMainSplit.SplitterDistance = 0;
 
             }
 
             finally { _applyingFsDefaultSplit = false; }
+
+
+
+            // Keep the full-fill on later resizes instead of snapping back to a default split.
+            _fsDefaultSplitApplied = true;
 
         }
 

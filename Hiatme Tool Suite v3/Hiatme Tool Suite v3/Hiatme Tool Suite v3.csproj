@@ -162,7 +162,9 @@
     <Compile Include="ScheduleBuilderXlsxWriter.cs" />
     <Compile Include="ScheduleBuilderGmailMailer.cs" />
     <Compile Include="ScheduleBuilderGmailDefaults.cs" />
-    <Compile Include="ScheduleEmailSendConfirmForm.cs" />
+    <Compile Include="ScheduleEmailSendConfirmForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="ScheduleEmailRecipientsForm.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -255,8 +257,12 @@
     <Compile Include="ScheduleBuilderHistoricalHintContract.cs" />
     <Compile Include="ScheduleBuilderDriverSuggestPrepCache.cs" />
     <Compile Include="ScheduleBuilderSuggestPreviewBinder.cs" />
-    <Compile Include="ScheduleDriverSuggestForm.cs" />
-    <Compile Include="ScheduleDriverSuggestPreviewPanel.cs" />
+    <Compile Include="ScheduleDriverSuggestForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="ScheduleDriverSuggestPreviewPanel.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="FsMapDisplayMode.cs" />
     <Compile Include="FsMapModeIconButton.cs">
       <SubType>Component</SubType>

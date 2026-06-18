@@ -148,6 +148,69 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        private void FsAddTripToReroutesSectionFromContext()
+        {
+            if (_fsTripsCtxTrip == null || !_fsHasPreview || string.IsNullOrWhiteSpace(_fsActiveDriverTab))
+                return;
+            if (fsbuilder == null)
+                return;
+
+            MCDownloadedTrip trip = _fsTripsCtxTrip;
+            string tab = _fsActiveDriverTab;
+            string num = (trip.TripNumber ?? "").Trim();
+
+            if (!FsNeedsMoveToReservesReroutes(trip, tab, fsbuilder))
+            {
+                SetScheduleBuilderStatus(string.IsNullOrEmpty(num)
+                    ? "Trip is already in Reserves → Reroutes."
+                    : "Trip " + num + " is already in Reserves → Reroutes.");
+                return;
+            }
+
+            FsPushUndoSnapshot("add trip to reroutes");
+
+            // Preserve any rows already marked rerouted (red) — rebuilding reserve
+            // lines wipes the ReroutedOnModivcare flags.
+            _fsLinesByTab.TryGetValue("Reserves", out var priorReserves);
+
+            // Move the trip into the Reserves → Reroutes bucket WITHOUT submitting to
+            // Modivcare and WITHOUT marking the row red (no rerouted highlight).
+            fsbuilder.MoveTripToPreviewReservesReroute(trip);
+
+            if (fsbuilder.PreviewDriverLines is Dictionary<string, List<ScheduleBuilderPreviewLine>> dict)
+            {
+                var driverTabs = new List<string>(dict.Keys);
+                foreach (string driverTab in driverTabs)
+                {
+                    if (driverTab.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    if (dict.TryGetValue(driverTab, out var driverLines) && driverLines != null)
+                        FsCommitPreviewLinesForTab(driverTab, driverLines);
+                }
+            }
+
+            var reserveLines = ScheduleBuilderReserveBuckets.BuildReservePreviewLines(
+                fsbuilder.PreviewReserves,
+                fsbuilder.PreviewReservesReroute,
+                banned: null,
+                fsbuilder.PreviewReservesWillCalls,
+                fsbuilder.WillCallsInDownloadCount);
+            // Restore prior red marks but do NOT mark the newly added trip.
+            ScheduleBuilderReroutedTrips.RestoreAndMarkRerouted(reserveLines, priorReserves, justRerouted: null);
+            FsCommitPreviewLinesForTab("Reserves", reserveLines);
+
+            SelectFsDriverTab("Reserves");
+            ShowFsTripsForTab("Reserves");
+            _fsTripsLv?.Invalidate(true);
+            SelectFsTripInListView(trip);
+            SyncFsPreviewCsvsForExport();
+            _ = RefreshFsMapForCurrentTabAsync();
+
+            SetScheduleBuilderStatus(string.IsNullOrEmpty(num)
+                ? "Trip added to Reserves → Reroutes."
+                : "Trip " + num + " added to Reserves → Reroutes.");
+        }
+
         private static bool FsNeedsMoveToReservesReroutes(MCDownloadedTrip trip, string sourceTab, FullScheduleBuilder builder)
         {
             if (trip == null || builder == null)

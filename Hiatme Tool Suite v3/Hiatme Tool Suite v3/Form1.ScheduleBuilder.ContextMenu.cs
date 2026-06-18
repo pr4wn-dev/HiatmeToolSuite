@@ -32,6 +32,7 @@ namespace Hiatme_Tool_Suite_v3
         private ToolStripMenuItem _fsTripsCtxChangeGroupColor;
         private ToolStripMenuItem _fsTripsCtxResetGroupColor;
         private ToolStripMenuItem _fsTripsCtxRerouteModivcare;
+        private ToolStripMenuItem _fsTripsCtxAddToReroutes;
         private MCDownloadedTrip _fsTripsCtxTrip;
         private SupeyTripCluster _fsTripsCtxGroup;
         private FsPreviewNoteTag _fsTripsCtxNoteTag;
@@ -234,9 +235,19 @@ namespace Hiatme_Tool_Suite_v3
             };
             _fsTripsCtxRerouteModivcare.Click += (s, e) => FsRerouteTripOnModivcareFromContext();
 
+            _fsTripsCtxAddToReroutes = new ToolStripMenuItem("Add to Reroutes section (no Modivcare)")
+            {
+                BackColor = DarkContextMenuRenderer.Background,
+                ForeColor = DarkContextMenuRenderer.ForeColor,
+            };
+            _fsTripsCtxAddToReroutes.Click += (s, e) => FsAddTripToReroutesSectionFromContext();
+
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxBanClient);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxUnbanClient);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxRerouteModivcare);
+            _fsTripsCtxMenu.Items.Add(_fsTripsCtxAddToReroutes);
+            // Suggest driver hidden for now — kept in the menu so it can be re-enabled later.
+            _fsTripsCtxSuggestDriver.Visible = false;
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxSuggestDriver);
             _fsTripsCtxMenu.Items.Add(new ToolStripSeparator());
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxCutTrip);
@@ -256,7 +267,13 @@ namespace Hiatme_Tool_Suite_v3
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxEmailDriver);
             _fsTripsCtxMenu.Items.Add(new ToolStripSeparator());
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxFocusMap);
-            _fsTripsCtxMenu.Items.Add(new ToolStripSeparator());
+
+            // Copy options hidden for now — kept in the menu so they can be re-enabled later.
+            var copySeparator = new ToolStripSeparator { Visible = false };
+            _fsTripsCtxCopyForAi.Visible = false;
+            _fsTripsCtxCopyCurrentTab.Visible = false;
+            _fsTripsCtxCopySelectedTrip.Visible = false;
+            _fsTripsCtxMenu.Items.Add(copySeparator);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxCopyForAi);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxCopyCurrentTab);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxCopySelectedTrip);
@@ -360,6 +377,13 @@ namespace Hiatme_Tool_Suite_v3
                 _fsTripsCtxRerouteModivcare.Text = "Reroute on Modivcare (already marked)";
             else
                 _fsTripsCtxRerouteModivcare.Text = "Reroute on Modivcare…";
+
+            bool alreadyInReroutes = hasTrip && hasBuild
+                && !FsNeedsMoveToReservesReroutes(_fsTripsCtxTrip, _fsActiveDriverTab ?? "", fsbuilder);
+            _fsTripsCtxAddToReroutes.Enabled = hasTrip && hasBuild && !alreadyInReroutes;
+            _fsTripsCtxAddToReroutes.Text = alreadyInReroutes
+                ? "Add to Reroutes section (already there)"
+                : "Add to Reroutes section (no Modivcare)";
 
             bool canSuggestDriver = hasTrip && hasBuild && ScheduleOsrmGate.PreviewRoutingOk;
             _fsTripsCtxSuggestDriver.Enabled = canSuggestDriver;
