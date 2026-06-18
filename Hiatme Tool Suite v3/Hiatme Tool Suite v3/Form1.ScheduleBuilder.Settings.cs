@@ -15,6 +15,11 @@ namespace Hiatme_Tool_Suite_v3
         private CheckBox _fsSettingsSafeBuildMode;
         private CheckBox _fsSettingsAdvancedSuggestHistory;
 
+        private Label _fsSettingsAdvancedToggle;
+        private readonly System.Collections.Generic.List<Control> _fsAdvancedSettingControls =
+            new System.Collections.Generic.List<Control>();
+        private bool _fsAdvancedSettingsExpanded;
+
         private bool _fsShowGaps;
         private bool _fsMultiRowGaps;
         private bool _fsShowGroupColors;
@@ -40,7 +45,7 @@ namespace Hiatme_Tool_Suite_v3
                 Dock = DockStyle.Fill,
                 FlowDirection = FlowDirection.TopDown,
                 WrapContents = false,
-                AutoScroll = false,
+                AutoScroll = true,
                 BackColor = SupeyTheme.Surface,
             };
 
@@ -68,21 +73,39 @@ namespace Hiatme_Tool_Suite_v3
                 out _fsSettingsShowGroupColors,
                 OnFsSettingsShowGroupColorsChanged));
 
-            layout.Controls.Add(MakeFsSettingsOption(
+            _fsAdvancedSettingControls.Clear();
+
+            _fsSettingsAdvancedToggle = MakeFsSettingsAdvancedToggle();
+            layout.Controls.Add(_fsSettingsAdvancedToggle);
+
+            var advancedHeader = MakeFsSettingsSectionHeader("Advanced options");
+            layout.Controls.Add(advancedHeader);
+            _fsAdvancedSettingControls.Add(advancedHeader);
+
+            var safeBuildBlock = MakeFsSettingsOption(
                 "Safe Build Mode",
                 "Build schedule exactly from the normal template-first workflow. Keep this ON for default safe behavior.",
                 _fsSafeBuildMode,
                 out _fsSettingsSafeBuildMode,
-                OnFsSettingsSafeBuildModeChanged));
+                OnFsSettingsSafeBuildModeChanged);
+            layout.Controls.Add(safeBuildBlock);
+            _fsAdvancedSettingControls.Add(safeBuildBlock);
 
-            layout.Controls.Add(MakeFsSettingsOption(
+            var advancedSuggestBlock = MakeFsSettingsOption(
                 "Advanced suggest assist (history)",
                 "Optional post-build enhancement: Suggest Driver can use historical archive patterns to improve ranking. Feasibility rules still win.",
                 _fsAdvancedSuggestHistory,
                 out _fsSettingsAdvancedSuggestHistory,
-                OnFsSettingsAdvancedSuggestHistoryChanged));
+                OnFsSettingsAdvancedSuggestHistoryChanged);
+            layout.Controls.Add(advancedSuggestBlock);
+            _fsAdvancedSettingControls.Add(advancedSuggestBlock);
+
+            ApplyFsAdvancedSettingsVisibility();
 
             host.Controls.Add(layout);
+
+            // Dark themed scrollbar to match the rest of the app when options overflow vertically.
+            SupeyDarkScrollBars.Apply(host);
         }
 
         private static Label MakeFsSettingsHintLabel(string text)
@@ -91,12 +114,62 @@ namespace Hiatme_Tool_Suite_v3
             {
                 Text = text,
                 AutoSize = true,
-                MaximumSize = new Size(240, 0),
+                MaximumSize = new Size(218, 0),
                 ForeColor = SupeyTheme.TextMuted,
                 BackColor = SupeyTheme.Surface,
                 Font = new Font("Segoe UI", 8.75f),
                 Margin = new Padding(0, 0, 0, 12),
             };
+        }
+
+        private static Label MakeFsSettingsSectionHeader(string text)
+        {
+            return new Label
+            {
+                Text = (text ?? "").ToUpperInvariant(),
+                AutoSize = true,
+                MaximumSize = new Size(218, 0),
+                ForeColor = SupeyTheme.TextSecondary,
+                BackColor = SupeyTheme.Surface,
+                Font = new Font("Segoe UI Semibold", 8.25f),
+                Margin = new Padding(0, 6, 0, 10),
+            };
+        }
+
+        private Label MakeFsSettingsAdvancedToggle()
+        {
+            var lbl = new Label
+            {
+                AutoSize = true,
+                MaximumSize = new Size(218, 0),
+                ForeColor = SupeyTheme.AccentPrimary,
+                BackColor = SupeyTheme.Surface,
+                Font = new Font("Segoe UI Semibold", 9f),
+                Margin = new Padding(0, 6, 0, 12),
+                Cursor = Cursors.Hand,
+            };
+            lbl.Click += OnFsSettingsAdvancedToggleClicked;
+            return lbl;
+        }
+
+        private void OnFsSettingsAdvancedToggleClicked(object sender, EventArgs e)
+        {
+            _fsAdvancedSettingsExpanded = !_fsAdvancedSettingsExpanded;
+            ApplyFsAdvancedSettingsVisibility();
+        }
+
+        private void ApplyFsAdvancedSettingsVisibility()
+        {
+            if (_fsSettingsAdvancedToggle != null)
+                _fsSettingsAdvancedToggle.Text = _fsAdvancedSettingsExpanded
+                    ? "▾ Hide advanced options"
+                    : "▸ Show advanced options";
+
+            foreach (var c in _fsAdvancedSettingControls)
+            {
+                if (c != null)
+                    c.Visible = _fsAdvancedSettingsExpanded;
+            }
         }
 
         private static Panel MakeFsSettingsOption(
@@ -111,7 +184,7 @@ namespace Hiatme_Tool_Suite_v3
                 AutoSize = true,
                 BackColor = SupeyTheme.Surface,
                 Margin = new Padding(0, 0, 0, 14),
-                Width = 240,
+                Width = 218,
             };
 
             checkBox = new CheckBox
@@ -130,7 +203,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 Text = hint,
                 AutoSize = true,
-                MaximumSize = new Size(220, 0),
+                MaximumSize = new Size(196, 0),
                 ForeColor = SupeyTheme.TextMuted,
                 BackColor = SupeyTheme.Surface,
                 Font = new Font("Segoe UI", 8.5f),
