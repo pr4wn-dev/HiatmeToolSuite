@@ -120,6 +120,9 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>How to write Template Temps CSV rows (gaps, group headers, reserve sections).</summary>
         public ScheduleBuilderPreviewCsvExport.Options PreviewCsvExportOptions { get; set; }
 
+        /// <summary>When true, keep every blank template row instead of collapsing runs of gaps to one.</summary>
+        public bool PreserveMultiRowGaps { get; set; }
+
         private IReadOnlyDictionary<string, List<ScheduleBuilderPreviewLine>> _previewLinesByTab;
 
         /// <summary>Rewrite working CSVs from preview lines (used before SAVE and after BUILD).</summary>
@@ -1056,12 +1059,14 @@ namespace Hiatme_Tool_Suite_v3
                 foreach (var kv in _driverTemplateSlots.OrderBy(k => k.Key, StringComparer.OrdinalIgnoreCase))
                 {
                     string driverName = kv.Key;
-                    var collapsed = ScheduleBuilderTemplateSlots.CollapseConsecutiveGaps(kv.Value);
+                    var slots = PreserveMultiRowGaps
+                        ? kv.Value
+                        : ScheduleBuilderTemplateSlots.CollapseConsecutiveGaps(kv.Value);
                     List<ScheduleBuilderPreviewLine> previewLines;
                     try
                     {
                         previewLines = ScheduleBuilderTemplateSlots.BuildPreviewLines(
-                            collapsed, MCTripList, matchedLiveTripNumbers);
+                            slots, MCTripList, matchedLiveTripNumbers, collapseGaps: !PreserveMultiRowGaps);
                     }
                     catch (ScheduleBuilderException)
                     {

@@ -1614,6 +1614,7 @@ namespace Hiatme_Tool_Suite_v3
                 fsbuilder = new FullScheduleBuilder(dayname, day, nameofmonth, month, year);
 
                 fsbuilder.PreviewCsvExportOptions = MakeFsPreviewCsvExportOptions();
+                fsbuilder.PreserveMultiRowGaps = FsMultiRowGapsEnabled;
 
                 fsbuilder.UpdateLoadingScreen += OnBuildStatus;
 

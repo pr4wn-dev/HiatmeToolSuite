@@ -10,11 +10,13 @@ namespace Hiatme_Tool_Suite_v3
         private const int FsSettingsPad = 10;
 
         private CheckBox _fsSettingsShowGaps;
+        private CheckBox _fsSettingsMultiRowGaps;
         private CheckBox _fsSettingsShowGroupColors;
         private CheckBox _fsSettingsSafeBuildMode;
         private CheckBox _fsSettingsAdvancedSuggestHistory;
 
         private bool _fsShowGaps;
+        private bool _fsMultiRowGaps;
         private bool _fsShowGroupColors;
         private bool _fsSafeBuildMode;
         private bool _fsAdvancedSuggestHistory;
@@ -22,6 +24,7 @@ namespace Hiatme_Tool_Suite_v3
         private void LoadFsScheduleBuilderSettings()
         {
             _fsShowGaps = Settings.Default.FsShowGaps;
+            _fsMultiRowGaps = Settings.Default.FsMultiRowGaps;
             _fsShowGroupColors = Settings.Default.FsShowGroupColors;
             _fsSafeBuildMode = Settings.Default.FsSafeBuildMode;
             _fsAdvancedSuggestHistory = Settings.Default.FsEnableAdvancedSuggestHistory;
@@ -50,6 +53,13 @@ namespace Hiatme_Tool_Suite_v3
                 _fsShowGaps,
                 out _fsSettingsShowGaps,
                 OnFsSettingsShowGapsChanged));
+
+            layout.Controls.Add(MakeFsSettingsOption(
+                "Multi-row gaps",
+                "Keep every blank template row when building. Off = each run of blank rows collapses to one. Needs Show gap rows on to be visible.",
+                _fsMultiRowGaps,
+                out _fsSettingsMultiRowGaps,
+                OnFsSettingsMultiRowGapsChanged));
 
             layout.Controls.Add(MakeFsSettingsOption(
                 "Show group colors",
@@ -142,6 +152,14 @@ namespace Hiatme_Tool_Suite_v3
             ApplyFsDisplaySettings();
         }
 
+        private void OnFsSettingsMultiRowGapsChanged(object sender, EventArgs e)
+        {
+            if (_fsSettingsMultiRowGaps == null) return;
+            _fsMultiRowGaps = _fsSettingsMultiRowGaps.Checked;
+            Settings.Default.FsMultiRowGaps = _fsMultiRowGaps;
+            Settings.Default.Save();
+        }
+
         private void OnFsSettingsShowGroupColorsChanged(object sender, EventArgs e)
         {
             if (_fsSettingsShowGroupColors == null) return;
@@ -185,6 +203,8 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         internal bool FsShowGapsEnabled => _fsShowGaps;
+
+        internal bool FsMultiRowGapsEnabled => _fsMultiRowGaps;
 
         internal bool FsShowGroupColorsEnabled => _fsShowGroupColors;
 

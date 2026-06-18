@@ -206,6 +206,18 @@ namespace Hiatme_Tool_Suite_v3.Properties {
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
         [global::System.Configuration.DefaultSettingValueAttribute("False")]
+        public bool FsMultiRowGaps {
+            get {
+                return ((bool)(this["FsMultiRowGaps"]));
+            }
+            set {
+                this["FsMultiRowGaps"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("False")]
         public bool FsShowGroupColors {
             get {
                 return ((bool)(this["FsShowGroupColors"]));

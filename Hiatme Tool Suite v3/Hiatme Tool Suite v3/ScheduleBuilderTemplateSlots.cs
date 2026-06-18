@@ -52,7 +52,8 @@ namespace Hiatme_Tool_Suite_v3
         public static List<ScheduleBuilderPreviewLine> BuildPreviewLines(
             IList<SupeyTemplateSlot> collapsedSlots,
             IList<MCDownloadedTrip> livePool,
-            HashSet<string> matchedLiveTripNumbers)
+            HashSet<string> matchedLiveTripNumbers,
+            bool collapseGaps = true)
         {
             var lines = new List<ScheduleBuilderPreviewLine>();
             if (collapsedSlots == null)
@@ -109,7 +110,7 @@ namespace Hiatme_Tool_Suite_v3
                 });
             }
 
-            return CollapseConsecutivePreviewGaps(lines);
+            return collapseGaps ? CollapseConsecutivePreviewGaps(lines) : lines;
         }
 
         /// <summary>
