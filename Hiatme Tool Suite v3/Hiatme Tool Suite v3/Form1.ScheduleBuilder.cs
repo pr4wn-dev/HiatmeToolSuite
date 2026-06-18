@@ -2724,6 +2724,7 @@ namespace Hiatme_Tool_Suite_v3
                 _fsGroupsByTab[tabName] = groups;
 
                 SupeyTripCluster lastHeaderGroup = null;
+                bool sawTripRow = false;
 
                 for (int li = 0; li < lines.Count; li++)
 
@@ -2739,7 +2740,8 @@ namespace Hiatme_Tool_Suite_v3
 
                         lastHeaderGroup = null;
 
-                        if (FsShowGapsEnabled)
+                        // Skip leading gap rows — a separator before the first trip is just a blank top row.
+                        if (FsShowGapsEnabled && sawTripRow)
                             AddFsTemplateGapRow(li);
 
                         continue;
@@ -2782,6 +2784,8 @@ namespace Hiatme_Tool_Suite_v3
 
                     {
 
+                        // Show the group-color header for every group, including the first.
+                        // (Leading blank gap rows are still skipped above.)
                         AddFsGroupNoteRow(g, null, li);
 
                     }
@@ -2789,6 +2793,7 @@ namespace Hiatme_Tool_Suite_v3
                     lastHeaderGroup = g;
 
                     _fsTripsLv.Items.Add(CreateFsTripListItem(g, line.Trip, li, line.ReroutedOnModivcare));
+                    sawTripRow = true;
 
                 }
 

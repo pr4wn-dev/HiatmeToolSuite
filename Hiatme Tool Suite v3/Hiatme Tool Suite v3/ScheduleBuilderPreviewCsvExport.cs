@@ -157,6 +157,7 @@ namespace Hiatme_Tool_Suite_v3
                 ? ScheduleBuilderPreviewGroups.BuildFromPreviewLines(lines)
                 : null;
             SupeyTripCluster lastHeaderGroup = null;
+            bool sawTripRow = false;
 
             foreach (var line in lines)
             {
@@ -166,7 +167,8 @@ namespace Hiatme_Tool_Suite_v3
                 if (line.Kind == ScheduleBuilderPreviewLine.LineKind.Gap)
                 {
                     lastHeaderGroup = null;
-                    if (!options.IncludeGaps)
+                    // Skip leading gap rows — a separator before the first trip is just a blank top row.
+                    if (!options.IncludeGaps || !sawTripRow)
                         continue;
 
                     tab.AddRow(BuildGapCells());
@@ -194,6 +196,8 @@ namespace Hiatme_Tool_Suite_v3
                     var g = ScheduleBuilderPreviewGroups.FindGroupForTrip(groups, line.Trip);
                     if (g != null && !ReferenceEquals(g, lastHeaderGroup))
                     {
+                        // Show the group-color header for every group, including the first.
+                        // (Leading blank gap rows are still skipped above.)
                         int noteRow = tab.AddRow(BuildGroupHeaderCells(g.GroupNumber, ""));
                         tab.AddMergeBar(noteRow, g.DisplayColor, endCol: MergeBarLastCol);
                         lastHeaderGroup = g;
@@ -203,6 +207,7 @@ namespace Hiatme_Tool_Suite_v3
                 int tripRow = tab.AddRow(BuildTripCells(line));
                 if (line.ReroutedOnModivcare)
                     tab.FillRow(tripRow, ScheduleBuilderPreviewStyle.ReroutedTripBackColor);
+                sawTripRow = true;
             }
         }
 
