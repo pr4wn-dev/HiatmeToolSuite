@@ -5751,7 +5751,8 @@ namespace Hiatme_Tool_Suite_v3
         private void listView_DrawColumnHeader(object sender, DrawListViewColumnHeaderEventArgs e)
         {
             ListView listView = (ListView)sender;
-            bool isTripScoutList = ReferenceEquals(listView, tslv);
+            // Trip Scout and the Analyzer trip list share the polished SupeyTheme header palette.
+            bool isTripScoutList = ReferenceEquals(listView, tslv) || ReferenceEquals(listView, aalv);
             // Draw the standard header background.
             Color lvbg = isTripScoutList ? SupeyTheme.ListHeader : ColorTranslator.FromHtml("#333333");
 
@@ -5817,7 +5818,8 @@ namespace Hiatme_Tool_Suite_v3
         private void listView_DrawItem(object sender, DrawListViewItemEventArgs e)
         {
             ListView listView = (ListView)sender;
-            bool isTripScoutList = ReferenceEquals(listView, tslv);
+            // Trip Scout and the Analyzer trip list share the polished SupeyTheme selection highlight.
+            bool isTripScoutList = ReferenceEquals(listView, tslv) || ReferenceEquals(listView, aalv);
             if ((e.State & ListViewItemStates.Selected) != 0)
             {
                 if (listView.Focused && e.Item.Selected)
@@ -5841,8 +5843,13 @@ namespace Hiatme_Tool_Suite_v3
             }
             else
             {
-                // Draw the background for an unselected item.
-                //e.DrawBackground();
+                // Owner-draw suppresses the default item background, so paint the row's
+                // BackColor ourselves — this is what shows the Analyzer's alert color coding.
+                if (ReferenceEquals(listView, aalv))
+                {
+                    using (var rowBrush = new SolidBrush(e.Item.BackColor))
+                        e.Graphics.FillRectangle(rowBrush, e.Bounds);
+                }
             }
 
             // Draw the item text for views other than the Details view.
