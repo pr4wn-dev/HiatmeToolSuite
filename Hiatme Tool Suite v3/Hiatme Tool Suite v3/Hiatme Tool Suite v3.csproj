@@ -510,6 +510,7 @@
       <SubType>Component</SubType>
     </Compile>
     <Compile Include="SupeyTabStrip.cs" />
+    <Compile Include="SupeyChartTheme.cs" />
     <Compile Include="SupeyMapMarkerDrag.cs" />
     <Compile Include="SupeyStatusPill.cs">
       <SubType>Component</SubType>

@@ -801,6 +801,9 @@ namespace Hiatme_Tool_Suite_v3
                     hiatmeTabControl.Invalidate();
                 }
 
+                // Charts paint their own surface/plot/axes that the color-remap walk can't reach.
+                ApplyTimeCorrectionChartTheme();
+
                 if (_themePickerBtn != null && !_themePickerBtn.IsDisposed)
                 {
                     _themePickerBtn.Text = "Theme: " + SupeyThemeManager.Current.Name;
@@ -855,35 +858,12 @@ namespace Hiatme_Tool_Suite_v3
                 tcexebtn.SetBounds(left + (2 * (bw + gap)), btnY, avail - (2 * bw), btnH);
         }
 
+        /// <summary>Theme every DataVisualization chart in the app so none render the default gray.</summary>
         private void ApplyTimeCorrectionChartTheme()
         {
-            if (tcchart == null || tcchart.IsDisposed)
-                return;
-
-            tcchart.BackColor = SupeyTheme.Surface;
-            tcchart.BorderlineColor = SupeyTheme.Divider;
-
-            foreach (var area in tcchart.ChartAreas)
-            {
-                area.BackColor = SupeyTheme.Surface;
-                foreach (var axis in new[] { area.AxisX, area.AxisY })
-                {
-                    axis.LineColor = SupeyTheme.Divider;
-                    axis.LabelStyle.ForeColor = SupeyTheme.TextSecondary;
-                    axis.TitleForeColor = SupeyTheme.TextSecondary;
-                    axis.MajorGrid.LineColor = SupeyTheme.Divider;
-                    axis.MajorTickMark.LineColor = SupeyTheme.Divider;
-                }
-            }
-
-            foreach (var series in tcchart.Series)
-                series.Color = SupeyTheme.AccentPrimary;
-
-            foreach (var legend in tcchart.Legends)
-            {
-                legend.BackColor = Color.Transparent;
-                legend.ForeColor = SupeyTheme.TextSecondary;
-            }
+            SupeyChartTheme.Apply(tcchart);
+            SupeyChartTheme.Apply(pgchart);
+            SupeyChartTheme.Apply(incomevslosseschart);
         }
 
         // The Templates toolbar mirrors the Schedule Builder header: a full-width docked band
