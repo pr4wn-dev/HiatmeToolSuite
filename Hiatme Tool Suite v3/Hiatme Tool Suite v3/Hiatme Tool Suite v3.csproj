@@ -503,14 +503,22 @@
     <Compile Include="SupeyButton.cs">
       <SubType>Component</SubType>
     </Compile>
+    <Compile Include="SupeyCard.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="SupeyComboBox.cs">
       <SubType>Component</SubType>
     </Compile>
+    <Compile Include="SupeyTabStrip.cs" />
     <Compile Include="SupeyMapMarkerDrag.cs" />
     <Compile Include="SupeyStatusPill.cs">
       <SubType>Component</SubType>
     </Compile>
     <Compile Include="SupeyTheme.cs" />
+    <Compile Include="SupeyThemePalette.cs" />
+    <Compile Include="SupeyThemeManager.cs" />
+    <Compile Include="SupeyThemeApplier.cs" />
+    <Compile Include="SupeyMaterialSkinBridge.cs" />
     <Compile Include="SupeyToolTip.cs" />
     <Compile Include="SupeyGeocodeFixForm.cs">
       <SubType>Form</SubType>

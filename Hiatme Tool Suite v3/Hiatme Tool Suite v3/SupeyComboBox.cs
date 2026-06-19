@@ -29,6 +29,23 @@ namespace Hiatme_Tool_Suite_v3
             DrawMode = DrawMode.OwnerDrawFixed;
             DoubleBuffered = true;
             SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+            SupeyThemeManager.ThemeChanged += OnThemeChanged;
+        }
+
+        private void OnThemeChanged(object sender, EventArgs e)
+        {
+            if (IsDisposed) return;
+            // Only retint accents we own; BackColor/ForeColor are remapped by the form recolor walk.
+            BorderColor = SupeyTheme.BorderSubtle;
+            ArrowColor = SupeyTheme.AccentPrimary;
+            Invalidate();
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+                SupeyThemeManager.ThemeChanged -= OnThemeChanged;
+            base.Dispose(disposing);
         }
 
         /// <summary>Themed border color drawn around the closed control.</summary>

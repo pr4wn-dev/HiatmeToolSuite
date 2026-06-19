@@ -127,8 +127,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 var mgr = MaterialSkinManager.Instance;
                 mgr.AddFormToManage(this);
-                mgr.Theme = MaterialSkinManager.Themes.DARK;
-                mgr.ColorScheme = new ColorScheme(Primary.Grey900, Primary.Grey800, Primary.BlueGrey500, Accent.Lime700, TextShade.WHITE);
+                SupeyMaterialSkinBridge.ApplyTo(mgr);
             }
             catch
             {

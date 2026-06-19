@@ -178,6 +178,11 @@ namespace Hiatme_Tool_Suite_v3
             ApplyTripScoutVisualTheme();
             ApplyTemplatesVisualTheme();
             ApplyTimeCorrectionVisualTheme();
+            // Owner-draw the main tab bar in the Supey skin (themed strip, icons, lime active underline).
+            SupeyTabStrip.Attach(hiatmeTabControl);
+            // In-app theme switcher in the top bar + live recolor when the user picks a preset.
+            BuildSupeyThemePicker();
+            SupeyThemeManager.ThemeChanged += (s, e) => OnSupeyThemeChanged();
             // Build the Supey schedule tab UI programmatically (the designer placeholder is intentionally empty).
             if (ShowSupeyScheduleTab)
                 InitializeSupeyTab();
@@ -185,8 +190,7 @@ namespace Hiatme_Tool_Suite_v3
             materialSkinManager = MaterialSkinManager.Instance;
             materialSkinManager.EnforceBackcolorOnAllComponents = false;
             materialSkinManager.AddFormToManage(this);
-            materialSkinManager.Theme = MaterialSkinManager.Themes.DARK;
-            materialSkinManager.ColorScheme = new ColorScheme(Primary.Grey900, Primary.Grey800, Primary.BlueGrey500, Accent.Lime700, TextShade.WHITE);
+            SupeyMaterialSkinBridge.ApplyTo(materialSkinManager);
             this.billinglistview.SizeChanged += new EventHandler(ListView_SizeChanged);
             tbuilder = new TemplateBuilder();
             tbuilder.UpdateLoadingScreen += loadinggifhandler_update;
@@ -635,6 +639,101 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (tabPage4 != null && tabPage4.Visible)
                 SupeyDarkScrollBars.Apply(tabPage4);
+        }
+
+        private SupeyButton _themePickerBtn;
+        private ContextMenuStrip _themePickerMenu;
+
+        /// <summary>
+        /// Builds the top-bar theme switcher: a ghost button showing the active preset that opens a
+        /// dark menu of all built-in presets. Selecting one applies + persists it and live-recolors.
+        /// </summary>
+        private void BuildSupeyThemePicker()
+        {
+            try
+            {
+                _themePickerMenu = new ContextMenuStrip { Renderer = new DarkContextMenuRenderer() };
+                RebuildThemeMenuItems();
+
+                _themePickerBtn = new SupeyButton
+                {
+                    Kind = SupeyButton.Variant.Ghost,
+                    Text = "Theme: " + SupeyThemeManager.Current.Name,
+                    Size = new Size(190, 30),
+                    Anchor = AnchorStyles.Top | AnchorStyles.Right,
+                    ForeColor = SupeyTheme.TextPrimary,
+                };
+                _themePickerBtn.Location = new Point(Math.Max(8, ClientSize.Width - _themePickerBtn.Width - 150), 17);
+                _themePickerBtn.Click += (s, e) =>
+                {
+                    if (_themePickerMenu != null)
+                        _themePickerMenu.Show(_themePickerBtn, new Point(0, _themePickerBtn.Height));
+                };
+
+                Controls.Add(_themePickerBtn);
+                _themePickerBtn.BringToFront();
+            }
+            catch
+            {
+                // The picker is a convenience; never let it block startup.
+            }
+        }
+
+        private void RebuildThemeMenuItems()
+        {
+            if (_themePickerMenu == null) return;
+            _themePickerMenu.Items.Clear();
+            foreach (string name in SupeyThemeManager.PresetNames)
+            {
+                string presetName = name;
+                var item = new ToolStripMenuItem(presetName)
+                {
+                    BackColor = DarkContextMenuRenderer.Background,
+                    ForeColor = DarkContextMenuRenderer.ForeColor,
+                    Checked = string.Equals(presetName, SupeyThemeManager.Current.Name, StringComparison.OrdinalIgnoreCase),
+                };
+                item.Click += (s, e) => SupeyThemeManager.Apply(presetName);
+                _themePickerMenu.Items.Add(item);
+            }
+        }
+
+        /// <summary>Live-recolor the whole window when the active theme changes.</summary>
+        private void OnSupeyThemeChanged()
+        {
+            if (IsDisposed) return;
+            if (InvokeRequired)
+            {
+                try { BeginInvoke(new Action(OnSupeyThemeChanged)); } catch { }
+                return;
+            }
+
+            try
+            {
+                BackColor = SupeyTheme.SurfaceBase;
+                SupeyThemeApplier.Recolor(this);
+
+                if (hiatmeTabControl != null)
+                {
+                    hiatmeTabControl.BackColor = SupeyTheme.SurfaceHeader;
+                    hiatmeTabControl.Invalidate();
+                }
+
+                if (_themePickerBtn != null && !_themePickerBtn.IsDisposed)
+                {
+                    _themePickerBtn.Text = "Theme: " + SupeyThemeManager.Current.Name;
+                    _themePickerBtn.ForeColor = SupeyTheme.TextPrimary;
+                }
+                RebuildThemeMenuItems();
+
+                // Dark scrollbars are HWND-themed, not color-mapped, so they don't need remapping;
+                // re-assert anyway so any freshly themed surface keeps matching chrome.
+                SupeyDarkScrollBars.Apply(this);
+                Invalidate(true);
+            }
+            catch
+            {
+                // Recolor is best-effort; a partial repaint is better than crashing the UI thread.
+            }
         }
 
         private void MaterialCard10_ResizeTcStatus(object sender, EventArgs e)

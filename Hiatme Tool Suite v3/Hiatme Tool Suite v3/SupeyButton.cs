@@ -50,6 +50,22 @@ namespace Hiatme_Tool_Suite_v3
             Cursor = Cursors.Hand;
             Size = new Size(96, 30);
             DoubleBuffered = true;
+            SupeyThemeManager.ThemeChanged += OnThemeChanged;
+        }
+
+        private void OnThemeChanged(object sender, EventArgs e)
+        {
+            if (IsDisposed) return;
+            if (ForeColor != SupeyTheme.AccentPrimary)
+                ForeColor = SupeyTheme.TextPrimary;
+            Invalidate();
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+                SupeyThemeManager.ThemeChanged -= OnThemeChanged;
+            base.Dispose(disposing);
         }
 
         public Variant Kind
@@ -153,14 +169,14 @@ namespace Hiatme_Tool_Suite_v3
                         else if (_hover) baseFill = Lighten(baseFill, 0.10f);
                         fill = baseFill;
                         border = Color.Empty;
-                        // Dark text on a green accent reads as confident, primary action.
-                        text = Color.FromArgb(20, 28, 12);
+                        // Readable text on the accent (dark on lime/amber, light on blue/teal).
+                        text = SupeyTheme.OnAccentText;
                         break;
                     }
                 case Variant.Outlined:
                     {
                         fill = _pressed ? SupeyTheme.SurfaceElevated
-                             : _hover ? Color.FromArgb(48, 48, 48)
+                             : _hover ? Lighten(SupeyTheme.SurfaceElevated, 0.06f)
                              : Color.Empty;
                         border = SupeyTheme.BorderSubtle;
                         text = ForeColor;
@@ -169,7 +185,7 @@ namespace Hiatme_Tool_Suite_v3
                 case Variant.Ghost:
                     {
                         fill = _pressed ? SupeyTheme.SurfaceElevated
-                             : _hover ? Color.FromArgb(48, 48, 48)
+                             : _hover ? Lighten(SupeyTheme.SurfaceElevated, 0.06f)
                              : Color.Empty;
                         border = Color.Empty;
                         text = ForeColor;
@@ -178,8 +194,8 @@ namespace Hiatme_Tool_Suite_v3
                 case Variant.Secondary:
                 default:
                     {
-                        fill = _pressed ? Color.FromArgb(34, 34, 34)
-                             : _hover ? Color.FromArgb(52, 52, 52)
+                        fill = _pressed ? Darken(SupeyTheme.SurfaceElevated, 0.15f)
+                             : _hover ? Lighten(SupeyTheme.SurfaceElevated, 0.12f)
                              : SupeyTheme.SurfaceElevated;
                         border = SupeyTheme.BorderSubtle;
                         text = SupeyTheme.TextPrimary;
