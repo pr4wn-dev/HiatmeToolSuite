@@ -102,6 +102,9 @@ namespace Hiatme_Tool_Suite_v3
         private System.Windows.Forms.Panel _tripScoutToolbarPanel;
         private FlowLayoutPanel _tripScoutToolbarLeftFlow;
         private FlowLayoutPanel _tripScoutToolbarRightFlow;
+        private System.Windows.Forms.Panel _templatesToolbarPanel;
+        private FlowLayoutPanel _templatesToolbarLeftFlow;
+        private FlowLayoutPanel _templatesToolbarRightFlow;
         private SupeyMapLoadingOverlay _tripScoutLoadingOverlay;
         private int _tripScoutLoadingDepth;
         private bool _tripScoutFirstLoadTriggered;
@@ -174,6 +177,7 @@ namespace Hiatme_Tool_Suite_v3
             // Trip Scout right-click menu inherits the listview's dark palette + gets generated person+badge icons.
             ApplyTripScoutContextMenuTheme();
             ApplyTripScoutVisualTheme();
+            ApplyTemplatesVisualTheme();
             // Build the Supey schedule tab UI programmatically (the designer placeholder is intentionally empty).
             if (ShowSupeyScheduleTab)
                 InitializeSupeyTab();
@@ -381,6 +385,256 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             EnsureTripScoutToolbarChrome();
+        }
+
+        /// <summary>
+        /// Keeps the Templates tab visually aligned with the Schedule Builder/Trip Scout dark chrome.
+        /// Styling only — no template workflow behavior changes.
+        /// </summary>
+        private void ApplyTemplatesVisualTheme()
+        {
+            if (tabPage5 != null)
+            {
+                tabPage5.BackColor = SupeyTheme.SurfaceBase;
+                tabPage5.ForeColor = SupeyTheme.TextPrimary;
+            }
+
+            if (materialCard12 != null)
+            {
+                materialCard12.BackColor = SupeyTheme.SurfaceBase;
+                materialCard12.ForeColor = SupeyTheme.TextPrimary;
+                materialCard12.Padding = new Padding(12, 10, 12, 10);
+            }
+
+            if (materialCard13 != null)
+            {
+                materialCard13.Visible = true;
+                materialCard13.BackColor = SupeyTheme.SurfaceHeader;
+                materialCard13.ForeColor = SupeyTheme.TextPrimary;
+                materialCard13.Padding = new Padding(0);
+
+                var fill = materialCard13.Controls["tbStatusFillPanel"] as System.Windows.Forms.Panel;
+                if (fill == null)
+                {
+                    fill = new System.Windows.Forms.Panel
+                    {
+                        Name = "tbStatusFillPanel",
+                        Dock = DockStyle.Fill,
+                        BackColor = SupeyTheme.SurfaceStatusBar,
+                        Padding = new Padding(10, 0, 10, 0),
+                    };
+                    materialCard13.Controls.Add(fill);
+                }
+                else
+                {
+                    fill.BackColor = SupeyTheme.SurfaceStatusBar;
+                }
+
+                var divider = fill.Controls["tbStatusTopDivider"] as System.Windows.Forms.Panel;
+                if (divider == null)
+                {
+                    divider = new System.Windows.Forms.Panel
+                    {
+                        Name = "tbStatusTopDivider",
+                        Dock = DockStyle.Top,
+                        Height = 1,
+                        BackColor = SupeyTheme.Divider,
+                    };
+                    fill.Controls.Add(divider);
+                    divider.BringToFront();
+                }
+
+                fill.Resize += (_, __) => LayoutStatusLabelInCard(fill, tbstatuslbl);
+                materialCard13.Resize -= MaterialCard13_ResizeTemplateStatus;
+                materialCard13.Resize += MaterialCard13_ResizeTemplateStatus;
+            }
+
+            if (tbstatuslbl != null)
+            {
+                var fill = materialCard13?.Controls["tbStatusFillPanel"] as System.Windows.Forms.Panel;
+                if (fill != null && !ReferenceEquals(tbstatuslbl.Parent, fill))
+                    fill.Controls.Add(tbstatuslbl);
+                tbstatuslbl.AutoSize = false;
+                tbstatuslbl.ForeColor = SupeyTheme.TextSecondary;
+                tbstatuslbl.Font = SupeyTheme.BodyFont;
+                tbstatuslbl.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
+                tbstatuslbl.BackColor = SupeyTheme.SurfaceStatusBar;
+                LayoutStatusLabelInCard(fill ?? materialCard13, tbstatuslbl);
+            }
+
+            if (templatelv != null)
+            {
+                templatelv.BackColor = SupeyTheme.ListBody;
+                templatelv.ForeColor = SupeyTheme.ListText;
+                templatelv.GridLines = true;
+                templatelv.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
+                templatelv.Location = new Point(18, 86);
+            }
+
+            if (tbcb != null)
+            {
+                tbcb.BackColor = SupeyTheme.SurfaceElevated;
+                tbcb.ForeColor = SupeyTheme.TextPrimary;
+                tbcb.Hint = "Weekday";
+                tbcb.Size = new Size(260, tbcb.Height);
+                tbcb.Depth = 0;
+            }
+
+            if (tbtemplatenamecb != null)
+            {
+                tbtemplatenamecb.BackColor = SupeyTheme.SurfaceElevated;
+                tbtemplatenamecb.ForeColor = SupeyTheme.TextPrimary;
+                tbtemplatenamecb.Hint = "Template Driver";
+                tbtemplatenamecb.Size = new Size(300, tbtemplatenamecb.Height);
+                tbtemplatenamecb.Depth = 0;
+            }
+
+            if (addtemplatebtn != null)
+            {
+                addtemplatebtn.UseAccentColor = true;
+                addtemplatebtn.Type = MaterialButton.MaterialButtonType.Contained;
+                addtemplatebtn.Margin = new Padding(4, 6, 0, 6);
+            }
+
+            EnsureTemplatesToolbarChrome();
+        }
+
+        private void MaterialCard13_ResizeTemplateStatus(object sender, EventArgs e)
+        {
+            var fill = materialCard13?.Controls["tbStatusFillPanel"] as System.Windows.Forms.Panel;
+            LayoutStatusLabelInCard(fill ?? materialCard13, tbstatuslbl);
+        }
+
+        private void EnsureTemplatesToolbarChrome()
+        {
+            if (materialCard12 == null || tbcb == null || tbtemplatenamecb == null || addtemplatebtn == null)
+                return;
+
+            if (_templatesToolbarPanel == null || _templatesToolbarPanel.IsDisposed)
+            {
+                _templatesToolbarPanel = new System.Windows.Forms.Panel
+                {
+                    Name = "templatesToolbarPanel",
+                    BackColor = SupeyTheme.SurfaceHeader,
+                    Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+                    Location = new Point(18, 18),
+                    Height = 56
+                };
+
+                _templatesToolbarLeftFlow = new FlowLayoutPanel
+                {
+                    Name = "templatesToolbarLeftFlow",
+                    WrapContents = false,
+                    AutoSize = false,
+                    FlowDirection = FlowDirection.LeftToRight,
+                    BackColor = Color.Transparent,
+                    Margin = new Padding(0),
+                    Padding = new Padding(8, 4, 6, 4)
+                };
+
+                _templatesToolbarRightFlow = new FlowLayoutPanel
+                {
+                    Name = "templatesToolbarRightFlow",
+                    WrapContents = false,
+                    AutoSize = false,
+                    FlowDirection = FlowDirection.LeftToRight,
+                    BackColor = Color.Transparent,
+                    Margin = new Padding(0),
+                    Padding = new Padding(6, 8, 8, 8)
+                };
+
+                _templatesToolbarPanel.Controls.Add(_templatesToolbarLeftFlow);
+                _templatesToolbarPanel.Controls.Add(_templatesToolbarRightFlow);
+                materialCard12.Controls.Add(_templatesToolbarPanel);
+                _templatesToolbarPanel.BringToFront();
+                _templatesToolbarPanel.Resize += (_, __) => LayoutTemplatesToolbarControls();
+            }
+
+            if (!ReferenceEquals(tbcb.Parent, _templatesToolbarLeftFlow))
+            {
+                tbcb.Margin = new Padding(0, 2, 12, 2);
+                _templatesToolbarLeftFlow.Controls.Add(tbcb);
+            }
+
+            if (!ReferenceEquals(tbtemplatenamecb.Parent, _templatesToolbarLeftFlow))
+            {
+                tbtemplatenamecb.Margin = new Padding(0, 2, 0, 2);
+                _templatesToolbarLeftFlow.Controls.Add(tbtemplatenamecb);
+            }
+
+            if (!ReferenceEquals(addtemplatebtn.Parent, _templatesToolbarRightFlow))
+            {
+                addtemplatebtn.Margin = new Padding(0, 8, 0, 0);
+                _templatesToolbarRightFlow.Controls.Add(addtemplatebtn);
+            }
+
+            materialCard12.Resize -= MaterialCard12_ResizeTemplatesToolbar;
+            materialCard12.Resize += MaterialCard12_ResizeTemplatesToolbar;
+            LayoutTemplatesToolbarControls();
+        }
+
+        private void MaterialCard12_ResizeTemplatesToolbar(object sender, EventArgs e)
+        {
+            LayoutTemplatesToolbarControls();
+        }
+
+        private void LayoutTemplatesToolbarControls()
+        {
+            if (_templatesToolbarPanel == null || _templatesToolbarPanel.IsDisposed || materialCard12 == null)
+                return;
+
+            int pad = 18;
+            int availableWidth = Math.Max(320, materialCard12.ClientSize.Width - (pad * 2));
+            _templatesToolbarPanel.Width = availableWidth;
+            _templatesToolbarPanel.Location = new Point(pad, 16);
+            _templatesToolbarPanel.Height = 58;
+
+            int rightWidth = 170;
+            if (_templatesToolbarRightFlow != null && !_templatesToolbarRightFlow.IsDisposed)
+            {
+                _templatesToolbarRightFlow.Bounds = new Rectangle(
+                    Math.Max(0, _templatesToolbarPanel.Width - rightWidth),
+                    0,
+                    rightWidth,
+                    _templatesToolbarPanel.Height);
+            }
+
+            if (_templatesToolbarLeftFlow != null && !_templatesToolbarLeftFlow.IsDisposed)
+            {
+                _templatesToolbarLeftFlow.Bounds = new Rectangle(
+                    0,
+                    0,
+                    Math.Max(200, _templatesToolbarPanel.Width - rightWidth),
+                    _templatesToolbarPanel.Height);
+            }
+
+            int leftWidth = Math.Max(200, _templatesToolbarPanel.Width - rightWidth);
+            int comboGap = 12;
+            int usableForCombos = Math.Max(200, leftWidth - 16); // account for left-flow padding
+            int comboWidth = Math.Max(220, Math.Min(420, (usableForCombos - comboGap) / 2));
+
+            if (tbcb != null && !tbcb.IsDisposed)
+                tbcb.Width = comboWidth;
+
+            if (tbtemplatenamecb != null && !tbtemplatenamecb.IsDisposed)
+                tbtemplatenamecb.Width = comboWidth;
+
+            if (addtemplatebtn != null && !addtemplatebtn.IsDisposed)
+            {
+                addtemplatebtn.Height = 36;
+                addtemplatebtn.AutoSize = false;
+                addtemplatebtn.Width = 150;
+            }
+
+            if (templatelv != null && !templatelv.IsDisposed)
+            {
+                int listTop = _templatesToolbarPanel.Bottom + 10;
+                int bottomPad = 18;
+                templatelv.Location = new Point(18, listTop);
+                templatelv.Size = new Size(
+                    Math.Max(220, materialCard12.ClientSize.Width - 36),
+                    Math.Max(180, materialCard12.ClientSize.Height - listTop - bottomPad));
+            }
         }
 
         private void EnsureTripScoutToolbarChrome()
@@ -5752,7 +6006,7 @@ namespace Hiatme_Tool_Suite_v3
         {
             ListView listView = (ListView)sender;
             // Trip Scout and the Analyzer trip list share the polished SupeyTheme header palette.
-            bool isTripScoutList = ReferenceEquals(listView, tslv) || ReferenceEquals(listView, aalv);
+            bool isTripScoutList = ReferenceEquals(listView, tslv) || ReferenceEquals(listView, aalv) || ReferenceEquals(listView, templatelv);
             // Draw the standard header background.
             Color lvbg = isTripScoutList ? SupeyTheme.ListHeader : ColorTranslator.FromHtml("#333333");
 
@@ -5819,7 +6073,7 @@ namespace Hiatme_Tool_Suite_v3
         {
             ListView listView = (ListView)sender;
             // Trip Scout and the Analyzer trip list share the polished SupeyTheme selection highlight.
-            bool isTripScoutList = ReferenceEquals(listView, tslv) || ReferenceEquals(listView, aalv);
+            bool isTripScoutList = ReferenceEquals(listView, tslv) || ReferenceEquals(listView, aalv) || ReferenceEquals(listView, templatelv);
             if ((e.State & ListViewItemStates.Selected) != 0)
             {
                 if (listView.Focused && e.Item.Selected)
@@ -5869,7 +6123,7 @@ namespace Hiatme_Tool_Suite_v3
         private void listView_DrawSubItem(object sender, DrawListViewSubItemEventArgs e)
         {
             ListView listView = (ListView)sender;
-            bool isTripScoutList = ReferenceEquals(listView, tslv);
+            bool isTripScoutList = ReferenceEquals(listView, tslv) || ReferenceEquals(listView, aalv) || ReferenceEquals(listView, templatelv);
 
             Rectangle rowBounds = e.Bounds;
             Rectangle bounds = new Rectangle(rowBounds.Left + 10, rowBounds.Top, Math.Max(0, rowBounds.Width - 10 - 1), rowBounds.Height);

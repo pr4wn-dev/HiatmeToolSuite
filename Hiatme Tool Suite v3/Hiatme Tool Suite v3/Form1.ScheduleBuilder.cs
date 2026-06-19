@@ -187,22 +187,99 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-            materialCard14.Dock = DockStyle.Fill;
-
-            materialCard14.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
-
-            materialCard14.Margin = new Padding(0);
-
-            materialCard14.Padding = new Padding(0);
-
-            materialCard14.BackColor = SupeyTheme.SurfaceBase;
-
-
-
             if (materialCard15 != null)
+            {
+                materialCard15.Visible = true;
+                materialCard15.BackColor = SupeyTheme.SurfaceHeader;
+                materialCard15.ForeColor = SupeyTheme.TextPrimary;
+                materialCard15.Padding = new Padding(0);
 
-                materialCard15.Visible = false;
+                var fill = materialCard15.Controls["sbStatusFillPanel"] as Panel;
+                if (fill == null)
+                {
+                    fill = new Panel
+                    {
+                        Name = "sbStatusFillPanel",
+                        Dock = DockStyle.Fill,
+                        BackColor = SupeyTheme.SurfaceStatusBar,
+                        Padding = new Padding(10, 0, 10, 0),
+                    };
+                    materialCard15.Controls.Add(fill);
+                }
+                else
+                {
+                    fill.BackColor = SupeyTheme.SurfaceStatusBar;
+                }
 
+                var divider = fill.Controls["sbStatusTopDivider"] as Panel;
+                if (divider == null)
+                {
+                    divider = new Panel
+                    {
+                        Name = "sbStatusTopDivider",
+                        Dock = DockStyle.Top,
+                        Height = 1,
+                        BackColor = SupeyTheme.Divider,
+                    };
+                    fill.Controls.Add(divider);
+                    divider.BringToFront();
+                }
+
+                if (sbstatuslbl != null)
+                {
+                    if (!ReferenceEquals(sbstatuslbl.Parent, fill))
+                        fill.Controls.Add(sbstatuslbl);
+                    sbstatuslbl.AutoSize = false;
+                    sbstatuslbl.ForeColor = SupeyTheme.TextSecondary;
+                    sbstatuslbl.Font = SupeyTheme.BodyFont;
+                    sbstatuslbl.TextAlign = ContentAlignment.MiddleLeft;
+                    sbstatuslbl.BackColor = SupeyTheme.SurfaceStatusBar;
+                    LayoutStatusLabelInCard(fill, sbstatuslbl);
+                    fill.Resize += (_, __) => LayoutStatusLabelInCard(fill, sbstatuslbl);
+                }
+            }
+
+            if (materialCard14 != null)
+            {
+                materialCard14.Dock = DockStyle.None;
+                materialCard14.Anchor = AnchorStyles.None;
+                materialCard14.Margin = new Padding(0);
+                materialCard14.Padding = new Padding(0);
+                materialCard14.BackColor = SupeyTheme.SurfaceBase;
+            }
+
+            tabPage6.Resize -= TabPage6_LayoutScheduleBuilderPanels;
+            tabPage6.Resize += TabPage6_LayoutScheduleBuilderPanels;
+            LayoutScheduleBuilderPanels();
+
+        }
+
+        private void TabPage6_LayoutScheduleBuilderPanels(object sender, EventArgs e)
+        {
+            LayoutScheduleBuilderPanels();
+        }
+
+        private void LayoutScheduleBuilderPanels()
+        {
+            if (tabPage6 == null || materialCard14 == null || materialCard15 == null)
+                return;
+
+            int left = 13;
+            int right = 13;
+            int top = 15;
+            int bottom = 8;
+            int gap = 6;
+            int statusHeight = 41;
+            int width = Math.Max(240, tabPage6.ClientSize.Width - left - right);
+
+            materialCard15.SetBounds(
+                left,
+                Math.Max(top + 120, tabPage6.ClientSize.Height - bottom - statusHeight),
+                width,
+                statusHeight);
+
+            int card14Height = Math.Max(180, materialCard15.Top - top - gap);
+            materialCard14.SetBounds(left, top, width, card14Height);
         }
 
 
@@ -486,7 +563,10 @@ namespace Hiatme_Tool_Suite_v3
 
             }
 
-            _fsToolbarStatusLbl.Text = text ?? "";
+            string msg = text ?? "";
+            _fsToolbarStatusLbl.Text = msg;
+            if (sbstatuslbl != null && !sbstatuslbl.IsDisposed)
+                sbstatuslbl.Text = msg;
 
         }
 
