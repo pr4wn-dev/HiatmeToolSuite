@@ -23,6 +23,8 @@ namespace Hiatme_Tool_Suite_v3
         private const int WM_PAINT = 0x000F;
         private const int IconSize = 16;
         private const int Pad = 6;
+        private const int LabelH = 16;     // height reserved for the floating label
+        private const int Underline = 2;   // accent underline thickness
 
         [StructLayout(LayoutKind.Sequential)]
         private struct RECT { public int Left, Top, Right, Bottom; }
@@ -39,6 +41,9 @@ namespace Hiatme_Tool_Suite_v3
         private Image _leadingIcon;
         private Image _trailingIcon;
         private string _hint = string.Empty;
+        private Font _labelFont;
+        private readonly Timer _focusAnimTimer;
+        private float _focus;   // 0 = blurred, 1 = focused (drives the underline grow + label colour)
 
         public SupeyTextBox()
         {
@@ -46,7 +51,35 @@ namespace Hiatme_Tool_Suite_v3
             BackColor = SupeyTheme.Surface;
             ForeColor = SupeyTheme.TextPrimary;
             Font = SupeyTheme.BodyFont;
+            _focusAnimTimer = new Timer { Interval = 15 };
+            _focusAnimTimer.Tick += FocusAnimTick;
             SupeyThemeManager.ThemeChanged += OnThemeChanged;
+        }
+
+        private Font LabelFont
+        {
+            get
+            {
+                if (_labelFont == null)
+                {
+                    float size = Math.Max(7f, Font.Size * 0.72f);
+                    _labelFont = new Font(Font.FontFamily, size, FontStyle.Regular, Font.Unit);
+                }
+                return _labelFont;
+            }
+        }
+
+        /// <summary>True when the field is tall enough to host the Material floating label above the text.</summary>
+        private bool UseFloatingLabel => !string.IsNullOrEmpty(_hint) && Height >= 40;
+
+        private void FocusAnimTick(object sender, EventArgs e)
+        {
+            float target = Focused ? 1f : 0f;
+            const float step = 0.18f;
+            if (_focus < target) _focus = Math.Min(target, _focus + step);
+            else if (_focus > target) _focus = Math.Max(target, _focus - step);
+            RedrawBorder();
+            if (Math.Abs(_focus - target) < 0.001f) { _focus = target; _focusAnimTimer.Stop(); }
         }
 
         /// <summary>Raised when the trailing icon is clicked (e.g. the reveal-password eye).</summary>
@@ -55,19 +88,30 @@ namespace Hiatme_Tool_Suite_v3
         public string Hint
         {
             get => _hint;
-            set { _hint = value ?? string.Empty; ApplyCueBanner(); Invalidate(); }
+            set { _hint = value ?? string.Empty; ApplyCueBanner(); RecalcBorder(); }
         }
 
         private void ApplyCueBanner()
         {
-            if (IsHandleCreated)
-                SendMessage(Handle, EM_SETCUEBANNER, (IntPtr)1, _hint);
+            if (!IsHandleCreated) return;
+            // When the field is tall enough for a floating label we show that label instead of an
+            // in-line cue banner; otherwise the cue banner is the resting placeholder.
+            string banner = UseFloatingLabel ? string.Empty : _hint;
+            SendMessage(Handle, EM_SETCUEBANNER, (IntPtr)0, banner);
         }
 
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
             ApplyCueBanner();
+        }
+
+        protected override void OnFontChanged(EventArgs e)
+        {
+            base.OnFontChanged(e);
+            _labelFont?.Dispose();
+            _labelFont = null;
+            RecalcBorder();
         }
 
         public Image LeadingIcon
@@ -116,13 +160,18 @@ namespace Hiatme_Tool_Suite_v3
         protected override void Dispose(bool disposing)
         {
             if (disposing)
+            {
                 SupeyThemeManager.ThemeChanged -= OnThemeChanged;
+                _focusAnimTimer?.Stop();
+                _focusAnimTimer?.Dispose();
+                _labelFont?.Dispose();
+            }
             base.Dispose(disposing);
         }
 
-        protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); RedrawBorder(); }
-        protected override void OnLostFocus(EventArgs e) { base.OnLostFocus(e); RedrawBorder(); Invalidate(); }
-        protected override void OnTextChanged(EventArgs e) { base.OnTextChanged(e); Invalidate(); }
+        protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); if (!_focusAnimTimer.Enabled) _focusAnimTimer.Start(); RedrawBorder(); }
+        protected override void OnLostFocus(EventArgs e) { base.OnLostFocus(e); if (!_focusAnimTimer.Enabled) _focusAnimTimer.Start(); RedrawBorder(); }
+        protected override void OnTextChanged(EventArgs e) { base.OnTextChanged(e); RedrawBorder(); }
 
         private void RecalcBorder()
         {
@@ -150,11 +199,14 @@ namespace Hiatme_Tool_Suite_v3
                     if (m.WParam != IntPtr.Zero)
                     {
                         var rect = (RECT)Marshal.PtrToStructure(m.LParam, typeof(RECT));
-                        int v = Math.Max(1, (rect.Bottom - rect.Top - Font.Height) / 2);
+                        int topStrip = UseFloatingLabel ? LabelH : 0;
+                        int bottomStrip = Underline + 2;
+                        int avail = (rect.Bottom - rect.Top) - topStrip - bottomStrip;
+                        int v = Math.Max(1, (avail - Font.Height) / 2);
                         rect.Left += LeftInset;
                         rect.Right -= RightInset;
-                        rect.Top += v;
-                        rect.Bottom -= v;
+                        rect.Top += topStrip + v;
+                        rect.Bottom -= bottomStrip + v;
                         Marshal.StructureToPtr(rect, m.LParam, false);
                     }
                     return;
@@ -201,22 +253,50 @@ namespace Hiatme_Tool_Suite_v3
             {
                 using (var g = Graphics.FromHdc(hdc))
                 {
-                    var full = new Rectangle(0, 0, Width, Height);
+                    g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                    g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAlias;
+
+                    // Exclude the inner edit area so animation repaints never erase the live text.
+                    int topStrip = UseFloatingLabel ? LabelH : 0;
+                    int bottomStrip = Underline + 2;
+                    int avail = Height - topStrip - bottomStrip;
+                    int v = Math.Max(1, (avail - Font.Height) / 2);
+                    var clientRect = Rectangle.FromLTRB(LeftInset, topStrip + v, Width - RightInset, Height - bottomStrip - v);
+                    g.ExcludeClip(clientRect);
+
                     using (var b = new SolidBrush(SupeyTheme.Surface))
                     {
                         // Fill the non-client frame (the area outside the inset text rect).
                         g.FillRectangle(b, 0, 0, Width, Height);
                     }
 
-                    Color borderColor = Focused ? SupeyTheme.AccentPrimary : SupeyTheme.BorderSubtle;
-                    using (var pen = new Pen(borderColor))
-                        g.DrawRectangle(pen, 0, 0, Width - 1, Height - 1);
+                    // Baseline: a 1px resting line that the accent underline grows over on focus.
+                    int baseY = Height - Underline;
+                    using (var pen = new Pen(SupeyTheme.BorderSubtle))
+                        g.DrawLine(pen, 0, baseY, Width, baseY);
 
-                    int cy = (Height - IconSize) / 2;
+                    // Accent underline grows from the centre as the field gains focus.
+                    if (_focus > 0f)
+                    {
+                        int half = (int)(Width / 2f * _focus);
+                        int cx = Width / 2;
+                        using (var b = new SolidBrush(SupeyTheme.AccentPrimary))
+                            g.FillRectangle(b, cx - half, Height - Underline, half * 2, Underline);
+                    }
+
+                    // Floating label (when tall enough); colour shifts to accent on focus.
+                    if (UseFloatingLabel)
+                    {
+                        Color labelColor = Blend(SupeyTheme.TextSecondary, SupeyTheme.AccentPrimary, _focus);
+                        using (var b = new SolidBrush(labelColor))
+                            g.DrawString(_hint, LabelFont, b, LeftInset - 1, 2f);
+                    }
+
+                    int cyIcon = (Height - IconSize) / 2;
                     if (_leadingIcon != null)
-                        g.DrawImage(_leadingIcon, 1 + Pad, cy, IconSize, IconSize);
+                        g.DrawImage(_leadingIcon, 1 + Pad, cyIcon, IconSize, IconSize);
                     if (_trailingIcon != null)
-                        g.DrawImage(_trailingIcon, Width - 1 - Pad - IconSize, cy, IconSize, IconSize);
+                        g.DrawImage(_trailingIcon, Width - 1 - Pad - IconSize, cyIcon, IconSize, IconSize);
                 }
             }
             finally
@@ -225,5 +305,13 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        private static Color Blend(Color a, Color b, float t)
+        {
+            t = Math.Max(0f, Math.Min(1f, t));
+            return Color.FromArgb(
+                (int)(a.R + (b.R - a.R) * t),
+                (int)(a.G + (b.G - a.G) * t),
+                (int)(a.B + (b.B - a.B) * t));
+        }
     }
 }
