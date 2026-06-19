@@ -117,7 +117,7 @@ namespace Hiatme_Tool_Suite_v3
                 Location = new Point(20, 78),
                 AutoSize = false,
                 Size = new Size(900, 24),
-                ForeColor = Color.Gainsboro,
+                ForeColor = SupeyTheme.TextPrimary,
                 Font = new Font("Segoe UI Semibold", 11f),
                 BackColor = Color.Transparent,
             };
@@ -129,7 +129,7 @@ namespace Hiatme_Tool_Suite_v3
                 AutoSize = false,
                 Size = new Size(900, 22),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
-                ForeColor = Color.Silver,
+                ForeColor = SupeyTheme.TextSecondary,
                 Font = new Font("Segoe UI", 9f),
                 BackColor = Color.Transparent,
             };
@@ -148,12 +148,12 @@ namespace Hiatme_Tool_Suite_v3
 
             _checkAllBtn = MakeButton("CHECK ALL", new Point(228, 150), new Size(110, 36), useAccent: false);
             _checkAllBtn.Type = MaterialButton.MaterialButtonType.Outlined;
-            _checkAllBtn.NoAccentTextColor = Color.Gainsboro;
+            _checkAllBtn.NoAccentTextColor = SupeyTheme.TextPrimary;
             _checkAllBtn.Click += (s, e) => SetAllChecked(true);
 
             _checkNoneBtn = MakeButton("CLEAR", new Point(346, 150), new Size(96, 36), useAccent: false);
             _checkNoneBtn.Type = MaterialButton.MaterialButtonType.Outlined;
-            _checkNoneBtn.NoAccentTextColor = Color.Gainsboro;
+            _checkNoneBtn.NoAccentTextColor = SupeyTheme.TextPrimary;
             _checkNoneBtn.Click += (s, e) => SetAllChecked(false);
 
             _summaryLbl = new Label
@@ -162,7 +162,7 @@ namespace Hiatme_Tool_Suite_v3
                 AutoSize = false,
                 Size = new Size(490, 22),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
-                ForeColor = Color.Silver,
+                ForeColor = SupeyTheme.TextSecondary,
                 Font = new Font("Segoe UI", 9f),
                 BackColor = Color.Transparent,
                 Text = "",
@@ -207,7 +207,7 @@ namespace Hiatme_Tool_Suite_v3
                 Size = _driverList.Size,
                 Anchor = _driverList.Anchor,
                 BackColor = ListBg,
-                ForeColor = Color.Silver,
+                ForeColor = SupeyTheme.TextSecondary,
                 TextAlign = ContentAlignment.MiddleCenter,
                 Font = new Font("Segoe UI", 10.5f),
                 Text = "No drivers loaded yet.\nClick PULL FROM WELLRYDE above to fetch the active driver list.",
@@ -217,7 +217,7 @@ namespace Hiatme_Tool_Suite_v3
             _cancelBtn = MakeButton("CANCEL", new Point(720, 552), new Size(96, 36), useAccent: false);
             _cancelBtn.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
             _cancelBtn.Type = MaterialButton.MaterialButtonType.Text;
-            _cancelBtn.NoAccentTextColor = Color.Gainsboro;
+            _cancelBtn.NoAccentTextColor = SupeyTheme.TextPrimary;
             _cancelBtn.Click += (s, e) => OnCancelClicked();
 
             _addSelectedBtn = new DarkOnAccentMaterialButton

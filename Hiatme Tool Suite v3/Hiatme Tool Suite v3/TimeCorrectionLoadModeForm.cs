@@ -35,7 +35,7 @@ namespace Hiatme_Tool_Suite_v3
             ClientSize = new Size(DialogWidth, 560);
             MinimumSize = new Size(DialogWidth, 560);
             MaximumSize = new Size(DialogWidth, 560);
-            BackColor = DarkContextMenuRenderer.Background;
+            BackColor = SupeyTheme.Surface;
 
             try
             {
@@ -51,7 +51,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 Dock = DockStyle.Bottom,
                 Height = 56,
-                BackColor = DarkContextMenuRenderer.Background,
+                BackColor = SupeyTheme.Surface,
             };
 
             var footerButtons = new FlowLayoutPanel
@@ -60,7 +60,7 @@ namespace Hiatme_Tool_Suite_v3
                 FlowDirection = FlowDirection.RightToLeft,
                 WrapContents = false,
                 Padding = new Padding(0, 8, 20, 12),
-                BackColor = DarkContextMenuRenderer.Background,
+                BackColor = SupeyTheme.Surface,
             };
 
             var loadBtn = new DarkOnAccentMaterialButton
@@ -80,7 +80,7 @@ namespace Hiatme_Tool_Suite_v3
                 AutoSize = false,
                 Type = MaterialButton.MaterialButtonType.Text,
                 UseAccentColor = false,
-                NoAccentTextColor = Color.Gainsboro,
+                NoAccentTextColor = SupeyTheme.TextPrimary,
                 Size = new Size(96, 36),
                 Margin = new Padding(0, 0, 8, 0),
                 DialogResult = DialogResult.Cancel,
@@ -93,7 +93,7 @@ namespace Hiatme_Tool_Suite_v3
             var body = new Panel
             {
                 Dock = DockStyle.Fill,
-                BackColor = DarkContextMenuRenderer.Background,
+                BackColor = SupeyTheme.Surface,
                 Padding = new Padding(24, 76, 24, 12),
             };
 
@@ -104,13 +104,13 @@ namespace Hiatme_Tool_Suite_v3
                 WrapContents = false,
                 AutoScroll = false,
                 AutoSize = false,
-                BackColor = DarkContextMenuRenderer.Background,
+                BackColor = SupeyTheme.Surface,
             };
 
-            stack.Controls.Add(CreateHeaderLabel("How should this batch be evaluated?", TitleFont, Color.Gainsboro, 8));
+            stack.Controls.Add(CreateHeaderLabel("How should this batch be evaluated?", TitleFont, SupeyTheme.TextPrimary, 8));
             stack.Controls.Add(CreateHeaderLabel(
                 "Driver and vehicle eligibility uses lists from one sample trip opened on Modivcare.",
-                HintFont, Color.Silver, 14));
+                HintFont, SupeyTheme.TextSecondary, 14));
 
             _rbStandard = AddOptionRow(stack,
                 "Standard — full scoreboard PU/DO timing (usual run).", false);
@@ -154,7 +154,7 @@ namespace Hiatme_Tool_Suite_v3
                 AutoSize = true,
                 MaximumSize = new Size(TextWidth, 0),
                 Margin = new Padding(0, 0, 0, bottomMargin),
-                BackColor = DarkContextMenuRenderer.Background,
+                BackColor = SupeyTheme.Surface,
             };
         }
 
@@ -167,7 +167,7 @@ namespace Hiatme_Tool_Suite_v3
                 ColumnCount = 2,
                 Width = TextWidth + 26,
                 Margin = new Padding(0, 0, 0, 10),
-                BackColor = DarkContextMenuRenderer.Background,
+                BackColor = SupeyTheme.Surface,
             };
             row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 22F));
             row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, TextWidth));
@@ -178,18 +178,18 @@ namespace Hiatme_Tool_Suite_v3
                 Checked = selected,
                 TabStop = true,
                 Margin = new Padding(0, 3, 0, 0),
-                BackColor = DarkContextMenuRenderer.Background,
+                BackColor = SupeyTheme.Surface,
             };
 
             var caption = new Label
             {
                 Text = text,
                 Font = BodyFont,
-                ForeColor = Color.Gainsboro,
+                ForeColor = SupeyTheme.TextPrimary,
                 AutoSize = true,
                 MaximumSize = new Size(TextWidth, 0),
                 Margin = new Padding(0),
-                BackColor = DarkContextMenuRenderer.Background,
+                BackColor = SupeyTheme.Surface,
                 Cursor = Cursors.Hand,
             };
 

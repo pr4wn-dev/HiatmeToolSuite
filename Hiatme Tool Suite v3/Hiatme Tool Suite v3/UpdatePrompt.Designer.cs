@@ -26,7 +26,7 @@ namespace Hiatme_Tool_Suite_v3
             // _versionLabel
             //
             this._versionLabel.AutoSize = false;
-            this._versionLabel.ForeColor = System.Drawing.Color.Gainsboro;
+            this._versionLabel.ForeColor = Hiatme_Tool_Suite_v3.SupeyTheme.TextPrimary;
             this._versionLabel.Font = new System.Drawing.Font("Segoe UI Semibold", 11F);
             this._versionLabel.Location = new System.Drawing.Point(20, 78);
             this._versionLabel.Size = new System.Drawing.Size(540, 26);
@@ -35,7 +35,7 @@ namespace Hiatme_Tool_Suite_v3
             // _sizeLabel
             //
             this._sizeLabel.AutoSize = false;
-            this._sizeLabel.ForeColor = System.Drawing.Color.Silver;
+            this._sizeLabel.ForeColor = Hiatme_Tool_Suite_v3.SupeyTheme.TextSecondary;
             this._sizeLabel.Font = new System.Drawing.Font("Segoe UI", 9F);
             this._sizeLabel.Location = new System.Drawing.Point(20, 106);
             this._sizeLabel.Size = new System.Drawing.Size(540, 18);
@@ -43,7 +43,7 @@ namespace Hiatme_Tool_Suite_v3
             // _notesLabel
             //
             this._notesLabel.AutoSize = false;
-            this._notesLabel.ForeColor = System.Drawing.Color.Gainsboro;
+            this._notesLabel.ForeColor = Hiatme_Tool_Suite_v3.SupeyTheme.TextPrimary;
             this._notesLabel.Font = new System.Drawing.Font("Segoe UI Semibold", 10F);
             this._notesLabel.Location = new System.Drawing.Point(20, 132);
             this._notesLabel.Size = new System.Drawing.Size(540, 20);
@@ -55,7 +55,7 @@ namespace Hiatme_Tool_Suite_v3
             this._notesBox.ReadOnly = true;
             this._notesBox.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
             this._notesBox.BackColor = System.Drawing.Color.FromArgb(33, 33, 33);
-            this._notesBox.ForeColor = System.Drawing.Color.Gainsboro;
+            this._notesBox.ForeColor = Hiatme_Tool_Suite_v3.SupeyTheme.TextPrimary;
             this._notesBox.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
             this._notesBox.Font = new System.Drawing.Font("Segoe UI", 9F);
             this._notesBox.Location = new System.Drawing.Point(20, 155);
@@ -69,7 +69,7 @@ namespace Hiatme_Tool_Suite_v3
             // _progressLabel
             //
             this._progressLabel.AutoSize = false;
-            this._progressLabel.ForeColor = System.Drawing.Color.Silver;
+            this._progressLabel.ForeColor = Hiatme_Tool_Suite_v3.SupeyTheme.TextSecondary;
             this._progressLabel.Font = new System.Drawing.Font("Segoe UI", 8.5F);
             this._progressLabel.Location = new System.Drawing.Point(20, 314);
             this._progressLabel.Size = new System.Drawing.Size(540, 18);
@@ -96,7 +96,7 @@ namespace Hiatme_Tool_Suite_v3
             // Text-type MaterialButton defaults to the scheme's Primary (Grey900) which disappears
             // on this dark form; pin the label to a light gray so it stays legible.
             this._laterButton.UseAccentColor = false;
-            this._laterButton.NoAccentTextColor = System.Drawing.Color.Gainsboro;
+            this._laterButton.NoAccentTextColor = Hiatme_Tool_Suite_v3.SupeyTheme.TextPrimary;
             this._laterButton.Click += new System.EventHandler(this.OnLaterClicked);
             //
             // UpdatePrompt

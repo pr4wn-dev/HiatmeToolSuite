@@ -23,7 +23,7 @@ namespace Hiatme_Tool_Suite_v3
             StartPosition = FormStartPosition.CenterParent;
             Size = new Size(720, 520);
             BackColor = Color.FromArgb(40, 40, 40);
-            ForeColor = Color.Gainsboro;
+            ForeColor = SupeyTheme.TextPrimary;
             MinimumSize = new Size(560, 420);
 
             GMapInitializer.EnsureInitialized();
@@ -33,7 +33,7 @@ namespace Hiatme_Tool_Suite_v3
                 Dock = DockStyle.Top,
                 Height = 44,
                 Padding = new Padding(12, 8, 12, 4),
-                ForeColor = Color.Gainsboro,
+                ForeColor = SupeyTheme.TextPrimary,
                 BackColor = Color.FromArgb(35, 35, 35),
                 Font = new Font("Segoe UI", 9.5f),
                 Text = FormatAddress(),
@@ -44,7 +44,7 @@ namespace Hiatme_Tool_Suite_v3
                 Dock = DockStyle.Top,
                 Height = 28,
                 Text = "Drag the pin to the correct spot, then click Save for this company-wide.",
-                ForeColor = Color.Silver,
+                ForeColor = SupeyTheme.TextSecondary,
                 BackColor = Color.FromArgb(35, 35, 35),
                 Padding = new Padding(12, 0, 12, 0),
                 Font = new Font("Segoe UI", 8.75f),
@@ -88,7 +88,7 @@ namespace Hiatme_Tool_Suite_v3
                 DialogResult = DialogResult.Cancel,
                 AutoSize = true,
                 FlatStyle = FlatStyle.Flat,
-                ForeColor = Color.Gainsboro,
+                ForeColor = SupeyTheme.TextPrimary,
                 BackColor = Color.FromArgb(55, 55, 55),
             };
             var save = new Button

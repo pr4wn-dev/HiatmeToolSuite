@@ -24,7 +24,7 @@ namespace Hiatme_Tool_Suite_v3
             ClientSize = new Size(460, 280);
             MinimumSize = new Size(460, 280);
             MaximumSize = new Size(460, 280);
-            BackColor = DarkContextMenuRenderer.Background;
+            BackColor = SupeyTheme.Surface;
 
             try
             {
@@ -43,7 +43,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 Dock = DockStyle.Bottom,
                 Height = 56,
-                BackColor = DarkContextMenuRenderer.Background,
+                BackColor = SupeyTheme.Surface,
             };
 
             var footerButtons = new FlowLayoutPanel
@@ -52,7 +52,7 @@ namespace Hiatme_Tool_Suite_v3
                 FlowDirection = FlowDirection.RightToLeft,
                 WrapContents = false,
                 Padding = new Padding(0, 8, 20, 12),
-                BackColor = DarkContextMenuRenderer.Background,
+                BackColor = SupeyTheme.Surface,
             };
 
             var sendBtn = new DarkOnAccentMaterialButton
@@ -71,7 +71,7 @@ namespace Hiatme_Tool_Suite_v3
                 AutoSize = false,
                 Type = MaterialButton.MaterialButtonType.Text,
                 UseAccentColor = false,
-                NoAccentTextColor = Color.Gainsboro,
+                NoAccentTextColor = SupeyTheme.TextSecondary,
                 Size = new Size(96, 36),
                 Margin = new Padding(0, 0, 8, 0),
                 DialogResult = DialogResult.Cancel,
@@ -84,7 +84,7 @@ namespace Hiatme_Tool_Suite_v3
             var body = new Panel
             {
                 Dock = DockStyle.Fill,
-                BackColor = DarkContextMenuRenderer.Background,
+                BackColor = SupeyTheme.Surface,
                 Padding = new Padding(24, 76, 24, 12),
             };
 
@@ -93,21 +93,21 @@ namespace Hiatme_Tool_Suite_v3
                 Dock = DockStyle.Fill,
                 ColumnCount = 1,
                 RowCount = 6,
-                BackColor = DarkContextMenuRenderer.Background,
+                BackColor = SupeyTheme.Surface,
             };
 
-            stack.Controls.Add(MakeLabel("Send schedule to this driver?", new Font("Segoe UI Semibold", 11f), Color.Gainsboro, 0), 0, 0);
+            stack.Controls.Add(MakeLabel("Send schedule to this driver?", new Font("Segoe UI Semibold", 11f), SupeyTheme.TextPrimary, 0), 0, 0);
             stack.Controls.Add(MakeLabel(
                 "Attaches the full workbook (.xlsx, all driver tabs) for " + dateLabel + ".",
-                new Font("Segoe UI", 9f), Color.Silver, 8), 0, 1);
+                new Font("Segoe UI", 9f), SupeyTheme.TextSecondary, 8), 0, 1);
             stack.Controls.Add(MakeLabel("Driver: " + (driver.Length > 0 ? driver : "(unknown)"),
-                new Font("Segoe UI", 9.75f), Color.Gainsboro, 14), 0, 2);
+                new Font("Segoe UI", 9.75f), SupeyTheme.TextPrimary, 14), 0, 2);
             stack.Controls.Add(MakeLabel("Email: " + email,
-                new Font("Segoe UI", 9.75f), Color.Gainsboro, 4), 0, 3);
+                new Font("Segoe UI", 9.75f), SupeyTheme.TextPrimary, 4), 0, 3);
             if (from.Length > 0)
             {
                 stack.Controls.Add(MakeLabel("From: " + from,
-                    new Font("Segoe UI", 9f), Color.Silver, 4), 0, 4);
+                    new Font("Segoe UI", 9f), SupeyTheme.TextSecondary, 4), 0, 4);
             }
 
             body.Controls.Add(stack);
@@ -129,7 +129,7 @@ namespace Hiatme_Tool_Suite_v3
                 AutoSize = true,
                 MaximumSize = new Size(400, 0),
                 Margin = new Padding(0, topMargin, 0, 0),
-                BackColor = DarkContextMenuRenderer.Background,
+                BackColor = SupeyTheme.Surface,
             };
         }
     }

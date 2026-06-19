@@ -45,7 +45,7 @@ namespace Hiatme_Tool_Suite_v3
             ClientSize = new Size(700, 560);
             MinimumSize = new Size(700, 560);
             MaximumSize = new Size(700, 560);
-            BackColor = DarkContextMenuRenderer.Background;
+            BackColor = SupeyTheme.Surface;
 
             try
             {
@@ -59,7 +59,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 Dock = DockStyle.Bottom,
                 Height = 56,
-                BackColor = DarkContextMenuRenderer.Background,
+                BackColor = SupeyTheme.SurfaceHeader,
             };
 
             var footerButtons = new FlowLayoutPanel
@@ -68,7 +68,7 @@ namespace Hiatme_Tool_Suite_v3
                 FlowDirection = FlowDirection.RightToLeft,
                 WrapContents = false,
                 Padding = new Padding(0, 8, 16, 12),
-                BackColor = DarkContextMenuRenderer.Background,
+                BackColor = SupeyTheme.SurfaceHeader,
             };
 
             _confirmBtn = new DarkOnAccentMaterialButton
@@ -98,7 +98,7 @@ namespace Hiatme_Tool_Suite_v3
                 AutoSize = false,
                 Type = MaterialButton.MaterialButtonType.Text,
                 UseAccentColor = false,
-                NoAccentTextColor = Color.Gainsboro,
+                NoAccentTextColor = SupeyTheme.TextSecondary,
                 Size = new Size(88, 36),
                 Margin = new Padding(0, 0, 8, 0),
                 DialogResult = DialogResult.Cancel,
@@ -112,7 +112,7 @@ namespace Hiatme_Tool_Suite_v3
             var body = new Panel
             {
                 Dock = DockStyle.Fill,
-                BackColor = DarkContextMenuRenderer.Background,
+                BackColor = SupeyTheme.Surface,
                 Padding = new Padding(16, 72, 16, 8),
             };
 
@@ -120,7 +120,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 Dock = DockStyle.Top,
                 Height = 20,
-                ForeColor = Color.Silver,
+                ForeColor = SupeyTheme.TextSecondary,
                 Font = new Font("Segoe UI", 9f),
                 TextAlign = ContentAlignment.MiddleLeft,
             };
@@ -129,7 +129,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 Dock = DockStyle.Top,
                 Height = 44,
-                ForeColor = Color.Gainsboro,
+                ForeColor = SupeyTheme.TextPrimary,
                 Font = new Font("Segoe UI Semibold", 11.5f),
                 TextAlign = ContentAlignment.TopLeft,
             };
@@ -138,7 +138,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 Dock = DockStyle.Top,
                 Height = 36,
-                ForeColor = Color.Silver,
+                ForeColor = SupeyTheme.TextSecondary,
                 Font = new Font("Segoe UI", 9.5f),
                 TextAlign = ContentAlignment.TopLeft,
             };
@@ -156,13 +156,13 @@ namespace Hiatme_Tool_Suite_v3
                 Multiline = true,
                 ReadOnly = true,
                 BorderStyle = BorderStyle.FixedSingle,
-                BackColor = Color.FromArgb(28, 28, 28),
-                ForeColor = Color.Gainsboro,
+                BackColor = SupeyTheme.SurfaceBase,
+                ForeColor = SupeyTheme.TextPrimary,
                 Font = new Font("Segoe UI", 9.25f),
                 ScrollBars = ScrollBars.Vertical,
             };
 
-            var stack = new Panel { Dock = DockStyle.Fill, BackColor = DarkContextMenuRenderer.Background };
+            var stack = new Panel { Dock = DockStyle.Fill, BackColor = SupeyTheme.Surface };
             stack.Controls.Add(_reasonsBox);
             stack.Controls.Add(_previewPanel);
             stack.Controls.Add(_summaryLbl);
@@ -194,7 +194,7 @@ namespace Hiatme_Tool_Suite_v3
                 + (s.Feasible ? " · timing OK" : " · timing tight");
 
             _headlineLbl.Text = s.Headline ?? "";
-            _headlineLbl.ForeColor = s.Feasible ? Color.FromArgb(180, 220, 160) : Color.FromArgb(220, 180, 120);
+            _headlineLbl.ForeColor = s.Feasible ? SupeyTheme.SuccessText : SupeyTheme.WarnText;
 
             _summaryLbl.Text = s.Summary ?? "";
 

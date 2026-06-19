@@ -80,7 +80,7 @@ namespace Hiatme_Tool_Suite_v3
                 Text = "Choose drivers to email",
                 Location = new Point(20, 78),
                 Size = new Size(600, 24),
-                ForeColor = Color.Gainsboro,
+                ForeColor = SupeyTheme.TextPrimary,
                 Font = new Font("Segoe UI Semibold", 11f),
                 BackColor = Color.Transparent,
             };
@@ -93,7 +93,7 @@ namespace Hiatme_Tool_Suite_v3
                     + (from.Length > 0 ? " · From: " + from : ""),
                 Location = new Point(20, 104),
                 Size = new Size(600, 36),
-                ForeColor = Color.Silver,
+                ForeColor = SupeyTheme.TextSecondary,
                 Font = new Font("Segoe UI", 9f),
                 BackColor = Color.Transparent,
             };
@@ -139,7 +139,7 @@ namespace Hiatme_Tool_Suite_v3
                 Location = new Point(20, 456),
                 Size = new Size(400, 20),
                 Anchor = AnchorStyles.Bottom | AnchorStyles.Left,
-                ForeColor = Color.Silver,
+                ForeColor = SupeyTheme.TextSecondary,
                 Font = new Font("Segoe UI", 8.5f),
                 BackColor = Color.Transparent,
             };
@@ -193,7 +193,7 @@ namespace Hiatme_Tool_Suite_v3
                 Type = MaterialButton.MaterialButtonType.Text,
                 Density = MaterialButton.MaterialButtonDensity.Default,
                 UseAccentColor = false,
-                NoAccentTextColor = Color.Gainsboro,
+                NoAccentTextColor = SupeyTheme.TextSecondary,
             };
         }
 

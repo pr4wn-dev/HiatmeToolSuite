@@ -96,7 +96,7 @@ namespace Hiatme_Tool_Suite_v3
             this._cancelButton.Text = "CANCEL";
             this._cancelButton.Type = MaterialSkin.Controls.MaterialButton.MaterialButtonType.Text;
             this._cancelButton.UseAccentColor = false;
-            this._cancelButton.NoAccentTextColor = System.Drawing.Color.Gainsboro;
+            this._cancelButton.NoAccentTextColor = Hiatme_Tool_Suite_v3.SupeyTheme.TextPrimary;
             this._cancelButton.Click += new System.EventHandler(this.OnCancelClicked);
 
             this._okButton.AutoSize = false;
@@ -151,7 +151,7 @@ namespace Hiatme_Tool_Suite_v3
         private static void ConfigHeader(System.Windows.Forms.Label l, string text, int x, int y, int w, int h)
         {
             l.AutoSize = false;
-            l.ForeColor = System.Drawing.Color.Gainsboro;
+            l.ForeColor = Hiatme_Tool_Suite_v3.SupeyTheme.TextPrimary;
             l.Font = new System.Drawing.Font("Segoe UI Semibold", 12F);
             l.Location = new System.Drawing.Point(x, y);
             l.Size = new System.Drawing.Size(w, h);
@@ -228,7 +228,7 @@ namespace Hiatme_Tool_Suite_v3
         private static void ConfigLabel(System.Windows.Forms.Label l, string text, int x, int y, int w, int h)
         {
             l.AutoSize = false;
-            l.ForeColor = System.Drawing.Color.Silver;
+            l.ForeColor = Hiatme_Tool_Suite_v3.SupeyTheme.TextSecondary;
             l.Font = new System.Drawing.Font("Segoe UI", 9F);
             l.Location = new System.Drawing.Point(x, y);
             l.Size = new System.Drawing.Size(w, h);

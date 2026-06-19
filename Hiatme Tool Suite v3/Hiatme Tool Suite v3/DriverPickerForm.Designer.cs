@@ -26,7 +26,7 @@ namespace Hiatme_Tool_Suite_v3
             // _headerLabel
             // 
             this._headerLabel.AutoSize = false;
-            this._headerLabel.ForeColor = System.Drawing.Color.Gainsboro;
+            this._headerLabel.ForeColor = Hiatme_Tool_Suite_v3.SupeyTheme.TextPrimary;
             this._headerLabel.Font = new System.Drawing.Font("Segoe UI Semibold", 11F);
             this._headerLabel.Location = new System.Drawing.Point(20, 78);
             this._headerLabel.Size = new System.Drawing.Size(440, 24);
@@ -35,7 +35,7 @@ namespace Hiatme_Tool_Suite_v3
             // _tripsLabel
             // 
             this._tripsLabel.AutoSize = false;
-            this._tripsLabel.ForeColor = System.Drawing.Color.Silver;
+            this._tripsLabel.ForeColor = Hiatme_Tool_Suite_v3.SupeyTheme.TextSecondary;
             this._tripsLabel.Font = new System.Drawing.Font("Segoe UI", 9F);
             this._tripsLabel.Location = new System.Drawing.Point(20, 104);
             this._tripsLabel.Size = new System.Drawing.Size(440, 18);
@@ -61,11 +61,11 @@ namespace Hiatme_Tool_Suite_v3
             // 
             // _driverList
             // 
-            this._driverList.BackColor = System.Drawing.Color.FromArgb(70, 70, 70);
+            this._driverList.BackColor = Hiatme_Tool_Suite_v3.SupeyTheme.ListBody;
             this._driverList.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
             this._driverList.Columns.AddRange(new System.Windows.Forms.ColumnHeader[] { this._driverColName });
             this._driverList.Font = new System.Drawing.Font("Archivo Medium", 10.25F, System.Drawing.FontStyle.Regular);
-            this._driverList.ForeColor = System.Drawing.Color.Gainsboro;
+            this._driverList.ForeColor = Hiatme_Tool_Suite_v3.SupeyTheme.ListText;
             this._driverList.FullRowSelect = true;
             this._driverList.GridLines = false;
             this._driverList.HeaderStyle = System.Windows.Forms.ColumnHeaderStyle.None;
@@ -92,7 +92,7 @@ namespace Hiatme_Tool_Suite_v3
             // _countLabel
             // 
             this._countLabel.AutoSize = false;
-            this._countLabel.ForeColor = System.Drawing.Color.Silver;
+            this._countLabel.ForeColor = Hiatme_Tool_Suite_v3.SupeyTheme.TextSecondary;
             this._countLabel.Font = new System.Drawing.Font("Segoe UI", 8.5F);
             this._countLabel.Location = new System.Drawing.Point(20, 514);
             this._countLabel.Size = new System.Drawing.Size(280, 18);
@@ -120,7 +120,7 @@ namespace Hiatme_Tool_Suite_v3
             // Text-type MaterialButton defaults its label to the scheme's Primary (Grey900),
             // which is invisible on the dark form. Force a light color so it reads cleanly.
             this._cancelButton.UseAccentColor = false;
-            this._cancelButton.NoAccentTextColor = System.Drawing.Color.Gainsboro;
+            this._cancelButton.NoAccentTextColor = Hiatme_Tool_Suite_v3.SupeyTheme.TextSecondary;
             this._cancelButton.Click += new System.EventHandler(this.OnCancelClicked);
             // 
             // DriverPickerForm
