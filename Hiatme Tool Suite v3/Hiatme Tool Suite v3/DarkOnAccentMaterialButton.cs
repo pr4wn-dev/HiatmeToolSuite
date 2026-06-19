@@ -34,6 +34,12 @@ namespace Hiatme_Tool_Suite_v3
             // green in both states (per UX request); the disabled cue is the standard disabled
             // cursor + the host form's tooltip explaining why the button is currently inert.
             EnabledChanged += (s, e) => Invalidate();
+            SupeyThemeManager.ThemeChanged += OnSupeyThemeChanged;
+        }
+
+        private void OnSupeyThemeChanged(object sender, EventArgs e)
+        {
+            if (!IsDisposed) Invalidate();
         }
 
         protected override void OnFontChanged(EventArgs e)
@@ -47,6 +53,7 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (disposing)
             {
+                SupeyThemeManager.ThemeChanged -= OnSupeyThemeChanged;
                 _boldFont?.Dispose();
                 _boldFont = null;
             }
@@ -71,6 +78,7 @@ namespace Hiatme_Tool_Suite_v3
             if (string.IsNullOrEmpty(Text)) return;
 
             Color accentFill = SafeAccentColor();
+            Color labelColor = SafeOnAccentTextColor();
             string label = ApplyCasing(Text);
             Font font = GetBoldFont();
             const TextFormatFlags textFlags = TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter
@@ -89,7 +97,7 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     e.Graphics.FillPath(bg, path);
                 }
-                TextRenderer.DrawText(e.Graphics, label, font, fullRect, OverrideTextColor, textFlags);
+                TextRenderer.DrawText(e.Graphics, label, font, fullRect, labelColor, textFlags);
                 return;
             }
 
@@ -109,7 +117,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 e.Graphics.FillRectangle(bg, textRect);
             }
-            TextRenderer.DrawText(e.Graphics, label, font, textRect, OverrideTextColor, textFlags);
+            TextRenderer.DrawText(e.Graphics, label, font, textRect, labelColor, textFlags);
         }
 
         /// <summary>
@@ -149,11 +157,26 @@ namespace Hiatme_Tool_Suite_v3
         {
             try
             {
-                return MaterialSkinManager.Instance?.ColorScheme?.AccentColor ?? Color.YellowGreen;
+                return SupeyTheme.AccentPrimary;
             }
             catch
             {
                 return Color.YellowGreen;
+            }
+        }
+
+        private Color SafeOnAccentTextColor()
+        {
+            try
+            {
+                // Honor an explicit caller override; otherwise pick readable text for the accent.
+                if (OverrideTextColor != Color.FromArgb(20, 20, 20))
+                    return OverrideTextColor;
+                return SupeyTheme.OnAccentText;
+            }
+            catch
+            {
+                return OverrideTextColor;
             }
         }
     }

@@ -34,7 +34,7 @@ namespace Hiatme_Tool_Suite_v3
             this._tripsHeaderLabel = new System.Windows.Forms.Label();
             this._tripsCountLabel = new System.Windows.Forms.Label();
             this._tripsHorizonLabel = new System.Windows.Forms.Label();
-            this._tripsHorizonCombo = new System.Windows.Forms.ComboBox();
+            this._tripsHorizonCombo = new Hiatme_Tool_Suite_v3.SupeyComboBox();
             this._etaButton = new MaterialSkin.Controls.MaterialButton();
             this._etaStatusLabel = new System.Windows.Forms.Label();
             this._tripsFlow = new System.Windows.Forms.FlowLayoutPanel();
@@ -278,12 +278,12 @@ namespace Hiatme_Tool_Suite_v3
             // 
             // _tripsHorizonCombo
             // 
-            this._tripsHorizonCombo.BackColor = System.Drawing.Color.FromArgb(60, 60, 60);
+            this._tripsHorizonCombo.BackColor = Hiatme_Tool_Suite_v3.SupeyTheme.SurfaceElevated;
             this._tripsHorizonCombo.DrawMode = System.Windows.Forms.DrawMode.OwnerDrawFixed;
             this._tripsHorizonCombo.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
             this._tripsHorizonCombo.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this._tripsHorizonCombo.Font = new System.Drawing.Font("Segoe UI", 8.5F);
-            this._tripsHorizonCombo.ForeColor = System.Drawing.Color.Gainsboro;
+            this._tripsHorizonCombo.ForeColor = Hiatme_Tool_Suite_v3.SupeyTheme.TextPrimary;
             this._tripsHorizonCombo.FormattingEnabled = true;
             this._tripsHorizonCombo.ItemHeight = 18;
             this._tripsHorizonCombo.Location = new System.Drawing.Point(60, 58);
@@ -397,7 +397,7 @@ namespace Hiatme_Tool_Suite_v3
         private System.Windows.Forms.Label _tripsHeaderLabel;
         private System.Windows.Forms.Label _tripsCountLabel;
         private System.Windows.Forms.Label _tripsHorizonLabel;
-        private System.Windows.Forms.ComboBox _tripsHorizonCombo;
+        private Hiatme_Tool_Suite_v3.SupeyComboBox _tripsHorizonCombo;
         private MaterialSkin.Controls.MaterialButton _etaButton;
         private System.Windows.Forms.Label _etaStatusLabel;
         private System.Windows.Forms.FlowLayoutPanel _tripsFlow;

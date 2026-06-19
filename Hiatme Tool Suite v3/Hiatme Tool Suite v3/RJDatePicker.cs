@@ -7,17 +7,29 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Runtime.InteropServices;
 
 namespace Hiatme_Tool_Suite_v3
 {
     public class RJDatePicker : DateTimePicker
     {
+        // ── Win32 plumbing to dark-theme the popup MonthCalendar ──────────────────
+        [DllImport("uxtheme.dll", CharSet = CharSet.Unicode)]
+        private static extern int SetWindowTheme(IntPtr hWnd, string pszSubAppName, string pszSubIdList);
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+        private const int DTM_FIRST = 0x1000;
+        private const int DTM_GETMONTHCAL = DTM_FIRST + 8;
+
         //Fields
         //-> Appearance
         private Color skinColor = Color.MediumSlateBlue;
         private Color textColor = Color.White;
         private Color borderColor = Color.PaleVioletRed;
         private int borderSize = 0;
+        private bool _themeHooked;
 
         //-> Other Values
         private bool droppedDown = false;
@@ -76,6 +88,40 @@ namespace Hiatme_Tool_Suite_v3
             this.SetStyle(ControlStyles.UserPaint, true);
             this.MinimumSize = new Size(0, 35);
             this.Font = new Font(this.Font.Name, 9.5F);
+            ApplyTheme();
+            SupeyThemeManager.ThemeChanged += OnSupeyThemeChanged;
+        }
+
+        /// <summary>Pull the closed-face + popup-calendar colors from the active Supey theme.</summary>
+        public void ApplyTheme()
+        {
+            skinColor = SupeyTheme.SurfaceElevated;
+            textColor = SupeyTheme.TextPrimary;
+            borderColor = SupeyTheme.BorderSubtle;
+            calendarIcon = skinColor.GetBrightness() >= 0.6F
+                ? Properties.Resources.calendarDark
+                : Properties.Resources.calendarWhite;
+
+            // These map onto the popup MonthCalendar once visual styles are disabled for it.
+            CalendarMonthBackground = SupeyTheme.Surface;
+            CalendarForeColor = SupeyTheme.TextPrimary;
+            CalendarTitleBackColor = SupeyTheme.SurfaceHeader;
+            CalendarTitleForeColor = SupeyTheme.TextPrimary;
+            CalendarTrailingForeColor = SupeyTheme.TextMuted;
+            this.Invalidate();
+        }
+
+        private void OnSupeyThemeChanged(object sender, EventArgs e)
+        {
+            if (IsDisposed) return;
+            ApplyTheme();
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+                SupeyThemeManager.ThemeChanged -= OnSupeyThemeChanged;
+            base.Dispose(disposing);
         }
 
         //Overridden methods
@@ -83,6 +129,16 @@ namespace Hiatme_Tool_Suite_v3
         {
             base.OnDropDown(eventargs);
             droppedDown = true;
+
+            // The popup MonthCalendar is created lazily; grab its handle and strip the bright
+            // Win32 visual style so our dark Calendar* colors actually render.
+            try
+            {
+                IntPtr hCal = SendMessage(this.Handle, DTM_GETMONTHCAL, IntPtr.Zero, IntPtr.Zero);
+                if (hCal != IntPtr.Zero)
+                    SetWindowTheme(hCal, "\0", "\0");
+            }
+            catch { }
         }
         protected override void OnCloseUp(EventArgs eventargs)
         {
@@ -125,6 +181,13 @@ namespace Hiatme_Tool_Suite_v3
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
+            // Designer-serialized SkinColor/TextColor/BorderColor run after the ctor; re-assert the
+            // live theme here so every picker matches the active preset instead of the baked grays.
+            if (!_themeHooked)
+            {
+                _themeHooked = true;
+                ApplyTheme();
+            }
             int iconWidth = GetIconButtonWidth();
             iconButtonArea = new RectangleF(this.Width - iconWidth, 0, iconWidth, this.Height);
         }
