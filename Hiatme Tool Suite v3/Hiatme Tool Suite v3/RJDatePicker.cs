@@ -38,6 +38,11 @@ namespace Hiatme_Tool_Suite_v3
         private const int calendarIconWidth = 34;
         private const int arrowIconWidth = 17;
 
+        // Custom themed calendar popup that replaces the un-themable native MonthCalendar.
+        private SupeyCalendarPopup _popup;
+        private DateTime _lastPopupClosed = DateTime.MinValue;
+        private const int WM_LBUTTONDOWN = 0x0201;
+
         //Properties
         public Color SkinColor
         {
@@ -120,25 +125,50 @@ namespace Hiatme_Tool_Suite_v3
         protected override void Dispose(bool disposing)
         {
             if (disposing)
+            {
                 SupeyThemeManager.ThemeChanged -= OnSupeyThemeChanged;
+                _popup?.Dispose();
+            }
             base.Dispose(disposing);
         }
 
         //Overridden methods
-        protected override void OnDropDown(EventArgs eventargs)
-        {
-            base.OnDropDown(eventargs);
-            droppedDown = true;
 
-            // The popup MonthCalendar is created lazily; grab its handle and strip the bright
-            // Win32 visual style so our dark Calendar* colors actually render.
-            try
+        /// <summary>
+        /// Swallow the native left-click (which would open the gray Win32 calendar) and show our own
+        /// fully-themed <see cref="SupeyCalendarPopup"/> instead.
+        /// </summary>
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == WM_LBUTTONDOWN && !DesignMode)
             {
-                IntPtr hCal = SendMessage(this.Handle, DTM_GETMONTHCAL, IntPtr.Zero, IntPtr.Zero);
-                if (hCal != IntPtr.Zero)
-                    SetWindowTheme(hCal, "\0", "\0");
+                ToggleCustomPopup();
+                return;
             }
-            catch { }
+            base.WndProc(ref m);
+        }
+
+        private void ToggleCustomPopup()
+        {
+            // If the click is what just closed the popup, don't immediately reopen it.
+            if ((DateTime.Now - _lastPopupClosed).TotalMilliseconds < 250) return;
+            if (_popup != null && _popup.Visible) { _popup.Close(); return; }
+
+            if (_popup == null)
+            {
+                _popup = new SupeyCalendarPopup();
+                _popup.DateSelected += d =>
+                {
+                    this.Value = d;
+                    droppedDown = false;
+                    this.Invalidate();
+                };
+                _popup.Closed += (s, e) => { _lastPopupClosed = DateTime.Now; droppedDown = false; Invalidate(); };
+            }
+
+            droppedDown = true;
+            Invalidate();
+            _popup.ShowBelow(this, this.Value);
         }
         protected override void OnCloseUp(EventArgs eventargs)
         {
