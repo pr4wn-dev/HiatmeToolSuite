@@ -2,9 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
-using MaterialSkin;
-using MaterialSkin.Controls;
-
 namespace Hiatme_Tool_Suite_v3
 {
     /// <summary>
@@ -14,7 +11,7 @@ namespace Hiatme_Tool_Suite_v3
     /// roster live as the user types and returns the selected driver via <see cref="SelectedDriver"/>.
     /// Returns <see cref="DialogResult.OK"/> when a driver is chosen, <see cref="DialogResult.Cancel"/> otherwise.
     /// </summary>
-    internal partial class DriverPickerForm : MaterialForm
+    internal partial class DriverPickerForm : SupeyForm
     {
         private readonly List<WRDrivers> _allDrivers;
 
@@ -36,9 +33,6 @@ namespace Hiatme_Tool_Suite_v3
 
             try
             {
-                var mgr = MaterialSkinManager.Instance;
-                mgr.AddFormToManage(this);
-                SupeyMaterialSkinBridge.ApplyTo(mgr);
             }
             catch
             {

@@ -15,12 +15,12 @@ namespace Hiatme_Tool_Suite_v3
         {
             this._headerLabel = new System.Windows.Forms.Label();
             this._tripsLabel = new System.Windows.Forms.Label();
-            this._searchBox = new MaterialSkin.Controls.MaterialTextBox2();
+            this._searchBox = new SupeyTextBox();
             this._driverList = new System.Windows.Forms.ListView();
             this._driverColName = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
             this._countLabel = new System.Windows.Forms.Label();
             this._okButton = new Hiatme_Tool_Suite_v3.DarkOnAccentMaterialButton();
-            this._cancelButton = new MaterialSkin.Controls.MaterialButton();
+            this._cancelButton = new SupeyMaterialButton();
             this.SuspendLayout();
             // 
             // _headerLabel
@@ -50,7 +50,7 @@ namespace Hiatme_Tool_Suite_v3
             this._searchBox.Hint = "Filter drivers by name...";
             this._searchBox.Location = new System.Drawing.Point(20, 130);
             this._searchBox.MaxLength = 100;
-            this._searchBox.MouseState = MaterialSkin.MouseState.OUT;
+            this._searchBox.MouseState = SupeyMouseState.OUT;
             this._searchBox.Name = "_searchBox";
             this._searchBox.Size = new System.Drawing.Size(440, 50);
             this._searchBox.TabIndex = 0;
@@ -101,22 +101,22 @@ namespace Hiatme_Tool_Suite_v3
             // _okButton
             // 
             this._okButton.AutoSize = false;
-            this._okButton.Density = MaterialSkin.Controls.MaterialButton.MaterialButtonDensity.Default;
+            this._okButton.Density = SupeyMaterialButton.MaterialButtonDensity.Default;
             this._okButton.Location = new System.Drawing.Point(360, 540);
             this._okButton.Size = new System.Drawing.Size(100, 36);
             this._okButton.Text = "ASSIGN";
-            this._okButton.Type = MaterialSkin.Controls.MaterialButton.MaterialButtonType.Contained;
+            this._okButton.Type = SupeyMaterialButton.MaterialButtonType.Contained;
             this._okButton.UseAccentColor = true;
             this._okButton.Click += new System.EventHandler(this.OnOkClicked);
             // 
             // _cancelButton
             // 
             this._cancelButton.AutoSize = false;
-            this._cancelButton.Density = MaterialSkin.Controls.MaterialButton.MaterialButtonDensity.Default;
+            this._cancelButton.Density = SupeyMaterialButton.MaterialButtonDensity.Default;
             this._cancelButton.Location = new System.Drawing.Point(260, 540);
             this._cancelButton.Size = new System.Drawing.Size(96, 36);
             this._cancelButton.Text = "CANCEL";
-            this._cancelButton.Type = MaterialSkin.Controls.MaterialButton.MaterialButtonType.Text;
+            this._cancelButton.Type = SupeyMaterialButton.MaterialButtonType.Text;
             // Text-type MaterialButton defaults its label to the scheme's Primary (Grey900),
             // which is invisible on the dark form. Force a light color so it reads cleanly.
             this._cancelButton.UseAccentColor = false;
@@ -146,11 +146,11 @@ namespace Hiatme_Tool_Suite_v3
 
         private System.Windows.Forms.Label _headerLabel;
         private System.Windows.Forms.Label _tripsLabel;
-        private MaterialSkin.Controls.MaterialTextBox2 _searchBox;
+        private SupeyTextBox _searchBox;
         private System.Windows.Forms.ListView _driverList;
         private System.Windows.Forms.ColumnHeader _driverColName;
         private System.Windows.Forms.Label _countLabel;
         private Hiatme_Tool_Suite_v3.DarkOnAccentMaterialButton _okButton;
-        private MaterialSkin.Controls.MaterialButton _cancelButton;
+        private SupeyMaterialButton _cancelButton;
     }
 }

@@ -4,9 +4,6 @@ using System.Drawing;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-using MaterialSkin;
-using MaterialSkin.Controls;
-
 namespace Hiatme_Tool_Suite_v3
 {
     /// <summary>
@@ -14,7 +11,7 @@ namespace Hiatme_Tool_Suite_v3
     /// progress bar. Returns DialogResult.OK once the zip is on disk in <see cref="DownloadedZipPath"/>; the caller
     /// is responsible for handing off to <see cref="UpdateClient.LaunchUpdaterAndExit"/> and shutting the app down.
     /// </summary>
-    internal partial class UpdatePrompt : MaterialForm
+    internal partial class UpdatePrompt : SupeyForm
     {
         private readonly UpdateManifest _manifest;
         private CancellationTokenSource _cts;
@@ -29,9 +26,6 @@ namespace Hiatme_Tool_Suite_v3
 
             try
             {
-                var mgr = MaterialSkinManager.Instance;
-                mgr.AddFormToManage(this);
-                SupeyMaterialSkinBridge.ApplyTo(mgr);
             }
             catch
             {

@@ -1,5 +1,4 @@
-﻿using MaterialSkin.Controls;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
@@ -15,15 +14,15 @@ namespace Hiatme_Tool_Suite_v3
         private List<SubjectGrade> gradeList { get; set; }
         private TabPage tabPage {  get; set; }
         private SoundPlayer player { get; set; }
-        private Button autoassbutton { get; set; }
+        private Control autoassbutton { get; set; }
 
-        MaterialCard mainScreenBG;
+        SupeyCard mainScreenBG;
         Panel reportCardBG;
         Panel gradeChartBG;
         TableLayoutPanel gradeChart;
-        MaterialButton continuebtn;
+        SupeyMaterialButton continuebtn;
 
-        public ReportCard(TabPage formtabpage, Button autoassbtn)
+        public ReportCard(TabPage formtabpage, Control autoassbtn)
         {
             tabPage = formtabpage;
             player = new SoundPlayer();
@@ -61,7 +60,7 @@ namespace Hiatme_Tool_Suite_v3
         }
         private void LoadMainScreenControls()
         {
-            mainScreenBG = new MaterialCard();
+            mainScreenBG = new SupeyCard();
             mainScreenBG.Visible = false;
             mainScreenBG.Parent = tabPage;
             mainScreenBG.BringToFront();
@@ -300,7 +299,7 @@ namespace Hiatme_Tool_Suite_v3
         }
         private void LoadContinueButton()
         {
-            continuebtn = new MaterialButton();
+            continuebtn = new SupeyMaterialButton();
             continuebtn.Visible = true;
             continuebtn.Parent = reportCardBG;
             continuebtn.Dock = DockStyle.None;

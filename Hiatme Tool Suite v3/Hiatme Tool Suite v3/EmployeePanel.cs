@@ -1,5 +1,4 @@
-﻿using MaterialSkin.Controls;
-using CustomControls.RJControls;
+﻿using CustomControls.RJControls;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -33,7 +32,7 @@ namespace Hiatme_Tool_Suite_v3
         private int Rows { get; set; }
         private int EmptySlots { get; set; }
         private bool Run { get; set; }
-        private MaterialCard employeeStatPanel { get; set; }
+        private SupeyCard employeeStatPanel { get; set; }
         private TableLayoutPanel primaryTable { get; set; }
         private WellRydePortalSession _wellRydePortalSession;
         private DateTime _tripDate;
@@ -286,7 +285,7 @@ namespace Hiatme_Tool_Suite_v3
 
             foreach (EmployeeProductionStats employeestat in employeeStats)
             {
-                employeeStatPanel = new MaterialCard
+                employeeStatPanel = new SupeyCard
                 {
                     Dock = DockStyle.Fill,
                     Tag = employeestat,
@@ -294,7 +293,7 @@ namespace Hiatme_Tool_Suite_v3
                     Padding = new Padding(10),
                     BackColor = SupeyTheme.SurfaceElevated,
                     ForeColor = SupeyTheme.TextPrimary,
-                    MouseState = MaterialSkin.MouseState.HOVER,
+                    MouseState = SupeyMouseState.HOVER,
                     MinimumSize = new Size(300, 250),
                 };
 

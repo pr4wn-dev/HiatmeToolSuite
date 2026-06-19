@@ -16,7 +16,7 @@ namespace Hiatme_Tool_Suite_v3
     /// button paint, so no flicker and no gray corner. The dropdown list rows are still rendered
     /// by the owner-draw handler the caller wires up (a separate popup window / WM_DRAWITEM path).
     /// </summary>
-    internal sealed class SupeyComboBox : ComboBox
+    public sealed class SupeyComboBox : ComboBox
     {
         private const int WM_PAINT = 0x000F;
         private const int WM_ERASEBKGND = 0x0014;
@@ -53,6 +53,37 @@ namespace Hiatme_Tool_Suite_v3
 
         /// <summary>Color of the dropdown chevron.</summary>
         public Color ArrowColor { get; set; } = SupeyTheme.AccentPrimary;
+
+        // ── MaterialComboBox Designer-compat shims ────────────────────────────────
+        /// <summary>Accepted for Designer compatibility (MaterialSkin elevation); unused.</summary>
+        public int Depth { get; set; }
+        /// <summary>Accepted for Designer compatibility (MaterialSkin tracked mouse state); unused.</summary>
+        public SupeyMouseState MouseState { get; set; } = SupeyMouseState.OUT;
+        /// <summary>Accepted for Designer compatibility (MaterialComboBox auto-resize); unused.</summary>
+        public bool AutoResize { get; set; }
+        /// <summary>Accepted for Designer compatibility (MaterialComboBox start index); unused.</summary>
+        public int StartIndex { get; set; }
+
+        private string _hint = string.Empty;
+        /// <summary>Placeholder shown when no item is selected.</summary>
+        public string Hint
+        {
+            get => _hint;
+            set { _hint = value ?? string.Empty; Invalidate(); }
+        }
+
+        protected override void OnDrawItem(DrawItemEventArgs e)
+        {
+            if (e.Index < 0) { base.OnDrawItem(e); return; }
+            bool selected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
+            Color back = selected ? SupeyTheme.ListSelected : SupeyTheme.ListBody;
+            Color fore = selected ? SupeyTheme.ListSelectedText : SupeyTheme.ListText;
+            using (var b = new SolidBrush(back)) e.Graphics.FillRectangle(b, e.Bounds);
+            string text = GetItemText(Items[e.Index]);
+            TextRenderer.DrawText(e.Graphics, text, Font,
+                new Rectangle(e.Bounds.X + 6, e.Bounds.Y, e.Bounds.Width - 8, e.Bounds.Height), fore,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+        }
 
         protected override void OnSelectedIndexChanged(EventArgs e)
         {

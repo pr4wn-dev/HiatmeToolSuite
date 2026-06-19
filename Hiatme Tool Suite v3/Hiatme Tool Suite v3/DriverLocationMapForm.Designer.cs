@@ -27,15 +27,15 @@ namespace Hiatme_Tool_Suite_v3
             this._footerPanel = new System.Windows.Forms.Panel();
             this._lastReportedLabel = new System.Windows.Forms.Label();
             this._autoRefreshCheck = new System.Windows.Forms.CheckBox();
-            this._refreshButton = new MaterialSkin.Controls.MaterialButton();
-            this._closeButton = new MaterialSkin.Controls.MaterialButton();
+            this._refreshButton = new SupeyMaterialButton();
+            this._closeButton = new SupeyMaterialButton();
             this._gmap = new GMap.NET.WindowsForms.GMapControl();
             this._tripsPanel = new System.Windows.Forms.Panel();
             this._tripsHeaderLabel = new System.Windows.Forms.Label();
             this._tripsCountLabel = new System.Windows.Forms.Label();
             this._tripsHorizonLabel = new System.Windows.Forms.Label();
             this._tripsHorizonCombo = new Hiatme_Tool_Suite_v3.SupeyComboBox();
-            this._etaButton = new MaterialSkin.Controls.MaterialButton();
+            this._etaButton = new SupeyMaterialButton();
             this._etaStatusLabel = new System.Windows.Forms.Label();
             this._tripsFlow = new System.Windows.Forms.FlowLayoutPanel();
             this._tripsEmptyLabel = new System.Windows.Forms.Label();
@@ -174,11 +174,11 @@ namespace Hiatme_Tool_Suite_v3
             // _refreshButton
             // 
             this._refreshButton.AutoSize = false;
-            this._refreshButton.Density = MaterialSkin.Controls.MaterialButton.MaterialButtonDensity.Default;
+            this._refreshButton.Density = SupeyMaterialButton.MaterialButtonDensity.Default;
             this._refreshButton.Location = new System.Drawing.Point(700, 8);
             this._refreshButton.Size = new System.Drawing.Size(96, 36);
             this._refreshButton.Text = "REFRESH";
-            this._refreshButton.Type = MaterialSkin.Controls.MaterialButton.MaterialButtonType.Text;
+            this._refreshButton.Type = SupeyMaterialButton.MaterialButtonType.Text;
             this._refreshButton.UseAccentColor = false;
             this._refreshButton.NoAccentTextColor = System.Drawing.Color.Gainsboro;
             this._refreshButton.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom
@@ -188,11 +188,11 @@ namespace Hiatme_Tool_Suite_v3
             // _closeButton
             // 
             this._closeButton.AutoSize = false;
-            this._closeButton.Density = MaterialSkin.Controls.MaterialButton.MaterialButtonDensity.Default;
+            this._closeButton.Density = SupeyMaterialButton.MaterialButtonDensity.Default;
             this._closeButton.Location = new System.Drawing.Point(800, 8);
             this._closeButton.Size = new System.Drawing.Size(80, 36);
             this._closeButton.Text = "CLOSE";
-            this._closeButton.Type = MaterialSkin.Controls.MaterialButton.MaterialButtonType.Text;
+            this._closeButton.Type = SupeyMaterialButton.MaterialButtonType.Text;
             this._closeButton.UseAccentColor = false;
             this._closeButton.NoAccentTextColor = System.Drawing.Color.Gainsboro;
             this._closeButton.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom
@@ -298,11 +298,11 @@ namespace Hiatme_Tool_Suite_v3
             // _etaButton
             // 
             this._etaButton.AutoSize = false;
-            this._etaButton.Density = MaterialSkin.Controls.MaterialButton.MaterialButtonDensity.Default;
+            this._etaButton.Density = SupeyMaterialButton.MaterialButtonDensity.Default;
             this._etaButton.Location = new System.Drawing.Point(12, 88);
             this._etaButton.Size = new System.Drawing.Size(140, 32);
             this._etaButton.Text = "ESTIMATE ETAs";
-            this._etaButton.Type = MaterialSkin.Controls.MaterialButton.MaterialButtonType.Outlined;
+            this._etaButton.Type = SupeyMaterialButton.MaterialButtonType.Outlined;
             this._etaButton.UseAccentColor = false;
             this._etaButton.NoAccentTextColor = System.Drawing.Color.Gainsboro;
             this._etaButton.Click += new System.EventHandler(this.OnEstimateEtasClicked);
@@ -390,15 +390,15 @@ namespace Hiatme_Tool_Suite_v3
         private System.Windows.Forms.Panel _footerPanel;
         private System.Windows.Forms.Label _lastReportedLabel;
         private System.Windows.Forms.CheckBox _autoRefreshCheck;
-        private MaterialSkin.Controls.MaterialButton _refreshButton;
-        private MaterialSkin.Controls.MaterialButton _closeButton;
+        private SupeyMaterialButton _refreshButton;
+        private SupeyMaterialButton _closeButton;
         private GMap.NET.WindowsForms.GMapControl _gmap;
         private System.Windows.Forms.Panel _tripsPanel;
         private System.Windows.Forms.Label _tripsHeaderLabel;
         private System.Windows.Forms.Label _tripsCountLabel;
         private System.Windows.Forms.Label _tripsHorizonLabel;
         private Hiatme_Tool_Suite_v3.SupeyComboBox _tripsHorizonCombo;
-        private MaterialSkin.Controls.MaterialButton _etaButton;
+        private SupeyMaterialButton _etaButton;
         private System.Windows.Forms.Label _etaStatusLabel;
         private System.Windows.Forms.FlowLayoutPanel _tripsFlow;
         private System.Windows.Forms.Label _tripsEmptyLabel;

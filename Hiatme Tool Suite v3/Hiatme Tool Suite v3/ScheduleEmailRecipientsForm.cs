@@ -3,9 +3,6 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
-using MaterialSkin;
-using MaterialSkin.Controls;
-
 namespace Hiatme_Tool_Suite_v3
 {
     internal sealed class ScheduleEmailRecipientEntry
@@ -18,7 +15,7 @@ namespace Hiatme_Tool_Suite_v3
     }
 
     /// <summary>Pick which drivers receive the full schedule workbook before Gmail send.</summary>
-    internal partial class ScheduleEmailRecipientsForm : MaterialForm
+    internal partial class ScheduleEmailRecipientsForm : SupeyForm
     {
         private static Color ListBg => SupeyTheme.ListBody;
         private static Color ListSelected => SupeyTheme.ListSelected;
@@ -33,10 +30,10 @@ namespace Hiatme_Tool_Suite_v3
         private Label _contextLbl;
         private Label _summaryLbl;
         private SupeyListView _driverList;
-        private MaterialButton _checkAllBtn;
-        private MaterialButton _checkNoneBtn;
+        private SupeyMaterialButton _checkAllBtn;
+        private SupeyMaterialButton _checkNoneBtn;
         private DarkOnAccentMaterialButton _sendBtn;
-        private MaterialButton _cancelBtn;
+        private SupeyMaterialButton _cancelBtn;
 
         public IList<ScheduleEmailRecipientEntry> SelectedRecipients { get; private set; }
             = new List<ScheduleEmailRecipientEntry>();
@@ -52,9 +49,6 @@ namespace Hiatme_Tool_Suite_v3
 
             try
             {
-                var mgr = MaterialSkinManager.Instance;
-                mgr.AddFormToManage(this);
-                SupeyMaterialSkinBridge.ApplyTo(mgr);
             }
             catch { }
 
@@ -158,8 +152,8 @@ namespace Hiatme_Tool_Suite_v3
                 Location = new Point(524, 472),
                 Size = new Size(96, 36),
                 Anchor = AnchorStyles.Bottom | AnchorStyles.Right,
-                Type = MaterialButton.MaterialButtonType.Contained,
-                Density = MaterialButton.MaterialButtonDensity.Default,
+                Type = SupeyMaterialButton.MaterialButtonType.Contained,
+                Density = SupeyMaterialButton.MaterialButtonDensity.Default,
                 UseAccentColor = true,
             };
             _sendBtn.Click += (s, e) => OnSendClicked();
@@ -182,16 +176,16 @@ namespace Hiatme_Tool_Suite_v3
             catch { }
         }
 
-        private static MaterialButton MakeTextButton(string text, Point location, Size size)
+        private static SupeyMaterialButton MakeTextButton(string text, Point location, Size size)
         {
-            return new MaterialButton
+            return new SupeyMaterialButton
             {
                 Text = text,
                 Location = location,
                 AutoSize = false,
                 Size = size,
-                Type = MaterialButton.MaterialButtonType.Text,
-                Density = MaterialButton.MaterialButtonDensity.Default,
+                Type = SupeyMaterialButton.MaterialButtonType.Text,
+                Density = SupeyMaterialButton.MaterialButtonDensity.Default,
                 UseAccentColor = false,
                 NoAccentTextColor = SupeyTheme.TextSecondary,
             };

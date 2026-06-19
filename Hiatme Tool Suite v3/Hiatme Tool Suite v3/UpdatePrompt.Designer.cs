@@ -20,7 +20,7 @@ namespace Hiatme_Tool_Suite_v3
             this._progress = new System.Windows.Forms.ProgressBar();
             this._progressLabel = new System.Windows.Forms.Label();
             this._installButton = new Hiatme_Tool_Suite_v3.DarkOnAccentMaterialButton();
-            this._laterButton = new MaterialSkin.Controls.MaterialButton();
+            this._laterButton = new SupeyMaterialButton();
             this.SuspendLayout();
             //
             // _versionLabel
@@ -77,22 +77,22 @@ namespace Hiatme_Tool_Suite_v3
             // _installButton
             //
             this._installButton.AutoSize = false;
-            this._installButton.Density = MaterialSkin.Controls.MaterialButton.MaterialButtonDensity.Default;
+            this._installButton.Density = SupeyMaterialButton.MaterialButtonDensity.Default;
             this._installButton.Location = new System.Drawing.Point(380, 340);
             this._installButton.Size = new System.Drawing.Size(180, 36);
             this._installButton.Text = "INSTALL NOW";
-            this._installButton.Type = MaterialSkin.Controls.MaterialButton.MaterialButtonType.Contained;
+            this._installButton.Type = SupeyMaterialButton.MaterialButtonType.Contained;
             this._installButton.UseAccentColor = true;
             this._installButton.Click += new System.EventHandler(this.OnInstallClicked);
             //
             // _laterButton
             //
             this._laterButton.AutoSize = false;
-            this._laterButton.Density = MaterialSkin.Controls.MaterialButton.MaterialButtonDensity.Default;
+            this._laterButton.Density = SupeyMaterialButton.MaterialButtonDensity.Default;
             this._laterButton.Location = new System.Drawing.Point(260, 340);
             this._laterButton.Size = new System.Drawing.Size(110, 36);
             this._laterButton.Text = "LATER";
-            this._laterButton.Type = MaterialSkin.Controls.MaterialButton.MaterialButtonType.Text;
+            this._laterButton.Type = SupeyMaterialButton.MaterialButtonType.Text;
             // Text-type MaterialButton defaults to the scheme's Primary (Grey900) which disappears
             // on this dark form; pin the label to a light gray so it stays legible.
             this._laterButton.UseAccentColor = false;
@@ -128,6 +128,6 @@ namespace Hiatme_Tool_Suite_v3
         private System.Windows.Forms.ProgressBar _progress;
         private System.Windows.Forms.Label _progressLabel;
         private Hiatme_Tool_Suite_v3.DarkOnAccentMaterialButton _installButton;
-        private MaterialSkin.Controls.MaterialButton _laterButton;
+        private SupeyMaterialButton _laterButton;
     }
 }

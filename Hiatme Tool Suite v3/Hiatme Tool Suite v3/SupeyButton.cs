@@ -16,7 +16,7 @@ namespace Hiatme_Tool_Suite_v3
     /// surface it's docked on — no more "this MaterialButton is disabled so it's white,
     /// but the panel underneath is dark gray, so it looks like a hole in the toolbar."
     /// </remarks>
-    internal sealed class SupeyButton : Control
+    internal class SupeyButton : Control, IButtonControl
     {
         public enum Variant
         {
@@ -78,6 +78,26 @@ namespace Hiatme_Tool_Suite_v3
         {
             get => _cornerRadius;
             set { _cornerRadius = Math.Max(0, value); Invalidate(); }
+        }
+
+        // ── IButtonControl (so SupeyButton works as AcceptButton/CancelButton with DialogResult) ──
+        public DialogResult DialogResult { get; set; } = DialogResult.None;
+
+        public void NotifyDefault(bool value) { }
+
+        public void PerformClick()
+        {
+            if (Enabled) OnClick(EventArgs.Empty);
+        }
+
+        protected override void OnClick(EventArgs e)
+        {
+            base.OnClick(e);
+            if (DialogResult != DialogResult.None)
+            {
+                var form = FindForm();
+                if (form != null) form.DialogResult = DialogResult;
+            }
         }
 
         protected override void OnMouseEnter(EventArgs e)

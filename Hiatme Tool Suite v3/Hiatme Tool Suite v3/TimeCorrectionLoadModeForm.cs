@@ -1,12 +1,9 @@
 using System;
 using System.Drawing;
 using System.Windows.Forms;
-using MaterialSkin;
-using MaterialSkin.Controls;
-
 namespace Hiatme_Tool_Suite_v3
 {
-    internal sealed class TimeCorrectionLoadModeForm : MaterialForm
+    internal sealed class TimeCorrectionLoadModeForm : SupeyForm
     {
         private const int DialogWidth = 520;
         private const int TextWidth = 430;
@@ -39,9 +36,6 @@ namespace Hiatme_Tool_Suite_v3
 
             try
             {
-                var mgr = MaterialSkinManager.Instance;
-                mgr.AddFormToManage(this);
-                SupeyMaterialSkinBridge.ApplyTo(mgr);
             }
             catch
             {
@@ -67,18 +61,18 @@ namespace Hiatme_Tool_Suite_v3
             {
                 Text = "LOAD BATCH",
                 AutoSize = false,
-                Type = MaterialButton.MaterialButtonType.Contained,
+                Type = SupeyMaterialButton.MaterialButtonType.Contained,
                 UseAccentColor = true,
                 Size = new Size(132, 36),
                 DialogResult = DialogResult.OK,
             };
             loadBtn.Click += (s, e) => CommitSelection();
 
-            var cancelBtn = new MaterialButton
+            var cancelBtn = new SupeyMaterialButton
             {
                 Text = "CANCEL",
                 AutoSize = false,
-                Type = MaterialButton.MaterialButtonType.Text,
+                Type = SupeyMaterialButton.MaterialButtonType.Text,
                 UseAccentColor = false,
                 NoAccentTextColor = SupeyTheme.TextPrimary,
                 Size = new Size(96, 36),

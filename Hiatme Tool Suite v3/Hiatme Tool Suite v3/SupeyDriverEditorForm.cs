@@ -1,9 +1,6 @@
 using System;
 using System.Globalization;
 using System.Windows.Forms;
-using MaterialSkin;
-using MaterialSkin.Controls;
-
 namespace Hiatme_Tool_Suite_v3
 {
     /// <summary>
@@ -17,7 +14,7 @@ namespace Hiatme_Tool_Suite_v3
     /// Same dark-theme button treatment as <see cref="DriverPickerForm"/>: light cancel text,
     /// dark text on the green Save button via <see cref="DarkOnAccentMaterialButton"/>.
     /// </remarks>
-    internal partial class SupeyDriverEditorForm : MaterialForm
+    internal partial class SupeyDriverEditorForm : SupeyForm
     {
         private readonly SupeyDriverProfile _existing;
 
@@ -33,9 +30,6 @@ namespace Hiatme_Tool_Suite_v3
 
             try
             {
-                var mgr = MaterialSkinManager.Instance;
-                mgr.AddFormToManage(this);
-                SupeyMaterialSkinBridge.ApplyTo(mgr);
             }
             catch
             {

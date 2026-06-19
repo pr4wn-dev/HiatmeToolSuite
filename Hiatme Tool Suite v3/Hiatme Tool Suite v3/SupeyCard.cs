@@ -80,6 +80,12 @@ namespace Hiatme_Tool_Suite_v3
             set { _accentEdge = value; Invalidate(); }
         }
 
+        /// <summary>Accepted for Designer compatibility (MaterialCard elevation); unused by the flat skin.</summary>
+        public int Depth { get; set; }
+
+        /// <summary>Accepted for Designer compatibility (MaterialSkin tracked mouse state); unused.</summary>
+        public SupeyMouseState MouseState { get; set; } = SupeyMouseState.OUT;
+
         private Color ResolveSurface()
         {
             switch (_surface)

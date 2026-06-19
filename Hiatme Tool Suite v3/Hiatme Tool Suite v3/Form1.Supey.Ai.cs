@@ -4,7 +4,6 @@ using System.Drawing;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-using MaterialSkin.Controls;
 using Newtonsoft.Json.Linq;
 
 namespace Hiatme_Tool_Suite_v3
@@ -19,7 +18,7 @@ namespace Hiatme_Tool_Suite_v3
         private SupeyStatusPill _supeyAiStatusPill;
         private SupeyStatusPill _supeyAiLessonsPill;
         private Label _supeyAiUrlLbl;
-        private MaterialLabel _supeyAiStatusLbl;       // legacy hidden alias for back-compat
+        private SupeyLabel _supeyAiStatusLbl;       // legacy hidden alias for back-compat
         private Label _supeyAiLastAppliedLbl;
         private SupeyButton _supeyAiGoodBtn;
         private SupeyButton _supeyAiBadBtn;
@@ -130,7 +129,7 @@ namespace Hiatme_Tool_Suite_v3
 
             // Legacy alias kept (other code paths still write to _supeyAiStatusLbl).
             // Hidden 1×1 control off-screen so any stale assignments are no-ops.
-            _supeyAiStatusLbl = new MaterialLabel
+            _supeyAiStatusLbl = new SupeyLabel
             {
                 Visible = false,
                 Width = 1,

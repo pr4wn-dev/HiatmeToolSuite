@@ -35,17 +35,17 @@ namespace Hiatme_Tool_Suite_v3
             this._shiftStartLabel = new System.Windows.Forms.Label();
             this._shiftEndLabel = new System.Windows.Forms.Label();
             this._emailLabel = new System.Windows.Forms.Label();
-            this._nameTb = new MaterialSkin.Controls.MaterialTextBox2();
-            this._emailTb = new MaterialSkin.Controls.MaterialTextBox2();
-            this._streetTb = new MaterialSkin.Controls.MaterialTextBox2();
-            this._cityTb = new MaterialSkin.Controls.MaterialTextBox2();
-            this._stateTb = new MaterialSkin.Controls.MaterialTextBox2();
-            this._zipTb = new MaterialSkin.Controls.MaterialTextBox2();
-            this._capacityTb = new MaterialSkin.Controls.MaterialTextBox2();
-            this._vehicleTb = new MaterialSkin.Controls.MaterialTextBox2();
-            this._shiftStartTb = new MaterialSkin.Controls.MaterialTextBox2();
-            this._shiftEndTb = new MaterialSkin.Controls.MaterialTextBox2();
-            this._cancelButton = new MaterialSkin.Controls.MaterialButton();
+            this._nameTb = new SupeyTextBox();
+            this._emailTb = new SupeyTextBox();
+            this._streetTb = new SupeyTextBox();
+            this._cityTb = new SupeyTextBox();
+            this._stateTb = new SupeyTextBox();
+            this._zipTb = new SupeyTextBox();
+            this._capacityTb = new SupeyTextBox();
+            this._vehicleTb = new SupeyTextBox();
+            this._shiftStartTb = new SupeyTextBox();
+            this._shiftEndTb = new SupeyTextBox();
+            this._cancelButton = new SupeyMaterialButton();
             this._okButton = new Hiatme_Tool_Suite_v3.DarkOnAccentMaterialButton();
             this.SuspendLayout();
 
@@ -90,21 +90,21 @@ namespace Hiatme_Tool_Suite_v3
             y += 28;
 
             this._cancelButton.AutoSize = false;
-            this._cancelButton.Density = MaterialSkin.Controls.MaterialButton.MaterialButtonDensity.Default;
+            this._cancelButton.Density = SupeyMaterialButton.MaterialButtonDensity.Default;
             this._cancelButton.Location = new System.Drawing.Point(padX + contentW - 200, y);
             this._cancelButton.Size = new System.Drawing.Size(96, 36);
             this._cancelButton.Text = "CANCEL";
-            this._cancelButton.Type = MaterialSkin.Controls.MaterialButton.MaterialButtonType.Text;
+            this._cancelButton.Type = SupeyMaterialButton.MaterialButtonType.Text;
             this._cancelButton.UseAccentColor = false;
             this._cancelButton.NoAccentTextColor = Hiatme_Tool_Suite_v3.SupeyTheme.TextPrimary;
             this._cancelButton.Click += new System.EventHandler(this.OnCancelClicked);
 
             this._okButton.AutoSize = false;
-            this._okButton.Density = MaterialSkin.Controls.MaterialButton.MaterialButtonDensity.Default;
+            this._okButton.Density = SupeyMaterialButton.MaterialButtonDensity.Default;
             this._okButton.Location = new System.Drawing.Point(padX + contentW - 100, y);
             this._okButton.Size = new System.Drawing.Size(100, 36);
             this._okButton.Text = "SAVE";
-            this._okButton.Type = MaterialSkin.Controls.MaterialButton.MaterialButtonType.Contained;
+            this._okButton.Type = SupeyMaterialButton.MaterialButtonType.Contained;
             this._okButton.UseAccentColor = true;
             this._okButton.Click += new System.EventHandler(this.OnOkClicked);
 
@@ -180,7 +180,7 @@ namespace Hiatme_Tool_Suite_v3
 
         private static int LayoutFieldRow(
             System.Windows.Forms.Label label, string labelText,
-            MaterialSkin.Controls.MaterialTextBox2 field, string hint,
+            SupeyTextBox field, string hint,
             int x, int y, int width, int labelH, int labelToField, int fieldH)
         {
             ConfigLabel(label, labelText, x, y, width, labelH);
@@ -211,9 +211,9 @@ namespace Hiatme_Tool_Suite_v3
 
         private static int LayoutSplitRow(
             System.Windows.Forms.Label leftLabel, string leftLabelText,
-            MaterialSkin.Controls.MaterialTextBox2 leftField, string leftHint,
+            SupeyTextBox leftField, string leftHint,
             System.Windows.Forms.Label rightLabel, string rightLabelText,
-            MaterialSkin.Controls.MaterialTextBox2 rightField, string rightHint,
+            SupeyTextBox rightField, string rightHint,
             int x, int y, int leftW, int rightW, int labelH, int labelToField, int fieldH, int gap)
         {
             int rightX = x + leftW + gap;
@@ -235,7 +235,7 @@ namespace Hiatme_Tool_Suite_v3
             l.Text = text;
         }
 
-        private static void ConfigTextBox(MaterialSkin.Controls.MaterialTextBox2 tb,
+        private static void ConfigTextBox(SupeyTextBox tb,
             string hint, int x, int y, int width, int height)
         {
             tb.AnimateReadOnly = false;
@@ -245,7 +245,7 @@ namespace Hiatme_Tool_Suite_v3
             tb.Hint = hint;
             tb.Location = new System.Drawing.Point(x, y);
             tb.MaxLength = 100;
-            tb.MouseState = MaterialSkin.MouseState.OUT;
+            tb.MouseState = SupeyMouseState.OUT;
             tb.Size = new System.Drawing.Size(width, height);
             tb.UseAccent = false;
             tb.UseTallSize = false;
@@ -264,18 +264,18 @@ namespace Hiatme_Tool_Suite_v3
         private System.Windows.Forms.Label _vehicleLabel;
         private System.Windows.Forms.Label _shiftStartLabel;
         private System.Windows.Forms.Label _shiftEndLabel;
-        private MaterialSkin.Controls.MaterialTextBox2 _nameTb;
-        private MaterialSkin.Controls.MaterialTextBox2 _streetTb;
-        private MaterialSkin.Controls.MaterialTextBox2 _cityTb;
-        private MaterialSkin.Controls.MaterialTextBox2 _stateTb;
-        private MaterialSkin.Controls.MaterialTextBox2 _zipTb;
-        private MaterialSkin.Controls.MaterialTextBox2 _capacityTb;
-        private MaterialSkin.Controls.MaterialTextBox2 _vehicleTb;
-        private MaterialSkin.Controls.MaterialTextBox2 _shiftStartTb;
-        private MaterialSkin.Controls.MaterialTextBox2 _shiftEndTb;
+        private SupeyTextBox _nameTb;
+        private SupeyTextBox _streetTb;
+        private SupeyTextBox _cityTb;
+        private SupeyTextBox _stateTb;
+        private SupeyTextBox _zipTb;
+        private SupeyTextBox _capacityTb;
+        private SupeyTextBox _vehicleTb;
+        private SupeyTextBox _shiftStartTb;
+        private SupeyTextBox _shiftEndTb;
         private System.Windows.Forms.Label _emailLabel;
-        private MaterialSkin.Controls.MaterialTextBox2 _emailTb;
-        private MaterialSkin.Controls.MaterialButton _cancelButton;
+        private SupeyTextBox _emailTb;
+        private SupeyMaterialButton _cancelButton;
         private Hiatme_Tool_Suite_v3.DarkOnAccentMaterialButton _okButton;
     }
 }

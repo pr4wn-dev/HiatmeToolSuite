@@ -101,11 +101,9 @@ namespace Hiatme_Tool_Suite_v3
             // the bright-gray default scrollbars. Silent no-op on pre-Win10-1903.
             SupeyDarkScrollBars.EnableForProcess();
 
-            // Load the saved Supey theme (or default) and push it into MaterialSkin before any
-            // form is built, so the very first paint uses the chosen palette instead of MaterialSkin
-            // gray. The bridge also re-applies automatically whenever the theme is switched in-app.
+            // Load the saved Supey theme (or default) before any form is built, so the very first
+            // paint uses the chosen palette. SupeyForm + the Supey controls read directly from this.
             SupeyThemeManager.LoadSavedOrDefault();
-            SupeyMaterialSkinBridge.Init();
 
             // Force TLS 1.2 (and 1.3 where available) for ALL outbound HTTPS in this process.
             // .NET Framework 4.8's default `SecurityProtocol` is the OS default, which on some

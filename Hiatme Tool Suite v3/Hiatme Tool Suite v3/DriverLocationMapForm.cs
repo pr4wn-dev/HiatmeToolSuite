@@ -10,9 +10,6 @@ using GMap.NET;
 using GMap.NET.MapProviders;
 using GMap.NET.WindowsForms;
 using GMap.NET.WindowsForms.Markers;
-using MaterialSkin;
-using MaterialSkin.Controls;
-
 namespace Hiatme_Tool_Suite_v3
 {
     /// <summary>
@@ -25,7 +22,7 @@ namespace Hiatme_Tool_Suite_v3
     /// OpenStreetMap is the tile provider — free, no API key, sufficient for "where's the driver"
     /// at city zoom levels. Tiles are server+disk cached so reopening the same area is instant.
     /// </remarks>
-    internal partial class DriverLocationMapForm : MaterialForm
+    internal partial class DriverLocationMapForm : SupeyForm
     {
         private readonly WellRydePortalSession _session;
         private readonly string _driverId;
@@ -125,9 +122,6 @@ namespace Hiatme_Tool_Suite_v3
 
             try
             {
-                var mgr = MaterialSkinManager.Instance;
-                mgr.AddFormToManage(this);
-                SupeyMaterialSkinBridge.ApplyTo(mgr);
             }
             catch
             {

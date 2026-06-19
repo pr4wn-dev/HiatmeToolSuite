@@ -1,5 +1,3 @@
-using MaterialSkin;
-using MaterialSkin.Controls;
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -43,7 +41,7 @@ using GMap.NET.MapProviders;
 
 namespace Hiatme_Tool_Suite_v3
 {
-    public partial class Form1 : MaterialForm
+    public partial class Form1 : SupeyForm
     {
         // WIP tools — flip to true to show these tabs again (designer + code stay in place).
         private const bool ShowSupeyScheduleTab = false;
@@ -55,7 +53,6 @@ namespace Hiatme_Tool_Suite_v3
 
         private WellRydePortalSession _wellRydeSession;
 
-        readonly MaterialSkinManager materialSkinManager;
         public System.Windows.Forms.Timer billtimer;
 
         MCLoginHandler mcLoginHandler;
@@ -194,10 +191,6 @@ namespace Hiatme_Tool_Suite_v3
             if (ShowSupeyScheduleTab)
                 InitializeSupeyTab();
             CheckForIllegalCrossThreadCalls = false;
-            materialSkinManager = MaterialSkinManager.Instance;
-            materialSkinManager.EnforceBackcolorOnAllComponents = false;
-            materialSkinManager.AddFormToManage(this);
-            SupeyMaterialSkinBridge.ApplyTo(materialSkinManager);
             this.billinglistview.SizeChanged += new EventHandler(ListView_SizeChanged);
             tbuilder = new TemplateBuilder();
             tbuilder.UpdateLoadingScreen += loadinggifhandler_update;
@@ -336,7 +329,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 switch (c)
                 {
-                    case MaterialSkin.Controls.MaterialCard card:
+                    case SupeyCard card:
                         if (!IsPaletteSurface(card.BackColor))
                         {
                             card.BackColor = SupeyTheme.SurfaceBase;
@@ -1383,15 +1376,6 @@ namespace Hiatme_Tool_Suite_v3
             catch
             {
                 // ignore
-            }
-
-            try
-            {
-                materialSkinManager?.RemoveFormToManage(this);
-            }
-            catch
-            {
-                // MaterialSkin API may differ by version.
             }
 
             InvalidateWellRydePortalSession();

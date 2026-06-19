@@ -8,7 +8,6 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-using MaterialSkin.Controls;
 using Newtonsoft.Json.Linq;
 
 namespace Hiatme_Tool_Suite_v3
@@ -45,7 +44,7 @@ namespace Hiatme_Tool_Suite_v3
         private Splitter _supeyAiSplitter;
         private Splitter _supeyRulesSplitter;
         private Splitter _supeyInfoSplitter;
-        private MaterialLabel _supeyTemplateCompareLbl;
+        private SupeyLabel _supeyTemplateCompareLbl;
 
         private RJDatePicker _supeyDatePicker;
         private SupeyButton _supeyLoadBtn;
@@ -55,14 +54,14 @@ namespace Hiatme_Tool_Suite_v3
         private SupeyButton _supeyRefreshNotesBtn;
         private SupeyButton _supeySaveBtn;
         private SupeyButton _supeyCancelBtn;
-        private MaterialLabel _supeyScheduleUpdatedLbl;
+        private SupeyLabel _supeyScheduleUpdatedLbl;
         private Label _supeyLastBuildLbl;
         private Label _supeyToolbarStatusLbl;
-        private MaterialLabel _supeyOsrmStatusLbl;          // legacy alias — not visible
+        private SupeyLabel _supeyOsrmStatusLbl;          // legacy alias — not visible
         private SupeyStatusPill _supeyOsrmStatusPill;       // the actual visible OSRM badge
 
-        private MaterialProgressBar _supeyProgressBar;
-        private MaterialLabel _supeyStatsLbl;
+        private ProgressBar _supeyProgressBar;
+        private SupeyLabel _supeyStatsLbl;
         private LinkLabel _supeyWarningsLink;
         private LinkLabel _supeyCopyBuildLogLink;
 
@@ -101,7 +100,7 @@ namespace Hiatme_Tool_Suite_v3
         private const int SupeyPrevColDoAddrIndex = 7;
         private const int SupeyPrevColLateIndex = 9;
         private SupeyPreviewRowTag _supeyDragTripTag;
-        private MaterialLabel _supeyPreviewStatsLbl;
+        private SupeyLabel _supeyPreviewStatsLbl;
         private Label _supeyPreviewEmptyHint;
 
         private SupeyMapWorkspace _supeyMap;
@@ -310,7 +309,7 @@ namespace Hiatme_Tool_Suite_v3
             };
             _supeyCancelBtn.Click += (s, e) => OnSupeyCancelClicked();
 
-            // MaterialLabel forces the MaterialSkin Roboto font + its own line
+            // SupeyLabel forces the MaterialSkin Roboto font + its own line
             // metrics, which clipped the top of every letter on this label
             // ("Loaded 145 trips for May 29..." rendered with the upper half of
             // each character cut off). Plain Label respects Height/Font cleanly
@@ -338,10 +337,10 @@ namespace Hiatme_Tool_Suite_v3
                 Cursor = Cursors.Hand,
             };
             _supeyOsrmStatusPill.Click += async (s, e) => await RefreshSupeyOsrmStatusAsync();
-            // Keep the legacy MaterialLabel field as a hidden alias so back-compat
+            // Keep the legacy SupeyLabel field as a hidden alias so back-compat
             // callers (RefreshSupeyOsrmStatusAsync etc.) can still write to .Text /
             // .ForeColor without crashing — we project those onto the pill below.
-            _supeyOsrmStatusLbl = new MaterialLabel
+            _supeyOsrmStatusLbl = new SupeyLabel
             {
                 Visible = false,
                 Width = 1,
@@ -413,7 +412,7 @@ namespace Hiatme_Tool_Suite_v3
             };
             _supeyStatusStrip.Controls.Add(statusTop);
 
-            _supeyProgressBar = new MaterialProgressBar
+            _supeyProgressBar = new ProgressBar
             {
                 Location = new Point(0, 8),
                 Width = 240,
@@ -702,7 +701,7 @@ namespace Hiatme_Tool_Suite_v3
 
             // Use a slightly tighter caption font so the body text doesn't have to
             // shatter into 3-4-line fragments inside this narrow column.
-            _supeyTemplateCompareLbl = new MaterialLabel
+            _supeyTemplateCompareLbl = new SupeyLabel
             {
                 Dock = DockStyle.Fill,
                 Text = "An optional after-BUILD diff against saved weekday CSVs. Reference only — the AI uses its own memory.",
@@ -1006,7 +1005,7 @@ namespace Hiatme_Tool_Suite_v3
             // glide as the panel resizes. Top line — schedule-applied status. Bottom
             // line — fleet rollup. Bottom row is intentionally a hair brighter so the
             // numerical info reads first.
-            _supeyScheduleUpdatedLbl = new MaterialLabel
+            _supeyScheduleUpdatedLbl = new SupeyLabel
             {
                 Location = new Point(430, 8),
                 AutoSize = false,
@@ -1018,7 +1017,7 @@ namespace Hiatme_Tool_Suite_v3
                 TextAlign = ContentAlignment.MiddleRight,
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
             };
-            _supeyStatsLbl = new MaterialLabel
+            _supeyStatsLbl = new SupeyLabel
             {
                 Location = new Point(430, 28),
                 AutoSize = false,
@@ -1036,7 +1035,7 @@ namespace Hiatme_Tool_Suite_v3
             topPanel.Controls.Add(_supeyStatsLbl);
             topPanel.Controls.Add(topDivider);
 
-            _supeyPreviewStatsLbl = new MaterialLabel
+            _supeyPreviewStatsLbl = new SupeyLabel
             {
                 Dock = DockStyle.Bottom,
                 Height = 28,
@@ -1773,16 +1772,16 @@ namespace Hiatme_Tool_Suite_v3
                 TextFormatFlags.Left | TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter | TextFormatFlags.WordEllipsis);
         }
 
-        private static MaterialButton MakeFlatButton(string text, int x, int y, int width)
+        private static SupeyMaterialButton MakeFlatButton(string text, int x, int y, int width)
         {
-            var b = new MaterialButton
+            var b = new SupeyMaterialButton
             {
                 Text = text,
                 Location = new Point(x, y),
                 AutoSize = false,
                 Size = new Size(width, 32),
-                Type = MaterialButton.MaterialButtonType.Contained,
-                Density = MaterialButton.MaterialButtonDensity.Default,
+                Type = SupeyMaterialButton.MaterialButtonType.Contained,
+                Density = SupeyMaterialButton.MaterialButtonDensity.Default,
                 UseAccentColor = false,
                 HighEmphasis = true,
             };

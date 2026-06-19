@@ -2,12 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
-using MaterialSkin;
-using MaterialSkin.Controls;
-
 namespace Hiatme_Tool_Suite_v3
 {
-    internal sealed class ScheduleDriverSuggestForm : MaterialForm
+    internal sealed class ScheduleDriverSuggestForm : SupeyForm
     {
         private readonly IReadOnlyList<ScheduleBuilderDriverSuggestion> _suggestions;
         private readonly MCDownloadedTrip _trip;
@@ -49,9 +46,6 @@ namespace Hiatme_Tool_Suite_v3
 
             try
             {
-                var mgr = MaterialSkinManager.Instance;
-                mgr.AddFormToManage(this);
-                SupeyMaterialSkinBridge.ApplyTo(mgr);
             }
             catch { }
 
@@ -75,28 +69,28 @@ namespace Hiatme_Tool_Suite_v3
             {
                 Text = "MOVE TRIP",
                 AutoSize = false,
-                Type = MaterialButton.MaterialButtonType.Contained,
+                Type = SupeyMaterialButton.MaterialButtonType.Contained,
                 UseAccentColor = true,
                 Size = new Size(110, 36),
                 DialogResult = DialogResult.OK,
             };
 
-            var nextBtn = new MaterialButton
+            var nextBtn = new SupeyMaterialButton
             {
                 Text = "NEXT",
                 AutoSize = false,
-                Type = MaterialButton.MaterialButtonType.Outlined,
+                Type = SupeyMaterialButton.MaterialButtonType.Outlined,
                 UseAccentColor = true,
                 Size = new Size(88, 36),
                 Margin = new Padding(0, 0, 8, 0),
             };
             nextBtn.Click += (s, e) => ShowSuggestion(_index + 1);
 
-            var cancelBtn = new MaterialButton
+            var cancelBtn = new SupeyMaterialButton
             {
                 Text = "CANCEL",
                 AutoSize = false,
-                Type = MaterialButton.MaterialButtonType.Text,
+                Type = SupeyMaterialButton.MaterialButtonType.Text,
                 UseAccentColor = false,
                 NoAccentTextColor = SupeyTheme.TextSecondary,
                 Size = new Size(88, 36),

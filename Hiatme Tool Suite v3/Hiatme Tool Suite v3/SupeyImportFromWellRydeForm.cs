@@ -5,9 +5,6 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-using MaterialSkin;
-using MaterialSkin.Controls;
-
 namespace Hiatme_Tool_Suite_v3
 {
     /// <summary>
@@ -23,7 +20,7 @@ namespace Hiatme_Tool_Suite_v3
     /// All controls are composed programmatically; the .Designer.cs sibling is empty save for the
     /// dispose pattern.
     /// </remarks>
-    internal partial class SupeyImportFromWellRydeForm : MaterialForm
+    internal partial class SupeyImportFromWellRydeForm : SupeyForm
     {
         private static readonly Color FormBg = Color.FromArgb(33, 33, 33);
         // Pulled into SupeyTheme so this dialog stays in lockstep with the Supey
@@ -43,15 +40,15 @@ namespace Hiatme_Tool_Suite_v3
         private readonly WellRydePortalSession _session;
         private readonly HashSet<string> _alreadyImportedSecIds;
 
-        private MaterialButton _pullBtn;
-        private MaterialButton _addSelectedBtn;
+        private SupeyMaterialButton _pullBtn;
+        private SupeyMaterialButton _addSelectedBtn;
         // Tooltip explains the *why* of the disabled state — without it, the user just sees a
         // greyed button with no feedback when nothing is checked.
         private readonly ToolTip _addSelectedTip = SupeyToolTip.Create(autoPopDelay: 6000, initialDelay: 250, reshowDelay: 100);
-        private MaterialButton _cancelBtn;
-        private MaterialButton _checkAllBtn;
-        private MaterialButton _checkNoneBtn;
-        private MaterialProgressBar _progressBar;
+        private SupeyMaterialButton _cancelBtn;
+        private SupeyMaterialButton _checkAllBtn;
+        private SupeyMaterialButton _checkNoneBtn;
+        private ProgressBar _progressBar;
         private Label _headerLbl;
         private Label _statusLbl;
         private Label _summaryLbl;
@@ -86,9 +83,6 @@ namespace Hiatme_Tool_Suite_v3
             // theming failures never block the dialog (rare, but seen on first-launch corruption).
             try
             {
-                var mgr = MaterialSkinManager.Instance;
-                mgr.AddFormToManage(this);
-                SupeyMaterialSkinBridge.ApplyTo(mgr);
             }
             catch { }
 
@@ -134,7 +128,7 @@ namespace Hiatme_Tool_Suite_v3
                 BackColor = Color.Transparent,
             };
 
-            _progressBar = new MaterialProgressBar
+            _progressBar = new ProgressBar
             {
                 Location = new Point(20, 132),
                 Size = new Size(900, 8),
@@ -147,12 +141,12 @@ namespace Hiatme_Tool_Suite_v3
             _pullBtn.Click += async (s, e) => await OnPullClickedAsync();
 
             _checkAllBtn = MakeButton("CHECK ALL", new Point(228, 150), new Size(110, 36), useAccent: false);
-            _checkAllBtn.Type = MaterialButton.MaterialButtonType.Outlined;
+            _checkAllBtn.Type = SupeyMaterialButton.MaterialButtonType.Outlined;
             _checkAllBtn.NoAccentTextColor = SupeyTheme.TextPrimary;
             _checkAllBtn.Click += (s, e) => SetAllChecked(true);
 
             _checkNoneBtn = MakeButton("CLEAR", new Point(346, 150), new Size(96, 36), useAccent: false);
-            _checkNoneBtn.Type = MaterialButton.MaterialButtonType.Outlined;
+            _checkNoneBtn.Type = SupeyMaterialButton.MaterialButtonType.Outlined;
             _checkNoneBtn.NoAccentTextColor = SupeyTheme.TextPrimary;
             _checkNoneBtn.Click += (s, e) => SetAllChecked(false);
 
@@ -216,7 +210,7 @@ namespace Hiatme_Tool_Suite_v3
             // ---- Bottom buttons ----
             _cancelBtn = MakeButton("CANCEL", new Point(720, 552), new Size(96, 36), useAccent: false);
             _cancelBtn.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
-            _cancelBtn.Type = MaterialButton.MaterialButtonType.Text;
+            _cancelBtn.Type = SupeyMaterialButton.MaterialButtonType.Text;
             _cancelBtn.NoAccentTextColor = SupeyTheme.TextPrimary;
             _cancelBtn.Click += (s, e) => OnCancelClicked();
 
@@ -227,8 +221,8 @@ namespace Hiatme_Tool_Suite_v3
                 AutoSize = false,
                 Size = new Size(120, 36),
                 Anchor = AnchorStyles.Bottom | AnchorStyles.Right,
-                Type = MaterialButton.MaterialButtonType.Contained,
-                Density = MaterialButton.MaterialButtonDensity.Default,
+                Type = SupeyMaterialButton.MaterialButtonType.Contained,
+                Density = SupeyMaterialButton.MaterialButtonDensity.Default,
                 UseAccentColor = true,
             };
             _addSelectedBtn.Click += (s, e) => OnAddSelectedClicked();
@@ -263,7 +257,7 @@ namespace Hiatme_Tool_Suite_v3
             };
         }
 
-        private static MaterialButton MakeButton(string text, Point location, Size size, bool useAccent)
+        private static SupeyMaterialButton MakeButton(string text, Point location, Size size, bool useAccent)
         {
             // Accent (green) buttons go through DarkOnAccentMaterialButton so their label is
             // painted dark + bold for contrast against MaterialSkin's bright Lime700 fill, the
@@ -276,20 +270,20 @@ namespace Hiatme_Tool_Suite_v3
                     Location = location,
                     AutoSize = false,
                     Size = size,
-                    Type = MaterialButton.MaterialButtonType.Contained,
-                    Density = MaterialButton.MaterialButtonDensity.Default,
+                    Type = SupeyMaterialButton.MaterialButtonType.Contained,
+                    Density = SupeyMaterialButton.MaterialButtonDensity.Default,
                     UseAccentColor = true,
                     HighEmphasis = true,
                 };
             }
-            return new MaterialButton
+            return new SupeyMaterialButton
             {
                 Text = text,
                 Location = location,
                 AutoSize = false,
                 Size = size,
-                Type = MaterialButton.MaterialButtonType.Contained,
-                Density = MaterialButton.MaterialButtonDensity.Default,
+                Type = SupeyMaterialButton.MaterialButtonType.Contained,
+                Density = SupeyMaterialButton.MaterialButtonDensity.Default,
                 UseAccentColor = false,
                 HighEmphasis = true,
             };

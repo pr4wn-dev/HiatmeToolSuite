@@ -1,13 +1,10 @@
 using System;
 using System.Drawing;
 using System.Windows.Forms;
-using MaterialSkin;
-using MaterialSkin.Controls;
-
 namespace Hiatme_Tool_Suite_v3
 {
     /// <summary>Confirm sending the full schedule workbook to one driver.</summary>
-    internal sealed class ScheduleEmailSendConfirmForm : MaterialForm
+    internal sealed class ScheduleEmailSendConfirmForm : SupeyForm
     {
         public ScheduleEmailSendConfirmForm(
             string driverDisplayName,
@@ -28,9 +25,6 @@ namespace Hiatme_Tool_Suite_v3
 
             try
             {
-                var mgr = MaterialSkinManager.Instance;
-                mgr.AddFormToManage(this);
-                SupeyMaterialSkinBridge.ApplyTo(mgr);
             }
             catch { }
 
@@ -59,17 +53,17 @@ namespace Hiatme_Tool_Suite_v3
             {
                 Text = "SEND",
                 AutoSize = false,
-                Type = MaterialButton.MaterialButtonType.Contained,
+                Type = SupeyMaterialButton.MaterialButtonType.Contained,
                 UseAccentColor = true,
                 Size = new Size(96, 36),
                 DialogResult = DialogResult.OK,
             };
 
-            var cancelBtn = new MaterialButton
+            var cancelBtn = new SupeyMaterialButton
             {
                 Text = "CANCEL",
                 AutoSize = false,
-                Type = MaterialButton.MaterialButtonType.Text,
+                Type = SupeyMaterialButton.MaterialButtonType.Text,
                 UseAccentColor = false,
                 NoAccentTextColor = SupeyTheme.TextSecondary,
                 Size = new Size(96, 36),
