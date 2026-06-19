@@ -17,11 +17,12 @@ namespace Hiatme_Tool_Suite_v3
 
         private readonly RadioButton _rbStandard;
         private readonly RadioButton _rbModivcareRed;
+        private readonly RadioButton _rbRedDataOnly;
         private readonly RadioButton _rbLenient;
         private readonly RadioButton _rbDataOnly;
         private readonly RadioButton[] _modeRadios;
 
-        public TimeCorrectionLoadMode SelectedMode { get; private set; } = TimeCorrectionLoadMode.StandardScoreboard;
+        public TimeCorrectionLoadMode SelectedMode { get; private set; } = TimeCorrectionLoadMode.ModivcareRedDataOnly;
 
         public TimeCorrectionLoadModeForm()
         {
@@ -31,9 +32,9 @@ namespace Hiatme_Tool_Suite_v3
             MinimizeBox = false;
             ShowInTaskbar = false;
             StartPosition = FormStartPosition.CenterParent;
-            ClientSize = new Size(DialogWidth, 500);
-            MinimumSize = new Size(DialogWidth, 500);
-            MaximumSize = new Size(DialogWidth, 500);
+            ClientSize = new Size(DialogWidth, 560);
+            MinimumSize = new Size(DialogWidth, 560);
+            MaximumSize = new Size(DialogWidth, 560);
             BackColor = DarkContextMenuRenderer.Background;
 
             try
@@ -114,9 +115,12 @@ namespace Hiatme_Tool_Suite_v3
                 HintFont, Color.Silver, 14));
 
             _rbStandard = AddOptionRow(stack,
-                "Standard — full scoreboard PU/DO timing (usual run).", true);
+                "Standard — full scoreboard PU/DO timing (usual run).", false);
             _rbModivcareRed = AddOptionRow(stack,
                 "Portal red only — fix only trips Modivcare shows in red (standard timing); blue rows are left alone.",
+                false);
+            _rbRedDataOnly = AddOptionRow(stack,
+                "Portal red — data only (no time changes): for red trips fix only driver/vehicle/data; never change any times. Blue rows untouched.",
                 false);
             _rbLenient = AddOptionRow(stack,
                 "Lenient — light timing on blue rows; portal-red rows still get full scoreboard fixes.",
@@ -125,7 +129,7 @@ namespace Hiatme_Tool_Suite_v3
                 "Data only — driver/vehicle on blue rows; portal-red rows still get scoreboard timing.",
                 false);
 
-            _modeRadios = new[] { _rbStandard, _rbModivcareRed, _rbLenient, _rbDataOnly };
+            _modeRadios = new[] { _rbStandard, _rbModivcareRed, _rbRedDataOnly, _rbLenient, _rbDataOnly };
             foreach (RadioButton rb in _modeRadios)
                 rb.CheckedChanged += ModeRadio_CheckedChanged;
 
@@ -136,6 +140,10 @@ namespace Hiatme_Tool_Suite_v3
 
             Controls.Add(body);
             Controls.Add(footer);
+
+            // Radios live in separate row panels, so the per-row Checked initializer can be lost
+            // during layout/handle creation. Force the default selection once everything is wired.
+            SelectModeRadio(_rbRedDataOnly);
         }
 
         private static Label CreateHeaderLabel(string text, Font font, Color color, int bottomMargin)
@@ -227,10 +235,21 @@ namespace Hiatme_Tool_Suite_v3
                 SelectedMode = TimeCorrectionLoadMode.DataOnly;
             else if (_rbLenient.Checked)
                 SelectedMode = TimeCorrectionLoadMode.Lenient;
+            else if (_rbRedDataOnly.Checked)
+                SelectedMode = TimeCorrectionLoadMode.ModivcareRedDataOnly;
             else if (_rbModivcareRed.Checked)
                 SelectedMode = TimeCorrectionLoadMode.ModivcareRedOnly;
             else
                 SelectedMode = TimeCorrectionLoadMode.StandardScoreboard;
+        }
+
+        protected override void OnShown(EventArgs e)
+        {
+            base.OnShown(e);
+            // Re-assert the default now that every radio has a window handle; doing it only in the
+            // constructor can be undone when the form shows and focus lands on the first radio.
+            SelectModeRadio(_rbRedDataOnly);
+            _rbRedDataOnly.Focus();
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)

@@ -14,5 +14,8 @@ namespace Hiatme_Tool_Suite_v3
 
         /// <summary>Standard scoreboard timing and driver/vehicle fixes only for portal red rows.</summary>
         ModivcareRedOnly,
+
+        /// <summary>No timing checks at all; driver/vehicle/data fixes only for portal red rows (blue rows untouched).</summary>
+        ModivcareRedDataOnly,
     }
 }

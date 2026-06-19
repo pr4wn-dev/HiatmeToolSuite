@@ -110,10 +110,10 @@
             this.materialCard8 = new MaterialSkin.Controls.MaterialCard();
             this.materialCard19 = new MaterialSkin.Controls.MaterialCard();
             this.materialLabel1 = new MaterialSkin.Controls.MaterialLabel();
-            this.tccb = new MaterialSkin.Controls.MaterialComboBox();
-            this.tcloadbtn = new MaterialSkin.Controls.MaterialButton();
-            this.tcexebtn = new MaterialSkin.Controls.MaterialButton();
-            this.tcfindbatchesbtn = new MaterialSkin.Controls.MaterialButton();
+            this.tccb = new Hiatme_Tool_Suite_v3.SupeyComboBox();
+            this.tcloadbtn = new Hiatme_Tool_Suite_v3.SupeyButton();
+            this.tcexebtn = new Hiatme_Tool_Suite_v3.SupeyButton();
+            this.tcfindbatchesbtn = new Hiatme_Tool_Suite_v3.SupeyButton();
             this.tcbatchelinkslv = new System.Windows.Forms.ListView();
             this.columnHeader21 = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
             this.columnHeader22 = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
@@ -1227,89 +1227,58 @@
             // tccb
             // 
             this.tccb.Anchor = System.Windows.Forms.AnchorStyles.None;
-            this.tccb.AutoResize = false;
-            this.tccb.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(255)))), ((int)(((byte)(255)))), ((int)(((byte)(255)))));
-            this.tccb.Depth = 0;
-            this.tccb.DrawMode = System.Windows.Forms.DrawMode.OwnerDrawVariable;
-            this.tccb.DropDownHeight = 174;
+            this.tccb.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(40)))), ((int)(((byte)(40)))), ((int)(((byte)(40)))));
+            this.tccb.DrawMode = System.Windows.Forms.DrawMode.OwnerDrawFixed;
+            this.tccb.DropDownHeight = 220;
             this.tccb.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
-            this.tccb.DropDownWidth = 121;
-            this.tccb.Font = new System.Drawing.Font("Microsoft Sans Serif", 14F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Pixel);
-            this.tccb.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(222)))), ((int)(((byte)(0)))), ((int)(((byte)(0)))), ((int)(((byte)(0)))));
+            this.tccb.DropDownWidth = 200;
+            this.tccb.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.tccb.Font = new System.Drawing.Font("Segoe UI", 9.5F);
+            this.tccb.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(232)))), ((int)(((byte)(232)))), ((int)(((byte)(232)))));
             this.tccb.FormattingEnabled = true;
             this.tccb.IntegralHeight = false;
-            this.tccb.ItemHeight = 43;
+            this.tccb.ItemHeight = 24;
             this.tccb.Items.AddRange(new object[] {
+            "Wellryde",
             "Modivcare"});
             this.tccb.Location = new System.Drawing.Point(21, 56);
-            this.tccb.MaxDropDownItems = 4;
-            this.tccb.MouseState = MaterialSkin.MouseState.OUT;
+            this.tccb.MaxDropDownItems = 8;
             this.tccb.Name = "tccb";
-            this.tccb.Size = new System.Drawing.Size(228, 49);
-            this.tccb.StartIndex = 0;
+            this.tccb.Size = new System.Drawing.Size(228, 30);
             this.tccb.TabIndex = 4;
+            this.tccb.DrawItem += new System.Windows.Forms.DrawItemEventHandler(this.TemplatesCombo_DrawItem);
             // 
             // tcloadbtn
             // 
             this.tcloadbtn.Anchor = System.Windows.Forms.AnchorStyles.None;
-            this.tcloadbtn.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
-            this.tcloadbtn.Density = MaterialSkin.Controls.MaterialButton.MaterialButtonDensity.Default;
-            this.tcloadbtn.Depth = 0;
-            this.tcloadbtn.HighEmphasis = true;
-            this.tcloadbtn.Icon = null;
             this.tcloadbtn.Location = new System.Drawing.Point(93, 121);
             this.tcloadbtn.Margin = new System.Windows.Forms.Padding(4, 6, 4, 6);
-            this.tcloadbtn.MouseState = MaterialSkin.MouseState.HOVER;
             this.tcloadbtn.Name = "tcloadbtn";
-            this.tcloadbtn.NoAccentTextColor = System.Drawing.Color.Empty;
             this.tcloadbtn.Size = new System.Drawing.Size(64, 36);
             this.tcloadbtn.TabIndex = 2;
-            this.tcloadbtn.Text = "Load";
-            this.tcloadbtn.Type = MaterialSkin.Controls.MaterialButton.MaterialButtonType.Contained;
-            this.tcloadbtn.UseAccentColor = false;
-            this.tcloadbtn.UseVisualStyleBackColor = true;
+            this.tcloadbtn.Text = "LOAD";
             this.tcloadbtn.Click += new System.EventHandler(this.tcloadbtn_Click);
             // 
             // tcexebtn
             // 
             this.tcexebtn.Anchor = System.Windows.Forms.AnchorStyles.None;
-            this.tcexebtn.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
-            this.tcexebtn.Density = MaterialSkin.Controls.MaterialButton.MaterialButtonDensity.Default;
-            this.tcexebtn.Depth = 0;
-            this.tcexebtn.HighEmphasis = true;
-            this.tcexebtn.Icon = null;
             this.tcexebtn.Location = new System.Drawing.Point(165, 121);
             this.tcexebtn.Margin = new System.Windows.Forms.Padding(4, 6, 4, 6);
-            this.tcexebtn.MouseState = MaterialSkin.MouseState.HOVER;
             this.tcexebtn.Name = "tcexebtn";
-            this.tcexebtn.NoAccentTextColor = System.Drawing.Color.Empty;
             this.tcexebtn.Size = new System.Drawing.Size(84, 36);
             this.tcexebtn.TabIndex = 3;
-            this.tcexebtn.Text = "Execute";
-            this.tcexebtn.Type = MaterialSkin.Controls.MaterialButton.MaterialButtonType.Contained;
-            this.tcexebtn.UseAccentColor = false;
-            this.tcexebtn.UseVisualStyleBackColor = true;
+            this.tcexebtn.Text = "EXECUTE";
             this.tcexebtn.Click += new System.EventHandler(this.tcexebtn_Click);
             // 
             // tcfindbatchesbtn
             // 
             this.tcfindbatchesbtn.Anchor = System.Windows.Forms.AnchorStyles.None;
-            this.tcfindbatchesbtn.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
-            this.tcfindbatchesbtn.Density = MaterialSkin.Controls.MaterialButton.MaterialButtonDensity.Default;
-            this.tcfindbatchesbtn.Depth = 0;
-            this.tcfindbatchesbtn.HighEmphasis = true;
-            this.tcfindbatchesbtn.Icon = null;
             this.tcfindbatchesbtn.Location = new System.Drawing.Point(21, 121);
             this.tcfindbatchesbtn.Margin = new System.Windows.Forms.Padding(4, 6, 4, 6);
-            this.tcfindbatchesbtn.MouseState = MaterialSkin.MouseState.HOVER;
             this.tcfindbatchesbtn.Name = "tcfindbatchesbtn";
-            this.tcfindbatchesbtn.NoAccentTextColor = System.Drawing.Color.Empty;
             this.tcfindbatchesbtn.Size = new System.Drawing.Size(64, 36);
             this.tcfindbatchesbtn.TabIndex = 1;
-            this.tcfindbatchesbtn.Text = "Find";
-            this.tcfindbatchesbtn.Type = MaterialSkin.Controls.MaterialButton.MaterialButtonType.Contained;
-            this.tcfindbatchesbtn.UseAccentColor = false;
-            this.tcfindbatchesbtn.UseVisualStyleBackColor = true;
+            this.tcfindbatchesbtn.Text = "FIND";
             this.tcfindbatchesbtn.Click += new System.EventHandler(this.tcfindbatchesbtn_Click);
             // 
             // tcbatchelinkslv
@@ -2682,9 +2651,9 @@
         private MaterialSkin.Controls.MaterialCard materialCard8;
         private System.Windows.Forms.ListView tcbatchelinkslv;
         private System.Windows.Forms.ListView tctripcorrectlv;
-        private MaterialSkin.Controls.MaterialButton tcexebtn;
-        private MaterialSkin.Controls.MaterialButton tcloadbtn;
-        private MaterialSkin.Controls.MaterialButton tcfindbatchesbtn;
+        private Hiatme_Tool_Suite_v3.SupeyButton tcexebtn;
+        private Hiatme_Tool_Suite_v3.SupeyButton tcloadbtn;
+        private Hiatme_Tool_Suite_v3.SupeyButton tcfindbatchesbtn;
         private System.Windows.Forms.ColumnHeader columnHeader21;
         private System.Windows.Forms.ColumnHeader columnHeader22;
         private System.Windows.Forms.ColumnHeader columnHeader23;
@@ -2805,7 +2774,7 @@
         private System.Windows.Forms.Timer timekiller;
         private MaterialSkin.Controls.MaterialButton LoadingGifSkipBtn;
         private System.Windows.Forms.Timer clientcounttimer;
-        private MaterialSkin.Controls.MaterialComboBox tccb;
+        private Hiatme_Tool_Suite_v3.SupeyComboBox tccb;
         private MaterialSkin.Controls.MaterialLabel materialLabel1;
         private MaterialSkin.Controls.MaterialCard materialCard19;
         private MaterialSkin.Controls.MaterialSwitch listenswitch;

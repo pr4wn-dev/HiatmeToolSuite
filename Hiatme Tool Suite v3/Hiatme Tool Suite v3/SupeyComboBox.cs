@@ -1,21 +1,25 @@
 using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace Hiatme_Tool_Suite_v3
 {
     /// <summary>
-    /// A flat, dark-themed <see cref="ComboBox"/> that paints its own border and dropdown
-    /// arrow. The stock <see cref="FlatStyle.Flat"/> combo still lets Windows render a light
-    /// gray 3D border and a gray arrow button, which clashes with the SupeyTheme surfaces.
-    /// This subclass overpaints that chrome after the base control draws: a thin themed
-    /// border plus a lime-green chevron that matches the accent used elsewhere on the tab.
-    /// Item / selected-text rendering is left to the owner-draw handler the caller wires up.
+    /// A flat, dark-themed <see cref="ComboBox"/> that fully owns its closed-state paint so it
+    /// agrees with the SupeyTheme surfaces. The stock <see cref="FlatStyle.Flat"/> combo lets
+    /// Windows render a light-gray 3D border and a gray arrow button; overpainting that chrome
+    /// afterwards flickers and leaves gray artifacts in the corners. Instead we intercept
+    /// <c>WM_PAINT</c>, draw the whole closed control into an off-screen buffer (background,
+    /// selected text, themed border, lime accent chevron) and blit it in one pass — no base
+    /// button paint, so no flicker and no gray corner. The dropdown list rows are still rendered
+    /// by the owner-draw handler the caller wires up (a separate popup window / WM_DRAWITEM path).
     /// </summary>
     internal sealed class SupeyComboBox : ComboBox
     {
         private const int WM_PAINT = 0x000F;
+        private const int WM_ERASEBKGND = 0x0014;
         private const int ArrowZoneWidth = 22;
 
         public SupeyComboBox()
@@ -23,6 +27,7 @@ namespace Hiatme_Tool_Suite_v3
             DropDownStyle = ComboBoxStyle.DropDownList;
             FlatStyle = FlatStyle.Flat;
             DrawMode = DrawMode.OwnerDrawFixed;
+            DoubleBuffered = true;
             SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
         }
 
@@ -32,41 +37,112 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>Color of the dropdown chevron.</summary>
         public Color ArrowColor { get; set; } = SupeyTheme.AccentPrimary;
 
-        protected override void WndProc(ref Message m)
+        protected override void OnSelectedIndexChanged(EventArgs e)
         {
-            base.WndProc(ref m);
-            if (m.Msg == WM_PAINT && !IsDisposed && IsHandleCreated)
-                PaintChrome();
+            base.OnSelectedIndexChanged(e);
+            Invalidate();
         }
 
-        private void PaintChrome()
+        protected override void WndProc(ref Message m)
         {
-            using (var g = Graphics.FromHwnd(Handle))
+            switch (m.Msg)
             {
-                g.SmoothingMode = SmoothingMode.AntiAlias;
+                case WM_ERASEBKGND:
+                    // We fully paint in WM_PAINT; skip the erase to avoid a flash.
+                    m.Result = (IntPtr)1;
+                    return;
 
-                // Cover the system gray arrow button with our dark surface.
-                var arrowZone = new Rectangle(Width - ArrowZoneWidth - 1, 1, ArrowZoneWidth, Height - 2);
-                using (var fill = new SolidBrush(BackColor))
-                    g.FillRectangle(fill, arrowZone);
-
-                // Lime chevron, centered in the arrow zone.
-                int cx = arrowZone.Left + (arrowZone.Width / 2);
-                int cy = arrowZone.Top + (arrowZone.Height / 2);
-                Point[] chevron =
-                {
-                    new Point(cx - 5, cy - 2),
-                    new Point(cx + 5, cy - 2),
-                    new Point(cx, cy + 4),
-                };
-                using (var arrow = new SolidBrush(Enabled ? ArrowColor : SupeyTheme.TextMuted))
-                    g.FillPolygon(arrow, chevron);
-
-                // Thin themed border (anti-alias off for a crisp 1px rectangle).
-                g.SmoothingMode = SmoothingMode.None;
-                using (var pen = new Pen(BorderColor))
-                    g.DrawRectangle(pen, 0, 0, Width - 1, Height - 1);
+                case WM_PAINT:
+                    if (IsHandleCreated && !IsDisposed && Width > 0 && Height > 0)
+                    {
+                        var ps = new PAINTSTRUCT();
+                        IntPtr hdc = BeginPaint(Handle, ref ps);
+                        try
+                        {
+                            using (var buffer = new Bitmap(Width, Height))
+                            {
+                                using (var bg = Graphics.FromImage(buffer))
+                                    DrawClosed(bg);
+                                using (var target = Graphics.FromHdc(hdc))
+                                    target.DrawImageUnscaled(buffer, 0, 0);
+                            }
+                        }
+                        finally
+                        {
+                            EndPaint(Handle, ref ps);
+                        }
+                        m.Result = IntPtr.Zero;
+                        return;
+                    }
+                    break;
             }
+
+            base.WndProc(ref m);
+        }
+
+        private void DrawClosed(Graphics g)
+        {
+            g.SmoothingMode = SmoothingMode.None;
+
+            // Background.
+            using (var fill = new SolidBrush(BackColor))
+                g.FillRectangle(fill, 0, 0, Width, Height);
+
+            // Selected text, left-padded and vertically centered.
+            string text = Text;
+            int textRight = Width - ArrowZoneWidth - 2;
+            if (!string.IsNullOrEmpty(text) && textRight > 8)
+            {
+                var textRect = new Rectangle(8, 0, textRight - 8, Height);
+                TextRenderer.DrawText(g, text, Font, textRect,
+                    Enabled ? ForeColor : SupeyTheme.TextMuted,
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+            }
+
+            // Lime accent chevron, centered in the arrow zone.
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            int cx = Width - (ArrowZoneWidth / 2) - 1;
+            int cy = Height / 2;
+            Point[] chevron =
+            {
+                new Point(cx - 5, cy - 2),
+                new Point(cx + 5, cy - 2),
+                new Point(cx, cy + 4),
+            };
+            using (var arrow = new SolidBrush(Enabled ? ArrowColor : SupeyTheme.TextMuted))
+                g.FillPolygon(arrow, chevron);
+
+            // Crisp 1px themed border.
+            g.SmoothingMode = SmoothingMode.None;
+            using (var pen = new Pen(BorderColor))
+                g.DrawRectangle(pen, 0, 0, Width - 1, Height - 1);
+        }
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr BeginPaint(IntPtr hWnd, ref PAINTSTRUCT lpPaint);
+
+        [DllImport("user32.dll")]
+        private static extern bool EndPaint(IntPtr hWnd, ref PAINTSTRUCT lpPaint);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct RECT
+        {
+            public int Left;
+            public int Top;
+            public int Right;
+            public int Bottom;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct PAINTSTRUCT
+        {
+            public IntPtr hdc;
+            public bool fErase;
+            public RECT rcPaint;
+            public bool fRestore;
+            public bool fIncUpdate;
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 32)]
+            public byte[] rgbReserved;
         }
     }
 }

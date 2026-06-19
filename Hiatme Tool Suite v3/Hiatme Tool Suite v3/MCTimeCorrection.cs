@@ -17,7 +17,7 @@ namespace Hiatme_Tool_Suite_v3
 {
     internal class MCTimeCorrection
     {
-        private MaterialComboBox MaterialComboBox;
+        private System.Windows.Forms.ComboBox MaterialComboBox;
 
         public MCBatchRecords mcBatchRecords;
 
@@ -36,11 +36,10 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>TripActuals HTML from the last per-trip open before submit (late-reason hidden fields).</summary>
         private string _tripActualsFormHtml;
 
-        public MCTimeCorrection(MaterialComboBox cb)
+        public MCTimeCorrection(System.Windows.Forms.ComboBox cb)
         {
             mcBatchRecords = new MCBatchRecords();
             mctripdler = new MCTripDownloader();
-            MaterialComboBox = new MaterialComboBox();
             MaterialComboBox = cb;
         }
 
@@ -333,6 +332,8 @@ namespace Hiatme_Tool_Suite_v3
                 await ReportProgress("Applying timing rules for " + dateLabel + "…");
                 if (LoadMode == TimeCorrectionLoadMode.DataOnly)
                     ApplyDataOnlyTripDefaults(mcBatchRecords.MCBatchTrips, addinfo);
+                else if (LoadMode == TimeCorrectionLoadMode.ModivcareRedDataOnly)
+                    ApplyRedDataOnlyTripDefaults(mcBatchRecords.MCBatchTrips, addinfo);
                 else if (LoadMode == TimeCorrectionLoadMode.Lenient)
                     LenientCorrectModivcareTimes(mcBatchRecords.MCBatchTrips, addinfo);
                 else
@@ -1945,7 +1946,8 @@ namespace Hiatme_Tool_Suite_v3
 
         private bool ShouldApplyCorrectionsToTrip(MCBatchTripRecord trip)
         {
-            if (LoadMode != TimeCorrectionLoadMode.ModivcareRedOnly)
+            if (LoadMode != TimeCorrectionLoadMode.ModivcareRedOnly &&
+                LoadMode != TimeCorrectionLoadMode.ModivcareRedDataOnly)
                 return true;
             return trip != null && trip.TripErrors;
         }
@@ -3422,6 +3424,42 @@ namespace Hiatme_Tool_Suite_v3
 
                 trprcd.SuggestedPUTime = trprcd.PUTime;
                 trprcd.SuggestedDOTime = trprcd.DOTime;
+            }
+
+            FinalizePassedTripStatus(batchtrips);
+        }
+
+        /// <summary>
+        /// Portal-red data-only load: never change any PU/DO times (no timing checks at all),
+        /// and only surface driver/vehicle/data fixes for trips Modivcare shows in red. Blue rows
+        /// are left untouched/passing. The driver/vehicle fixes themselves are applied by the shared
+        /// data-quality pass, which is gated to red rows via <see cref="ShouldApplyCorrectionsToTrip"/>.
+        /// </summary>
+        private void ApplyRedDataOnlyTripDefaults(List<MCBatchTripRecord> batchtrips, MCBatchAdditionalInfo dledtripsaddinfo)
+        {
+            foreach (MCBatchTripRecord trprcd in batchtrips)
+            {
+                if (trprcd.Date != dledtripsaddinfo.MCBatchDate)
+                    continue;
+
+                trprcd.Alerts = null;
+                trprcd.Status = null;
+
+                // Times are never touched in this mode — suggested mirrors the driver's actuals.
+                trprcd.SuggestedPUTime = trprcd.PUTime;
+                trprcd.SuggestedDOTime = trprcd.DOTime;
+
+                // Blue rows stay passing; only red rows are eligible for data-quality fixes.
+                if (!trprcd.TripErrors)
+                    continue;
+
+                // Flag red rows with unparseable scheduled times, same as the data-only pass.
+                if (!TryParseBatchTime(trprcd.PUTime, out _) ||
+                    !TryParseBatchTime(trprcd.DOTime, out _))
+                {
+                    AppendTripAlert(trprcd, "SCH");
+                    trprcd.Status = "Fixable";
+                }
             }
 
             FinalizePassedTripStatus(batchtrips);

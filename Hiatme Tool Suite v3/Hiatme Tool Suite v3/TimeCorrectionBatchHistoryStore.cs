@@ -95,6 +95,8 @@ namespace Hiatme_Tool_Suite_v3
                     return "Data only";
                 case TimeCorrectionLoadMode.ModivcareRedOnly:
                     return "Portal red";
+                case TimeCorrectionLoadMode.ModivcareRedDataOnly:
+                    return "Portal red data";
                 default:
                     return "Standard";
             }

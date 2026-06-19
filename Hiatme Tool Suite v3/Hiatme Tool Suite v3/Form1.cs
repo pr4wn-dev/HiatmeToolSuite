@@ -177,6 +177,7 @@ namespace Hiatme_Tool_Suite_v3
             ApplyTripScoutContextMenuTheme();
             ApplyTripScoutVisualTheme();
             ApplyTemplatesVisualTheme();
+            ApplyTimeCorrectionVisualTheme();
             // Build the Supey schedule tab UI programmatically (the designer placeholder is intentionally empty).
             if (ShowSupeyScheduleTab)
                 InitializeSupeyTab();
@@ -495,6 +496,193 @@ namespace Hiatme_Tool_Suite_v3
         {
             var fill = materialCard13?.Controls["tbStatusFillPanel"] as System.Windows.Forms.Panel;
             LayoutStatusLabelInCard(fill ?? materialCard13, tbstatuslbl);
+        }
+
+        /// <summary>
+        /// Dark-themes the Time Correction tab (tabPage4): content cards, the control-panel
+        /// card with its flat combo + Find/Load/Execute buttons, both owner-drawn list views,
+        /// the bottom status strip, and the accuracy chart. Styling only — no behavior changes.
+        /// </summary>
+        private void ApplyTimeCorrectionVisualTheme()
+        {
+            if (tabPage4 != null)
+            {
+                tabPage4.BackColor = SupeyTheme.SurfaceBase;
+                tabPage4.ForeColor = SupeyTheme.TextPrimary;
+            }
+
+            // Content cards (batch list host, trip list, chart) sit on the base surface.
+            foreach (var card in new[] { materialCard8, materialCard9, materialCard11 })
+            {
+                if (card == null) continue;
+                card.BackColor = SupeyTheme.Surface;
+                card.ForeColor = SupeyTheme.TextPrimary;
+            }
+
+            // The control-panel card reads as a small header strip.
+            if (materialCard19 != null)
+            {
+                materialCard19.BackColor = SupeyTheme.SurfaceHeader;
+                materialCard19.ForeColor = SupeyTheme.TextPrimary;
+            }
+
+            if (materialLabel1 != null)
+            {
+                materialLabel1.ForeColor = SupeyTheme.TextSecondary;
+                materialLabel1.BackColor = SupeyTheme.SurfaceHeader;
+                materialLabel1.Font = SupeyTheme.BodyFont;
+            }
+
+            // Flat dark combo (reuses the Templates combo configuration + owner-draw rows).
+            if (tccb != null)
+            {
+                ConfigureTemplatesCombo(tccb, 232);
+                // Restore the default selection (Modivcare) that the old Material combo showed.
+                if (tccb.SelectedIndex < 0 && tccb.Items.Count > 0)
+                {
+                    int idx = tccb.Items.IndexOf("Modivcare");
+                    tccb.SelectedIndex = idx >= 0 ? idx : 0;
+                }
+            }
+
+            // Flat buttons, primary accent reserved for the Execute action.
+            if (tcfindbatchesbtn != null) tcfindbatchesbtn.Kind = SupeyButton.Variant.Secondary;
+            if (tcloadbtn != null) tcloadbtn.Kind = SupeyButton.Variant.Secondary;
+            if (tcexebtn != null) tcexebtn.Kind = SupeyButton.Variant.Primary;
+            LayoutTimeCorrectionControlPanel();
+
+            // Owner-drawn lists pick up the shared SupeyTheme palette (see ListView draw handlers).
+            foreach (var lv in new[] { tctripcorrectlv, tcbatchelinkslv })
+            {
+                if (lv == null) continue;
+                lv.BackColor = SupeyTheme.ListBody;
+                lv.ForeColor = SupeyTheme.ListText;
+                lv.GridLines = true;
+                lv.BorderStyle = System.Windows.Forms.BorderStyle.None;
+            }
+
+            // Bottom status strip, styled like the other tabs.
+            if (materialCard10 != null)
+            {
+                materialCard10.BackColor = SupeyTheme.SurfaceHeader;
+                materialCard10.ForeColor = SupeyTheme.TextPrimary;
+                materialCard10.Padding = new Padding(0);
+
+                var fill = materialCard10.Controls["tcStatusFillPanel"] as System.Windows.Forms.Panel;
+                if (fill == null)
+                {
+                    fill = new System.Windows.Forms.Panel
+                    {
+                        Name = "tcStatusFillPanel",
+                        Dock = DockStyle.Fill,
+                        BackColor = SupeyTheme.SurfaceStatusBar,
+                        Padding = new Padding(10, 0, 10, 0),
+                    };
+                    materialCard10.Controls.Add(fill);
+                }
+                else
+                {
+                    fill.BackColor = SupeyTheme.SurfaceStatusBar;
+                }
+
+                var divider = fill.Controls["tcStatusTopDivider"] as System.Windows.Forms.Panel;
+                if (divider == null)
+                {
+                    divider = new System.Windows.Forms.Panel
+                    {
+                        Name = "tcStatusTopDivider",
+                        Dock = DockStyle.Top,
+                        Height = 1,
+                        BackColor = SupeyTheme.Divider,
+                    };
+                    fill.Controls.Add(divider);
+                    divider.BringToFront();
+                }
+
+                if (tcorrectstatuslbl != null)
+                {
+                    if (!ReferenceEquals(tcorrectstatuslbl.Parent, fill))
+                        fill.Controls.Add(tcorrectstatuslbl);
+                    tcorrectstatuslbl.AutoSize = false;
+                    tcorrectstatuslbl.ForeColor = SupeyTheme.TextSecondary;
+                    tcorrectstatuslbl.Font = SupeyTheme.BodyFont;
+                    tcorrectstatuslbl.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
+                    tcorrectstatuslbl.BackColor = SupeyTheme.SurfaceStatusBar;
+                    LayoutStatusLabelInCard(fill, tcorrectstatuslbl);
+                }
+
+                materialCard10.Resize -= MaterialCard10_ResizeTcStatus;
+                materialCard10.Resize += MaterialCard10_ResizeTcStatus;
+            }
+
+            ApplyTimeCorrectionChartTheme();
+        }
+
+        private void MaterialCard10_ResizeTcStatus(object sender, EventArgs e)
+        {
+            var fill = materialCard10?.Controls["tcStatusFillPanel"] as System.Windows.Forms.Panel;
+            LayoutStatusLabelInCard(fill ?? materialCard10, tcorrectstatuslbl);
+        }
+
+        // Lays out the control-panel card (label, combo, three action buttons) on a tidy grid.
+        private void LayoutTimeCorrectionControlPanel()
+        {
+            if (materialCard19 == null || materialCard19.IsDisposed)
+                return;
+
+            const int left = 18;
+            const int right = 18;
+            const int gap = 8;
+            int w = materialCard19.Width;
+
+            if (materialLabel1 != null && !materialLabel1.IsDisposed)
+                materialLabel1.Location = new Point(left, 18);
+
+            if (tccb != null && !tccb.IsDisposed)
+                tccb.SetBounds(left, 46, Math.Max(120, w - left - right), 30);
+
+            int avail = Math.Max(150, w - left - right - (gap * 2));
+            int bw = avail / 3;
+            int btnY = 96;
+            const int btnH = 30;
+
+            if (tcfindbatchesbtn != null && !tcfindbatchesbtn.IsDisposed)
+                tcfindbatchesbtn.SetBounds(left, btnY, bw, btnH);
+            if (tcloadbtn != null && !tcloadbtn.IsDisposed)
+                tcloadbtn.SetBounds(left + bw + gap, btnY, bw, btnH);
+            if (tcexebtn != null && !tcexebtn.IsDisposed)
+                tcexebtn.SetBounds(left + (2 * (bw + gap)), btnY, avail - (2 * bw), btnH);
+        }
+
+        private void ApplyTimeCorrectionChartTheme()
+        {
+            if (tcchart == null || tcchart.IsDisposed)
+                return;
+
+            tcchart.BackColor = SupeyTheme.Surface;
+            tcchart.BorderlineColor = SupeyTheme.Divider;
+
+            foreach (var area in tcchart.ChartAreas)
+            {
+                area.BackColor = SupeyTheme.Surface;
+                foreach (var axis in new[] { area.AxisX, area.AxisY })
+                {
+                    axis.LineColor = SupeyTheme.Divider;
+                    axis.LabelStyle.ForeColor = SupeyTheme.TextSecondary;
+                    axis.TitleForeColor = SupeyTheme.TextSecondary;
+                    axis.MajorGrid.LineColor = SupeyTheme.Divider;
+                    axis.MajorTickMark.LineColor = SupeyTheme.Divider;
+                }
+            }
+
+            foreach (var series in tcchart.Series)
+                series.Color = SupeyTheme.AccentPrimary;
+
+            foreach (var legend in tcchart.Legends)
+            {
+                legend.BackColor = Color.Transparent;
+                legend.ForeColor = SupeyTheme.TextSecondary;
+            }
         }
 
         // The Templates toolbar mirrors the Schedule Builder header: a full-width docked band
@@ -3206,6 +3394,8 @@ namespace Hiatme_Tool_Suite_v3
                     return "lenient";
                 case TimeCorrectionLoadMode.ModivcareRedOnly:
                     return "red only";
+                case TimeCorrectionLoadMode.ModivcareRedDataOnly:
+                    return "red data";
                 default:
                     return "standard";
             }
@@ -6024,7 +6214,7 @@ namespace Hiatme_Tool_Suite_v3
         {
             ListView listView = (ListView)sender;
             // Trip Scout and the Analyzer trip list share the polished SupeyTheme header palette.
-            bool isTripScoutList = ReferenceEquals(listView, tslv) || ReferenceEquals(listView, aalv) || ReferenceEquals(listView, templatelv);
+            bool isTripScoutList = ReferenceEquals(listView, tslv) || ReferenceEquals(listView, aalv) || ReferenceEquals(listView, templatelv) || ReferenceEquals(listView, tctripcorrectlv) || ReferenceEquals(listView, tcbatchelinkslv);
             // Draw the standard header background.
             Color lvbg = isTripScoutList ? SupeyTheme.ListHeader : ColorTranslator.FromHtml("#333333");
 
@@ -6091,7 +6281,7 @@ namespace Hiatme_Tool_Suite_v3
         {
             ListView listView = (ListView)sender;
             // Trip Scout and the Analyzer trip list share the polished SupeyTheme selection highlight.
-            bool isTripScoutList = ReferenceEquals(listView, tslv) || ReferenceEquals(listView, aalv) || ReferenceEquals(listView, templatelv);
+            bool isTripScoutList = ReferenceEquals(listView, tslv) || ReferenceEquals(listView, aalv) || ReferenceEquals(listView, templatelv) || ReferenceEquals(listView, tctripcorrectlv) || ReferenceEquals(listView, tcbatchelinkslv);
             if ((e.State & ListViewItemStates.Selected) != 0)
             {
                 if (listView.Focused && e.Item.Selected)
@@ -6141,7 +6331,7 @@ namespace Hiatme_Tool_Suite_v3
         private void listView_DrawSubItem(object sender, DrawListViewSubItemEventArgs e)
         {
             ListView listView = (ListView)sender;
-            bool isTripScoutList = ReferenceEquals(listView, tslv) || ReferenceEquals(listView, aalv) || ReferenceEquals(listView, templatelv);
+            bool isTripScoutList = ReferenceEquals(listView, tslv) || ReferenceEquals(listView, aalv) || ReferenceEquals(listView, templatelv) || ReferenceEquals(listView, tctripcorrectlv) || ReferenceEquals(listView, tcbatchelinkslv);
 
             Rectangle rowBounds = e.Bounds;
             Rectangle bounds = new Rectangle(rowBounds.Left + 10, rowBounds.Top, Math.Max(0, rowBounds.Width - 10 - 1), rowBounds.Height);
