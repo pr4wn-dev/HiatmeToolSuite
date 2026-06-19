@@ -145,7 +145,7 @@ namespace Hiatme_Tool_Suite_v3
                 if (tabPageSupey.Visible)
                     EnsureSupeySplitDistance();
             };
-            BeginInvoke(new Action(EnsureSupeySplitDistance));
+            RunWhenReady(EnsureSupeySplitDistance);
 
             LoadSupeyRosterFromDisk();
             UpdateSupeyButtonStates();

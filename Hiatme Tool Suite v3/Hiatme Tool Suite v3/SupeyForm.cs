@@ -117,6 +117,32 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         /// <summary>
+        /// Runs <paramref name="action"/> asynchronously on the UI thread once the window handle
+        /// exists. Safe to call from a constructor (before the handle is created): MaterialForm used
+        /// to create its handle during construction, so code could <c>BeginInvoke</c> straight from the
+        /// ctor; SupeyForm doesn't, so a raw <c>BeginInvoke</c> there throws "Invoke or BeginInvoke
+        /// cannot be called ... until the window handle has been created." This defers to
+        /// <see cref="Control.HandleCreated"/> when needed and behaves like a plain BeginInvoke once
+        /// the handle is up.
+        /// </summary>
+        public void RunWhenReady(Action action)
+        {
+            if (action == null) return;
+            if (IsHandleCreated)
+            {
+                BeginInvoke(action);
+                return;
+            }
+            EventHandler handler = null;
+            handler = (s, e) =>
+            {
+                HandleCreated -= handler;
+                BeginInvoke(action);
+            };
+            HandleCreated += handler;
+        }
+
+        /// <summary>
         /// Keep the native window behaviors (taskbar minimize + animation, Aero snap, resize) even
         /// though FormBorderStyle is None and we paint everything. WS_SIZEBOX gives us snap/resize,
         /// WS_MINIMIZEBOX the taskbar minimize, CS_DBLCLKS lets the title double-click maximize.

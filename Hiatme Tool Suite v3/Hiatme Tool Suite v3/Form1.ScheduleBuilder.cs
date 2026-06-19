@@ -154,7 +154,7 @@ namespace Hiatme_Tool_Suite_v3
 
             };
 
-            BeginInvoke(new Action(EnsureFsSplitDistance));
+            RunWhenReady(EnsureFsSplitDistance);
 
             SupeyDarkScrollBars.Apply(tabPage6);
 
@@ -164,13 +164,13 @@ namespace Hiatme_Tool_Suite_v3
 
             SetScheduleBuilderStatus("Ready. Pick a service date and click BUILD.");
 
-            BeginInvoke(new Action(async () =>
+            RunWhenReady(async () =>
             {
                 try { await SyncFsDriverEmailsAsync(reportOffline: false).ConfigureAwait(true); }
                 catch { /* offline */ }
                 try { await FsRefreshArchiveStatusAsync(reportOffline: false).ConfigureAwait(true); }
                 catch { /* optional */ }
-            }));
+            });
         }
 
 
