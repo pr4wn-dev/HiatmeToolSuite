@@ -34,6 +34,14 @@ namespace Hiatme_Tool_Suite_v3
             if (mgr == null) return;
             mgr.Theme = MaterialSkinManager.Themes.DARK;
             mgr.ColorScheme = BuildColorScheme();
+
+            // CRITICAL: MaterialSkin's DARK BackgroundColor is hardcoded to (80,80,80) gray and is NOT
+            // derived from the ColorScheme, so the bridge above can't recolor it. With this flag ON
+            // (the library default) the manager walks every managed form and *stamps* that 80,80,80
+            // onto all child controls' BackColor — overriding the palette surfaces we set. Turning it
+            // off lets our own theming (Form1.ThemeUntouchedMaterialChrome + per-tab Apply* + the live
+            // SupeyThemeApplier recolor) own every background instead of MaterialSkin's fixed gray.
+            mgr.EnforceBackcolorOnAllComponents = false;
         }
 
         private static void ApplyToManager()

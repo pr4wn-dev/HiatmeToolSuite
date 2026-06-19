@@ -392,8 +392,11 @@ namespace Hiatme_Tool_Suite_v3
         private static bool IsMaterialDefaultGray(Color c)
         {
             if (c == SystemColors.Control || c == SystemColors.ControlDark) return true;
-            // MaterialSkin dark background and its elevation variants cluster around 45–55 gray.
-            return c.R == c.G && c.G == c.B && c.R >= 40 && c.R <= 60;
+            // MaterialSkin DARK paints neutral grays at CardsColor(42), BackdropColor(50) and
+            // BackgroundColor(80) — the (80,80,80) "enforced" tone is the one that used to leak
+            // through the old 40–60 window. Catch the whole neutral-gray band so no MaterialSkin
+            // default survives our retint, while leaving near-black palette surfaces alone.
+            return c.R == c.G && c.G == c.B && c.R >= 38 && c.R <= 90;
         }
 
         private void ApplyTripScoutVisualTheme()
