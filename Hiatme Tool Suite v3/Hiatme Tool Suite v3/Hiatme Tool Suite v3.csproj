@@ -506,6 +506,7 @@
     <Compile Include="SupeyComboBox.cs">
       <SubType>Component</SubType>
     </Compile>
+    <Compile Include="SupeyDrawer.cs" />
     <Compile Include="SupeyTabStrip.cs" />
     <Compile Include="SupeyForm.cs">
       <SubType>Form</SubType>

@@ -80,6 +80,10 @@ namespace Hiatme_Tool_Suite_v3
         // Which window button the cursor is over (0 = min, 1 = max, 2 = close, -1 = none).
         private int _hoverButton = -1;
 
+        /// <summary>Extra left padding for the title text so it clears a leading control (e.g. the
+        /// drawer hamburger) placed at the top-left of the title bar.</summary>
+        public int TitleLeftInset { get; set; }
+
         public SupeyForm()
         {
             SetStyle(
@@ -307,7 +311,7 @@ namespace Hiatme_Tool_Suite_v3
 
         private void DrawTitle(Graphics g)
         {
-            int x = 16;
+            int x = 16 + TitleLeftInset;
             if (ShowIcon && Icon != null)
             {
                 using (var bmp = Icon.ToBitmap())

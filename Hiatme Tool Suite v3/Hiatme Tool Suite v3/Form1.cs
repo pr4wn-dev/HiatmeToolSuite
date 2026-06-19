@@ -182,8 +182,11 @@ namespace Hiatme_Tool_Suite_v3
             // still paints MaterialSkin's fixed ~RGB(50,50,50) gray. Setting them to a palette surface
             // both kills the gray now AND makes them remappable by the live recolor walk on switch.
             ThemeUntouchedMaterialChrome(this);
-            // Owner-draw the main tab bar in the Supey skin (themed strip, icons, lime active underline).
+            // Hide the native tab headers; navigation is driven by the custom left drawer below.
             SupeyTabStrip.Attach(hiatmeTabControl);
+            // Left navigation drawer (icon rail + hamburger-expandable labels), replacing the old
+            // MaterialSkin drawer with our own theme-driven control.
+            BuildSupeyDrawer();
             // In-app theme switcher in the top bar + live recolor when the user picks a preset.
             BuildSupeyThemePicker();
             SupeyThemeManager.ThemeChanged += (s, e) => OnSupeyThemeChanged();
@@ -722,11 +725,45 @@ namespace Hiatme_Tool_Suite_v3
 
         private SupeyButton _themePickerBtn;
         private ContextMenuStrip _themePickerMenu;
+        private SupeyDrawerHost _navDrawer;
+        private SupeyHamburger _navHamburger;
 
         /// <summary>
         /// Builds the top-bar theme switcher: a ghost button showing the active preset that opens a
         /// dark menu of all built-in presets. Selecting one applies + persists it and live-recolors.
         /// </summary>
+        /// <summary>
+        /// Builds the left navigation drawer: a slim icon rail under the title bar that expands to a
+        /// labeled overlay when the title-bar hamburger is clicked. Reserves a 64px left gutter so the
+        /// collapsed rail never covers tab content (the expanded drawer floats over it).
+        /// </summary>
+        private void BuildSupeyDrawer()
+        {
+            try
+            {
+                // Inset tab content by the collapsed rail width (left), keep the existing top app-bar
+                // and frame insets.
+                Padding = new Padding(SupeyDrawer.CollapsedWidth, SupeyForm.TitleBarHeight, 3, 3);
+
+                // The drawer lives on a transparent owned overlay window so its open/close animation
+                // never repaints the heavy tab content (MaterialSkin's drawerForm technique).
+                _navDrawer = new SupeyDrawerHost(hiatmeTabControl);
+                _navDrawer.AttachTo(this);
+
+                _navHamburger = new SupeyHamburger { Location = new Point(6, 17) };
+                _navHamburger.Click += (s, e) => _navDrawer?.Toggle();
+                Controls.Add(_navHamburger);
+                _navHamburger.BringToFront();
+
+                // Make room for the hamburger in the title text.
+                TitleLeftInset = 40;
+            }
+            catch
+            {
+                // Navigation must never block startup; the tab control still works without it.
+            }
+        }
+
         private void BuildSupeyThemePicker()
         {
             try
