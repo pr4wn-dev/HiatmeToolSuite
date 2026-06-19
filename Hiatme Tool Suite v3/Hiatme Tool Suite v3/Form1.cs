@@ -178,6 +178,13 @@ namespace Hiatme_Tool_Suite_v3
             ApplyTripScoutVisualTheme();
             ApplyTemplatesVisualTheme();
             ApplyTimeCorrectionVisualTheme();
+            // The MaterialForm body behind the tab control (3px margins + app-bar strip) defaults to
+            // MaterialSkin's fixed gray; pin it to the palette base so no gray peeks through.
+            BackColor = SupeyTheme.SurfaceBase;
+            // Catch every MaterialCard / tab page / list that no per-tab theming method touched and
+            // still paints MaterialSkin's fixed ~RGB(50,50,50) gray. Setting them to a palette surface
+            // both kills the gray now AND makes them remappable by the live recolor walk on switch.
+            ThemeUntouchedMaterialChrome(this);
             // Owner-draw the main tab bar in the Supey skin (themed strip, icons, lime active underline).
             SupeyTabStrip.Attach(hiatmeTabControl);
             // In-app theme switcher in the top bar + live recolor when the user picks a preset.
@@ -313,6 +320,82 @@ namespace Hiatme_Tool_Suite_v3
         /// Makes Trip Scout visually match the Schedule Builder toolbar rhythm.
         /// Styling only — no behavior changes.
         /// </summary>
+        /// <summary>
+        /// Walks the whole control tree and themes any MaterialCard / TabPage / ListView that is still
+        /// showing MaterialSkin's fixed dark-gray default (i.e. whose BackColor is NOT already one of
+        /// the active palette surfaces). Controls a per-tab Apply* method already themed are left alone
+        /// so their nuanced surfaces (status bars, dividers) survive. Run once at startup; afterwards
+        /// every touched control carries a palette color, so <see cref="SupeyThemeApplier"/> remaps it
+        /// on theme switches automatically.
+        /// </summary>
+        private void ThemeUntouchedMaterialChrome(System.Windows.Forms.Control root)
+        {
+            if (root == null) return;
+
+            foreach (System.Windows.Forms.Control c in root.Controls)
+            {
+                switch (c)
+                {
+                    case MaterialSkin.Controls.MaterialCard card:
+                        if (!IsPaletteSurface(card.BackColor))
+                        {
+                            card.BackColor = SupeyTheme.SurfaceBase;
+                            card.ForeColor = SupeyTheme.TextPrimary;
+                        }
+                        break;
+                    case TabPage page:
+                        if (!IsPaletteSurface(page.BackColor))
+                        {
+                            page.BackColor = SupeyTheme.SurfaceBase;
+                            page.ForeColor = SupeyTheme.TextPrimary;
+                        }
+                        break;
+                    case ListView lv:
+                        if (!IsPaletteSurface(lv.BackColor))
+                        {
+                            lv.BackColor = SupeyTheme.ListBody;
+                            lv.ForeColor = SupeyTheme.ListText;
+                        }
+                        break;
+                    case System.Windows.Forms.Panel pnl:
+                        // Only retint panels still on the MaterialSkin default gray; leave deliberately
+                        // colored panels (palette surfaces, accent strips, semantic fills) untouched.
+                        if (!IsPaletteSurface(pnl.BackColor) && IsMaterialDefaultGray(pnl.BackColor))
+                            pnl.BackColor = SupeyTheme.SurfaceBase;
+                        break;
+                }
+
+                if (c.HasChildren)
+                    ThemeUntouchedMaterialChrome(c);
+            }
+        }
+
+        /// <summary>True if <paramref name="c"/> matches one of the active palette's surface tones.</summary>
+        private static bool IsPaletteSurface(Color c)
+        {
+            int argb = c.ToArgb();
+            return argb == SupeyTheme.SurfaceBase.ToArgb()
+                || argb == SupeyTheme.Surface.ToArgb()
+                || argb == SupeyTheme.SurfaceElevated.ToArgb()
+                || argb == SupeyTheme.SurfaceHeader.ToArgb()
+                || argb == SupeyTheme.SurfaceStatusBar.ToArgb()
+                || argb == SupeyTheme.ListBody.ToArgb()
+                || argb == SupeyTheme.ListBodyAlt.ToArgb()
+                || argb == SupeyTheme.ListHeader.ToArgb();
+        }
+
+        /// <summary>
+        /// MaterialSkin's DARK theme paints cards/forms with a fixed gray (~RGB 50,50,50). Detect it
+        /// (with a little tolerance) plus the WinForms default control gray so we only retint chrome
+        /// that was never themed, not panels we colored on purpose.
+        /// </summary>
+        private static bool IsMaterialDefaultGray(Color c)
+        {
+            if (c == SystemColors.Control || c == SystemColors.ControlDark) return true;
+            // MaterialSkin dark background and its elevation variants cluster around 45–55 gray.
+            return c.R == c.G && c.G == c.B && c.R >= 40 && c.R <= 60;
+        }
+
         private void ApplyTripScoutVisualTheme()
         {
             if (tabPage9 != null)
