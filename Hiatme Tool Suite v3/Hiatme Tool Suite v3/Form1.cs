@@ -103,8 +103,7 @@ namespace Hiatme_Tool_Suite_v3
         private FlowLayoutPanel _tripScoutToolbarLeftFlow;
         private FlowLayoutPanel _tripScoutToolbarRightFlow;
         private System.Windows.Forms.Panel _templatesToolbarPanel;
-        private FlowLayoutPanel _templatesToolbarLeftFlow;
-        private FlowLayoutPanel _templatesToolbarRightFlow;
+        private SupeyButton _templatesAddBtn;
         private SupeyMapLoadingOverlay _tripScoutLoadingOverlay;
         private int _tripScoutLoadingDepth;
         private bool _tripScoutFirstLoadTriggered;
@@ -475,25 +474,18 @@ namespace Hiatme_Tool_Suite_v3
             {
                 tbcb.BackColor = SupeyTheme.SurfaceElevated;
                 tbcb.ForeColor = SupeyTheme.TextPrimary;
-                tbcb.Hint = "Weekday";
-                tbcb.Size = new Size(260, tbcb.Height);
-                tbcb.Depth = 0;
             }
 
             if (tbtemplatenamecb != null)
             {
                 tbtemplatenamecb.BackColor = SupeyTheme.SurfaceElevated;
                 tbtemplatenamecb.ForeColor = SupeyTheme.TextPrimary;
-                tbtemplatenamecb.Hint = "Template Driver";
-                tbtemplatenamecb.Size = new Size(300, tbtemplatenamecb.Height);
-                tbtemplatenamecb.Depth = 0;
             }
 
             if (addtemplatebtn != null)
             {
-                addtemplatebtn.UseAccentColor = true;
-                addtemplatebtn.Type = MaterialButton.MaterialButtonType.Contained;
-                addtemplatebtn.Margin = new Padding(4, 6, 0, 6);
+                // Replaced visually by SupeyButton to match Schedule Builder BUILD chrome.
+                addtemplatebtn.Visible = false;
             }
 
             EnsureTemplatesToolbarChrome();
@@ -505,6 +497,9 @@ namespace Hiatme_Tool_Suite_v3
             LayoutStatusLabelInCard(fill ?? materialCard13, tbstatuslbl);
         }
 
+        // The Templates toolbar mirrors the Schedule Builder header: a full-width docked band
+        // with a hairline bottom divider and a single left-docked auto-size flow that arranges
+        // uniform 30px-tall flat controls. No manual pixel math = no drift or clipping.
         private void EnsureTemplatesToolbarChrome()
         {
             if (materialCard12 == null || tbcb == null || tbtemplatenamecb == null || addtemplatebtn == null)
@@ -515,62 +510,128 @@ namespace Hiatme_Tool_Suite_v3
                 _templatesToolbarPanel = new System.Windows.Forms.Panel
                 {
                     Name = "templatesToolbarPanel",
+                    Dock = DockStyle.Top,
+                    Height = 56,
                     BackColor = SupeyTheme.SurfaceHeader,
-                    Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
-                    Location = new Point(18, 18),
-                    Height = 56
+                    Padding = new Padding(0),
                 };
 
-                _templatesToolbarLeftFlow = new FlowLayoutPanel
+                var divider = new System.Windows.Forms.Panel
+                {
+                    Dock = DockStyle.Bottom,
+                    Height = 1,
+                    BackColor = SupeyTheme.Divider,
+                };
+
+                var leftFlow = new FlowLayoutPanel
                 {
                     Name = "templatesToolbarLeftFlow",
-                    WrapContents = false,
-                    AutoSize = false,
+                    Dock = DockStyle.Left,
                     FlowDirection = FlowDirection.LeftToRight,
-                    BackColor = Color.Transparent,
-                    Margin = new Padding(0),
-                    Padding = new Padding(8, 4, 6, 4)
+                    WrapContents = false,
+                    AutoSize = true,
+                    AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                    BackColor = SupeyTheme.SurfaceHeader,
+                    Padding = new Padding(14, 12, 0, 0),
                 };
 
-                _templatesToolbarRightFlow = new FlowLayoutPanel
+                var weekdayCaption = new Label
                 {
-                    Name = "templatesToolbarRightFlow",
-                    WrapContents = false,
-                    AutoSize = false,
-                    FlowDirection = FlowDirection.LeftToRight,
-                    BackColor = Color.Transparent,
-                    Margin = new Padding(0),
-                    Padding = new Padding(6, 8, 8, 8)
+                    Text = "Weekday",
+                    AutoSize = true,
+                    ForeColor = SupeyTheme.TextSecondary,
+                    BackColor = SupeyTheme.SurfaceHeader,
+                    Font = SupeyTheme.CaptionFont,
+                    Margin = new Padding(0, 8, 10, 0),
+                };
+                var driverCaption = new Label
+                {
+                    Text = "Template driver",
+                    AutoSize = true,
+                    ForeColor = SupeyTheme.TextSecondary,
+                    BackColor = SupeyTheme.SurfaceHeader,
+                    Font = SupeyTheme.CaptionFont,
+                    Margin = new Padding(0, 8, 10, 0),
                 };
 
-                _templatesToolbarPanel.Controls.Add(_templatesToolbarLeftFlow);
-                _templatesToolbarPanel.Controls.Add(_templatesToolbarRightFlow);
+                ConfigureTemplatesCombo(tbcb, 150);
+                ConfigureTemplatesCombo(tbtemplatenamecb, 240);
+
+                if (_templatesAddBtn == null || _templatesAddBtn.IsDisposed)
+                {
+                    _templatesAddBtn = new SupeyButton
+                    {
+                        Text = "ADD TEMPLATE",
+                        Kind = SupeyButton.Variant.Primary,
+                        Size = new Size(150, 30),
+                        Margin = new Padding(0, 1, 0, 0),
+                    };
+                    _templatesAddBtn.Click += (s, e) => addtemplatebtn_Click(addtemplatebtn ?? s, e);
+                }
+
+                leftFlow.Controls.Add(weekdayCaption);
+                leftFlow.Controls.Add(tbcb);
+                leftFlow.Controls.Add(driverCaption);
+                leftFlow.Controls.Add(tbtemplatenamecb);
+                leftFlow.Controls.Add(MakeFsToolbarSeparator());
+                leftFlow.Controls.Add(_templatesAddBtn);
+
+                _templatesToolbarPanel.Controls.Add(divider);
+                _templatesToolbarPanel.Controls.Add(leftFlow);
                 materialCard12.Controls.Add(_templatesToolbarPanel);
                 _templatesToolbarPanel.BringToFront();
-                _templatesToolbarPanel.Resize += (_, __) => LayoutTemplatesToolbarControls();
-            }
-
-            if (!ReferenceEquals(tbcb.Parent, _templatesToolbarLeftFlow))
-            {
-                tbcb.Margin = new Padding(0, 2, 12, 2);
-                _templatesToolbarLeftFlow.Controls.Add(tbcb);
-            }
-
-            if (!ReferenceEquals(tbtemplatenamecb.Parent, _templatesToolbarLeftFlow))
-            {
-                tbtemplatenamecb.Margin = new Padding(0, 2, 0, 2);
-                _templatesToolbarLeftFlow.Controls.Add(tbtemplatenamecb);
-            }
-
-            if (!ReferenceEquals(addtemplatebtn.Parent, _templatesToolbarRightFlow))
-            {
-                addtemplatebtn.Margin = new Padding(0, 8, 0, 0);
-                _templatesToolbarRightFlow.Controls.Add(addtemplatebtn);
             }
 
             materialCard12.Resize -= MaterialCard12_ResizeTemplatesToolbar;
             materialCard12.Resize += MaterialCard12_ResizeTemplatesToolbar;
+
+            // Default the weekday box to today so the tab never opens blank. The tab-change
+            // handler reads tbcb.Text to populate the driver list (which auto-selects index 0),
+            // so seeding the weekday gives both boxes a sensible default value.
+            if (tbcb.SelectedIndex < 0 && tbcb.Items.Count > 0)
+                tbcb.SelectedIndex = ((int)DateTime.Today.DayOfWeek + 6) % 7;
+
             LayoutTemplatesToolbarControls();
+        }
+
+        private void ConfigureTemplatesCombo(System.Windows.Forms.ComboBox cb, int width)
+        {
+            if (cb == null || cb.IsDisposed)
+                return;
+            cb.DropDownStyle = ComboBoxStyle.DropDownList;
+            cb.FlatStyle = FlatStyle.Flat;
+            cb.DrawMode = DrawMode.OwnerDrawFixed;
+            cb.Font = new Font("Segoe UI", 9.5f, FontStyle.Regular);
+            cb.ItemHeight = 24;
+            cb.BackColor = SupeyTheme.SurfaceElevated;
+            cb.ForeColor = SupeyTheme.TextPrimary;
+            cb.Width = width;
+            cb.Margin = new Padding(0, 1, 14, 0);
+            cb.DrawItem -= TemplatesCombo_DrawItem;
+            cb.DrawItem += TemplatesCombo_DrawItem;
+        }
+
+        // Dark owner-draw so the flat combos match the SupeyTheme surface (the system would
+        // otherwise paint the closed box and dropdown rows in white).
+        private void TemplatesCombo_DrawItem(object sender, DrawItemEventArgs e)
+        {
+            var cb = sender as System.Windows.Forms.ComboBox;
+            if (cb == null) return;
+
+            bool selected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
+            Color back = selected ? SupeyTheme.ListSelected : SupeyTheme.SurfaceElevated;
+            Color fore = selected ? SupeyTheme.ListSelectedText : SupeyTheme.TextPrimary;
+
+            using (var b = new SolidBrush(back))
+                e.Graphics.FillRectangle(b, e.Bounds);
+
+            string text = e.Index >= 0 ? cb.GetItemText(cb.Items[e.Index]) : cb.Text;
+            if (!string.IsNullOrEmpty(text))
+            {
+                var rect = new Rectangle(e.Bounds.X + 6, e.Bounds.Y, e.Bounds.Width - 8, e.Bounds.Height);
+                TextRenderer.DrawText(e.Graphics, text, cb.Font, rect, fore,
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+            }
         }
 
         private void MaterialCard12_ResizeTemplatesToolbar(object sender, EventArgs e)
@@ -582,49 +643,6 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (_templatesToolbarPanel == null || _templatesToolbarPanel.IsDisposed || materialCard12 == null)
                 return;
-
-            int pad = 18;
-            int availableWidth = Math.Max(320, materialCard12.ClientSize.Width - (pad * 2));
-            _templatesToolbarPanel.Width = availableWidth;
-            _templatesToolbarPanel.Location = new Point(pad, 16);
-            _templatesToolbarPanel.Height = 58;
-
-            int rightWidth = 170;
-            if (_templatesToolbarRightFlow != null && !_templatesToolbarRightFlow.IsDisposed)
-            {
-                _templatesToolbarRightFlow.Bounds = new Rectangle(
-                    Math.Max(0, _templatesToolbarPanel.Width - rightWidth),
-                    0,
-                    rightWidth,
-                    _templatesToolbarPanel.Height);
-            }
-
-            if (_templatesToolbarLeftFlow != null && !_templatesToolbarLeftFlow.IsDisposed)
-            {
-                _templatesToolbarLeftFlow.Bounds = new Rectangle(
-                    0,
-                    0,
-                    Math.Max(200, _templatesToolbarPanel.Width - rightWidth),
-                    _templatesToolbarPanel.Height);
-            }
-
-            int leftWidth = Math.Max(200, _templatesToolbarPanel.Width - rightWidth);
-            int comboGap = 12;
-            int usableForCombos = Math.Max(200, leftWidth - 16); // account for left-flow padding
-            int comboWidth = Math.Max(220, Math.Min(420, (usableForCombos - comboGap) / 2));
-
-            if (tbcb != null && !tbcb.IsDisposed)
-                tbcb.Width = comboWidth;
-
-            if (tbtemplatenamecb != null && !tbtemplatenamecb.IsDisposed)
-                tbtemplatenamecb.Width = comboWidth;
-
-            if (addtemplatebtn != null && !addtemplatebtn.IsDisposed)
-            {
-                addtemplatebtn.Height = 36;
-                addtemplatebtn.AutoSize = false;
-                addtemplatebtn.Width = 150;
-            }
 
             if (templatelv != null && !templatelv.IsDisposed)
             {

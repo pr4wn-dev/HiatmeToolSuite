@@ -142,8 +142,8 @@
             this.columnHeader55 = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
             this.columnHeader56 = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
             this.columnHeader57 = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
-            this.tbtemplatenamecb = new MaterialSkin.Controls.MaterialComboBox();
-            this.tbcb = new MaterialSkin.Controls.MaterialComboBox();
+            this.tbtemplatenamecb = new Hiatme_Tool_Suite_v3.SupeyComboBox();
+            this.tbcb = new Hiatme_Tool_Suite_v3.SupeyComboBox();
             this.tabPage6 = new System.Windows.Forms.TabPage();
             this.materialCard15 = new MaterialSkin.Controls.MaterialCard();
             this.sbstatuslbl = new MaterialSkin.Controls.MaterialLabel();
@@ -1564,41 +1564,38 @@
             // 
             // tbtemplatenamecb
             // 
-            this.tbtemplatenamecb.AutoResize = false;
-            this.tbtemplatenamecb.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(255)))), ((int)(((byte)(255)))), ((int)(((byte)(255)))));
-            this.tbtemplatenamecb.Depth = 0;
-            this.tbtemplatenamecb.DrawMode = System.Windows.Forms.DrawMode.OwnerDrawVariable;
-            this.tbtemplatenamecb.DropDownHeight = 174;
+            this.tbtemplatenamecb.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(36)))), ((int)(((byte)(40)))), ((int)(((byte)(48)))));
+            this.tbtemplatenamecb.DrawMode = System.Windows.Forms.DrawMode.OwnerDrawFixed;
+            this.tbtemplatenamecb.DropDownHeight = 220;
             this.tbtemplatenamecb.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
-            this.tbtemplatenamecb.DropDownWidth = 121;
-            this.tbtemplatenamecb.Font = new System.Drawing.Font("Microsoft Sans Serif", 14F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Pixel);
-            this.tbtemplatenamecb.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(222)))), ((int)(((byte)(0)))), ((int)(((byte)(0)))), ((int)(((byte)(0)))));
+            this.tbtemplatenamecb.DropDownWidth = 200;
+            this.tbtemplatenamecb.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.tbtemplatenamecb.Font = new System.Drawing.Font("Segoe UI", 9.5F);
+            this.tbtemplatenamecb.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(233)))), ((int)(((byte)(236)))), ((int)(((byte)(241)))));
             this.tbtemplatenamecb.FormattingEnabled = true;
             this.tbtemplatenamecb.IntegralHeight = false;
-            this.tbtemplatenamecb.ItemHeight = 43;
+            this.tbtemplatenamecb.ItemHeight = 24;
             this.tbtemplatenamecb.Location = new System.Drawing.Point(360, 18);
-            this.tbtemplatenamecb.MaxDropDownItems = 4;
-            this.tbtemplatenamecb.MouseState = MaterialSkin.MouseState.OUT;
+            this.tbtemplatenamecb.MaxDropDownItems = 8;
             this.tbtemplatenamecb.Name = "tbtemplatenamecb";
-            this.tbtemplatenamecb.Size = new System.Drawing.Size(330, 49);
-            this.tbtemplatenamecb.StartIndex = 0;
+            this.tbtemplatenamecb.Size = new System.Drawing.Size(330, 30);
             this.tbtemplatenamecb.TabIndex = 1;
+            this.tbtemplatenamecb.DrawItem += new System.Windows.Forms.DrawItemEventHandler(this.TemplatesCombo_DrawItem);
             this.tbtemplatenamecb.SelectedIndexChanged += new System.EventHandler(this.tbtemplatenamecb_SelectedIndexChanged);
             // 
             // tbcb
             // 
-            this.tbcb.AutoResize = false;
-            this.tbcb.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(255)))), ((int)(((byte)(255)))), ((int)(((byte)(255)))));
-            this.tbcb.Depth = 0;
-            this.tbcb.DrawMode = System.Windows.Forms.DrawMode.OwnerDrawVariable;
-            this.tbcb.DropDownHeight = 174;
+            this.tbcb.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(36)))), ((int)(((byte)(40)))), ((int)(((byte)(48)))));
+            this.tbcb.DrawMode = System.Windows.Forms.DrawMode.OwnerDrawFixed;
+            this.tbcb.DropDownHeight = 220;
             this.tbcb.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
-            this.tbcb.DropDownWidth = 121;
-            this.tbcb.Font = new System.Drawing.Font("Microsoft Sans Serif", 14F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Pixel);
-            this.tbcb.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(222)))), ((int)(((byte)(0)))), ((int)(((byte)(0)))), ((int)(((byte)(0)))));
+            this.tbcb.DropDownWidth = 200;
+            this.tbcb.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.tbcb.Font = new System.Drawing.Font("Segoe UI", 9.5F);
+            this.tbcb.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(233)))), ((int)(((byte)(236)))), ((int)(((byte)(241)))));
             this.tbcb.FormattingEnabled = true;
             this.tbcb.IntegralHeight = false;
-            this.tbcb.ItemHeight = 43;
+            this.tbcb.ItemHeight = 24;
             this.tbcb.Items.AddRange(new object[] {
             "Monday",
             "Tuesday",
@@ -1608,12 +1605,11 @@
             "Saturday",
             "Sunday"});
             this.tbcb.Location = new System.Drawing.Point(18, 18);
-            this.tbcb.MaxDropDownItems = 4;
-            this.tbcb.MouseState = MaterialSkin.MouseState.OUT;
+            this.tbcb.MaxDropDownItems = 8;
             this.tbcb.Name = "tbcb";
-            this.tbcb.Size = new System.Drawing.Size(327, 49);
-            this.tbcb.StartIndex = 0;
+            this.tbcb.Size = new System.Drawing.Size(327, 30);
             this.tbcb.TabIndex = 0;
+            this.tbcb.DrawItem += new System.Windows.Forms.DrawItemEventHandler(this.TemplatesCombo_DrawItem);
             this.tbcb.SelectedIndexChanged += new System.EventHandler(this.tbcb_SelectedIndexChanged);
             // 
             // tabPage6
@@ -2725,8 +2721,8 @@
         private MaterialSkin.Controls.MaterialCard materialCard12;
         private MaterialSkin.Controls.MaterialButton addtemplatebtn;
         private System.Windows.Forms.ListView templatelv;
-        private MaterialSkin.Controls.MaterialComboBox tbtemplatenamecb;
-        private MaterialSkin.Controls.MaterialComboBox tbcb;
+        private Hiatme_Tool_Suite_v3.SupeyComboBox tbtemplatenamecb;
+        private Hiatme_Tool_Suite_v3.SupeyComboBox tbcb;
         private System.Windows.Forms.ColumnHeader columnHeader44;
         private System.Windows.Forms.ColumnHeader columnHeader45;
         private System.Windows.Forms.ColumnHeader columnHeader46;

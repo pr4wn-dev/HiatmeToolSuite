@@ -503,6 +503,9 @@
     <Compile Include="SupeyButton.cs">
       <SubType>Component</SubType>
     </Compile>
+    <Compile Include="SupeyComboBox.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="SupeyMapMarkerDrag.cs" />
     <Compile Include="SupeyStatusPill.cs">
       <SubType>Component</SubType>
