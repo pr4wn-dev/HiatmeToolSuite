@@ -511,11 +511,13 @@ namespace Hiatme_Tool_Suite_v3
                 tabPage4.ForeColor = SupeyTheme.TextPrimary;
             }
 
-            // Content cards (batch list host, trip list, chart) sit on the base surface.
+            // Content cards (batch list host, trip list, chart) sit flush on the base surface so
+            // the tab reads as one flat dark panel (like Schedule Builder) instead of a grid of
+            // lighter gray cards floating on a darker background.
             foreach (var card in new[] { materialCard8, materialCard9, materialCard11 })
             {
                 if (card == null) continue;
-                card.BackColor = SupeyTheme.Surface;
+                card.BackColor = SupeyTheme.SurfaceBase;
                 card.ForeColor = SupeyTheme.TextPrimary;
             }
 
@@ -616,6 +618,23 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             ApplyTimeCorrectionChartTheme();
+
+            // The form-level dark-scrollbar walk runs before this tab's controls have window
+            // handles, so its list views keep bright-gray native scrollbars and a light header
+            // strip past the last column. Re-apply here (idempotent) and once more the first time
+            // the tab is shown — exactly how the Supey and Schedule Builder tabs do it.
+            if (tabPage4 != null)
+            {
+                SupeyDarkScrollBars.Apply(tabPage4);
+                tabPage4.VisibleChanged -= TabPage4_ApplyDarkScrollOnShow;
+                tabPage4.VisibleChanged += TabPage4_ApplyDarkScrollOnShow;
+            }
+        }
+
+        private void TabPage4_ApplyDarkScrollOnShow(object sender, EventArgs e)
+        {
+            if (tabPage4 != null && tabPage4.Visible)
+                SupeyDarkScrollBars.Apply(tabPage4);
         }
 
         private void MaterialCard10_ResizeTcStatus(object sender, EventArgs e)
