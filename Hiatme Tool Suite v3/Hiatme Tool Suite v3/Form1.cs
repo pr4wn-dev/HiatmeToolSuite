@@ -5962,7 +5962,10 @@ namespace Hiatme_Tool_Suite_v3
             ChartArea area = tcchart.ChartAreas["TCChartArea"];
             Series series = tcchart.Series["Accuracies"];
 
-            area.BackColor = Color.FromArgb(80, 80, 80);
+            // Pull the chart surface from the active palette (this method runs on every draw/tab-show,
+            // so the old hardcoded RGB(80,80,80) was repainting the gray box over the themed startup pass).
+            tcchart.BackColor = SupeyTheme.SurfaceBase;
+            area.BackColor = SupeyTheme.SurfaceBase;
             area.Position.Auto = false;
             area.Position.X = 3f;
             area.Position.Y = 17f;
@@ -5975,7 +5978,7 @@ namespace Hiatme_Tool_Suite_v3
             area.InnerPlotPosition.Width = 88f;
             area.InnerPlotPosition.Height = 82f;
 
-            area.AxisX.LabelStyle.ForeColor = Color.White;
+            area.AxisX.LabelStyle.ForeColor = SupeyTheme.TextSecondary;
             area.AxisX.LabelStyle.Font = new Font("Segoe UI", 8.25f);
             area.AxisX.LabelStyle.Angle = 0;
             area.AxisX.LabelStyle.Interval = 1;
@@ -5983,24 +5986,24 @@ namespace Hiatme_Tool_Suite_v3
             area.AxisX.IsMarginVisible = true;
             area.AxisX.IsLabelAutoFit = true;
             area.AxisX.LabelAutoFitStyle = LabelAutoFitStyles.DecreaseFont;
-            area.AxisX.LineColor = Color.White;
+            area.AxisX.LineColor = SupeyTheme.Divider;
             area.AxisX.MajorGrid.Enabled = false;
-            area.AxisX.TitleForeColor = Color.White;
+            area.AxisX.TitleForeColor = SupeyTheme.TextSecondary;
 
             // Headroom above 100% bars so Outside labels clear the bar tops.
             area.AxisY.Minimum = 0;
             area.AxisY.Maximum = 115;
             area.AxisY.Interval = 20;
             area.AxisY.IsStartedFromZero = true;
-            area.AxisY.LabelStyle.ForeColor = Color.White;
-            area.AxisY.LineColor = Color.White;
-            area.AxisY.MajorGrid.LineColor = Color.FromArgb(95, 95, 95);
-            area.AxisY.TitleForeColor = Color.White;
+            area.AxisY.LabelStyle.ForeColor = SupeyTheme.TextSecondary;
+            area.AxisY.LineColor = SupeyTheme.Divider;
+            area.AxisY.MajorGrid.LineColor = SupeyTheme.Divider;
+            area.AxisY.TitleForeColor = SupeyTheme.TextSecondary;
 
             series.ChartType = SeriesChartType.Column;
             series.IsValueShownAsLabel = true;
             series.Font = new Font("Segoe UI", 8.25f, FontStyle.Bold);
-            series.LabelForeColor = Color.White;
+            series.LabelForeColor = SupeyTheme.TextPrimary;
             series["PointWidth"] = "0.62";
             series["BarLabelStyle"] = "Outside";
             series.SmartLabelStyle.Enabled = false;
