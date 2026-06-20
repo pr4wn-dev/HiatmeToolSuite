@@ -28,8 +28,11 @@ namespace Hiatme_Tool_Suite_v3
         // ── Win32 ────────────────────────────────────────────────────────────────
         private const int WM_NCHITTEST = 0x0084;
         private const int WM_GETMINMAXINFO = 0x0024;
-        private const int WM_SETCURSOR = 0x0020;
         private const int WM_NCCALCSIZE = 0x0083;
+        private const int WM_NCACTIVATE = 0x0086;
+        private const int WM_NCPAINT = 0x0085;
+
+        private const int GWL_STYLE = -16;
 
         private const int WS_MINIMIZEBOX = 0x00020000;
         private const int WS_SYSMENU = 0x00080000;
@@ -78,6 +81,26 @@ namespace Hiatme_Tool_Suite_v3
         [DllImport("user32.dll")]
         private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
 
+        [DllImport("user32.dll", EntryPoint = "GetWindowLong")]
+        private static extern IntPtr GetWindowLong32(IntPtr hWnd, int nIndex);
+
+        [DllImport("user32.dll", EntryPoint = "GetWindowLongPtr")]
+        private static extern IntPtr GetWindowLongPtr64(IntPtr hWnd, int nIndex);
+
+        [DllImport("user32.dll", EntryPoint = "SetWindowLong")]
+        private static extern IntPtr SetWindowLong32(IntPtr hWnd, int nIndex, int dwNewLong);
+
+        [DllImport("user32.dll", EntryPoint = "SetWindowLongPtr")]
+        private static extern IntPtr SetWindowLongPtr64(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+        private static IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex)
+            => IntPtr.Size == 8 ? GetWindowLongPtr64(hWnd, nIndex) : GetWindowLong32(hWnd, nIndex);
+
+        private static IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong)
+            => IntPtr.Size == 8
+                ? SetWindowLongPtr64(hWnd, nIndex, dwNewLong)
+                : SetWindowLong32(hWnd, nIndex, dwNewLong.ToInt32());
+
         // Which window button the cursor is over (0 = min, 1 = max, 2 = close, -1 = none).
         private int _hoverButton = -1;
 
@@ -87,11 +110,12 @@ namespace Hiatme_Tool_Suite_v3
 
         public SupeyForm()
         {
+            // Match MaterialForm: no UserPaint — we paint chrome in OnPaint but child controls
+            // still compose normally. UserPaint on a Form causes classic/theme flicker.
             SetStyle(
                 ControlStyles.AllPaintingInWmPaint
                 | ControlStyles.OptimizedDoubleBuffer
-                | ControlStyles.ResizeRedraw
-                | ControlStyles.UserPaint,
+                | ControlStyles.ResizeRedraw,
                 true);
 
             // We draw the frame ourselves; behaviors come from the styles in CreateParams below.
@@ -148,50 +172,70 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         /// <summary>
-        /// Keep the native window behaviors (taskbar minimize + animation, Aero snap, resize) even
-        /// though FormBorderStyle is None and we paint everything. WS_SIZEBOX gives us snap/resize,
-        /// WS_MINIMIZEBOX the taskbar minimize, CS_DBLCLKS lets the title double-click maximize.
+        /// Keep native minimize + system menu. WS_SIZEBOX is added in <see cref="OnCreateControl"/>
+        /// after the handle exists (MaterialForm pattern) so Aero snap works without painting a
+        /// classic sizing frame during initial layout.
         /// </summary>
         protected override CreateParams CreateParams
         {
             get
             {
                 var cp = base.CreateParams;
-                cp.Style |= WS_MINIMIZEBOX | WS_SYSMENU | WS_SIZEBOX;
+                cp.Style |= WS_MINIMIZEBOX | WS_SYSMENU;
                 cp.ClassStyle |= CS_DBLCLKS;
                 return cp;
             }
         }
 
+        protected override void OnCreateControl()
+        {
+            base.OnCreateControl();
+            if (DesignMode || !IsHandleCreated) return;
+            long style = GetWindowLongPtr(Handle, GWL_STYLE).ToInt64();
+            SetWindowLongPtr(Handle, GWL_STYLE, (IntPtr)(style | WS_SIZEBOX));
+        }
+
         // ── Window-button geometry ────────────────────────────────────────────────
-        private Rectangle CloseRect => new Rectangle(Width - ButtonWidth, 0, ButtonWidth, 30);
-        private Rectangle MaxRect => new Rectangle(Width - ButtonWidth * 2, 0, ButtonWidth, 30);
-        private Rectangle MinRect => new Rectangle(Width - ButtonWidth * 3, 0, ButtonWidth, 30);
+        private Rectangle CloseRect => new Rectangle(ClientSize.Width - ButtonWidth, 0, ButtonWidth, 30);
+        private Rectangle MaxRect => new Rectangle(ClientSize.Width - ButtonWidth * 2, 0, ButtonWidth, 30);
+        private Rectangle MinRect => new Rectangle(ClientSize.Width - ButtonWidth * 3, 0, ButtonWidth, 30);
 
         private bool HasMax => MaximizeBox && ControlBox;
         private bool HasMin => MinimizeBox && ControlBox;
 
         protected override void WndProc(ref Message m)
         {
-            // WS_SIZEBOX (added in CreateParams for snap/resize) makes Windows reserve a non-client
-            // sizing frame and paint its default — a light/white line at the top edge. Claim the whole
-            // window as client area so nothing system-painted leaks; we still resize via WM_NCHITTEST.
-            if (m.Msg == WM_NCCALCSIZE && m.WParam != IntPtr.Zero)
+            // MaterialForm pattern: swallow NC calc so the whole window is client area (no white
+            // sizing frame). Swallow NC activate/paint so Windows never flashes classic chrome.
+            if (m.Msg == WM_NCCALCSIZE)
+                return;
+
+            if (m.Msg == WM_NCACTIVATE)
+            {
+                // -1 tells DefWindowProc not to repaint the non-client activation frame.
+                m.Result = (IntPtr)(-1);
+                return;
+            }
+
+            if (m.Msg == WM_NCPAINT)
             {
                 m.Result = IntPtr.Zero;
                 return;
             }
+
             if (m.Msg == WM_NCHITTEST)
             {
                 m.Result = (IntPtr)HitTest(PointToClient(Cursor.Position));
                 return;
             }
+
             if (m.Msg == WM_GETMINMAXINFO)
             {
                 base.WndProc(ref m);
                 AdjustMaximizedBounds(m.HWnd, m.LParam);
                 return;
             }
+
             base.WndProc(ref m);
         }
 
@@ -210,9 +254,9 @@ namespace Hiatme_Tool_Suite_v3
             if (!maximized)
             {
                 bool left = p.X <= ResizeBorder;
-                bool right = p.X >= Width - ResizeBorder;
+                bool right = p.X >= ClientSize.Width - ResizeBorder;
                 bool top = p.Y <= ResizeBorder;
-                bool bottom = p.Y >= Height - ResizeBorder;
+                bool bottom = p.Y >= ClientSize.Height - ResizeBorder;
 
                 if (top && left) return HTTOPLEFT;
                 if (top && right) return HTTOPRIGHT;
@@ -260,7 +304,7 @@ namespace Hiatme_Tool_Suite_v3
                 else if (HasMax && MaxRect.Contains(e.Location)) _hoverButton = 1;
                 else if (HasMin && MinRect.Contains(e.Location)) _hoverButton = 0;
             }
-            if (prev != _hoverButton) Invalidate(new Rectangle(Width - ButtonWidth * 3, 0, ButtonWidth * 3, 30));
+            if (prev != _hoverButton) Invalidate(new Rectangle(ClientSize.Width - ButtonWidth * 3, 0, ButtonWidth * 3, 30));
         }
 
         protected override void OnMouseLeave(EventArgs e)
@@ -269,7 +313,7 @@ namespace Hiatme_Tool_Suite_v3
             if (_hoverButton != -1)
             {
                 _hoverButton = -1;
-                Invalidate(new Rectangle(Width - ButtonWidth * 3, 0, ButtonWidth * 3, 30));
+                Invalidate(new Rectangle(ClientSize.Width - ButtonWidth * 3, 0, ButtonWidth * 3, 30));
             }
         }
 
@@ -295,24 +339,28 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         // ── Painting ─────────────────────────────────────────────────────────────
+        protected override void OnPaintBackground(PaintEventArgs e)
+        {
+            // Paint the base ourselves — do not delegate to Control which flashes the system color.
+            using (var body = new SolidBrush(SupeyTheme.SurfaceBase))
+                e.Graphics.FillRectangle(body, ClientRectangle);
+        }
+
         protected override void OnPaint(PaintEventArgs e)
         {
-            base.OnPaint(e);
             var g = e.Graphics;
 
-            // Body + title-bar fill.
-            using (var body = new SolidBrush(SupeyTheme.SurfaceBase))
-                g.FillRectangle(body, ClientRectangle);
+            g.Clear(SupeyTheme.SurfaceBase);
             using (var bar = new SolidBrush(SupeyTheme.SurfaceHeader))
-                g.FillRectangle(bar, 0, 0, Width, TitleBarHeight);
+                g.FillRectangle(bar, 0, 0, ClientSize.Width, TitleBarHeight);
 
             // Thin accent line under the title bar to separate chrome from content.
             using (var divider = new Pen(SupeyTheme.Divider))
-                g.DrawLine(divider, 0, TitleBarHeight - 1, Width, TitleBarHeight - 1);
+                g.DrawLine(divider, 0, TitleBarHeight - 1, ClientSize.Width, TitleBarHeight - 1);
 
             // Outer frame.
             using (var frame = new Pen(SupeyTheme.BorderSubtle))
-                g.DrawRectangle(frame, 0, 0, Width - 1, Height - 1);
+                g.DrawRectangle(frame, 0, 0, ClientSize.Width - 1, ClientSize.Height - 1);
 
             DrawTitle(g);
             DrawWindowButtons(g);
@@ -328,7 +376,7 @@ namespace Hiatme_Tool_Suite_v3
                 x += 28;
             }
 
-            var rect = new Rectangle(x, 0, Width - x - ButtonWidth * 3 - 8, TitleBarHeight);
+            var rect = new Rectangle(x, 0, ClientSize.Width - x - ButtonWidth * 3 - 8, TitleBarHeight);
             TextRenderer.DrawText(g, Text ?? string.Empty, SupeyTheme.HeaderFont, rect,
                 SupeyTheme.TextPrimary,
                 TextFormatFlags.Left | TextFormatFlags.VerticalCenter
