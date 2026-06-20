@@ -28,6 +28,8 @@ namespace Hiatme_Tool_Suite_v3
             FlatStyle = FlatStyle.Flat;
             DrawMode = DrawMode.OwnerDrawFixed;
             DoubleBuffered = true;
+            BackColor = SupeyTheme.Surface;
+            ForeColor = SupeyTheme.TextPrimary;
             SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
             SupeyThemeManager.ThemeChanged += OnThemeChanged;
         }
@@ -35,7 +37,8 @@ namespace Hiatme_Tool_Suite_v3
         private void OnThemeChanged(object sender, EventArgs e)
         {
             if (IsDisposed) return;
-            // Only retint accents we own; BackColor/ForeColor are remapped by the form recolor walk.
+            BackColor = SupeyTheme.Surface;
+            ForeColor = SupeyTheme.TextPrimary;
             BorderColor = SupeyTheme.BorderSubtle;
             ArrowColor = SupeyTheme.AccentPrimary;
             Invalidate();
@@ -132,19 +135,26 @@ namespace Hiatme_Tool_Suite_v3
         {
             g.SmoothingMode = SmoothingMode.None;
 
-            // Background.
-            using (var fill = new SolidBrush(BackColor))
+            // Background — pull straight from the theme so a stale Designer BackColor (e.g. the white
+            // left over from the MaterialSkin era) can never leak through.
+            using (var fill = new SolidBrush(SupeyTheme.Surface))
                 g.FillRectangle(fill, 0, 0, Width, Height);
 
-            // Selected text, left-padded and vertically centered.
+            // Selected text (or hint placeholder), left-padded and vertically centered.
             string text = Text;
             int textRight = Width - ArrowZoneWidth - 2;
-            if (!string.IsNullOrEmpty(text) && textRight > 8)
+            if (textRight > 8)
             {
-                var textRect = new Rectangle(8, 0, textRight - 8, Height);
-                TextRenderer.DrawText(g, text, Font, textRect,
-                    Enabled ? ForeColor : SupeyTheme.TextMuted,
-                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+                bool hasText = !string.IsNullOrEmpty(text);
+                string shown = hasText ? text : _hint;
+                if (!string.IsNullOrEmpty(shown))
+                {
+                    Color fore = !Enabled ? SupeyTheme.TextMuted
+                        : hasText ? SupeyTheme.TextPrimary : SupeyTheme.TextMuted;
+                    var textRect = new Rectangle(8, 0, textRight - 8, Height);
+                    TextRenderer.DrawText(g, shown, Font, textRect, fore,
+                        TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+                }
             }
 
             // Lime accent chevron, centered in the arrow zone.

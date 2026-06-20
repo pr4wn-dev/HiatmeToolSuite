@@ -29,6 +29,7 @@ namespace Hiatme_Tool_Suite_v3
         private const int WM_NCHITTEST = 0x0084;
         private const int WM_GETMINMAXINFO = 0x0024;
         private const int WM_SETCURSOR = 0x0020;
+        private const int WM_NCCALCSIZE = 0x0083;
 
         private const int WS_MINIMIZEBOX = 0x00020000;
         private const int WS_SYSMENU = 0x00080000;
@@ -172,6 +173,14 @@ namespace Hiatme_Tool_Suite_v3
 
         protected override void WndProc(ref Message m)
         {
+            // WS_SIZEBOX (added in CreateParams for snap/resize) makes Windows reserve a non-client
+            // sizing frame and paint its default — a light/white line at the top edge. Claim the whole
+            // window as client area so nothing system-painted leaks; we still resize via WM_NCHITTEST.
+            if (m.Msg == WM_NCCALCSIZE && m.WParam != IntPtr.Zero)
+            {
+                m.Result = IntPtr.Zero;
+                return;
+            }
             if (m.Msg == WM_NCHITTEST)
             {
                 m.Result = (IntPtr)HitTest(PointToClient(Cursor.Position));

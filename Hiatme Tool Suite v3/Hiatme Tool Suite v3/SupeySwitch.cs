@@ -70,6 +70,24 @@ namespace Hiatme_Tool_Suite_v3
             if (!_anim.Enabled) _anim.Start();
         }
 
+        // With AutoSize=true (the Designer default for this control) WinForms would otherwise size us
+        // to a stock checkbox's preferred size and clip/overlap the track + label. Report the real
+        // width (track + gap + text) and a height that fits the overhanging thumb.
+        public override Size GetPreferredSize(Size proposedSize)
+        {
+            int textW = string.IsNullOrEmpty(Text) ? 0 : TextRenderer.MeasureText(Text, Font).Width;
+            int w = TrackX + TrackW + 12 + textW + 6;
+            int h = Math.Max(26, Thumb + 6);
+            return new Size(w, h);
+        }
+
+        protected override void OnTextChanged(EventArgs e)
+        {
+            base.OnTextChanged(e);
+            if (AutoSize) Size = GetPreferredSize(Size.Empty);
+            Invalidate();
+        }
+
         protected override void OnMouseEnter(EventArgs e) { base.OnMouseEnter(e); _hovered = true; Invalidate(); }
         protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); _hovered = false; Invalidate(); }
 
