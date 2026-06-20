@@ -366,6 +366,8 @@ namespace Hiatme_Tool_Suite_v3
             owner.SizeChanged += (s, e) => Reposition();
             owner.Resize += (s, e) => Reposition();
             owner.VisibleChanged += (s, e) => Reposition();
+            owner.Activated += (s, e) => Reposition();
+            owner.Deactivate += (s, e) => { try { if (Visible) Hide(); } catch { } };
 
             if (owner.IsHandleCreated && owner.Visible)
             {
@@ -394,6 +396,7 @@ namespace Hiatme_Tool_Suite_v3
                 int height = Math.Max(0, _owner.ClientSize.Height - top - 3);
                 Bounds = new Rectangle(origin.X, origin.Y, SupeyDrawer.ExpandedWidth, height);
                 if (!Visible) Show();
+                _drawer.Invalidate();
             }
             catch { }
         }
@@ -408,7 +411,8 @@ namespace Hiatme_Tool_Suite_v3
         {
             SetStyle(ControlStyles.AllPaintingInWmPaint
                    | ControlStyles.OptimizedDoubleBuffer
-                   | ControlStyles.UserPaint, true);
+                   | ControlStyles.UserPaint
+                   | ControlStyles.Opaque, true);
             Size = new Size(38, 30);
             Cursor = Cursors.Hand;
             BackColor = SupeyTheme.SurfaceHeader;
@@ -437,6 +441,12 @@ namespace Hiatme_Tool_Suite_v3
                 g.DrawLine(pen, cx - 8, cy, cx + 8, cy);
                 g.DrawLine(pen, cx - 8, cy + 6, cx + 8, cy + 6);
             }
+        }
+
+        protected override void OnVisibleChanged(EventArgs e)
+        {
+            base.OnVisibleChanged(e);
+            if (Visible) Invalidate(true);
         }
     }
 }

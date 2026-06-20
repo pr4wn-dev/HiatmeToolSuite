@@ -31,6 +31,8 @@ namespace Hiatme_Tool_Suite_v3
         private const int WM_NCCALCSIZE = 0x0083;
         private const int WM_NCACTIVATE = 0x0086;
         private const int WM_NCPAINT = 0x0085;
+        private const int WM_ERASEBKGND = 0x0014;
+        private const int WM_SIZE = 0x0005;
 
         private const int GWL_STYLE = -16;
 
@@ -103,6 +105,7 @@ namespace Hiatme_Tool_Suite_v3
 
         // Which window button the cursor is over (0 = min, 1 = max, 2 = close, -1 = none).
         private int _hoverButton = -1;
+        private FormWindowState _lastWindowState = FormWindowState.Normal;
 
         /// <summary>Extra left padding for the title text so it clears a leading control (e.g. the
         /// drawer hamburger) placed at the top-left of the title bar.</summary>
@@ -223,6 +226,16 @@ namespace Hiatme_Tool_Suite_v3
                 return;
             }
 
+            if (m.Msg == WM_ERASEBKGND)
+            {
+                // After minimize/restore Windows erases with the system color before our paint —
+                // fill the title bar + body ourselves so the top-left corner never flashes white.
+                using (var g = Graphics.FromHdc(m.WParam))
+                    FillChromeBackground(g);
+                m.Result = (IntPtr)1;
+                return;
+            }
+
             if (m.Msg == WM_NCHITTEST)
             {
                 m.Result = (IntPtr)HitTest(PointToClient(Cursor.Position));
@@ -237,6 +250,42 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             base.WndProc(ref m);
+
+            // WM_SIZE arrives after restore; Visible often stays true so nothing else repaints
+            // the custom title bar — force a chrome refresh when leaving minimized.
+            if (m.Msg == WM_SIZE && IsHandleCreated)
+            {
+                var state = WindowState;
+                if (_lastWindowState == FormWindowState.Minimized && state != FormWindowState.Minimized)
+                    RefreshChrome();
+                _lastWindowState = state;
+            }
+        }
+
+        private void RefreshChrome()
+        {
+            Invalidate(true);
+            Update();
+        }
+
+        protected override void OnActivated(EventArgs e)
+        {
+            base.OnActivated(e);
+            if (WindowState != FormWindowState.Minimized)
+                RefreshChrome();
+        }
+
+        private void FillChromeBackground(Graphics g)
+        {
+            int w = Math.Max(1, ClientSize.Width);
+            int h = Math.Max(1, ClientSize.Height);
+            using (var header = new SolidBrush(SupeyTheme.SurfaceHeader))
+                g.FillRectangle(header, 0, 0, w, TitleBarHeight);
+            if (h > TitleBarHeight)
+            {
+                using (var body = new SolidBrush(SupeyTheme.SurfaceBase))
+                    g.FillRectangle(body, 0, TitleBarHeight, w, h - TitleBarHeight);
+            }
         }
 
         private int HitTest(Point p)
@@ -341,9 +390,7 @@ namespace Hiatme_Tool_Suite_v3
         // ── Painting ─────────────────────────────────────────────────────────────
         protected override void OnPaintBackground(PaintEventArgs e)
         {
-            // Paint the base ourselves — do not delegate to Control which flashes the system color.
-            using (var body = new SolidBrush(SupeyTheme.SurfaceBase))
-                e.Graphics.FillRectangle(body, ClientRectangle);
+            FillChromeBackground(e.Graphics);
         }
 
         protected override void OnPaint(PaintEventArgs e)
