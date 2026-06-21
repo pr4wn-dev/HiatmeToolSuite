@@ -724,8 +724,9 @@ namespace Hiatme_Tool_Suite_v3
 
         private SupeyButton _themePickerBtn;
         private ContextMenuStrip _themePickerMenu;
-        private SupeyDrawerHost _navDrawer;
+        private SupeyDrawer _navDrawer;
         private SupeyHamburger _navHamburger;
+        private System.Windows.Forms.Panel _contentPlate;
 
         /// <summary>
         /// Builds the top-bar theme switcher: a ghost button showing the active preset that opens a
@@ -744,12 +745,23 @@ namespace Hiatme_Tool_Suite_v3
                 // and frame insets.
                 Padding = new Padding(SupeyDrawer.CollapsedWidth, SupeyForm.TitleBarHeight, 3, 3);
 
-                // The drawer lives on a transparent owned overlay window so its open/close animation
-                // never repaints the heavy tab content (MaterialSkin's drawerForm technique).
-                // Drawer keeps the tab icons; detach from TabControl so Win32 never paints tab buttons.
-                var tabImages = hiatmeTabControl.ImageList;
-                _navDrawer = new SupeyDrawerHost(hiatmeTabControl, tabImages);
-                _navDrawer.AttachTo(this);
+                // Opaque plate under the tab shell — if the native host hiccups on restore, this
+                // shows SurfaceBase instead of the desktop bleeding through.
+                _contentPlate = new System.Windows.Forms.Panel
+                {
+                    Dock = DockStyle.Fill,
+                    BackColor = SupeyTheme.SurfaceBase,
+                };
+                Controls.Add(_contentPlate);
+                Controls.SetChildIndex(_contentPlate, 0);
+                hiatmeTabControl.BringToFront();
+
+                // Drawer is an opaque child on this form (not a separate TransparencyKey overlay).
+                _navDrawer = new SupeyDrawer(hiatmeTabControl, tabImageList);
+                _navDrawer.VisibleWidthChanged += (s, e) => LayoutNavDrawer();
+                Controls.Add(_navDrawer);
+                LayoutNavDrawer();
+
                 hiatmeTabControl.DetachImageListForDrawer();
 
                 _navHamburger = new SupeyHamburger { Location = new Point(6, 17) };
@@ -764,6 +776,20 @@ namespace Hiatme_Tool_Suite_v3
             {
                 // Navigation must never block startup; the tab control still works without it.
             }
+        }
+
+        private void LayoutNavDrawer()
+        {
+            if (_navDrawer == null || IsDisposed) return;
+            try
+            {
+                int top = SupeyForm.TitleBarHeight;
+                int height = Math.Max(0, ClientSize.Height - top - Padding.Bottom);
+                _navDrawer.SetBounds(0, top, _navDrawer.VisibleWidth, height);
+                _navDrawer.BringToFront();
+                _navHamburger?.BringToFront();
+            }
+            catch { }
         }
 
         private void BuildSupeyThemePicker()
@@ -1448,6 +1474,28 @@ namespace Hiatme_Tool_Suite_v3
             try { AddressGeocoder.Flush(); } catch { }
 
             base.OnFormClosing(e);
+        }
+
+        protected override void OnRestoredFromMinimized()
+        {
+            try { hiatmeTabControl?.RefreshAfterRestore(); } catch { }
+        }
+
+        protected override void OnWindowStateTransition()
+        {
+            LayoutNavDrawer();
+        }
+
+        protected override void OnResize(EventArgs e)
+        {
+            base.OnResize(e);
+            LayoutNavDrawer();
+        }
+
+        protected override void OnResizeEnd(EventArgs e)
+        {
+            base.OnResizeEnd(e);
+            LayoutNavDrawer();
         }
 
         protected override void OnFormClosed(FormClosedEventArgs e)

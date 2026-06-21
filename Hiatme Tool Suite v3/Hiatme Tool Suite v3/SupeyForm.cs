@@ -34,6 +34,8 @@ namespace Hiatme_Tool_Suite_v3
         private const int WM_ERASEBKGND = 0x0014;
         private const int WM_SIZE = 0x0005;
 
+        private const int DWMWA_TRANSITIONS_FORCEDISABLED = 3;
+
         private const int GWL_STYLE = -16;
 
         private const int WS_MINIMIZEBOX = 0x00020000;
@@ -76,6 +78,18 @@ namespace Hiatme_Tool_Suite_v3
             public RECT rcWork;
             public int dwFlags;
         }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct NCCALCSIZE_PARAMS
+        {
+            public RECT rgrc0;
+            public RECT rgrc1;
+            public RECT rgrc2;
+            public IntPtr lppos;
+        }
+
+        [DllImport("dwmapi.dll")]
+        private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
 
         [DllImport("user32.dll")]
         private static extern IntPtr MonitorFromWindow(IntPtr hwnd, int dwFlags);
@@ -196,6 +210,12 @@ namespace Hiatme_Tool_Suite_v3
             if (DesignMode || !IsHandleCreated) return;
             long style = GetWindowLongPtr(Handle, GWL_STYLE).ToInt64();
             SetWindowLongPtr(Handle, GWL_STYLE, (IntPtr)(style | WS_SIZEBOX));
+            try
+            {
+                int disable = 1;
+                DwmSetWindowAttribute(Handle, DWMWA_TRANSITIONS_FORCEDISABLED, ref disable, sizeof(int));
+            }
+            catch { }
         }
 
         // ── Window-button geometry ────────────────────────────────────────────────
@@ -208,10 +228,24 @@ namespace Hiatme_Tool_Suite_v3
 
         protected override void WndProc(ref Message m)
         {
-            // MaterialForm pattern: swallow NC calc so the whole window is client area (no white
-            // sizing frame). Swallow NC activate/paint so Windows never flashes classic chrome.
+            // Borderless client = entire window. A bare "return" left client geometry undefined
+            // on taskbar restore — DWM can show the desktop through the content top-left for a frame.
             if (m.Msg == WM_NCCALCSIZE)
+            {
+                if (m.WParam == IntPtr.Zero)
+                {
+                    m.Result = IntPtr.Zero;
+                    return;
+                }
+
+                // Borderless: client area = full window rect (no NC inset).
+                var nc = (NCCALCSIZE_PARAMS)Marshal.PtrToStructure(m.LParam, typeof(NCCALCSIZE_PARAMS));
+                nc.rgrc1 = nc.rgrc0;
+                nc.rgrc2 = nc.rgrc0;
+                Marshal.StructureToPtr(nc, m.LParam, false);
+                m.Result = IntPtr.Zero;
                 return;
+            }
 
             if (m.Msg == WM_NCACTIVATE)
             {
@@ -253,25 +287,63 @@ namespace Hiatme_Tool_Suite_v3
 
             // WM_SIZE arrives after restore; Visible often stays true so nothing else repaints
             // the custom title bar — force a chrome refresh when leaving minimized.
-            if (m.Msg == WM_SIZE && IsHandleCreated)
+            if (m.Msg == WM_SIZE && IsHandleCreated && !Disposing && !IsDisposed)
             {
                 var state = WindowState;
-                if (_lastWindowState == FormWindowState.Minimized && state != FormWindowState.Minimized)
-                    RefreshChrome();
-                _lastWindowState = state;
+                if (state != _lastWindowState)
+                {
+                    if (_lastWindowState == FormWindowState.Minimized && state != FormWindowState.Minimized)
+                    {
+                        SyncRepaintAfterRestore();
+                        OnRestoredFromMinimized();
+                    }
+
+                    if (_lastWindowState == FormWindowState.Minimized || state == FormWindowState.Minimized
+                        || _lastWindowState == FormWindowState.Maximized || state == FormWindowState.Maximized)
+                        OnWindowStateTransition();
+
+                    _lastWindowState = state;
+                }
             }
         }
 
+        /// <summary>
+        /// One targeted invalidate/update after taskbar restore — avoids RedrawWindow on all children
+        /// which was flashing the entire app.
+        /// </summary>
+        protected void SyncRepaintAfterRestore()
+        {
+            if (Disposing || IsDisposed || !IsHandleCreated) return;
+            try
+            {
+                Invalidate(TitleBarBounds);
+                var dr = DisplayRectangle;
+                if (dr.Width > 0 && dr.Height > 0)
+                    Invalidate(dr);
+                Update();
+            }
+            catch { }
+        }
+
+        /// <summary>Called once when leaving minimized (taskbar restore).</summary>
+        protected virtual void OnRestoredFromMinimized() { }
+
+        /// <summary>
+        /// Called synchronously when crossing to/from minimized or maximized.
+        /// </summary>
+        protected virtual void OnWindowStateTransition() { }
+
         private void RefreshChrome()
         {
-            Invalidate(true);
-            Update();
+            if (Disposing || IsDisposed || !IsHandleCreated)
+                return;
+            try { Invalidate(TitleBarBounds); } catch { }
         }
 
         protected override void OnActivated(EventArgs e)
         {
             base.OnActivated(e);
-            if (WindowState != FormWindowState.Minimized)
+            if (!Disposing && !IsDisposed && WindowState != FormWindowState.Minimized)
                 RefreshChrome();
         }
 
@@ -281,12 +353,29 @@ namespace Hiatme_Tool_Suite_v3
             int h = Math.Max(1, ClientSize.Height);
             using (var header = new SolidBrush(SupeyTheme.SurfaceHeader))
                 g.FillRectangle(header, 0, 0, w, TitleBarHeight);
-            if (h > TitleBarHeight)
+
+            if (h <= TitleBarHeight) return;
+
+            int bodyTop = TitleBarHeight;
+            int bodyH = h - TitleBarHeight;
+
+            // Left drawer gutter (Padding.Left > frame) matches the rail, not the tab body.
+            if (Padding.Left > FrameWidth)
+            {
+                using (var gutter = new SolidBrush(SupeyTheme.SurfaceHeader))
+                    g.FillRectangle(gutter, 0, bodyTop, Padding.Left, bodyH);
+            }
+
+            var dr = DisplayRectangle;
+            if (dr.Width > 0 && dr.Height > 0)
             {
                 using (var body = new SolidBrush(SupeyTheme.SurfaceBase))
-                    g.FillRectangle(body, 0, TitleBarHeight, w, h - TitleBarHeight);
+                    g.FillRectangle(body, dr.X, dr.Y, dr.Width, dr.Height);
             }
         }
+
+        private Rectangle TitleBarBounds =>
+            new Rectangle(0, 0, Math.Max(1, ClientSize.Width), TitleBarHeight);
 
         private int HitTest(Point p)
         {
@@ -384,7 +473,8 @@ namespace Hiatme_Tool_Suite_v3
         protected override void OnResize(EventArgs e)
         {
             base.OnResize(e);
-            Invalidate();
+            if (IsHandleCreated && !Disposing && !IsDisposed)
+                Invalidate(TitleBarBounds);
         }
 
         // ── Painting ─────────────────────────────────────────────────────────────
@@ -395,19 +485,20 @@ namespace Hiatme_Tool_Suite_v3
 
         protected override void OnPaint(PaintEventArgs e)
         {
+            base.OnPaint(e);
             var g = e.Graphics;
+            var bar = TitleBarBounds;
 
-            g.Clear(SupeyTheme.SurfaceBase);
-            using (var bar = new SolidBrush(SupeyTheme.SurfaceHeader))
-                g.FillRectangle(bar, 0, 0, ClientSize.Width, TitleBarHeight);
+            using (var fill = new SolidBrush(SupeyTheme.SurfaceHeader))
+                g.FillRectangle(fill, bar);
 
             // Thin accent line under the title bar to separate chrome from content.
             using (var divider = new Pen(SupeyTheme.Divider))
-                g.DrawLine(divider, 0, TitleBarHeight - 1, ClientSize.Width, TitleBarHeight - 1);
+                g.DrawLine(divider, 0, TitleBarHeight - 1, bar.Width, TitleBarHeight - 1);
 
-            // Outer frame.
+            // Outer frame (title bar only — do not repaint the tab content area here).
             using (var frame = new Pen(SupeyTheme.BorderSubtle))
-                g.DrawRectangle(frame, 0, 0, ClientSize.Width - 1, ClientSize.Height - 1);
+                g.DrawRectangle(frame, 0, 0, bar.Width - 1, bar.Height - 1);
 
             DrawTitle(g);
             DrawWindowButtons(g);

@@ -7,21 +7,9 @@ using System.Windows.Forms;
 namespace Hiatme_Tool_Suite_v3
 {
     /// <summary>
-    /// Theme-driven left navigation drawer that replaces MaterialSkin's <c>MaterialDrawer</c>. It
-    /// drives a header-less <see cref="TabControl"/> (see <see cref="SupeyTabStrip"/>) and reproduces
-    /// the original look/metrics: a slim icon rail always visible on the left that expands to a
-    /// labeled overlay when toggled by the title-bar hamburger.
-    ///
-    /// Smoothness trick (copied from MaterialSkin): this control lives on a separate transparent
-    /// top-level overlay window (<see cref="SupeyDrawerHost"/>), not on the main form. During the
-    /// open/close animation only this lightweight overlay repaints — the region the drawer isn't
-    /// covering is painted in the host's <see cref="TransparencyColor"/> color key, which the OS
-    /// compositor renders straight through to the already-painted content underneath. So the heavy
-    /// tab content never repaints while the menu slides.
-    ///
-    /// Metrics mirror MaterialDrawer: 40px item height, 48px item pitch, icon centered in the left
-    /// 40px box, label at +40, an 8px top inset. The active item reads in the lime accent (tinted
-    /// icon + text + a soft accent highlight pill); others are muted.
+    /// Theme-driven left navigation drawer that replaces MaterialSkin's <c>MaterialDrawer</c>.
+    /// Lives on the main form (opaque child control) — no separate transparent overlay window,
+    /// so restore-from-minimize cannot flash the desktop through a color-key hole.
     /// </summary>
     public sealed class SupeyDrawer : Control
     {
@@ -52,10 +40,6 @@ namespace Hiatme_Tool_Suite_v3
             = new System.Collections.Generic.Dictionary<TabPage, Bitmap>();
         private bool _iconsDirty = true;
 
-        /// <summary>The host window's color key; everything we paint in this color becomes a
-        /// click-through "hole" that reveals the content behind without repainting it.</summary>
-        public Color TransparencyColor { get; set; } = Color.Magenta;
-
         public SupeyDrawer(TabControl tabs, ImageList tabImages)
         {
             _tabs = tabs;
@@ -63,7 +47,9 @@ namespace Hiatme_Tool_Suite_v3
             SetStyle(ControlStyles.AllPaintingInWmPaint
                    | ControlStyles.OptimizedDoubleBuffer
                    | ControlStyles.UserPaint
+                   | ControlStyles.Opaque
                    | ControlStyles.ResizeRedraw, true);
+            BackColor = SupeyTheme.SurfaceHeader;
             Cursor = Cursors.Hand;
 
             _anim = new Timer { Interval = 15 };
@@ -88,6 +74,11 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>Width of the currently-painted (opaque) portion of the rail.</summary>
         public int VisibleWidth => CollapsedWidth + (int)((ExpandedWidth - CollapsedWidth) * _t);
 
+        /// <summary>Fired when <see cref="VisibleWidth"/> changes (drawer animation / layout).</summary>
+        public event EventHandler VisibleWidthChanged;
+
+        private int _lastVisibleWidth = CollapsedWidth;
+
         public void Toggle()
         {
             _open = !_open;
@@ -109,12 +100,21 @@ namespace Hiatme_Tool_Suite_v3
             else if (_t > target) _t = Math.Max(target, _t - step);
 
             Invalidate();
+            NotifyVisibleWidthChanged();
 
             if (Math.Abs(_t - target) < 0.001f)
             {
                 _t = target;
                 _anim.Stop();
             }
+        }
+
+        private void NotifyVisibleWidthChanged()
+        {
+            int w = VisibleWidth;
+            if (w == _lastVisibleWidth) return;
+            _lastVisibleWidth = w;
+            try { VisibleWidthChanged?.Invoke(this, EventArgs.Empty); } catch { }
         }
 
         protected override void OnMouseMove(MouseEventArgs e)
@@ -157,14 +157,9 @@ namespace Hiatme_Tool_Suite_v3
             var g = e.Graphics;
             int vis = VisibleWidth;
 
-            // Opaque rail up to the animated width; everything past it is a color-keyed hole so the
-            // content behind shows through (and stays clickable) with zero repaint cost. Two adjacent
-            // non-overlapping fills, no antialiasing — cheap.
+            // Opaque rail only — host width matches VisibleWidth so nothing past the rail exists.
             using (var bg = new SolidBrush(SupeyTheme.SurfaceHeader))
                 g.FillRectangle(bg, 0, 0, vis, Height);
-            if (vis < Width)
-                using (var hole = new SolidBrush(TransparencyColor))
-                    g.FillRectangle(hole, vis, 0, Width - vis, Height);
 
             if (_tabs == null) return;
             if (_iconsDirty) BuildIconCache();
@@ -305,101 +300,6 @@ namespace Hiatme_Tool_Suite_v3
             path.AddArc(r.Left, r.Bottom - d, d, d, 90, 90);
             path.CloseFigure();
             return path;
-        }
-    }
-
-    /// <summary>
-    /// Transparent, borderless, owned overlay window that hosts the <see cref="SupeyDrawer"/> over the
-    /// left edge of the main form's content area. Mirrors MaterialSkin's <c>drawerForm</c>: a color-keyed
-    /// top-level window so the drawer can animate without ever repainting the heavy content below it.
-    /// It tracks the owner's position/size/visibility and never steals focus.
-    /// </summary>
-    public sealed class SupeyDrawerHost : Form
-    {
-        private static readonly Color Key = Color.Magenta;
-        private readonly SupeyDrawer _drawer;
-        private Form _owner;
-
-        public SupeyDrawerHost(TabControl tabs, ImageList tabImages)
-        {
-            FormBorderStyle = FormBorderStyle.None;
-            ShowInTaskbar = false;
-            StartPosition = FormStartPosition.Manual;
-            MinimizeBox = false;
-            MaximizeBox = false;
-            ControlBox = false;
-            ShowIcon = false;
-            Text = string.Empty;
-            BackColor = Key;
-            TransparencyKey = Key;
-
-            _drawer = new SupeyDrawer(tabs, tabImages)
-            {
-                TransparencyColor = Key,
-                Dock = DockStyle.Fill,
-            };
-            Controls.Add(_drawer);
-        }
-
-        public bool IsOpen => _drawer.IsOpen;
-        public void Toggle() => _drawer.Toggle();
-        public void Close() => _drawer.Close();
-
-        protected override bool ShowWithoutActivation => true;
-
-        protected override CreateParams CreateParams
-        {
-            get
-            {
-                const int WS_EX_NOACTIVATE = 0x08000000;
-                const int WS_EX_TOOLWINDOW = 0x00000080;
-                var cp = base.CreateParams;
-                cp.ExStyle |= WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW;
-                return cp;
-            }
-        }
-
-        public void AttachTo(Form owner)
-        {
-            _owner = owner;
-            Owner = owner;
-
-            owner.LocationChanged += (s, e) => Reposition();
-            owner.SizeChanged += (s, e) => Reposition();
-            owner.Resize += (s, e) => Reposition();
-            owner.VisibleChanged += (s, e) => Reposition();
-            owner.Activated += (s, e) => Reposition();
-
-            if (owner.IsHandleCreated && owner.Visible)
-            {
-                Reposition();
-                Show();
-            }
-            else
-            {
-                owner.Shown += (s, e) => { Reposition(); if (!Visible) Show(); };
-            }
-        }
-
-        private void Reposition()
-        {
-            if (_owner == null || _owner.IsDisposed) return;
-            if (_owner.WindowState == FormWindowState.Minimized || !_owner.Visible)
-            {
-                if (Visible) Visible = false;
-                return;
-            }
-
-            try
-            {
-                int top = SupeyForm.TitleBarHeight;
-                var origin = _owner.PointToScreen(new Point(0, top));
-                int height = Math.Max(0, _owner.ClientSize.Height - top - 3);
-                Bounds = new Rectangle(origin.X, origin.Y, SupeyDrawer.ExpandedWidth, height);
-                if (!Visible) Show();
-                _drawer.Invalidate();
-            }
-            catch { }
         }
     }
 

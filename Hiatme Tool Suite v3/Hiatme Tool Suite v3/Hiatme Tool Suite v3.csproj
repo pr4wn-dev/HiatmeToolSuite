@@ -506,10 +506,16 @@
     <Compile Include="SupeyComboBox.cs">
       <SubType>Component</SubType>
     </Compile>
-    <Compile Include="SupeyCalendar.cs" />
-    <Compile Include="SupeyDrawer.cs" />
+    <Compile Include="SupeyCalendar.cs">
+      <SubType>Component</SubType>
+    </Compile>
+    <Compile Include="SupeyDrawer.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="SupeyTabStrip.cs" />
-    <Compile Include="SupeyTabControl.cs" />
+    <Compile Include="SupeyTabControl.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="SupeyForm.cs">
       <SubType>Form</SubType>
     </Compile>

@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace Hiatme_Tool_Suite_v3
@@ -14,9 +15,21 @@ namespace Hiatme_Tool_Suite_v3
     public class SupeyTabControl : TabControl
     {
         private const int TCM_ADJUSTRECT = 0x1328;
+        private const int TCM_SETITEMSIZE = 0x1329;
+        private const int TCM_LAYOUT = 0x130B;
         private const int WM_ERASEBKGND = 0x0014;
 
-        private FormWindowState _ownerLastState = FormWindowState.Normal;
+        [StructLayout(LayoutKind.Sequential)]
+        private struct SIZE { public int cx; public int cy; }
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        private static extern IntPtr SendMessage(IntPtr hWnd, int msg, int wParam, ref SIZE lParam);
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("uxtheme.dll", CharSet = CharSet.Unicode)]
+        private static extern int SetWindowTheme(IntPtr hwnd, string pszSubAppName, string pszSubIdList);
 
         public SupeyTabControl()
         {
@@ -36,12 +49,32 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         /// <summary>
-        /// Call once after <see cref="SupeyDrawerHost"/> copies the tab icons.
+        /// Call once after wiring <see cref="SupeyDrawer"/> with the tab icon list.
         /// </summary>
         public void DetachImageListForDrawer()
         {
             if (!DesignMode)
                 ImageList = null;
+        }
+
+        /// <summary>Relayout native tab chrome after restore-from-minimized only.</summary>
+        public void RefreshAfterRestore()
+        {
+            if (!IsHandleCreated || IsDisposed || DesignMode) return;
+            ApplyHeaderlessNativeLayout();
+            try { Invalidate(true); } catch { }
+        }
+
+        private void ApplyHeaderlessNativeLayout()
+        {
+            if (DesignMode || !IsHandleCreated || IsDisposed || Disposing) return;
+            try
+            {
+                var sz = new SIZE { cx = 0, cy = 1 };
+                SendMessage(Handle, TCM_SETITEMSIZE, 0, ref sz);
+                SendMessage(Handle, TCM_LAYOUT, IntPtr.Zero, IntPtr.Zero);
+            }
+            catch { }
         }
 
         private void OnThemeChanged(object sender, EventArgs e)
@@ -57,7 +90,6 @@ namespace Hiatme_Tool_Suite_v3
             {
                 DrawItem -= DrawTabHeader;
                 SupeyThemeManager.ThemeChanged -= OnThemeChanged;
-                UnhookOwnerForm();
             }
             base.Dispose(disposing);
         }
@@ -77,13 +109,9 @@ namespace Hiatme_Tool_Suite_v3
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
-            HookOwnerForm();
-        }
-
-        protected override void OnHandleDestroyed(EventArgs e)
-        {
-            UnhookOwnerForm();
-            base.OnHandleDestroyed(e);
+            if (DesignMode) return;
+            try { SetWindowTheme(Handle, string.Empty, string.Empty); } catch { }
+            ApplyHeaderlessNativeLayout();
         }
 
         protected override void OnControlAdded(ControlEventArgs e)
@@ -91,37 +119,6 @@ namespace Hiatme_Tool_Suite_v3
             base.OnControlAdded(e);
             if (DesignMode || !(e.Control is TabPage page)) return;
             page.BackColor = SupeyTheme.SurfaceBase;
-        }
-
-        private Form _ownerForm;
-
-        private void HookOwnerForm()
-        {
-            if (DesignMode) return;
-            UnhookOwnerForm();
-            _ownerForm = FindForm();
-            if (_ownerForm == null) return;
-            _ownerLastState = _ownerForm.WindowState;
-            _ownerForm.Resize += OwnerFormResize;
-        }
-
-        private void UnhookOwnerForm()
-        {
-            if (_ownerForm != null)
-            {
-                _ownerForm.Resize -= OwnerFormResize;
-                _ownerForm = null;
-            }
-        }
-
-        /// <summary>Maximize/restore relayout can flash native tab chrome — one repaint after state change.</summary>
-        private void OwnerFormResize(object sender, EventArgs e)
-        {
-            if (_ownerForm == null || IsDisposed) return;
-            var state = _ownerForm.WindowState;
-            if (state == _ownerLastState) return;
-            _ownerLastState = state;
-            try { BeginInvoke(new Action(() => { try { Invalidate(true); Update(); } catch { } })); } catch { }
         }
 
         private void DrawTabHeader(object sender, DrawItemEventArgs e)

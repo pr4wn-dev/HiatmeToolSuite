@@ -287,7 +287,6 @@
             this.hiatmeTabControl.Controls.Add(this.tabPage3);
             this.hiatmeTabControl.Dock = System.Windows.Forms.DockStyle.Fill;
             this.hiatmeTabControl.Font = new System.Drawing.Font("Microsoft Sans Serif", 9.5F);
-            this.hiatmeTabControl.ImageList = this.tabImageList;
             this.hiatmeTabControl.Location = new System.Drawing.Point(3, 64);
             this.hiatmeTabControl.Name = "hiatmeTabControl";
             this.hiatmeTabControl.SelectedIndex = 0;
