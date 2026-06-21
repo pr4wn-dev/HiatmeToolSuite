@@ -746,8 +746,11 @@ namespace Hiatme_Tool_Suite_v3
 
                 // The drawer lives on a transparent owned overlay window so its open/close animation
                 // never repaints the heavy tab content (MaterialSkin's drawerForm technique).
-                _navDrawer = new SupeyDrawerHost(hiatmeTabControl);
+                // Drawer keeps the tab icons; detach from TabControl so Win32 never paints tab buttons.
+                var tabImages = hiatmeTabControl.ImageList;
+                _navDrawer = new SupeyDrawerHost(hiatmeTabControl, tabImages);
                 _navDrawer.AttachTo(this);
+                hiatmeTabControl.DetachImageListForDrawer();
 
                 _navHamburger = new SupeyHamburger { Location = new Point(6, 17) };
                 _navHamburger.Click += (s, e) => _navDrawer?.Toggle();

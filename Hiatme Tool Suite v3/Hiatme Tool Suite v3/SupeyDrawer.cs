@@ -35,6 +35,7 @@ namespace Hiatme_Tool_Suite_v3
         private const int SidePad = 6;
 
         private readonly TabControl _tabs;
+        private readonly ImageList _tabImages;
         private readonly Timer _anim;
         private bool _open;
         private float _t;                 // 0 = collapsed, 1 = fully open
@@ -55,9 +56,10 @@ namespace Hiatme_Tool_Suite_v3
         /// click-through "hole" that reveals the content behind without repainting it.</summary>
         public Color TransparencyColor { get; set; } = Color.Magenta;
 
-        public SupeyDrawer(TabControl tabs)
+        public SupeyDrawer(TabControl tabs, ImageList tabImages)
         {
             _tabs = tabs;
+            _tabImages = tabImages;
             SetStyle(ControlStyles.AllPaintingInWmPaint
                    | ControlStyles.OptimizedDoubleBuffer
                    | ControlStyles.UserPaint
@@ -171,7 +173,7 @@ namespace Hiatme_Tool_Suite_v3
             g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAlias;
 
             int labelAlpha = (int)(255 * Math.Max(0f, (_t - 0.25f) / 0.75f));
-            Size isz = _tabs.ImageList != null ? _tabs.ImageList.ImageSize : Size.Empty;
+            Size isz = _tabImages != null ? _tabImages.ImageSize : Size.Empty;
 
             for (int i = 0; i < _tabs.TabPages.Count; i++)
             {
@@ -226,7 +228,7 @@ namespace Hiatme_Tool_Suite_v3
 
         private Image ResolveImage(TabPage page)
         {
-            var il = _tabs.ImageList;
+            var il = _tabImages;
             if (il == null) return null;
             if (page.ImageIndex >= 0 && page.ImageIndex < il.Images.Count)
                 return il.Images[page.ImageIndex];
@@ -239,8 +241,8 @@ namespace Hiatme_Tool_Suite_v3
         {
             DisposeIconCache();
             _iconsDirty = false;
-            if (_tabs?.ImageList == null) return;
-            Size sz = _tabs.ImageList.ImageSize;
+            if (_tabImages == null) return;
+            Size sz = _tabImages.ImageSize;
 
             foreach (TabPage page in _tabs.TabPages)
             {
@@ -318,7 +320,7 @@ namespace Hiatme_Tool_Suite_v3
         private readonly SupeyDrawer _drawer;
         private Form _owner;
 
-        public SupeyDrawerHost(TabControl tabs)
+        public SupeyDrawerHost(TabControl tabs, ImageList tabImages)
         {
             FormBorderStyle = FormBorderStyle.None;
             ShowInTaskbar = false;
@@ -331,7 +333,7 @@ namespace Hiatme_Tool_Suite_v3
             BackColor = Key;
             TransparencyKey = Key;
 
-            _drawer = new SupeyDrawer(tabs)
+            _drawer = new SupeyDrawer(tabs, tabImages)
             {
                 TransparencyColor = Key,
                 Dock = DockStyle.Fill,

@@ -289,7 +289,6 @@
             this.hiatmeTabControl.Font = new System.Drawing.Font("Microsoft Sans Serif", 9.5F);
             this.hiatmeTabControl.ImageList = this.tabImageList;
             this.hiatmeTabControl.Location = new System.Drawing.Point(3, 64);
-            this.hiatmeTabControl.Multiline = true;
             this.hiatmeTabControl.Name = "hiatmeTabControl";
             this.hiatmeTabControl.SelectedIndex = 0;
             this.hiatmeTabControl.Size = new System.Drawing.Size(1510, 820);
