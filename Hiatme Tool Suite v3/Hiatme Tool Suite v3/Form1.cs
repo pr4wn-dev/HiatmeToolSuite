@@ -724,7 +724,7 @@ namespace Hiatme_Tool_Suite_v3
 
         private SupeyButton _themePickerBtn;
         private ContextMenuStrip _themePickerMenu;
-        private SupeyDrawer _navDrawer;
+        private SupeyDrawerHost _navDrawer;
         private SupeyHamburger _navHamburger;
         private System.Windows.Forms.Panel _contentPlate;
 
@@ -756,11 +756,9 @@ namespace Hiatme_Tool_Suite_v3
                 Controls.SetChildIndex(_contentPlate, 0);
                 hiatmeTabControl.BringToFront();
 
-                // Drawer is an opaque child on this form (not a separate TransparencyKey overlay).
-                _navDrawer = new SupeyDrawer(hiatmeTabControl, tabImageList);
-                _navDrawer.VisibleWidthChanged += (s, e) => LayoutNavDrawer();
-                Controls.Add(_navDrawer);
-                LayoutNavDrawer();
+                // Drawer lives on a small opaque overlay so animation never repaints tab content.
+                _navDrawer = new SupeyDrawerHost(hiatmeTabControl, tabImageList);
+                _navDrawer.AttachTo(this);
 
                 hiatmeTabControl.DetachImageListForDrawer();
 
@@ -776,20 +774,6 @@ namespace Hiatme_Tool_Suite_v3
             {
                 // Navigation must never block startup; the tab control still works without it.
             }
-        }
-
-        private void LayoutNavDrawer()
-        {
-            if (_navDrawer == null || IsDisposed) return;
-            try
-            {
-                int top = SupeyForm.TitleBarHeight;
-                int height = Math.Max(0, ClientSize.Height - top - Padding.Bottom);
-                _navDrawer.SetBounds(0, top, _navDrawer.VisibleWidth, height);
-                _navDrawer.BringToFront();
-                _navHamburger?.BringToFront();
-            }
-            catch { }
         }
 
         private void BuildSupeyThemePicker()
@@ -1479,23 +1463,7 @@ namespace Hiatme_Tool_Suite_v3
         protected override void OnRestoredFromMinimized()
         {
             try { hiatmeTabControl?.RefreshAfterRestore(); } catch { }
-        }
-
-        protected override void OnWindowStateTransition()
-        {
-            LayoutNavDrawer();
-        }
-
-        protected override void OnResize(EventArgs e)
-        {
-            base.OnResize(e);
-            LayoutNavDrawer();
-        }
-
-        protected override void OnResizeEnd(EventArgs e)
-        {
-            base.OnResizeEnd(e);
-            LayoutNavDrawer();
+            try { _navDrawer?.Reposition(); } catch { }
         }
 
         protected override void OnFormClosed(FormClosedEventArgs e)

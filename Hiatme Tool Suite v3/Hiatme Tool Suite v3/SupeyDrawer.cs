@@ -8,8 +8,8 @@ namespace Hiatme_Tool_Suite_v3
 {
     /// <summary>
     /// Theme-driven left navigation drawer that replaces MaterialSkin's <c>MaterialDrawer</c>.
-    /// Lives on the main form (opaque child control) — no separate transparent overlay window,
-    /// so restore-from-minimize cannot flash the desktop through a color-key hole.
+    /// Hosted on a small opaque overlay (<see cref="SupeyDrawerHost"/>) so open/close animation
+    /// only repaints the rail — not the heavy tab content on the main form.
     /// </summary>
     public sealed class SupeyDrawer : Control
     {
@@ -47,12 +47,11 @@ namespace Hiatme_Tool_Suite_v3
             SetStyle(ControlStyles.AllPaintingInWmPaint
                    | ControlStyles.OptimizedDoubleBuffer
                    | ControlStyles.UserPaint
-                   | ControlStyles.Opaque
-                   | ControlStyles.ResizeRedraw, true);
+                   | ControlStyles.Opaque, true);
             BackColor = SupeyTheme.SurfaceHeader;
             Cursor = Cursors.Hand;
 
-            _anim = new Timer { Interval = 15 };
+            _anim = new Timer { Interval = 16 };
             _anim.Tick += Animate;
 
             if (_tabs != null)
@@ -74,7 +73,7 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>Width of the currently-painted (opaque) portion of the rail.</summary>
         public int VisibleWidth => CollapsedWidth + (int)((ExpandedWidth - CollapsedWidth) * _t);
 
-        /// <summary>Fired when <see cref="VisibleWidth"/> changes (drawer animation / layout).</summary>
+        /// <summary>Fired when <see cref="VisibleWidth"/> changes (each animation step).</summary>
         public event EventHandler VisibleWidthChanged;
 
         private int _lastVisibleWidth = CollapsedWidth;
@@ -99,13 +98,14 @@ namespace Hiatme_Tool_Suite_v3
             if (_t < target) _t = Math.Min(target, _t + step);
             else if (_t > target) _t = Math.Max(target, _t - step);
 
-            Invalidate();
             NotifyVisibleWidthChanged();
+            Invalidate();
 
             if (Math.Abs(_t - target) < 0.001f)
             {
                 _t = target;
                 _anim.Stop();
+                NotifyVisibleWidthChanged();
             }
         }
 
@@ -155,20 +155,20 @@ namespace Hiatme_Tool_Suite_v3
         protected override void OnPaint(PaintEventArgs e)
         {
             var g = e.Graphics;
-            int vis = VisibleWidth;
+            int vis = Math.Min(VisibleWidth, Width);
 
-            // Opaque rail only — host width matches VisibleWidth so nothing past the rail exists.
             using (var bg = new SolidBrush(SupeyTheme.SurfaceHeader))
                 g.FillRectangle(bg, 0, 0, vis, Height);
 
             if (_tabs == null) return;
             if (_iconsDirty) BuildIconCache();
 
-            // Anti-aliased text blends with the fade alpha (ClearType needs an opaque background).
-            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAlias;
-
-            int labelAlpha = (int)(255 * Math.Max(0f, (_t - 0.25f) / 0.75f));
+            bool fast = _anim.Enabled;
+            int labelAlpha = fast ? 0 : (int)(255 * Math.Max(0f, (_t - 0.25f) / 0.75f));
             Size isz = _tabImages != null ? _tabImages.ImageSize : Size.Empty;
+
+            if (!fast)
+                g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAlias;
 
             for (int i = 0; i < _tabs.TabPages.Count; i++)
             {
@@ -177,8 +177,7 @@ namespace Hiatme_Tool_Suite_v3
                 bool selected = i == _tabs.SelectedIndex;
                 bool hot = i == _hoverIndex;
 
-                // Highlight pill (only the active / hovered row needs antialiasing).
-                if (selected || hot)
+                if (!fast && (selected || hot))
                 {
                     g.SmoothingMode = SmoothingMode.AntiAlias;
                     using (var path = RoundRect(rect, 6))
@@ -192,7 +191,6 @@ namespace Hiatme_Tool_Suite_v3
                             g.FillRectangle(bar, rect.Left, rect.Top + 6, 3, rect.Height - 12);
                 }
 
-                // Cached, pre-tinted icon — plain DrawImage, no per-frame recolor.
                 Bitmap icon = (selected ? _iconActive : hot ? _iconHot : _iconMuted).TryGetValue(page, out var bmp) ? bmp : null;
                 if (icon != null)
                 {
@@ -206,8 +204,6 @@ namespace Hiatme_Tool_Suite_v3
                     Color baseColor = selected ? SupeyTheme.AccentPrimary
                                     : hot ? SupeyTheme.TextPrimary
                                     : SupeyTheme.TextSecondary;
-                    // Graphics.DrawString honors the alpha channel (GDI TextRenderer does not), so the
-                    // label can truly fade in as the drawer opens.
                     var textRect = new RectangleF(rect.Left + IconBox + 4, rect.Top,
                         rect.Right - (rect.Left + IconBox + 4) - 8, rect.Height);
                     using (var br = new SolidBrush(Color.FromArgb(labelAlpha, baseColor)))
@@ -300,6 +296,101 @@ namespace Hiatme_Tool_Suite_v3
             path.AddArc(r.Left, r.Bottom - d, d, d, 90, 90);
             path.CloseFigure();
             return path;
+        }
+    }
+
+    /// <summary>
+    /// Opaque, borderless overlay that hosts <see cref="SupeyDrawer"/> over the main form's left
+    /// edge. Sized to <see cref="SupeyDrawer.VisibleWidth"/> so animation only repaints this small
+    /// window — not the tab shell underneath. No TransparencyKey (avoids restore flash).
+    /// </summary>
+    public sealed class SupeyDrawerHost : Form
+    {
+        private readonly SupeyDrawer _drawer;
+        private Form _owner;
+
+        public SupeyDrawerHost(TabControl tabs, ImageList tabImages)
+        {
+            FormBorderStyle = FormBorderStyle.None;
+            ShowInTaskbar = false;
+            StartPosition = FormStartPosition.Manual;
+            MinimizeBox = false;
+            MaximizeBox = false;
+            ControlBox = false;
+            ShowIcon = false;
+            Text = string.Empty;
+            BackColor = SupeyTheme.SurfaceHeader;
+
+            _drawer = new SupeyDrawer(tabs, tabImages) { Dock = DockStyle.Fill };
+            _drawer.VisibleWidthChanged += (s, e) => SyncBounds();
+            Controls.Add(_drawer);
+        }
+
+        public bool IsOpen => _drawer.IsOpen;
+        public void Toggle() => _drawer.Toggle();
+        public void Close() => _drawer.Close();
+
+        protected override bool ShowWithoutActivation => true;
+
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                const int WS_EX_NOACTIVATE = 0x08000000;
+                const int WS_EX_TOOLWINDOW = 0x00000080;
+                var cp = base.CreateParams;
+                cp.ExStyle |= WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW;
+                return cp;
+            }
+        }
+
+        public void AttachTo(Form owner)
+        {
+            _owner = owner;
+            Owner = owner;
+
+            owner.LocationChanged += (s, e) => Reposition();
+            owner.SizeChanged += (s, e) => Reposition();
+            owner.Resize += (s, e) => Reposition();
+            owner.VisibleChanged += (s, e) => Reposition();
+            owner.Activated += (s, e) => Reposition();
+
+            if (owner.IsHandleCreated && owner.Visible)
+            {
+                Reposition();
+                Show();
+            }
+            else
+            {
+                owner.Shown += (s, e) => { Reposition(); if (!Visible) Show(); };
+            }
+        }
+
+        public void Reposition()
+        {
+            if (_owner == null || _owner.IsDisposed) return;
+            if (_owner.WindowState == FormWindowState.Minimized || !_owner.Visible)
+            {
+                if (Visible) Visible = false;
+                return;
+            }
+
+            SyncBounds(showIfHidden: true);
+        }
+
+        private void SyncBounds(bool showIfHidden = false)
+        {
+            if (_owner == null || _owner.IsDisposed) return;
+            try
+            {
+                int top = SupeyForm.TitleBarHeight;
+                var origin = _owner.PointToScreen(new Point(0, top));
+                int height = Math.Max(0, _owner.ClientSize.Height - top - 3);
+                int width = Math.Max(SupeyDrawer.CollapsedWidth, _drawer.VisibleWidth);
+                Bounds = new Rectangle(origin.X, origin.Y, width, height);
+                if (showIfHidden && !Visible) Show();
+            }
+            catch { }
         }
     }
 
