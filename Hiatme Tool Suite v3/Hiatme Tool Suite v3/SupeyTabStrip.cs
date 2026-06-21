@@ -21,11 +21,7 @@ namespace Hiatme_Tool_Suite_v3
 
         public static void Attach(TabControl tc)
         {
-            if (tc is SupeyTabControl stc)
-            {
-                stc.RefreshAfterRestore();
-                return;
-            }
+            if (tc is SupeyTabControl) return;
             if (tc == null) return;
 
             tc.SizeMode = TabSizeMode.Fixed;

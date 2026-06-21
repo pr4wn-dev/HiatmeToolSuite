@@ -369,7 +369,6 @@ namespace Hiatme_Tool_Suite_v3
             owner.Resize += (s, e) => Reposition();
             owner.VisibleChanged += (s, e) => Reposition();
             owner.Activated += (s, e) => Reposition();
-            owner.Deactivate += (s, e) => { try { if (Visible) Hide(); } catch { } };
 
             if (owner.IsHandleCreated && owner.Visible)
             {
