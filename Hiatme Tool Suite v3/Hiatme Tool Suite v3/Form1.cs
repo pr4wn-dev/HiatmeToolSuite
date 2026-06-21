@@ -182,6 +182,9 @@ namespace Hiatme_Tool_Suite_v3
             ApplyTripScoutVisualTheme();
             ApplyTemplatesVisualTheme();
             ApplyTimeCorrectionVisualTheme();
+            ApplyLoginVisualTheme(layout: false);
+            if (loginPanel != null)
+                loginPanel.Visible = false;
             // The MaterialForm body behind the tab control (3px margins + app-bar strip) defaults to
             // MaterialSkin's fixed gray; pin it to the palette base so no gray peeks through.
             BackColor = SupeyTheme.SurfaceBase;
@@ -233,8 +236,10 @@ namespace Hiatme_Tool_Suite_v3
             analyzer.HideLoadingScreen += analyzer_loading_hide;
 
             portlbl.Text = portlbl.Text + port_no.ToString();
-            // Default login provider is set in the designer before SelectedIndexChanged is wired; sync saved credentials once at show.
+            // Default login provider is resolved from saved credentials on Shown.
             Shown += Form1_Shown_SyncLoginPanelFromSettings;
+            if (tabPage1 != null)
+                tabPage1.Resize += (_, __) => LayoutLoginPanel();
             Load += Form1_OnLoad_DeferRevampPaintHook;
         }
 
@@ -863,6 +868,7 @@ namespace Hiatme_Tool_Suite_v3
                 // Dark scrollbars are HWND-themed, not color-mapped, so they don't need remapping;
                 // re-assert anyway so any freshly themed surface keeps matching chrome.
                 SupeyDarkScrollBars.Apply(this);
+                ApplyLoginVisualTheme();
                 Invalidate(true);
             }
             catch
@@ -1238,7 +1244,16 @@ namespace Hiatme_Tool_Suite_v3
             Shown -= Form1_Shown_SyncLoginPanelFromSettings;
             if (Interlocked.CompareExchange(ref _startupMyPreciousPlayedFlag, 1, 0) == 0)
                 Program.TryPlayStartupMyPreciousOnce();
+            if (loginPanel != null)
+                loginPanel.Visible = false;
+            RelayoutLoginForm();
+            ApplyInitialLoginProviderSelection();
             loginCB_SelectedIndexChanged(loginCB, EventArgs.Empty);
+            RelayoutLoginForm();
+            if (loginPanel != null)
+                loginPanel.Visible = true;
+            FinishLoginLayoutPaint();
+            LogLoginLayoutSnapshot("Form1_Shown:afterRelayout");
             try
             {
                 pictureBox1?.Invalidate();
@@ -1258,6 +1273,7 @@ namespace Hiatme_Tool_Suite_v3
 
         private System.Windows.Forms.LinkLabel _updateStatusLink;
         private bool _updateInProgress;
+        private System.Windows.Forms.Panel _loginFooterPanel;
 
         /// <summary>
         /// Sets the title bar to include the current version and adds a clickable bottom-right "Check for updates"
@@ -1289,10 +1305,17 @@ namespace Hiatme_Tool_Suite_v3
                     if (_updateInProgress) return;
                     await RunManualUpdateCheckAsync();
                 };
-                Controls.Add(_updateStatusLink);
-                _updateStatusLink.BringToFront();
+                if (tabPage1 != null)
+                    tabPage1.Controls.Add(_updateStatusLink);
+                else
+                    Controls.Add(_updateStatusLink);
+                _updateStatusLink.SendToBack();
                 PositionUpdateStatusLink();
                 Resize += (_, __) => PositionUpdateStatusLink();
+                if (tabPage1 != null)
+                    tabPage1.Resize += (_, __) => PositionUpdateStatusLink();
+                if (hiatmeTabControl?.SelectedTab == tabPage1)
+                    RelayoutLoginForm();
             }
             catch { }
         }
@@ -1300,17 +1323,48 @@ namespace Hiatme_Tool_Suite_v3
         private void PositionUpdateStatusLink()
         {
             if (_updateStatusLink == null || _updateStatusLink.IsDisposed) return;
-            int margin = 8;
-            int x = ClientSize.Width - _updateStatusLink.PreferredSize.Width - margin;
-            int y = ClientSize.Height - _updateStatusLink.PreferredSize.Height - margin;
-            _updateStatusLink.Location = new System.Drawing.Point(Math.Max(margin, x), Math.Max(margin, y));
+
+            const int margin = 10;
+            int linkW = _updateStatusLink.PreferredSize.Width;
+            int linkH = _updateStatusLink.PreferredSize.Height;
+            bool onLoginTab = hiatmeTabControl?.SelectedTab == tabPage1 && tabPage1 != null && loginPanel != null;
+
+            if (onLoginTab)
+            {
+                // Positioned inside _loginFooterPanel by LayoutLoginFormFields — keep login card on top.
+                loginPanel?.BringToFront();
+                return;
+            }
+
+            if (_updateStatusLink.Parent == _loginFooterPanel)
+            {
+                _loginFooterPanel.Controls.Remove(_updateStatusLink);
+                if (tabPage1 != null)
+                    tabPage1.Controls.Add(_updateStatusLink);
+                else
+                    Controls.Add(_updateStatusLink);
+                _updateStatusLink.SendToBack();
+            }
+
+            if (_updateStatusLink.Parent != this)
+            {
+                _updateStatusLink.Parent?.Controls.Remove(_updateStatusLink);
+                Controls.Add(_updateStatusLink);
+            }
+            _updateStatusLink.Visible = true;
+            int x = ClientSize.Width - linkW - margin;
+            int y = ClientSize.Height - linkH - margin;
+            _updateStatusLink.Location = new Point(Math.Max(margin, x), Math.Max(margin, y));
         }
 
         private void SetUpdateLinkText(string text)
         {
             if (_updateStatusLink == null || _updateStatusLink.IsDisposed) return;
             _updateStatusLink.Text = text;
-            PositionUpdateStatusLink();
+            if (hiatmeTabControl?.SelectedTab == tabPage1 && loginPanel != null)
+                LayoutLoginFormFields();
+            else
+                PositionUpdateStatusLink();
         }
 
         /// <summary>Non-blocking auto-check on launch. Visible (not silent) status feedback in the bottom-right link.</summary>
@@ -1888,6 +1942,9 @@ namespace Hiatme_Tool_Suite_v3
             if (pb == null)
                 return;
 
+            Region clipRestore = ApplyLoginPanelPictureBoxClip(e.Graphics, pb);
+            try
+            {
             try
             {
                 if (_revampFontLargeR != null && _revampFontRest != null)
@@ -2012,6 +2069,35 @@ namespace Hiatme_Tool_Suite_v3
             catch
             {
                 // ignore watermark paint failures
+            }
+            }
+            finally
+            {
+                if (clipRestore != null)
+                {
+                    e.Graphics.Clip = clipRestore;
+                    clipRestore.Dispose();
+                }
+            }
+        }
+
+        /// <summary>Stop REVAMP/watermark paint from bleeding through the login card stack.</summary>
+        private Region ApplyLoginPanelPictureBoxClip(Graphics g, PictureBox pb)
+        {
+            if (g == null || pb == null || loginPanel == null || !loginPanel.Visible || loginPanel.Parent != pb.Parent)
+                return null;
+            try
+            {
+                var clipRestore = g.Clip.Clone();
+                var exclude = loginPanel.Bounds;
+                exclude.Inflate(6, 6);
+                clipRestore.Exclude(exclude);
+                g.Clip = clipRestore;
+                return clipRestore;
+            }
+            catch
+            {
+                return null;
             }
         }
 
@@ -2272,6 +2358,440 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         //LOGIN
+
+        private const int LoginPanelWidth = 320;
+        private const int LoginCardWidth = 302;
+        private const int LoginFieldH = 58;
+        private const int LoginFieldGap = 8;
+        private const int LoginFieldInset = 8;
+        private const int LoginSwitchRowH = 40;
+        private const int LoginSwitchGap = 16;
+        private const int LoginBtnH = 44;
+        private const int LoginUpdateLinkGap = 6;
+        private const int LoginBtnGap = 14;
+
+        /// <summary>Theme login tab surfaces and align all controls to a single grid.</summary>
+        private void ApplyLoginVisualTheme(bool layout = true)
+        {
+            // #region agent log
+            LoginLayoutDebug.LogSimple("ApplyLoginVisualTheme", "H6", "layout=" + layout);
+            // #endregion
+            if (tabPage1 != null)
+            {
+                tabPage1.BackColor = SupeyTheme.SurfaceBase;
+                tabPage1.ForeColor = SupeyTheme.TextPrimary;
+            }
+
+            if (loginPanel != null)
+            {
+                loginPanel.SurfaceLevel = SupeyCard.Surface.Elevated;
+                loginPanel.ShowBorder = false;
+                loginPanel.CornerRadius = 8;
+                loginPanel.ForeColor = SupeyTheme.TextPrimary;
+                loginPanel.Padding = Padding.Empty;
+                loginPanel.Width = LoginPanelWidth;
+            }
+
+            StyleLoginCard(materialCard1, compact: true);
+            StyleLoginCard(materialCard3);
+            EnsureLoginFooterPanel();
+
+            if (loginCB != null)
+            {
+                loginCB.Hint = "Service";
+                loginCB.UseTallSize = true;
+                loginCB.AlignTextWithIconFields = true;
+                loginCB.Font = SupeyTheme.BodyFont;
+            }
+
+            foreach (var tb in new[] { loginCodeTB, loginUserTB, loginPassTB })
+            {
+                if (tb == null) continue;
+                tb.UseTallSize = true;
+                tb.Font = SupeyTheme.BodyFont;
+            }
+
+            if (loginSwitch != null)
+            {
+                loginSwitch.AutoSize = false;
+                loginSwitch.Font = SupeyTheme.BodyFont;
+                loginSwitch.ForeColor = SupeyTheme.TextPrimary;
+                loginSwitch.Text = "Remember credentials";
+            }
+
+            if (loginBtn != null)
+            {
+                loginBtn.Type = SupeyMaterialButton.MaterialButtonType.Contained;
+                loginBtn.UseAccentColor = true;
+                loginBtn.HighEmphasis = true;
+                loginBtn.Font = SupeyTheme.BodyFont;
+                loginBtn.CornerRadius = 6;
+                loginBtn.MinimumSize = Size.Empty;
+                loginBtn.Margin = Padding.Empty;
+            }
+
+            if (gmailDefaultBtn != null)
+            {
+                gmailDefaultBtn.Type = SupeyMaterialButton.MaterialButtonType.Outlined;
+                gmailDefaultBtn.Font = SupeyTheme.BodyFont;
+            }
+
+            if (LoadingGifCard != null)
+            {
+                LoadingGifCard.BackColor = SupeyTheme.SurfaceBase;
+                LoadingGifCard.ForeColor = SupeyTheme.TextPrimary;
+            }
+
+            if (layout)
+            {
+                LayoutLoginFormFields();
+                LayoutLoginPanel();
+            }
+        }
+
+        /// <summary>Repaint login tab after final bounds — clears stale frames from pre-Shown layout.</summary>
+        private void FinishLoginLayoutPaint()
+        {
+            if (loginPanel == null) return;
+            loginPanel.PerformLayout();
+            InvalidateLoginControlTree(loginPanel);
+            loginPanel.Update();
+            tabPage1?.Invalidate(true);
+        }
+
+        private static void InvalidateLoginControlTree(System.Windows.Forms.Control root)
+        {
+            if (root == null || root.IsDisposed) return;
+            root.Invalidate(true);
+            foreach (System.Windows.Forms.Control child in root.Controls)
+                InvalidateLoginControlTree(child);
+        }
+
+        private static void StyleLoginCard(SupeyCard card, bool compact = false)
+        {
+            if (card == null) return;
+            card.BorderStyle = System.Windows.Forms.BorderStyle.None;
+            card.SurfaceLevel = SupeyCard.Surface.Elevated;
+            card.ShowBorder = false;
+            card.CornerRadius = 6;
+            card.ForeColor = SupeyTheme.TextPrimary;
+            card.Margin = Padding.Empty;
+            card.Padding = compact ? new Padding(6, 4, 6, 4) : new Padding(LoginFieldInset);
+        }
+
+        /// <summary>Center the login stack on the tab; park the update link below the card.</summary>
+        private void LayoutLoginPanel()
+        {
+            if (loginPanel == null || tabPage1 == null) return;
+            loginPanel.Location = new Point(
+                Math.Max(12, (tabPage1.ClientSize.Width - loginPanel.Width) / 2),
+                Math.Max(32, (tabPage1.ClientSize.Height - loginPanel.Height) / 2 - 16));
+            loginPanel.BringToFront();
+            if (pictureBox1 != null && tabPage1 != null && pictureBox1.Parent == tabPage1)
+                pictureBox1.SendToBack();
+            PositionUpdateStatusLink();
+        }
+
+        private System.Windows.Forms.Panel EnsureLoginFooterPanel()
+        {
+            if (loginPanel == null) return null;
+
+            if (materialCard2 != null)
+            {
+                materialCard2.Visible = false;
+                if (materialCard2.Parent != null)
+                    materialCard2.Parent.Controls.Remove(materialCard2);
+            }
+
+            if (_loginFooterPanel == null || _loginFooterPanel.IsDisposed)
+            {
+                _loginFooterPanel = new System.Windows.Forms.Panel
+                {
+                    Name = "loginFooterPanel",
+                    BackColor = SupeyTheme.Surface,
+                    Margin = Padding.Empty,
+                    Padding = Padding.Empty,
+                };
+                loginPanel.Controls.Add(_loginFooterPanel);
+            }
+
+            if (loginSwitch != null)
+            {
+                loginSwitch.AutoSize = false;
+                loginSwitch.Margin = Padding.Empty;
+                loginSwitch.BackColor = SupeyTheme.Surface;
+                if (loginSwitch.Parent != _loginFooterPanel)
+                {
+                    loginSwitch.Location = new Point(LoginFieldInset, 0);
+                    _loginFooterPanel.Controls.Add(loginSwitch);
+                }
+            }
+
+            if (loginBtn != null)
+            {
+                loginBtn.Margin = Padding.Empty;
+                if (loginBtn.Parent != _loginFooterPanel)
+                {
+                    loginBtn.Location = new Point(0, LoginSwitchRowH + LoginBtnGap);
+                    _loginFooterPanel.Controls.Add(loginBtn);
+                }
+            }
+
+            if (loginCB != null && loginPanel.Controls.Contains(loginCB))
+                loginPanel.Controls.Remove(loginCB);
+
+            if (loginCB != null && materialCard3 != null && loginCB.Parent != materialCard3)
+                materialCard3.Controls.Add(loginCB);
+
+            return _loginFooterPanel;
+        }
+
+        private void ApplyLoginZOrder()
+        {
+            if (loginPanel == null) return;
+            materialCard3?.SendToBack();
+            _loginFooterPanel?.BringToFront();
+            materialCard1?.BringToFront();
+        }
+
+        private void LogLoginLayoutSnapshot(string location)
+        {
+            // #region agent log
+            LoginLayoutDebug.LogSimple(location, "H0", "LogLoginLayoutSnapshot entered");
+            try
+            {
+                string exePath = Application.ExecutablePath;
+                DateTime exeWrite = File.Exists(exePath) ? File.GetLastWriteTimeUtc(exePath) : DateTime.MinValue;
+                LoginLayoutDebug.Log(location, "LOGIN_LAYOUT snapshot", "H1", new Dictionary<string, object>
+                {
+                    ["exePath"] = exePath,
+                    ["exeWriteUtc"] = exeWrite.ToString("o"),
+                    ["loginCBType"] = loginCB?.GetType().FullName,
+                    ["loginSwitchType"] = loginSwitch?.GetType().FullName,
+                    ["loginCB"] = LoginLayoutDebug.ControlSnapshot(loginCB),
+                    ["loginSwitch"] = LoginLayoutDebug.ControlSnapshot(loginSwitch),
+                    ["loginBtn"] = LoginLayoutDebug.ControlSnapshot(loginBtn),
+                    ["footer"] = LoginLayoutDebug.ControlSnapshot(_loginFooterPanel),
+                    ["materialCard3"] = LoginLayoutDebug.ControlSnapshot(materialCard3),
+                    ["materialCard1"] = LoginLayoutDebug.ControlSnapshot(materialCard1),
+                    ["loginPanel"] = LoginLayoutDebug.ControlSnapshot(loginPanel),
+                });
+                LoginLayoutDebug.Log(location, "overlap matrix", "H2", new object[]
+                {
+                    LoginLayoutDebug.OverlapPair(loginCB, _loginFooterPanel),
+                    LoginLayoutDebug.OverlapPair(loginCB, loginSwitch),
+                    LoginLayoutDebug.OverlapPair(loginCB, loginBtn),
+                    LoginLayoutDebug.OverlapPair(materialCard3, _loginFooterPanel),
+                    LoginLayoutDebug.OverlapPair(loginSwitch, loginBtn),
+                    LoginLayoutDebug.OverlapPair(materialCard1, loginSwitch),
+                    LoginLayoutDebug.OverlapPair(_updateStatusLink, loginSwitch),
+                    LoginLayoutDebug.OverlapPair(_updateStatusLink, loginBtn),
+                });
+                LoginLayoutDebug.Log(location, "footer bleed scan", "H27", LoginLayoutDebug.FooterBleedScan(_loginFooterPanel, tabPage1));
+                LoginLayoutDebug.Log(location, "update link", "H27", LoginLayoutDebug.ControlSnapshot(_updateStatusLink));
+                LoginLayoutDebug.Log(location, "loginPanel tree", "H3", LoginLayoutDebug.TreeSnapshot(loginPanel));
+                if (loginPanel != null)
+                {
+                    var comboLike = new List<object>();
+                    foreach (System.Windows.Forms.Control c in loginPanel.Controls)
+                        ScanComboLike(c, comboLike);
+                    if (materialCard3 != null)
+                        foreach (System.Windows.Forms.Control c in materialCard3.Controls)
+                            ScanComboLike(c, comboLike);
+                    LoginLayoutDebug.Log(location, "combo-like on login tree", "H3", comboLike);
+                }
+            }
+            catch (Exception ex)
+            {
+                LoginLayoutDebug.LogSimple(location, "H0", "LogLoginLayoutSnapshot FAIL: " + ex.Message);
+            }
+            // #endregion
+        }
+
+        private static void ScanComboLike(System.Windows.Forms.Control c, List<object> comboLike)
+        {
+            if (c == null) return;
+            var tn = c.GetType().Name;
+            if (tn.IndexOf("Combo", StringComparison.OrdinalIgnoreCase) >= 0
+                || tn.IndexOf("DropDown", StringComparison.OrdinalIgnoreCase) >= 0)
+                comboLike.Add(LoginLayoutDebug.ControlSnapshot(c));
+        }
+
+        /// <summary>Stack fields on an 8px grid; reflow when company code or Gmail rows show/hide.</summary>
+        private void LayoutLoginFormFields()
+        {
+            if (materialCard3 == null || loginPanel == null) return;
+            var footer = EnsureLoginFooterPanel();
+            if (footer == null) return;
+
+            loginPanel.SuspendLayout();
+            try
+            {
+            int cardX = (LoginPanelWidth - LoginCardWidth) / 2;
+            int fieldW = LoginCardWidth - LoginFieldInset * 2;
+            int x = LoginFieldInset;
+            int y = LoginFieldInset;
+            int fieldsBottom = LoginFieldInset;
+
+            if (materialCard1 != null)
+            {
+                const int statusW = 56;
+                const int statusH = 40;
+                materialCard1.SetBounds((LoginPanelWidth - statusW) / 2, 8, statusW, statusH);
+                if (wrPBLight != null)
+                    wrPBLight.SetBounds((statusW - 20) / 2, (statusH - 20) / 2, 20, 20);
+            }
+
+            int cardTop = (materialCard1?.Bottom ?? 8) + 10;
+
+            if (loginCB != null && materialCard3 != null)
+            {
+                if (loginCB.Parent != materialCard3)
+                    materialCard3.Controls.Add(loginCB);
+                loginCB.SetBounds(x, y, fieldW, LoginFieldH);
+                fieldsBottom = y + LoginFieldH;
+                y += LoginFieldH + LoginFieldGap;
+            }
+
+            bool showCode = loginCodeTB != null && loginCodeTB.Enabled;
+            if (loginCodeTB != null)
+            {
+                loginCodeTB.Visible = showCode;
+                if (showCode)
+                {
+                    loginCodeTB.SetBounds(x, y, fieldW, LoginFieldH);
+                    fieldsBottom = y + LoginFieldH;
+                    y += LoginFieldH + LoginFieldGap;
+                }
+            }
+
+            if (loginUserTB != null)
+            {
+                loginUserTB.SetBounds(x, y, fieldW, LoginFieldH);
+                fieldsBottom = y + LoginFieldH;
+                y += LoginFieldH + LoginFieldGap;
+            }
+
+            if (loginPassTB != null)
+            {
+                loginPassTB.SetBounds(x, y, fieldW, LoginFieldH);
+                fieldsBottom = y + LoginFieldH;
+                y += LoginFieldH + LoginFieldGap;
+            }
+
+            bool gmailSelected = loginCB != null && loginCB.SelectedIndex == 3;
+            if (gmailDefaultBtn != null)
+            {
+                if (gmailSelected)
+                {
+                    gmailDefaultBtn.Visible = true;
+                    gmailDefaultBtn.SetBounds(x, y, fieldW, 36);
+                    fieldsBottom = y + 36;
+                    y += 36 + LoginFieldGap;
+                }
+                else
+                {
+                    gmailDefaultBtn.Visible = false;
+                    gmailDefaultBtn.SetBounds(0, 0, 0, 0);
+                }
+            }
+
+            int fieldsCardHeight = fieldsBottom + LoginFieldInset;
+            materialCard3.MinimumSize = new Size(LoginCardWidth, fieldsCardHeight);
+            materialCard3.MaximumSize = new Size(LoginCardWidth, fieldsCardHeight);
+            materialCard3.SetBounds(cardX, cardTop, LoginCardWidth, fieldsCardHeight);
+
+            int footerTop = cardTop + fieldsCardHeight + LoginSwitchGap;
+            int switchH = loginSwitch != null
+                ? Math.Max(LoginSwitchRowH, loginSwitch.GetPreferredSize(Size.Empty).Height)
+                : LoginSwitchRowH;
+
+            int updateLinkRowH = 0;
+            bool onLoginTab = hiatmeTabControl?.SelectedTab == tabPage1;
+            if (_updateStatusLink != null && !_updateStatusLink.IsDisposed && onLoginTab)
+            {
+                if (_updateStatusLink.Parent != footer)
+                {
+                    _updateStatusLink.Parent?.Controls.Remove(_updateStatusLink);
+                    footer.Controls.Add(_updateStatusLink);
+                }
+                _updateStatusLink.BackColor = SupeyTheme.Surface;
+                _updateStatusLink.Visible = true;
+                int linkH = _updateStatusLink.PreferredSize.Height;
+                updateLinkRowH = LoginUpdateLinkGap + linkH;
+                _updateStatusLink.SetBounds(
+                    LoginFieldInset,
+                    switchH + LoginBtnGap + LoginBtnH + LoginUpdateLinkGap,
+                    fieldW,
+                    linkH);
+            }
+            else if (_updateStatusLink != null && !_updateStatusLink.IsDisposed && _updateStatusLink.Parent == footer)
+            {
+                footer.Controls.Remove(_updateStatusLink);
+                if (tabPage1 != null)
+                    tabPage1.Controls.Add(_updateStatusLink);
+                _updateStatusLink.SendToBack();
+            }
+
+            int footerH = switchH + LoginBtnGap + LoginBtnH + updateLinkRowH;
+            footer.SetBounds(cardX, footerTop, LoginCardWidth, footerH);
+
+            if (loginSwitch != null)
+                loginSwitch.SetBounds(LoginFieldInset, 0, fieldW, switchH);
+
+            if (loginBtn != null)
+                loginBtn.SetBounds(0, switchH + LoginBtnGap, LoginCardWidth, LoginBtnH);
+
+            loginPanel.Height = footerTop + footerH + 12;
+
+            // #region agent log
+            LoginLayoutDebug.LogSimple("LayoutLoginFormFields", "H2",
+                "loginCB parent=" + (loginCB?.Parent?.Name ?? "null")
+                + " loginCB=(" + loginCB?.Left + "," + loginCB?.Top + "," + loginCB?.Width + "," + loginCB?.Height + ")"
+                + " footer=(" + footer?.Left + "," + footer?.Top + "," + footer?.Width + "," + footer?.Height + ")"
+                + " card3=(" + materialCard3?.Top + "," + materialCard3?.Height + ")"
+                + " panelH=" + loginPanel.Height);
+            // #endregion
+
+            ApplyLoginZOrder();
+            LogLoginLayoutSnapshot("LayoutLoginFormFields:end");
+            }
+            finally
+            {
+                loginPanel.ResumeLayout(true);
+            }
+        }
+
+        private void RelayoutLoginForm()
+        {
+            LayoutLoginFormFields();
+            LayoutLoginPanel();
+        }
+
+        /// <summary>Pick the provider the user most likely wants based on saved credentials.</summary>
+        private static int ResolveDefaultLoginProviderIndex()
+        {
+            try
+            {
+                var s = Properties.Settings.Default;
+                if (!string.IsNullOrWhiteSpace(s.wrUserName)) return 0;
+                if (!string.IsNullOrWhiteSpace(s.mcUserName)) return 1;
+                if (!string.IsNullOrWhiteSpace(s.hiatmeUserName)) return 2;
+                if (s.gmailUseOfficeDefault && ScheduleBuilderGmailDefaults.IsConfigured()) return 3;
+                if (!string.IsNullOrWhiteSpace(s.gmailUserName)) return 3;
+            }
+            catch { /* settings unavailable */ }
+            return 0;
+        }
+
+        private void ApplyInitialLoginProviderSelection()
+        {
+            if (loginCB == null || loginCB.Items.Count == 0) return;
+            int idx = ResolveDefaultLoginProviderIndex();
+            if (idx < 0 || idx >= loginCB.Items.Count) idx = 0;
+            loginCB.SelectedIndex = idx;
+        }
+
         private void loginCB_SelectedIndexChanged(object sender, EventArgs e)
         {
             loginCodeTB.Enabled = false;
@@ -2298,6 +2818,8 @@ namespace Hiatme_Tool_Suite_v3
                     break;
             }
             UpdateGmailDefaultButtonVisibility();
+            LayoutLoginFormFields();
+            LayoutLoginPanel();
         }
         private async void loginBtn_Click(object sender, EventArgs e)
         {
@@ -2425,6 +2947,7 @@ namespace Hiatme_Tool_Suite_v3
             loginBtn.Text = "Login";
             loginCB.SelectedIndex = 0;
             loginCB.Focus();
+            RelayoutLoginForm();
         }
 
         private void DisableWRLogin()
@@ -2436,6 +2959,7 @@ namespace Hiatme_Tool_Suite_v3
             loginSwitch.Enabled = false;
             loginBtn.Text = "Logout";
             loginCB.SelectedIndex = 0;
+            RelayoutLoginForm();
         }
 
         /// <summary>Bootstrap + Spring login + /portal/nu. On failure abandons the in-flight session only.</summary>
@@ -2885,6 +3409,7 @@ namespace Hiatme_Tool_Suite_v3
             loginBtn.Text = "Login";
             loginCB.SelectedIndex = 2;
             loginCB.Focus();
+            RelayoutLoginForm();
         }
         private void DisableHiatmeLogin()
         {
@@ -2894,6 +3419,7 @@ namespace Hiatme_Tool_Suite_v3
             loginSwitch.Enabled = false;
             loginBtn.Text = "Logout";
             loginCB.SelectedIndex = 2;
+            RelayoutLoginForm();
         }
 
         private void LoadGmailCredentials()
@@ -2936,6 +3462,7 @@ namespace Hiatme_Tool_Suite_v3
             loginBtn.Text = "Ready";
             loginBtn.Enabled = false;
             SetWrPbLightImage(1);
+            RelayoutLoginForm();
         }
 
         private void EnableGmailLogin()
@@ -2950,6 +3477,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 ApplyGmailOfficeDefaultUi(officeAddress);
                 UpdateGmailDefaultButtonVisibility();
+                RelayoutLoginForm();
                 return;
             }
 
@@ -2960,6 +3488,7 @@ namespace Hiatme_Tool_Suite_v3
             loginBtn.Text = "Test my Gmail";
             UpdateGmailDefaultButtonVisibility();
             loginCB.Focus();
+            RelayoutLoginForm();
         }
 
         private void DisableGmailLogin()
@@ -2973,52 +3502,23 @@ namespace Hiatme_Tool_Suite_v3
             loginBtn.Text = "Test my Gmail";
             loginCB.SelectedIndex = 3;
             UpdateGmailDefaultButtonVisibility();
+            RelayoutLoginForm();
         }
 
         private void UpdateGmailDefaultButtonVisibility()
         {
-            if (materialCard3 == null || loginSwitch == null)
+            if (loginSwitch == null)
                 return;
 
             bool gmailSelected = loginCB != null && loginCB.SelectedIndex == 3;
 
-            if (gmailDefaultBtn != null)
+            if (gmailDefaultBtn != null && gmailSelected)
             {
-                gmailDefaultBtn.Visible = gmailSelected;
-                if (gmailSelected)
-                {
-                    bool configured = ScheduleBuilderGmailDefaults.IsConfigured();
-                    gmailDefaultBtn.Enabled = configured;
-                    gmailDefaultBtn.Text = configured
-                        ? "Use office email (default)"
-                        : "Office email not configured";
-
-                    int cardW = materialCard3.ClientSize.Width;
-                    int btnW = Math.Min(286, Math.Max(180, cardW - 16));
-                    gmailDefaultBtn.SetBounds((cardW - btnW) / 2, 261, btnW, 36);
-                }
-            }
-
-            loginSwitch.Location = new Point(
-                loginSwitch.Location.X,
-                gmailSelected ? 304 : 266);
-
-            materialCard3.Size = new Size(
-                materialCard3.Width,
-                gmailSelected ? 354 : 318);
-
-            if (materialCard2 != null)
-            {
-                materialCard2.Location = new Point(
-                    materialCard2.Location.X,
-                    gmailSelected ? 420 : 386);
-            }
-
-            if (loginPanel != null)
-            {
-                loginPanel.Size = new Size(
-                    loginPanel.Width,
-                    gmailSelected ? 494 : 458);
+                bool configured = ScheduleBuilderGmailDefaults.IsConfigured();
+                gmailDefaultBtn.Enabled = configured;
+                gmailDefaultBtn.Text = configured
+                    ? "Use office email (default)"
+                    : "Office email not configured";
             }
         }
 
@@ -3362,6 +3862,7 @@ namespace Hiatme_Tool_Suite_v3
             loginBtn.Text = "Login";
             loginCB.SelectedIndex = 1;
             loginCB.Focus();
+            RelayoutLoginForm();
         }
         private void DisableMCLogin()
         {
@@ -3373,6 +3874,7 @@ namespace Hiatme_Tool_Suite_v3
             loginSwitch.Enabled = false;
             loginBtn.Text = "Logout";
             loginCB.SelectedIndex = 1;
+            RelayoutLoginForm();
         }
         public async void UpdateMCConnectionStatus(object source, EventArgs args)
         {
@@ -6410,7 +6912,14 @@ namespace Hiatme_Tool_Suite_v3
             try
             {
                 if (hiatmeTabControl.SelectedTab == tabPage1)
+                {
                     pictureBox1?.Invalidate();
+                    LayoutLoginPanel();
+                }
+                else
+                {
+                    PositionUpdateStatusLink();
+                }
                 if (hiatmeTabControl.SelectedTab == tabPage9 && tslv != null)
                 {
                     ScheduleTripScoutColumnFit();

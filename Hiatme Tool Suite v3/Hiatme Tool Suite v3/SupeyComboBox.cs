@@ -1,37 +1,89 @@
 using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
-using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace Hiatme_Tool_Suite_v3
 {
     /// <summary>
-    /// A flat, dark-themed <see cref="ComboBox"/> that fully owns its closed-state paint so it
-    /// agrees with the SupeyTheme surfaces. The stock <see cref="FlatStyle.Flat"/> combo lets
-    /// Windows render a light-gray 3D border and a gray arrow button; overpainting that chrome
-    /// afterwards flickers and leaves gray artifacts in the corners. Instead we intercept
-    /// <c>WM_PAINT</c>, draw the whole closed control into an off-screen buffer (background,
-    /// selected text, themed border, lime accent chevron) and blit it in one pass — no base
-    /// button paint, so no flicker and no gray corner. The dropdown list rows are still rendered
-    /// by the owner-draw handler the caller wires up (a separate popup window / WM_DRAWITEM path).
+    /// MaterialComboBox-style dropdown: floating hint, underline + accent focus line, themed popup rows.
+    /// Matches <see cref="SupeyTextBox"/> field height and horizontal padding on login forms.
     /// </summary>
     public sealed class SupeyComboBox : ComboBox
     {
-        private const int WM_PAINT = 0x000F;
         private const int WM_ERASEBKGND = 0x0014;
-        private const int ArrowZoneWidth = 22;
+        private const int WM_PAINT = 0x000F;
+        private const int LeftPadding = 16;
+        private const int RightPadding = 12;
+        private const int HintSmallY = 4;
+        private const int HintSmallH = 18;
+        private const int BottomPad = 3;
+        private const int ActivationH = 2;
+        private const int TallHeight = 58;
+        private const int ShortHeight = 36;
+        private const int ArrowInset = 12;
+        private const int IconSize = 24;
+
+        private readonly Timer _focusAnimTimer;
+        private string _hint = string.Empty;
+        private bool _useTallSize = true;
+        private bool _focused;
+        private float _focusAnim;
+        private int _lineY;
 
         public SupeyComboBox()
         {
+            SetStyle(
+                ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint
+                | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw,
+                true);
+
             DropDownStyle = ComboBoxStyle.DropDownList;
+            DrawMode = DrawMode.OwnerDrawVariable;
             FlatStyle = FlatStyle.Flat;
-            DrawMode = DrawMode.OwnerDrawFixed;
-            DoubleBuffered = true;
+            IntegralHeight = false;
+            MaxDropDownItems = 8;
+            Font = SupeyTheme.BodyFont;
             BackColor = SupeyTheme.Surface;
             ForeColor = SupeyTheme.TextPrimary;
-            SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+
+            _focusAnimTimer = new Timer { Interval = 15 };
+            _focusAnimTimer.Tick += FocusAnimTick;
+
+            GotFocus += (_, __) => { _focused = true; StartFocusAnim(); Invalidate(); };
+            LostFocus += (_, __) => { _focused = false; StartFocusAnim(); Invalidate(); };
+            DropDown += (_, __) => { _focused = true; StartFocusAnim(); Invalidate(); };
+            DropDownClosed += (_, __) => { if (!Focused) { _focused = false; StartFocusAnim(); } Invalidate(); };
+            SelectedIndexChanged += (_, __) => Invalidate();
+            MouseEnter += (_, __) => Invalidate();
+            MouseLeave += (_, __) => Invalidate();
+
             SupeyThemeManager.ThemeChanged += OnThemeChanged;
+            ApplyHeightMetrics();
+        }
+
+        // ── MaterialComboBox designer shims ───────────────────────────────────────
+        public int Depth { get; set; }
+        public SupeyMouseState MouseState { get; set; } = SupeyMouseState.OUT;
+        public bool AutoResize { get; set; }
+        public bool UseAccent { get; set; } = true;
+        public int StartIndex { get; set; }
+
+        /// <summary>Shift value text right to line up with <see cref="SupeyTextBox"/> fields that have leading icons.</summary>
+        public bool AlignTextWithIconFields { get; set; }
+
+        private int TextPad => AlignTextWithIconFields ? LeftPadding + IconSize : LeftPadding;
+
+        public bool UseTallSize
+        {
+            get => _useTallSize;
+            set { _useTallSize = value; ApplyHeightMetrics(); Invalidate(); }
+        }
+
+        public string Hint
+        {
+            get => _hint;
+            set { _hint = value ?? string.Empty; Invalidate(); }
         }
 
         private void OnThemeChanged(object sender, EventArgs e)
@@ -39,168 +91,225 @@ namespace Hiatme_Tool_Suite_v3
             if (IsDisposed) return;
             BackColor = SupeyTheme.Surface;
             ForeColor = SupeyTheme.TextPrimary;
-            BorderColor = SupeyTheme.BorderSubtle;
-            ArrowColor = SupeyTheme.AccentPrimary;
             Invalidate();
         }
 
         protected override void Dispose(bool disposing)
         {
             if (disposing)
+            {
                 SupeyThemeManager.ThemeChanged -= OnThemeChanged;
+                _focusAnimTimer?.Stop();
+                _focusAnimTimer?.Dispose();
+            }
             base.Dispose(disposing);
         }
 
-        /// <summary>Themed border color drawn around the closed control.</summary>
-        public Color BorderColor { get; set; } = SupeyTheme.BorderSubtle;
-
-        /// <summary>Color of the dropdown chevron.</summary>
-        public Color ArrowColor { get; set; } = SupeyTheme.AccentPrimary;
-
-        // ── MaterialComboBox Designer-compat shims ────────────────────────────────
-        /// <summary>Accepted for Designer compatibility (MaterialSkin elevation); unused.</summary>
-        public int Depth { get; set; }
-        /// <summary>Accepted for Designer compatibility (MaterialSkin tracked mouse state); unused.</summary>
-        public SupeyMouseState MouseState { get; set; } = SupeyMouseState.OUT;
-        /// <summary>Accepted for Designer compatibility (MaterialComboBox auto-resize); unused.</summary>
-        public bool AutoResize { get; set; }
-        /// <summary>Accepted for Designer compatibility (MaterialComboBox start index); unused.</summary>
-        public int StartIndex { get; set; }
-
-        private string _hint = string.Empty;
-        /// <summary>Placeholder shown when no item is selected.</summary>
-        public string Hint
+        protected override void OnHandleCreated(EventArgs e)
         {
-            get => _hint;
-            set { _hint = value ?? string.Empty; Invalidate(); }
+            base.OnHandleCreated(e);
+            if (!DesignMode && Items.Count > 0 && StartIndex >= 0 && StartIndex < Items.Count && SelectedIndex < 0)
+                SelectedIndex = StartIndex;
+            SuppressNativeComboChrome();
         }
 
-        protected override void OnDrawItem(DrawItemEventArgs e)
+        protected override void OnParentChanged(EventArgs e)
         {
-            if (e.Index < 0) { base.OnDrawItem(e); return; }
-            bool selected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
-            Color back = selected ? SupeyTheme.ListSelected : SupeyTheme.ListBody;
-            Color fore = selected ? SupeyTheme.ListSelectedText : SupeyTheme.ListText;
-            using (var b = new SolidBrush(back)) e.Graphics.FillRectangle(b, e.Bounds);
-            string text = GetItemText(Items[e.Index]);
-            TextRenderer.DrawText(e.Graphics, text, Font,
-                new Rectangle(e.Bounds.X + 6, e.Bounds.Y, e.Bounds.Width - 8, e.Bounds.Height), fore,
-                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+            base.OnParentChanged(e);
+            SuppressNativeComboChrome();
         }
 
-        protected override void OnSelectedIndexChanged(EventArgs e)
+        protected override void OnLocationChanged(EventArgs e)
         {
-            base.OnSelectedIndexChanged(e);
-            Invalidate();
+            base.OnLocationChanged(e);
+            SuppressNativeComboChrome();
+        }
+
+        protected override void OnControlAdded(ControlEventArgs e)
+        {
+            base.OnControlAdded(e);
+            SuppressNativeComboChrome();
         }
 
         protected override void WndProc(ref Message m)
         {
-            switch (m.Msg)
+            if (m.Msg == WM_ERASEBKGND)
             {
-                case WM_ERASEBKGND:
-                    // We fully paint in WM_PAINT; skip the erase to avoid a flash.
-                    m.Result = (IntPtr)1;
-                    return;
-
-                case WM_PAINT:
-                    if (IsHandleCreated && !IsDisposed && Width > 0 && Height > 0)
-                    {
-                        var ps = new PAINTSTRUCT();
-                        IntPtr hdc = BeginPaint(Handle, ref ps);
-                        try
-                        {
-                            using (var buffer = new Bitmap(Width, Height))
-                            {
-                                using (var bg = Graphics.FromImage(buffer))
-                                    DrawClosed(bg);
-                                using (var target = Graphics.FromHdc(hdc))
-                                    target.DrawImageUnscaled(buffer, 0, 0);
-                            }
-                        }
-                        finally
-                        {
-                            EndPaint(Handle, ref ps);
-                        }
-                        m.Result = IntPtr.Zero;
-                        return;
-                    }
-                    break;
+                m.Result = (IntPtr)1;
+                return;
             }
 
             base.WndProc(ref m);
+
+            if (m.Msg == WM_PAINT)
+                SuppressNativeComboChrome();
         }
 
-        private void DrawClosed(Graphics g)
+        /// <summary>
+        /// WinForms ComboBox keeps native child HWNDs that paint the stock combo chrome at stale
+        /// positions when the parent is reparented/resized — hide them; we draw everything in OnPaint.
+        /// </summary>
+        private void SuppressNativeComboChrome()
         {
-            g.SmoothingMode = SmoothingMode.None;
-
-            // Background — pull straight from the theme so a stale Designer BackColor (e.g. the white
-            // left over from the MaterialSkin era) can never leak through.
-            using (var fill = new SolidBrush(SupeyTheme.Surface))
-                g.FillRectangle(fill, 0, 0, Width, Height);
-
-            // Selected text (or hint placeholder), left-padded and vertically centered.
-            string text = Text;
-            int textRight = Width - ArrowZoneWidth - 2;
-            if (textRight > 8)
+            if (IsDisposed || !IsHandleCreated) return;
+            try
             {
-                bool hasText = !string.IsNullOrEmpty(text);
-                string shown = hasText ? text : _hint;
-                if (!string.IsNullOrEmpty(shown))
-                {
-                    Color fore = !Enabled ? SupeyTheme.TextMuted
-                        : hasText ? SupeyTheme.TextPrimary : SupeyTheme.TextMuted;
-                    var textRect = new Rectangle(8, 0, textRight - 8, Height);
-                    TextRenderer.DrawText(g, shown, Font, textRect, fore,
-                        TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
-                }
+                foreach (Control child in Controls)
+                    child.Visible = false;
+            }
+            catch
+            {
+                // ignore during teardown
+            }
+        }
+
+        protected override void OnCreateControl()
+        {
+            base.OnCreateControl();
+            MeasureItem += OnMeasureItem;
+            DrawItem += DrawPopupItem;
+            ApplyHeightMetrics();
+        }
+
+        protected override void OnResize(EventArgs e)
+        {
+            base.OnResize(e);
+            ApplyHeightMetrics();
+        }
+
+        protected override void OnFontChanged(EventArgs e)
+        {
+            base.OnFontChanged(e);
+            ApplyHeightMetrics();
+            Invalidate();
+        }
+
+        private void StartFocusAnim()
+        {
+            if (!_focusAnimTimer.Enabled)
+                _focusAnimTimer.Start();
+        }
+
+        private void FocusAnimTick(object sender, EventArgs e)
+        {
+            float target = (_focused || DroppedDown) ? 1f : 0f;
+            const float step = 0.12f;
+            if (_focusAnim < target) _focusAnim = Math.Min(target, _focusAnim + step);
+            else if (_focusAnim > target) _focusAnim = Math.Max(target, _focusAnim - step);
+            Invalidate();
+            if (Math.Abs(_focusAnim - target) < 0.001f) { _focusAnim = target; _focusAnimTimer.Stop(); }
+        }
+
+        private void ApplyHeightMetrics()
+        {
+            int h = _useTallSize ? TallHeight : ShortHeight;
+            if (Height != h)
+                Height = h;
+            _lineY = h - BottomPad;
+            ItemHeight = Math.Max(28, h - 8);
+            DropDownHeight = ItemHeight * Math.Min(MaxDropDownItems, Math.Max(4, Items.Count)) + 2;
+            DropDownWidth = Math.Max(Width, DropDownWidth);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            g.Clear(SupeyTheme.Surface);
+            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+
+            using (var bg = new SolidBrush(SupeyTheme.Surface))
+                g.FillRectangle(bg, 0, 0, Width, _lineY);
+
+            bool hasHint = !string.IsNullOrEmpty(_hint);
+            bool hasValue = SelectedIndex >= 0 && !string.IsNullOrEmpty(Text);
+            bool floatHint = hasHint && _useTallSize && (DroppedDown || _focused || hasValue);
+
+            var hintRect = new Rectangle(TextPad, floatHint ? HintSmallY : 0, Width - TextPad - RightPadding - 20, floatHint ? HintSmallH : _lineY);
+
+            using (var div = new SolidBrush(SupeyTheme.BorderSubtle))
+                g.FillRectangle(div, 0, _lineY, Width, 1);
+
+            if (_focusAnim > 0f)
+            {
+                int half = (int)(Width / 2f * _focusAnim);
+                int cx = Width / 2;
+                using (var acc = new SolidBrush(SupeyTheme.AccentPrimary))
+                    g.FillRectangle(acc, cx - half, _lineY, half * 2, ActivationH);
             }
 
-            // Lime accent chevron, centered in the arrow zone.
-            g.SmoothingMode = SmoothingMode.AntiAlias;
-            int cx = Width - (ArrowZoneWidth / 2) - 1;
-            int cy = Height / 2;
-            Point[] chevron =
+            if (floatHint)
             {
-                new Point(cx - 5, cy - 2),
-                new Point(cx + 5, cy - 2),
-                new Point(cx, cy + 4),
-            };
-            using (var arrow = new SolidBrush(Enabled ? ArrowColor : SupeyTheme.TextMuted))
-                g.FillPolygon(arrow, chevron);
+                Color hintColor = Blend(SupeyTheme.TextSecondary, SupeyTheme.AccentPrimary, _focusAnim);
+                TextRenderer.DrawText(g, _hint, SupeyTheme.CaptionFont, hintRect, hintColor,
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+            }
 
-            // Crisp 1px themed border.
+            if (hasValue)
+            {
+                var textRect = new Rectangle(
+                    TextPad,
+                    floatHint ? hintRect.Bottom - 2 : 0,
+                    Width - TextPad - RightPadding - 16,
+                    floatHint ? _lineY - (hintRect.Bottom - 2) : _lineY);
+                TextRenderer.DrawText(g, Text, Font, textRect,
+                    Enabled ? SupeyTheme.TextPrimary : SupeyTheme.TextMuted,
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+            }
+            else if (hasHint && !floatHint)
+            {
+                TextRenderer.DrawText(g, _hint, Font, hintRect, SupeyTheme.TextMuted,
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+            }
+
+            DrawArrow(g);
+        }
+
+        private void DrawArrow(Graphics g)
+        {
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            int cy = _lineY / 2;
+            int ax = Width - ArrowInset;
+            Color arrowColor = !Enabled ? SupeyTheme.TextMuted
+                : (DroppedDown || _focused) ? SupeyTheme.AccentPrimary : SupeyTheme.TextSecondary;
+            using (var brush = new SolidBrush(arrowColor))
+            {
+                var tri = new Point[]
+                {
+                    new Point(ax - 5, cy - 2),
+                    new Point(ax + 5, cy - 2),
+                    new Point(ax, cy + 3),
+                };
+                g.FillPolygon(brush, tri);
+            }
             g.SmoothingMode = SmoothingMode.None;
-            using (var pen = new Pen(BorderColor))
-                g.DrawRectangle(pen, 0, 0, Width - 1, Height - 1);
         }
 
-        [DllImport("user32.dll")]
-        private static extern IntPtr BeginPaint(IntPtr hWnd, ref PAINTSTRUCT lpPaint);
-
-        [DllImport("user32.dll")]
-        private static extern bool EndPaint(IntPtr hWnd, ref PAINTSTRUCT lpPaint);
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct RECT
+        private void OnMeasureItem(object sender, MeasureItemEventArgs e)
         {
-            public int Left;
-            public int Top;
-            public int Right;
-            public int Bottom;
+            e.ItemHeight = ItemHeight;
         }
 
-        [StructLayout(LayoutKind.Sequential)]
-        private struct PAINTSTRUCT
+        private void DrawPopupItem(object sender, DrawItemEventArgs e)
         {
-            public IntPtr hdc;
-            public bool fErase;
-            public RECT rcPaint;
-            public bool fRestore;
-            public bool fIncUpdate;
-            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 32)]
-            public byte[] rgbReserved;
+            if (e.Index < 0) return;
+            bool selected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
+            Color back = selected ? SupeyTheme.ListSelected : SupeyTheme.ListBody;
+            Color fore = selected ? SupeyTheme.ListSelectedText : SupeyTheme.ListText;
+            using (var b = new SolidBrush(back))
+                e.Graphics.FillRectangle(b, e.Bounds);
+            string text = GetItemText(Items[e.Index]);
+            var textRect = new Rectangle(e.Bounds.X + LeftPadding, e.Bounds.Y, e.Bounds.Width - LeftPadding - 8, e.Bounds.Height);
+            TextRenderer.DrawText(e.Graphics, text, Font, textRect, fore,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+        }
+
+        private static Color Blend(Color a, Color b, float t)
+        {
+            t = Math.Max(0f, Math.Min(1f, t));
+            return Color.FromArgb(
+                (int)(a.R + (b.R - a.R) * t),
+                (int)(a.G + (b.G - a.G) * t),
+                (int)(a.B + (b.B - a.B) * t));
         }
     }
 }

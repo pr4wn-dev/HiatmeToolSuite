@@ -42,7 +42,7 @@
             this.materialCard3 = new SupeyCard();
             this.gmailDefaultBtn = new SupeyMaterialButton();
             this.loginSwitch = new SupeySwitch();
-            this.loginCB = new SupeyComboBox();
+            this.loginCB = new SupeyDropDownField();
             this.loginCodeTB = new SupeyTextBox();
             this.loginPassTB = new SupeyTextBox();
             this.loginUserTB = new SupeyTextBox();
@@ -234,7 +234,6 @@
             this.tabPage1.SuspendLayout();
             this.loginPanel.SuspendLayout();
             this.materialCard3.SuspendLayout();
-            this.materialCard2.SuspendLayout();
             this.materialCard1.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.wrPBLight)).BeginInit();
             this.LoadingGifCard.SuspendLayout();
@@ -313,16 +312,15 @@
             // 
             this.loginPanel.Anchor = System.Windows.Forms.AnchorStyles.None;
             this.loginPanel.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(255)))), ((int)(((byte)(255)))), ((int)(((byte)(255)))));
-            this.loginPanel.Controls.Add(this.materialCard3);
-            this.loginPanel.Controls.Add(this.materialCard2);
             this.loginPanel.Controls.Add(this.materialCard1);
+            this.loginPanel.Controls.Add(this.materialCard3);
             this.loginPanel.Depth = 0;
             this.loginPanel.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(222)))), ((int)(((byte)(0)))), ((int)(((byte)(0)))), ((int)(((byte)(0)))));
             this.loginPanel.Location = new System.Drawing.Point(595, 146);
             this.loginPanel.Margin = new System.Windows.Forms.Padding(14);
             this.loginPanel.MouseState = SupeyMouseState.HOVER;
             this.loginPanel.Name = "loginPanel";
-            this.loginPanel.Padding = new System.Windows.Forms.Padding(14);
+            this.loginPanel.Padding = new System.Windows.Forms.Padding(0);
             this.loginPanel.Size = new System.Drawing.Size(320, 458);
             this.loginPanel.TabIndex = 0;
             // 
@@ -331,7 +329,6 @@
             this.materialCard3.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(255)))), ((int)(((byte)(255)))), ((int)(((byte)(255)))));
             this.materialCard3.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
             this.materialCard3.Controls.Add(this.gmailDefaultBtn);
-            this.materialCard3.Controls.Add(this.loginSwitch);
             this.materialCard3.Controls.Add(this.loginCB);
             this.materialCard3.Controls.Add(this.loginCodeTB);
             this.materialCard3.Controls.Add(this.loginPassTB);
@@ -342,25 +339,25 @@
             this.materialCard3.Margin = new System.Windows.Forms.Padding(14);
             this.materialCard3.MouseState = SupeyMouseState.HOVER;
             this.materialCard3.Name = "materialCard3";
-            this.materialCard3.Padding = new System.Windows.Forms.Padding(14);
-            this.materialCard3.Size = new System.Drawing.Size(302, 318);
+            this.materialCard3.Padding = new System.Windows.Forms.Padding(8);
+            this.materialCard3.Size = new System.Drawing.Size(302, 280);
             this.materialCard3.TabIndex = 5;
             // 
             // loginSwitch
             // 
-            this.loginSwitch.AutoSize = true;
+            this.loginSwitch.AutoSize = false;
             this.loginSwitch.Depth = 0;
             this.loginSwitch.Font = new System.Drawing.Font("Roboto", 14F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Pixel);
-            this.loginSwitch.Location = new System.Drawing.Point(13, 266);
+            this.loginSwitch.Location = new System.Drawing.Point(17, 360);
             this.loginSwitch.Margin = new System.Windows.Forms.Padding(0);
             this.loginSwitch.MouseLocation = new System.Drawing.Point(-1, -1);
             this.loginSwitch.MouseState = SupeyMouseState.HOVER;
             this.loginSwitch.Name = "loginSwitch";
             this.loginSwitch.RightToLeft = System.Windows.Forms.RightToLeft.No;
             this.loginSwitch.Ripple = true;
-            this.loginSwitch.Size = new System.Drawing.Size(217, 37);
+            this.loginSwitch.Size = new System.Drawing.Size(286, 34);
             this.loginSwitch.TabIndex = 3;
-            this.loginSwitch.Text = "Remember Credentials";
+            this.loginSwitch.Text = "Remember credentials";
             this.loginSwitch.UseVisualStyleBackColor = true;
             // 
             // gmailDefaultBtn
@@ -411,7 +408,7 @@
             this.loginCB.Size = new System.Drawing.Size(286, 58);
             this.loginCB.TabIndex = 3;
             this.loginCB.SelectedIndexChanged += new System.EventHandler(this.loginCB_SelectedIndexChanged);
-            this.loginCB.StartIndex = 1;
+            this.loginCB.StartIndex = 0;
             // 
             // loginCodeTB
             // 
@@ -469,20 +466,20 @@
             this.loginUserTB.Text = "";
             this.loginUserTB.TrailingIcon = null;
             // 
-            // materialCard2
+            // materialCard2 (legacy wrapper — not shown on login tab)
             // 
             this.materialCard2.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(255)))), ((int)(((byte)(255)))), ((int)(((byte)(255)))));
             this.materialCard2.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
-            this.materialCard2.Controls.Add(this.loginBtn);
             this.materialCard2.Depth = 0;
             this.materialCard2.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(222)))), ((int)(((byte)(0)))), ((int)(((byte)(0)))), ((int)(((byte)(0)))));
-            this.materialCard2.Location = new System.Drawing.Point(72, 386);
+            this.materialCard2.Location = new System.Drawing.Point(0, 0);
             this.materialCard2.Margin = new System.Windows.Forms.Padding(14);
             this.materialCard2.MouseState = SupeyMouseState.HOVER;
             this.materialCard2.Name = "materialCard2";
             this.materialCard2.Padding = new System.Windows.Forms.Padding(14);
-            this.materialCard2.Size = new System.Drawing.Size(178, 52);
+            this.materialCard2.Size = new System.Drawing.Size(0, 0);
             this.materialCard2.TabIndex = 4;
+            this.materialCard2.Visible = false;
             // 
             // loginBtn
             // 
@@ -491,13 +488,13 @@
             this.loginBtn.Depth = 0;
             this.loginBtn.HighEmphasis = true;
             this.loginBtn.Icon = null;
-            this.loginBtn.Location = new System.Drawing.Point(9, 7);
-            this.loginBtn.Margin = new System.Windows.Forms.Padding(4, 6, 4, 6);
-            this.loginBtn.MinimumSize = new System.Drawing.Size(158, 36);
+            this.loginBtn.Location = new System.Drawing.Point(9, 408);
+            this.loginBtn.Margin = new System.Windows.Forms.Padding(0);
+            this.loginBtn.MinimumSize = new System.Drawing.Size(0, 0);
             this.loginBtn.MouseState = SupeyMouseState.HOVER;
             this.loginBtn.Name = "loginBtn";
             this.loginBtn.NoAccentTextColor = System.Drawing.Color.Empty;
-            this.loginBtn.Size = new System.Drawing.Size(158, 36);
+            this.loginBtn.Size = new System.Drawing.Size(302, 44);
             this.loginBtn.TabIndex = 4;
             this.loginBtn.Text = "Login";
             this.loginBtn.Type = SupeyMaterialButton.MaterialButtonType.Contained;
@@ -2521,9 +2518,6 @@
             this.tabPage1.ResumeLayout(false);
             this.loginPanel.ResumeLayout(false);
             this.materialCard3.ResumeLayout(false);
-            this.materialCard3.PerformLayout();
-            this.materialCard2.ResumeLayout(false);
-            this.materialCard2.PerformLayout();
             this.materialCard1.ResumeLayout(false);
             ((System.ComponentModel.ISupportInitialize)(this.wrPBLight)).EndInit();
             this.LoadingGifCard.ResumeLayout(false);
@@ -2672,7 +2666,7 @@
         private SupeyCard materialCard10;
         private System.Windows.Forms.ColumnHeader columnHeader42;
         private SupeyLabel tcorrectstatuslbl;
-        public SupeyComboBox loginCB;
+        public SupeyDropDownField loginCB;
         private System.Windows.Forms.ColumnHeader columnHeader43;
         private SupeyCard materialCard11;
         private System.Windows.Forms.DataVisualization.Charting.Chart tcchart;

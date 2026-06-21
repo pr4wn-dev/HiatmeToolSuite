@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
@@ -6,39 +7,61 @@ using System.Windows.Forms;
 namespace Hiatme_Tool_Suite_v3
 {
     /// <summary>
-    /// Theme-driven Material-style toggle — the Supey replacement for MaterialSwitch. Derives from
-    /// <see cref="CheckBox"/> so <c>Checked</c>, <c>CheckedChanged</c>, <c>Text</c> and click/keyboard
-    /// toggling all work natively. Mirrors MaterialSwitch's look: a 20px thumb that overhangs a 36x14
-    /// track, thumb + track colors that blend toward the accent as the thumb slides (eased), a soft
-    /// thumb shadow, and a translucent hover ring. MaterialSwitch-only members are no-op shims.
+    /// Theme-driven Material-style toggle — the Supey replacement for MaterialSwitch.
+    /// Derives from <see cref="Control"/> (not <see cref="CheckBox"/>) so WinForms does not leave
+    /// a native checkbox chrome ghost at stale coordinates when reparented or moved.
     /// </summary>
-    internal class SupeySwitch : CheckBox
+    internal class SupeySwitch : Control
     {
         private const int TrackW = 36;
         private const int TrackH = 14;
         private const int Radius = TrackH / 2;
         private const int Thumb = 20;
-        private const int TrackX = Thumb / 2 - Radius; // so the thumb's left edge lands at x=0 when off
+        private const int TrackX = Thumb / 2 - Radius;
 
         private readonly Timer _anim;
-        private float _t;        // 0 = off, 1 = on (eased position/color)
+        private float _t;
         private bool _hovered;
+        private bool _checked;
 
         public SupeySwitch()
         {
             SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint
-                | ControlStyles.ResizeRedraw | ControlStyles.UserPaint | ControlStyles.SupportsTransparentBackColor, true);
-            BackColor = Color.Transparent;
+                | ControlStyles.ResizeRedraw | ControlStyles.UserPaint | ControlStyles.StandardClick
+                | ControlStyles.StandardDoubleClick, true);
+            BackColor = SupeyTheme.Surface;
             ForeColor = SupeyTheme.TextPrimary;
             Font = SupeyTheme.BodyFont;
             Cursor = Cursors.Hand;
             AutoSize = false;
+            TabStop = true;
             Size = new Size(200, 26);
-            _t = Checked ? 1f : 0f;
+            _t = 0f;
             _anim = new Timer { Interval = 15 };
             _anim.Tick += Animate;
             SupeyThemeManager.ThemeChanged += OnThemeChanged;
         }
+
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+        public bool UseVisualStyleBackColor { get; set; } = true;
+
+        public bool Checked
+        {
+            get => _checked;
+            set
+            {
+                if (_checked == value) return;
+                _checked = value;
+                if (!_anim.Enabled) _t = value ? 1f : 0f;
+                OnCheckedChanged(EventArgs.Empty);
+                CheckedChanged?.Invoke(this, EventArgs.Empty);
+                if (!_anim.Enabled) _anim.Start();
+                Invalidate();
+            }
+        }
+
+        public event EventHandler CheckedChanged;
 
         // ── Designer-compat no-ops ────────────────────────────────────────────────
         public int Depth { get; set; }
@@ -64,15 +87,26 @@ namespace Hiatme_Tool_Suite_v3
             base.Dispose(disposing);
         }
 
-        protected override void OnCheckedChanged(EventArgs e)
+        protected virtual void OnCheckedChanged(EventArgs e) { }
+
+        protected override void OnClick(EventArgs e)
         {
-            base.OnCheckedChanged(e);
-            if (!_anim.Enabled) _anim.Start();
+            base.OnClick(e);
+            if (Enabled) Checked = !Checked;
         }
 
-        // With AutoSize=true (the Designer default for this control) WinForms would otherwise size us
-        // to a stock checkbox's preferred size and clip/overlap the track + label. Report the real
-        // width (track + gap + text) and a height that fits the overhanging thumb.
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            if (Enabled && (e.KeyCode == Keys.Space || e.KeyCode == Keys.Enter))
+            {
+                Checked = !Checked;
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+                return;
+            }
+            base.OnKeyDown(e);
+        }
+
         public override Size GetPreferredSize(Size proposedSize)
         {
             int textW = string.IsNullOrEmpty(Text) ? 0 : TextRenderer.MeasureText(Text, Font).Width;
@@ -101,7 +135,6 @@ namespace Hiatme_Tool_Suite_v3
             if (Math.Abs(_t - target) < 0.001f) { _t = target; _anim.Stop(); }
         }
 
-        // Ease the raw progress for a smoother slide/colour blend.
         private float Eased => _t * _t * (3f - 2f * _t);
 
         protected override void OnPaint(PaintEventArgs e)
@@ -109,11 +142,13 @@ namespace Hiatme_Tool_Suite_v3
             var g = e.Graphics;
             g.SmoothingMode = SmoothingMode.AntiAlias;
 
+            using (var bg = new SolidBrush(BackColor))
+                g.FillRectangle(bg, ClientRectangle);
+
             float p = Eased;
             int trackY = (Height - TrackH) / 2;
             var track = new Rectangle(TrackX, trackY, TrackW, TrackH);
 
-            // Track: blends off-surface -> accent.
             Color trackColor = Blend(SupeyTheme.SurfaceElevated, SupeyTheme.AccentPrimary, p);
             using (var path = Rounded(track, Radius))
             using (var b = new SolidBrush(trackColor))
@@ -123,14 +158,12 @@ namespace Hiatme_Tool_Suite_v3
                 using (var pen = new Pen(SupeyTheme.BorderSubtle))
                     g.DrawPath(pen, path);
 
-            // Thumb travels from begin -> end; colour blends muted -> accent.
             int cxBegin = TrackX + Radius;
             int cxEnd = TrackX + TrackW - Radius;
             int cx = (int)(cxBegin + (cxEnd - cxBegin) * p);
             int cy = trackY + TrackH / 2;
             var thumb = new Rectangle(cx - Thumb / 2, cy - Thumb / 2, Thumb, Thumb);
 
-            // Hover ring behind the thumb.
             if (_hovered && Enabled)
             {
                 int d = Thumb + 12;
@@ -138,7 +171,6 @@ namespace Hiatme_Tool_Suite_v3
                     g.FillEllipse(b, cx - d / 2, cy - d / 2, d, d);
             }
 
-            // Soft layered thumb shadow.
             using (var sh = new SolidBrush(Color.FromArgb(40, 0, 0, 0)))
             {
                 g.FillEllipse(sh, thumb.X - 1, thumb.Y + 1, thumb.Width + 2, thumb.Height + 2);

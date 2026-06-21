@@ -1,159 +1,207 @@
 using System;
+using System.ComponentModel;
 using System.Drawing;
-using System.Runtime.InteropServices;
+using System.Drawing.Drawing2D;
 using System.Windows.Forms;
 
 namespace Hiatme_Tool_Suite_v3
 {
     /// <summary>
-    /// Dark, theme-driven single-line text field — the Supey replacement for MaterialTextBox /
-    /// MaterialTextBox2. It owns its border (a 1px themed line that turns lime on focus), an optional
-    /// leading and trailing icon, a placeholder <see cref="Hint"/>, and a <see cref="Password"/> toggle
-    /// with a <see cref="TrailingIconClick"/> event (used for the "reveal password" eye). The text area
-    /// itself is a real Win32 edit, so <c>Text</c>, <c>TextChanged</c>, key events and tab order all
-    /// behave natively. MaterialSkin-only members (<c>UseTallSize</c>, <c>AnimateReadOnly</c>,
-    /// <c>Depth</c>, <c>MouseState</c>) are accepted as no-ops for Designer compatibility.
+    /// MaterialTextBox2-style field: outer <see cref="Control"/> paints hint, underline, and icons;
+    /// an inner borderless <see cref="TextBox"/> holds the editable text (16px side padding, 24px icons).
     /// </summary>
-    internal class SupeyTextBox : TextBox
+    internal class SupeyTextBox : Control
     {
-        private const int WM_NCCALCSIZE = 0x0083;
-        private const int WM_NCPAINT = 0x0085;
-        private const int WM_NCHITTEST = 0x0084;
-        private const int WM_NCLBUTTONDOWN = 0x00A1;
-        private const int WM_PAINT = 0x000F;
-        private const int IconSize = 16;
-        private const int Pad = 6;
-        private const int LabelH = 16;     // height reserved for the floating label
-        private const int Underline = 2;   // accent underline thickness
+        private const int IconSize = 24;
+        private const int LeftPadding = 16;
+        private const int RightPadding = 12;
+        private const int HintSmallY = 4;
+        private const int HintSmallH = 18;
+        private const int FontHeight = 20;
+        private const int ActivationH = 2;
+        private const int TallHeight = 58;
+        private const int ShortHeight = 36;
 
-        [StructLayout(LayoutKind.Sequential)]
-        private struct RECT { public int Left, Top, Right, Bottom; }
-
-        private const int EM_SETCUEBANNER = 0x1501;
-
-        [DllImport("user32.dll")]
-        private static extern IntPtr GetWindowDC(IntPtr hWnd);
-        [DllImport("user32.dll")]
-        private static extern int ReleaseDC(IntPtr hWnd, IntPtr hDC);
-        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-        private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, string lParam);
-
+        private readonly TextBox _inner;
+        private readonly Timer _focusAnimTimer;
+        private string _hint = string.Empty;
         private Image _leadingIcon;
         private Image _trailingIcon;
-        private string _hint = string.Empty;
-        private Font _labelFont;
-        private readonly Timer _focusAnimTimer;
-        private float _focus;   // 0 = blurred, 1 = focused (drives the underline grow + label colour)
+        private bool _useTallSize = true;
+        private bool _focused;
+        private float _focusAnim;
+        private int _lineY;
+        private int _leftPad;
+        private int _rightPad;
+        private Rectangle _leadingBounds;
+        private Rectangle _trailingBounds;
 
         public SupeyTextBox()
         {
-            BorderStyle = BorderStyle.None;
+            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw | ControlStyles.UserPaint, true);
             BackColor = SupeyTheme.Surface;
             ForeColor = SupeyTheme.TextPrimary;
-            Font = SupeyTheme.BodyFont;
+            Size = new Size(250, TallHeight);
+
             _focusAnimTimer = new Timer { Interval = 15 };
             _focusAnimTimer.Tick += FocusAnimTick;
-            SupeyThemeManager.ThemeChanged += OnThemeChanged;
-        }
 
-        private Font LabelFont
-        {
-            get
+            _inner = new TextBox
             {
-                if (_labelFont == null)
-                {
-                    float size = Math.Max(7f, Font.Size * 0.72f);
-                    _labelFont = new Font(Font.FontFamily, size, FontStyle.Regular, Font.Unit);
-                }
-                return _labelFont;
-            }
+                BorderStyle = BorderStyle.None,
+                ForeColor = SupeyTheme.TextPrimary,
+                BackColor = SupeyTheme.Surface,
+                Multiline = false,
+                TabStop = true,
+            };
+            TabStop = false;
+            Controls.Add(_inner);
+
+            _inner.GotFocus += (_, __) => { _focused = true; StartFocusAnim(); UpdateRects(); Invalidate(); };
+            _inner.LostFocus += (_, __) => { _focused = false; StartFocusAnim(); UpdateRects(); Invalidate(); };
+            _inner.TextChanged += (_, __) => { OnTextChanged(EventArgs.Empty); UpdateRects(); Invalidate(); };
+            _inner.KeyDown += (s, e) => OnKeyDown(e);
+            _inner.KeyPress += (s, e) => OnKeyPress(e);
+            _inner.KeyUp += (s, e) => OnKeyUp(e);
+
+            SupeyThemeManager.ThemeChanged += OnThemeChanged;
+
+            // After _inner exists — Font assignment triggers OnFontChanged.
+            Font = SupeyTheme.BodyFont;
+            UpdateHeight();
+            UpdateRects();
         }
 
-        /// <summary>True when the field is tall enough to host the Material floating label above the text.</summary>
-        private bool UseFloatingLabel => !string.IsNullOrEmpty(_hint) && Height >= 40;
+        private void StartFocusAnim()
+        {
+            if (!_focusAnimTimer.Enabled)
+                _focusAnimTimer.Start();
+        }
 
         private void FocusAnimTick(object sender, EventArgs e)
         {
-            float target = Focused ? 1f : 0f;
-            const float step = 0.18f;
-            if (_focus < target) _focus = Math.Min(target, _focus + step);
-            else if (_focus > target) _focus = Math.Max(target, _focus - step);
-            RedrawBorder();
-            if (Math.Abs(_focus - target) < 0.001f) { _focus = target; _focusAnimTimer.Stop(); }
+            float target = _focused ? 1f : 0f;
+            const float step = 0.12f;
+            if (_focusAnim < target) _focusAnim = Math.Min(target, _focusAnim + step);
+            else if (_focusAnim > target) _focusAnim = Math.Max(target, _focusAnim - step);
+            Invalidate();
+            if (Math.Abs(_focusAnim - target) < 0.001f) { _focusAnim = target; _focusAnimTimer.Stop(); }
         }
 
-        /// <summary>Raised when the trailing icon is clicked (e.g. the reveal-password eye).</summary>
+        /// <summary>Raised when the trailing icon is clicked (e.g. reveal password).</summary>
         public event EventHandler TrailingIconClick;
+
+        [Browsable(true)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
+        public override string Text
+        {
+            get => _inner?.Text ?? string.Empty;
+            set
+            {
+                if (_inner == null) return;
+                _inner.Text = value ?? string.Empty;
+                UpdateRects();
+                Invalidate();
+            }
+        }
 
         public string Hint
         {
             get => _hint;
-            set { _hint = value ?? string.Empty; ApplyCueBanner(); RecalcBorder(); }
-        }
-
-        private void ApplyCueBanner()
-        {
-            if (!IsHandleCreated) return;
-            // When the field is tall enough for a floating label we show that label instead of an
-            // in-line cue banner; otherwise the cue banner is the resting placeholder.
-            string banner = UseFloatingLabel ? string.Empty : _hint;
-            SendMessage(Handle, EM_SETCUEBANNER, (IntPtr)0, banner);
-        }
-
-        protected override void OnHandleCreated(EventArgs e)
-        {
-            base.OnHandleCreated(e);
-            ApplyCueBanner();
-        }
-
-        protected override void OnFontChanged(EventArgs e)
-        {
-            base.OnFontChanged(e);
-            _labelFont?.Dispose();
-            _labelFont = null;
-            RecalcBorder();
+            set { _hint = value ?? string.Empty; UpdateRects(); Invalidate(); }
         }
 
         public Image LeadingIcon
         {
             get => _leadingIcon;
-            set { _leadingIcon = value; RecalcBorder(); }
+            set { _leadingIcon = value; UpdateRects(); Invalidate(); }
         }
 
         public Image TrailingIcon
         {
             get => _trailingIcon;
-            set { _trailingIcon = value; RecalcBorder(); }
+            set { _trailingIcon = value; UpdateRects(); Invalidate(); }
         }
 
-        /// <summary>When true the field masks input (password). Mirrors MaterialTextBox.Password.</summary>
+        /// <summary>Tall fields keep the floating hint visible above the text (Material UseTallSize).</summary>
+        public bool UseTallSize
+        {
+            get => _useTallSize;
+            set { _useTallSize = value; UpdateHeight(); UpdateRects(); Invalidate(); }
+        }
+
         public bool Password
         {
-            get => UseSystemPasswordChar;
-            set { UseSystemPasswordChar = value; }
+            get => _inner.UseSystemPasswordChar;
+            set => _inner.UseSystemPasswordChar = value;
         }
 
-        // ── Designer-compat no-ops (MaterialTextBox / MaterialTextBox2 members) ────
+        public bool Multiline
+        {
+            get => _inner.Multiline;
+            set => _inner.Multiline = value;
+        }
+
+        public int MaxLength
+        {
+            get => _inner.MaxLength;
+            set => _inner.MaxLength = value;
+        }
+
+        public bool ReadOnly
+        {
+            get => _inner.ReadOnly;
+            set => _inner.ReadOnly = value;
+        }
+
+        public new bool Enabled
+        {
+            get => base.Enabled;
+            set { base.Enabled = value; if (_inner != null) _inner.Enabled = value; Invalidate(); }
+        }
+
+        public override Font Font
+        {
+            get => base.Font;
+            set
+            {
+                base.Font = value;
+                if (_inner == null) return;
+                _inner.Font = value;
+                UpdateRects();
+                Invalidate();
+            }
+        }
+
+        // ── Designer-compat (MaterialTextBox / MaterialTextBox2) ─────────────────
         public enum PrefixSuffixTypes { None, Prefix, Suffix }
 
-        public bool UseTallSize { get; set; }
         public bool AnimateReadOnly { get; set; }
         public int Depth { get; set; }
         public SupeyMouseState MouseState { get; set; } = SupeyMouseState.OUT;
-        public bool UseAccent { get; set; }
+        public bool UseAccent { get; set; } = true;
         public string HelperText { get; set; } = string.Empty;
         public PrefixSuffixTypes PrefixSuffix { get; set; } = PrefixSuffixTypes.None;
         public string PrefixSuffixText { get; set; } = string.Empty;
 
-        private int LeftInset => 1 + Pad + (_leadingIcon != null ? IconSize + Pad : 0);
-        private int RightInset => 1 + Pad + (_trailingIcon != null ? IconSize + Pad : 0);
+        /// <summary>Designer compat — border is painted by this control, not the inner edit.</summary>
+        [Browsable(false)]
+        public BorderStyle BorderStyle { get; set; } = BorderStyle.None;
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            if (_inner != null)
+                _inner.TabIndex = TabIndex;
+        }
 
         private void OnThemeChanged(object sender, EventArgs e)
         {
-            if (IsDisposed) return;
+            if (IsDisposed || _inner == null) return;
             BackColor = SupeyTheme.Surface;
             ForeColor = SupeyTheme.TextPrimary;
-            RedrawBorder();
+            _inner.BackColor = SupeyTheme.Surface;
+            _inner.ForeColor = SupeyTheme.TextPrimary;
             Invalidate();
         }
 
@@ -164,145 +212,109 @@ namespace Hiatme_Tool_Suite_v3
                 SupeyThemeManager.ThemeChanged -= OnThemeChanged;
                 _focusAnimTimer?.Stop();
                 _focusAnimTimer?.Dispose();
-                _labelFont?.Dispose();
             }
             base.Dispose(disposing);
         }
 
-        protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); if (!_focusAnimTimer.Enabled) _focusAnimTimer.Start(); RedrawBorder(); }
-        protected override void OnLostFocus(EventArgs e) { base.OnLostFocus(e); if (!_focusAnimTimer.Enabled) _focusAnimTimer.Start(); RedrawBorder(); }
-        protected override void OnTextChanged(EventArgs e) { base.OnTextChanged(e); RedrawBorder(); }
-
-        private void RecalcBorder()
+        protected override void OnResize(EventArgs e)
         {
-            if (IsHandleCreated)
-                SetWindowPos();
-            Invalidate();
+            base.OnResize(e);
+            UpdateHeight();
+            UpdateRects();
         }
 
-        private void SetWindowPos()
+        protected override void OnFontChanged(EventArgs e)
         {
-            // Force a non-client recalc so the new icon insets take effect.
-            const int SWP_NOMOVE = 0x2, SWP_NOSIZE = 0x1, SWP_NOZORDER = 0x4, SWP_FRAMECHANGED = 0x20;
-            SetWindowPos(Handle, IntPtr.Zero, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+            base.OnFontChanged(e);
+            if (_inner == null) return;
+            _inner.Font = Font;
+            UpdateRects();
         }
 
-        [DllImport("user32.dll")]
-        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
-
-        protected override void WndProc(ref Message m)
+        protected override void OnMouseDown(MouseEventArgs e)
         {
-            switch (m.Msg)
+            base.OnMouseDown(e);
+            if (_trailingIcon != null && _trailingBounds.Contains(e.Location))
             {
-                case WM_NCCALCSIZE:
-                    base.WndProc(ref m);
-                    if (m.WParam != IntPtr.Zero)
-                    {
-                        var rect = (RECT)Marshal.PtrToStructure(m.LParam, typeof(RECT));
-                        int topStrip = UseFloatingLabel ? LabelH : 0;
-                        int bottomStrip = Underline + 2;
-                        int avail = (rect.Bottom - rect.Top) - topStrip - bottomStrip;
-                        int v = Math.Max(1, (avail - Font.Height) / 2);
-                        rect.Left += LeftInset;
-                        rect.Right -= RightInset;
-                        rect.Top += topStrip + v;
-                        rect.Bottom -= bottomStrip + v;
-                        Marshal.StructureToPtr(rect, m.LParam, false);
-                    }
-                    return;
-
-                case WM_NCPAINT:
-                    base.WndProc(ref m);
-                    PaintBorder();
-                    return;
-
-                case WM_NCHITTEST:
-                    base.WndProc(ref m);
-                    // Tag the trailing-icon zone so we can route the click in WM_NCLBUTTONDOWN.
-                    if (_trailingIcon != null)
-                    {
-                        Point screen = new Point(m.LParam.ToInt32());
-                        Point client = PointToClient(screen);
-                        if (client.X >= Width - RightInset)
-                            m.Result = (IntPtr)18; // HTBORDER-ish custom marker
-                    }
-                    return;
-
-                case WM_NCLBUTTONDOWN:
-                    if ((int)m.WParam == 18 && _trailingIcon != null)
-                    {
-                        TrailingIconClick?.Invoke(this, EventArgs.Empty);
-                        return;
-                    }
-                    break;
+                TrailingIconClick?.Invoke(this, EventArgs.Empty);
+                return;
             }
-            base.WndProc(ref m);
+            if (_inner == null) return;
+            if (!_inner.Focused)
+                _inner.Focus();
         }
 
-        private void RedrawBorder()
+        protected override void OnPaint(PaintEventArgs e)
         {
-            if (IsHandleCreated) PaintBorder();
+            var g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.None;
+            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+
+            using (var bg = new SolidBrush(SupeyTheme.Surface))
+                g.FillRectangle(bg, 0, 0, Width, _lineY);
+
+            if (_inner != null)
+                _inner.BackColor = SupeyTheme.Surface;
+
+            if (_leadingIcon != null)
+                g.DrawImage(_leadingIcon, _leadingBounds);
+            if (_trailingIcon != null)
+                g.DrawImage(_trailingIcon, _trailingBounds);
+
+            bool hasHint = !string.IsNullOrEmpty(_hint);
+            bool userText = !string.IsNullOrEmpty(Text);
+            bool floatHint = hasHint && _useTallSize && (_focused || userText);
+
+            var hintRect = new Rectangle(_leftPad, HintSmallY, Width - _leftPad - _rightPad, HintSmallH);
+
+            using (var div = new SolidBrush(SupeyTheme.BorderSubtle))
+                g.FillRectangle(div, 0, _lineY, Width, 1);
+
+            if (_focusAnim > 0f)
+            {
+                int half = (int)(Width / 2f * _focusAnim);
+                int cx = Width / 2;
+                using (var acc = new SolidBrush(SupeyTheme.AccentPrimary))
+                    g.FillRectangle(acc, cx - half, _lineY, half * 2, ActivationH);
+            }
+
+            if (floatHint)
+            {
+                Color hintColor = Blend(SupeyTheme.TextSecondary, SupeyTheme.AccentPrimary, _focusAnim);
+                TextRenderer.DrawText(g, _hint, SupeyTheme.CaptionFont, hintRect, hintColor,
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+            }
+            else if (hasHint && !userText)
+            {
+                var placeRect = new Rectangle(_leftPad, 0, Width - _leftPad - _rightPad, _lineY);
+                TextRenderer.DrawText(g, _hint, Font, placeRect, SupeyTheme.TextMuted,
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+            }
         }
 
-        private void PaintBorder()
+        private void UpdateHeight()
         {
-            if (!IsHandleCreated) return;
-            IntPtr hdc = GetWindowDC(Handle);
-            if (hdc == IntPtr.Zero) return;
-            try
-            {
-                using (var g = Graphics.FromHdc(hdc))
-                {
-                    g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-                    g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAlias;
+            int h = _useTallSize ? TallHeight : ShortHeight;
+            if (Height != h)
+                Height = h;
+            _lineY = Height - ActivationH;
+        }
 
-                    // Exclude the inner edit area so animation repaints never erase the live text.
-                    int topStrip = UseFloatingLabel ? LabelH : 0;
-                    int bottomStrip = Underline + 2;
-                    int avail = Height - topStrip - bottomStrip;
-                    int v = Math.Max(1, (avail - Font.Height) / 2);
-                    var clientRect = Rectangle.FromLTRB(LeftInset, topStrip + v, Width - RightInset, Height - bottomStrip - v);
-                    g.ExcludeClip(clientRect);
+        private void UpdateRects()
+        {
+            if (_inner == null) return;
+            _leftPad = _leadingIcon != null ? LeftPadding + IconSize : LeftPadding;
+            _rightPad = _trailingIcon != null ? RightPadding + IconSize : RightPadding;
 
-                    using (var b = new SolidBrush(SupeyTheme.Surface))
-                    {
-                        // Fill the non-client frame (the area outside the inset text rect).
-                        g.FillRectangle(b, 0, 0, Width, Height);
-                    }
+            bool hasHint = !string.IsNullOrEmpty(_hint);
+            bool floatHint = hasHint && _useTallSize && (_focused || !string.IsNullOrEmpty(Text));
 
-                    // Baseline: a 1px resting line that the accent underline grows over on focus.
-                    int baseY = Height - Underline;
-                    using (var pen = new Pen(SupeyTheme.BorderSubtle))
-                        g.DrawLine(pen, 0, baseY, Width, baseY);
+            int textY = floatHint ? 22 : Math.Max(0, (_lineY / 2) - (FontHeight / 2));
+            _inner.SetBounds(_leftPad, textY, Math.Max(20, Width - _leftPad - _rightPad), FontHeight);
 
-                    // Accent underline grows from the centre as the field gains focus.
-                    if (_focus > 0f)
-                    {
-                        int half = (int)(Width / 2f * _focus);
-                        int cx = Width / 2;
-                        using (var b = new SolidBrush(SupeyTheme.AccentPrimary))
-                            g.FillRectangle(b, cx - half, Height - Underline, half * 2, Underline);
-                    }
-
-                    // Floating label (when tall enough); colour shifts to accent on focus.
-                    if (UseFloatingLabel)
-                    {
-                        Color labelColor = Blend(SupeyTheme.TextSecondary, SupeyTheme.AccentPrimary, _focus);
-                        using (var b = new SolidBrush(labelColor))
-                            g.DrawString(_hint, LabelFont, b, LeftInset - 1, 2f);
-                    }
-
-                    int cyIcon = (Height - IconSize) / 2;
-                    if (_leadingIcon != null)
-                        g.DrawImage(_leadingIcon, 1 + Pad, cyIcon, IconSize, IconSize);
-                    if (_trailingIcon != null)
-                        g.DrawImage(_trailingIcon, Width - 1 - Pad - IconSize, cyIcon, IconSize, IconSize);
-                }
-            }
-            finally
-            {
-                ReleaseDC(Handle, hdc);
-            }
+            int iconY = (_lineY / 2) - (IconSize / 2);
+            _leadingBounds = new Rectangle(8, iconY, IconSize, IconSize);
+            _trailingBounds = new Rectangle(Width - IconSize - 8, iconY, IconSize, IconSize);
         }
 
         private static Color Blend(Color a, Color b, float t)

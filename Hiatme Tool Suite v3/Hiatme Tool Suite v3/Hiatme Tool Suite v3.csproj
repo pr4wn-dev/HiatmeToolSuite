@@ -497,10 +497,14 @@
     </Compile>
     <Compile Include="SupeyListViewHelpers.cs" />
     <Compile Include="SupeyDarkScrollBars.cs" />
+    <Compile Include="LoginLayoutDebug.cs" />
     <Compile Include="SupeyButton.cs">
       <SubType>Component</SubType>
     </Compile>
     <Compile Include="SupeyCard.cs">
+      <SubType>Component</SubType>
+    </Compile>
+    <Compile Include="SupeyDropDownField.cs">
       <SubType>Component</SubType>
     </Compile>
     <Compile Include="SupeyComboBox.cs">
