@@ -507,6 +507,7 @@
     <Compile Include="SupeyDropDownField.cs">
       <SubType>Component</SubType>
     </Compile>
+    <Compile Include="SupeyFieldDropDownPopup.cs" />
     <Compile Include="SupeyComboBox.cs">
       <SubType>Component</SubType>
     </Compile>

@@ -123,11 +123,12 @@ namespace Hiatme_Tool_Suite_v3
                 SupeyThemeManager.ThemeChanged -= OnThemeChanged;
                 _focusAnimTimer?.Stop();
                 _focusAnimTimer?.Dispose();
-                if (_pickerMenu != null)
+                if (_pickerPopup != null)
                 {
-                    _pickerMenu.Closed -= PickerMenu_Closed;
-                    _pickerMenu.Dispose();
-                    _pickerMenu = null;
+                    _pickerPopup.ItemPicked -= PickerPopup_ItemPicked;
+                    _pickerPopup.Closed -= PickerPopup_Closed;
+                    _pickerPopup.Dispose();
+                    _pickerPopup = null;
                 }
             }
             base.Dispose(disposing);
@@ -143,6 +144,7 @@ namespace Hiatme_Tool_Suite_v3
         {
             base.OnResize(e);
             ApplyHeightMetrics();
+            Invalidate();
         }
 
         protected override void OnFontChanged(EventArgs e)
@@ -155,9 +157,6 @@ namespace Hiatme_Tool_Suite_v3
         protected override void OnClick(EventArgs e)
         {
             base.OnClick(e);
-            // #region agent log
-            LoginLayoutDebug.LogSimple("SupeyDropDownField.OnClick", "H31", "click enabled=" + Enabled + " items=" + _items.Count);
-            // #endregion
             if (Enabled && _items.Count > 0)
                 ShowPickerMenu();
         }
@@ -194,11 +193,6 @@ namespace Hiatme_Tool_Suite_v3
             if (IsDisposed) return;
             BackColor = SupeyTheme.Surface;
             ForeColor = SupeyTheme.TextPrimary;
-            if (_pickerMenu != null)
-            {
-                _pickerMenu.BackColor = SupeyTheme.ListBody;
-                _pickerMenu.ForeColor = SupeyTheme.ListText;
-            }
             Invalidate();
         }
 
@@ -224,95 +218,56 @@ namespace Hiatme_Tool_Suite_v3
             if (Height != h)
                 Height = h;
             _lineY = h - BottomPad;
-            ItemHeight = Math.Max(28, h - 8);
+            ItemHeight = _useTallSize ? 44 : 36;
+            if (Width > 0)
+                DropDownWidth = Width;
         }
 
-        private ContextMenuStrip _pickerMenu;
+        private SupeyFieldDropDownPopup _pickerPopup;
 
-        private ContextMenuStrip GetOrCreatePickerMenu()
+        private SupeyFieldDropDownPopup GetOrCreatePickerPopup()
         {
-            if (_pickerMenu != null) return _pickerMenu;
-            _pickerMenu = new ContextMenuStrip
-            {
-                ShowImageMargin = false,
-                BackColor = SupeyTheme.ListBody,
-                ForeColor = SupeyTheme.ListText,
-                Font = Font,
-            };
-            _pickerMenu.Closed += PickerMenu_Closed;
-            return _pickerMenu;
+            if (_pickerPopup != null) return _pickerPopup;
+            _pickerPopup = new SupeyFieldDropDownPopup();
+            _pickerPopup.ItemPicked += PickerPopup_ItemPicked;
+            _pickerPopup.Closed += PickerPopup_Closed;
+            return _pickerPopup;
         }
 
         private void ShowPickerMenu()
         {
-            // #region agent log
-            LoginLayoutDebug.Log("SupeyDropDownField.ShowPickerMenu", "picker open", "H31", new Dictionary<string, object>
-            {
-                ["itemCount"] = _items.Count,
-                ["enabled"] = Enabled,
-                ["selectedIndex"] = _selectedIndex,
-            });
-            // #endregion
-
             _menuOpen = true;
             _focused = true;
             StartFocusAnim();
             Invalidate();
 
-            var menu = GetOrCreatePickerMenu();
-            menu.Font = Font;
-            menu.BackColor = SupeyTheme.ListBody;
-            menu.ForeColor = SupeyTheme.ListText;
-            menu.Items.Clear();
+            var labels = new string[_items.Count];
+            for (int i = 0; i < _items.Count; i++)
+                labels[i] = GetItemText(_items[i]);
 
-            int limit = Math.Min(_items.Count, Math.Max(1, MaxDropDownItems));
-            for (int i = 0; i < limit; i++)
-            {
-                int idx = i;
-                var mi = new ToolStripMenuItem(GetItemText(_items[i]))
-                {
-                    BackColor = SupeyTheme.ListBody,
-                    ForeColor = SupeyTheme.ListText,
-                    Tag = idx,
-                };
-                mi.Click += PickerItem_Click;
-                menu.Items.Add(mi);
-            }
-
-            menu.Show(this, 0, Height);
+            int rowH = ItemHeight > 0 ? ItemHeight : (_useTallSize ? 44 : 36);
+            int menuW = DropDownWidth > 0 ? DropDownWidth : Width;
+            GetOrCreatePickerPopup().ShowBelow(this, labels, _selectedIndex, rowH, MaxDropDownItems, menuW);
         }
 
-        private void PickerItem_Click(object sender, EventArgs e)
+        private void PickerPopup_ItemPicked(int idx)
         {
-            if (!(sender is ToolStripMenuItem mi) || !(mi.Tag is int idx)) return;
-            // #region agent log
-            LoginLayoutDebug.LogSimple("SupeyDropDownField.PickerItem_Click", "H32", "idx=" + idx + " defer selection");
-            // #endregion
-            // Defer until after ToolStrip finishes the click — avoids ObjectDisposedException
-            // when SelectedIndexChanged relayout runs while the menu is still closing.
             if (IsHandleCreated && !IsDisposed)
             {
                 BeginInvoke(new Action(() =>
                 {
-                    if (!IsDisposed)
+                    if (!IsDisposed && idx >= 0 && idx < _items.Count)
                         SelectedIndex = idx;
                 }));
             }
-            else if (!IsDisposed)
+            else if (!IsDisposed && idx >= 0 && idx < _items.Count)
             {
                 SelectedIndex = idx;
             }
         }
 
-        private void PickerMenu_Closed(object sender, ToolStripDropDownClosedEventArgs e)
+        private void PickerPopup_Closed(object sender, ToolStripDropDownClosedEventArgs e)
         {
-            // #region agent log
-            LoginLayoutDebug.Log("SupeyDropDownField.PickerMenu_Closed", "picker closed", "H32", new Dictionary<string, object>
-            {
-                ["closeReason"] = e.CloseReason.ToString(),
-            });
-            // #endregion
-
             _menuOpen = false;
             _focused = Focused;
             StartFocusAnim();

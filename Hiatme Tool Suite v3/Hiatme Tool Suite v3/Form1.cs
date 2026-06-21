@@ -2364,11 +2364,11 @@ namespace Hiatme_Tool_Suite_v3
         private const int LoginFieldH = 58;
         private const int LoginFieldGap = 8;
         private const int LoginFieldInset = 8;
-        private const int LoginSwitchRowH = 40;
-        private const int LoginSwitchGap = 16;
-        private const int LoginBtnH = 44;
-        private const int LoginUpdateLinkGap = 6;
-        private const int LoginBtnGap = 14;
+        private const int LoginSwitchRowH = 34;
+        private const int LoginSwitchGap = 12;
+        private const int LoginBtnH = 36;
+        private const int LoginUpdateLinkGap = 8;
+        private const int LoginBtnGap = 10;
 
         /// <summary>Theme login tab surfaces and align all controls to a single grid.</summary>
         private void ApplyLoginVisualTheme(bool layout = true)
@@ -2402,6 +2402,7 @@ namespace Hiatme_Tool_Suite_v3
                 loginCB.UseTallSize = true;
                 loginCB.AlignTextWithIconFields = true;
                 loginCB.Font = SupeyTheme.BodyFont;
+                loginCB.MaxDropDownItems = 8;
             }
 
             foreach (var tb in new[] { loginCodeTB, loginUserTB, loginPassTB })
@@ -2424,7 +2425,8 @@ namespace Hiatme_Tool_Suite_v3
                 loginBtn.Type = SupeyMaterialButton.MaterialButtonType.Contained;
                 loginBtn.UseAccentColor = true;
                 loginBtn.HighEmphasis = true;
-                loginBtn.Font = SupeyTheme.BodyFont;
+                loginBtn.Density = SupeyMaterialButton.MaterialButtonDensity.Dense;
+                loginBtn.Font = new Font(SupeyTheme.BodyFont.FontFamily, SupeyTheme.BodyFont.Size, FontStyle.Bold);
                 loginBtn.CornerRadius = 6;
                 loginBtn.MinimumSize = Size.Empty;
                 loginBtn.Margin = Padding.Empty;
@@ -2717,6 +2719,8 @@ namespace Hiatme_Tool_Suite_v3
                 }
                 _updateStatusLink.BackColor = SupeyTheme.Surface;
                 _updateStatusLink.Visible = true;
+                _updateStatusLink.AutoSize = false;
+                _updateStatusLink.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
                 int linkH = _updateStatusLink.PreferredSize.Height;
                 updateLinkRowH = LoginUpdateLinkGap + linkH;
                 _updateStatusLink.SetBounds(
@@ -2740,7 +2744,7 @@ namespace Hiatme_Tool_Suite_v3
                 loginSwitch.SetBounds(LoginFieldInset, 0, fieldW, switchH);
 
             if (loginBtn != null)
-                loginBtn.SetBounds(0, switchH + LoginBtnGap, LoginCardWidth, LoginBtnH);
+                loginBtn.SetBounds(LoginFieldInset, switchH + LoginBtnGap, fieldW, LoginBtnH);
 
             loginPanel.Height = footerTop + footerH + 12;
 
