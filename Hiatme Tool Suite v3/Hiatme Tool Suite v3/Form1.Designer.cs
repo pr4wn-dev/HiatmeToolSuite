@@ -36,7 +36,7 @@
             System.Windows.Forms.DataVisualization.Charting.Series series2 = new System.Windows.Forms.DataVisualization.Charting.Series();
             System.Windows.Forms.DataVisualization.Charting.ChartArea chartArea3 = new System.Windows.Forms.DataVisualization.Charting.ChartArea();
             System.Windows.Forms.DataVisualization.Charting.Series series3 = new System.Windows.Forms.DataVisualization.Charting.Series();
-            this.hiatmeTabControl = new System.Windows.Forms.TabControl();
+            this.hiatmeTabControl = new SupeyTabControl();
             this.tabPage1 = new System.Windows.Forms.TabPage();
             this.loginPanel = new SupeyCard();
             this.materialCard3 = new SupeyCard();
@@ -2580,7 +2580,7 @@
 
         #endregion
 
-        private System.Windows.Forms.TabControl hiatmeTabControl;
+        private SupeyTabControl hiatmeTabControl;
         private System.Windows.Forms.TabPage tabPage1;
         private System.Windows.Forms.ImageList tabImageList;
         private SupeyCard loginPanel;

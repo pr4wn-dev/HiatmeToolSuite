@@ -182,8 +182,7 @@ namespace Hiatme_Tool_Suite_v3
             // still paints MaterialSkin's fixed ~RGB(50,50,50) gray. Setting them to a palette surface
             // both kills the gray now AND makes them remappable by the live recolor walk on switch.
             ThemeUntouchedMaterialChrome(this);
-            // Hide the native tab headers; navigation is driven by the custom left drawer below.
-            SupeyTabStrip.Attach(hiatmeTabControl);
+            // Native tab headers are suppressed inside SupeyTabControl (TCM_ADJUSTRECT).
             // Left navigation drawer (icon rail + hamburger-expandable labels), replacing the old
             // MaterialSkin drawer with our own theme-driven control.
             BuildSupeyDrawer();

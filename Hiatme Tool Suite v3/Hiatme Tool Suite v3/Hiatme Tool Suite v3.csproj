@@ -509,6 +509,7 @@
     <Compile Include="SupeyCalendar.cs" />
     <Compile Include="SupeyDrawer.cs" />
     <Compile Include="SupeyTabStrip.cs" />
+    <Compile Include="SupeyTabControl.cs" />
     <Compile Include="SupeyForm.cs">
       <SubType>Form</SubType>
     </Compile>

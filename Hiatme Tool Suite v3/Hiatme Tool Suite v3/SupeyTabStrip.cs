@@ -12,14 +12,20 @@ namespace Hiatme_Tool_Suite_v3
     /// All existing tab wiring — SelectedIndexChanged, dynamic add/remove of pages — keeps working
     /// untouched, since we only suppress the header chrome, not the control.
     /// </summary>
+    /// <summary>
+    /// Legacy attach helper — prefer <see cref="SupeyTabControl"/> which owns this behavior.
+    /// </summary>
     internal static class SupeyTabStrip
     {
-        // TCM_ADJUSTRECT: swallowing it makes the display rectangle equal the full client area, so the
-        // tab-button row is covered by the pages and never shows.
         private const int TCM_ADJUSTRECT = 0x1328;
 
         public static void Attach(TabControl tc)
         {
+            if (tc is SupeyTabControl stc)
+            {
+                stc.RefreshAfterRestore();
+                return;
+            }
             if (tc == null) return;
 
             tc.SizeMode = TabSizeMode.Fixed;
