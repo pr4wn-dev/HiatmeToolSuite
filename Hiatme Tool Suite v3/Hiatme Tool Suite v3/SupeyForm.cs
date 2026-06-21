@@ -50,8 +50,6 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-        private const int FrameWidth = 3;
-
         private const int ButtonWidth = 46;
 
 
@@ -98,13 +96,27 @@ namespace Hiatme_Tool_Suite_v3
 
         private const int WM_NCPAINT = 0x0085;
 
-        private const int WM_ERASEBKGND = 0x0014;
-
         private const int WM_SIZE = 0x0005;
+
+        private const int WM_ENTERSIZEMOVE = 0x0231;
+
+        private const int WM_EXITSIZEMOVE = 0x0232;
 
 
 
         private const int DWMWA_TRANSITIONS_FORCEDISABLED = 3;
+
+        private const int DWMWA_BORDER_COLOR = 34;
+
+        private const int SWP_FRAMECHANGED = 0x0020;
+
+        private const int SWP_NOMOVE = 0x0002;
+
+        private const int SWP_NOSIZE = 0x0001;
+
+        private const int SWP_NOZORDER = 0x0004;
+
+        private const int SWP_NOACTIVATE = 0x0010;
 
         private const int GWL_STYLE = -16;
 
@@ -214,6 +226,12 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
+        [DllImport("user32.dll", SetLastError = true)]
+
+        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);
+
+
+
         [DllImport("user32.dll")]
 
         private static extern IntPtr MonitorFromWindow(IntPtr hwnd, int dwFlags);
@@ -296,6 +314,14 @@ namespace Hiatme_Tool_Suite_v3
 
         private FormWindowState _lastWindowState = FormWindowState.Normal;
 
+        private bool _inSizeMove;
+
+        private Control _materialContent;
+
+        private int _contentLeftGutter;
+
+        private int _contentSidePad = 3;
+
         private ResizeDirection _resizeDir = ResizeDirection.None;
 
 
@@ -342,6 +368,18 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
+        /// <summary>Raised when the user finishes a live resize or move (WM_EXITSIZEMOVE).</summary>
+
+        public event EventHandler LiveResizeEnded;
+
+
+
+        /// <summary>True while the user is drag-resizing or moving the window.</summary>
+
+        public bool InLiveResize => _inSizeMove;
+
+
+
         /// <summary>Extra left padding for the title text so it clears a leading control (e.g. the drawer hamburger).</summary>
 
         public int TitleLeftInset { get; set; }
@@ -352,15 +390,7 @@ namespace Hiatme_Tool_Suite_v3
 
         {
 
-            SetStyle(
-
-                ControlStyles.AllPaintingInWmPaint
-
-                | ControlStyles.OptimizedDoubleBuffer
-
-                | ControlStyles.ResizeRedraw,
-
-                true);
+            SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
 
 
 
@@ -374,13 +404,19 @@ namespace Hiatme_Tool_Suite_v3
 
             Font = SupeyTheme.BodyFont;
 
-            Padding = new Padding(FrameWidth, TitleBarHeight, FrameWidth, FrameWidth);
-
-
+            Padding = Padding.Empty;
 
             SupeyThemeManager.ThemeChanged += OnSupeyThemeChanged;
 
+            Application.AddMessageFilter(_mouseFilter);
+
+            _mouseFilter.MouseMove += OnGlobalMouseMove;
+
         }
+
+
+
+        private readonly SupeyMouseMessageFilter _mouseFilter = new SupeyMouseMessageFilter();
 
 
 
@@ -394,6 +430,10 @@ namespace Hiatme_Tool_Suite_v3
 
             ForeColor = SupeyTheme.TextPrimary;
 
+            if (IsHandleCreated)
+
+                try { ApplyDwmChrome(); } catch { }
+
             Invalidate();
 
         }
@@ -406,7 +446,15 @@ namespace Hiatme_Tool_Suite_v3
 
             if (disposing)
 
+            {
+
+                Application.RemoveMessageFilter(_mouseFilter);
+
+                _mouseFilter.MouseMove -= OnGlobalMouseMove;
+
                 SupeyThemeManager.ThemeChanged -= OnSupeyThemeChanged;
+
+            }
 
             base.Dispose(disposing);
 
@@ -486,9 +534,7 @@ namespace Hiatme_Tool_Suite_v3
 
             {
 
-                int disable = 1;
-
-                DwmSetWindowAttribute(Handle, DWMWA_TRANSITIONS_FORCEDISABLED, ref disable, sizeof(int));
+                ApplyDwmChrome();
 
             }
 
@@ -498,7 +544,74 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
+        /// <summary>MaterialSkin MaterialForm: kill DWM top strip + match Win11 border to header.</summary>
+
+        private void ApplyDwmChrome()
+
+        {
+
+            int disable = 1;
+
+            DwmSetWindowAttribute(Handle, DWMWA_TRANSITIONS_FORCEDISABLED, ref disable, sizeof(int));
+
+            int borderColor = ColorTranslator.ToWin32(SupeyTheme.SurfaceHeader);
+
+            DwmSetWindowAttribute(Handle, DWMWA_BORDER_COLOR, ref borderColor, sizeof(int));
+
+            SetWindowPos(Handle, IntPtr.Zero, 0, 0, 0, 0,
+
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+
+        }
+
+
+
         /// <summary>Repaint the painted title bar (no child HWND — chrome is drawn on the form).</summary>
+
+        /// <summary>MaterialForm-style content inset — explicit bounds, not Form.Padding (native TabControl ignores padding during live resize).</summary>
+        public void SetMaterialContent(Control content, int leftGutter, int sidePad = 3)
+        {
+            _materialContent = content;
+            _contentLeftGutter = leftGutter;
+            _contentSidePad = sidePad;
+            TitleLeadingGutterWidth = leftGutter;
+            Padding = Padding.Empty;
+
+            if (content == null) return;
+
+            content.Dock = DockStyle.None;
+            if (content.Parent != this)
+            {
+                content.Parent?.Controls.Remove(content);
+                Controls.Add(content);
+            }
+            content.SendToBack();
+
+            if (IsHandleCreated)
+                LayoutMaterialContent();
+        }
+
+        /// <summary>Legacy name — calls <see cref="SetMaterialContent"/>.</summary>
+        public void ApplyMaterialContentPadding(int leftGutter, int sidePad = 3)
+        {
+            SetMaterialContent(_materialContent, leftGutter, sidePad);
+        }
+
+        /// <summary>Keep the main content HWND strictly below the painted title bar on every size change.</summary>
+        private void LayoutMaterialContent()
+        {
+            if (_materialContent == null || _materialContent.IsDisposed || Disposing || IsDisposed)
+                return;
+
+            int left = Math.Max(_contentLeftGutter, _contentSidePad);
+            int top = TitleBarHeight;
+            int w = Math.Max(0, ClientSize.Width - left - _contentSidePad);
+            int h = Math.Max(0, ClientSize.Height - top - _contentSidePad);
+
+            var b = _materialContent.Bounds;
+            if (b.X != left || b.Y != top || b.Width != w || b.Height != h)
+                _materialContent.SetBounds(left, top, w, h);
+        }
 
         protected void RefreshTitleBarChrome() => Invalidate(TitleBarBounds);
 
@@ -658,35 +771,11 @@ namespace Hiatme_Tool_Suite_v3
 
         {
 
+            // MaterialSkin MaterialForm — strip the system non-client frame (removes the white top line).
+
             if (m.Msg == WM_NCCALCSIZE)
 
-            {
-
-                if (m.WParam == IntPtr.Zero)
-
-                {
-
-                    m.Result = IntPtr.Zero;
-
-                    return;
-
-                }
-
-
-
-                var nc = (NCCALCSIZE_PARAMS)Marshal.PtrToStructure(m.LParam, typeof(NCCALCSIZE_PARAMS));
-
-                nc.rgrc1 = nc.rgrc0;
-
-                nc.rgrc2 = nc.rgrc0;
-
-                Marshal.StructureToPtr(nc, m.LParam, false);
-
-                m.Result = IntPtr.Zero;
-
                 return;
-
-            }
 
 
 
@@ -695,34 +784,6 @@ namespace Hiatme_Tool_Suite_v3
             {
 
                 m.Result = (IntPtr)(-1);
-
-                return;
-
-            }
-
-
-
-            if (m.Msg == WM_NCPAINT)
-
-            {
-
-                m.Result = IntPtr.Zero;
-
-                return;
-
-            }
-
-
-
-            if (m.Msg == WM_ERASEBKGND)
-
-            {
-
-                using (var g = Graphics.FromHdc(m.WParam))
-
-                    FillChromeBackground(g);
-
-                m.Result = (IntPtr)1;
 
                 return;
 
@@ -739,6 +800,24 @@ namespace Hiatme_Tool_Suite_v3
                 AdjustMaximizedBounds(m.HWnd, m.LParam);
 
                 return;
+
+            }
+
+
+
+            if (m.Msg == WM_ENTERSIZEMOVE)
+
+                _inSizeMove = true;
+
+            else if (m.Msg == WM_EXITSIZEMOVE)
+
+            {
+
+                _inSizeMove = false;
+
+                LayoutMaterialContent();
+
+                LiveResizeEnded?.Invoke(this, EventArgs.Empty);
 
             }
 
@@ -785,6 +864,8 @@ namespace Hiatme_Tool_Suite_v3
             if (m.Msg == WM_SIZE && IsHandleCreated && !Disposing && !IsDisposed)
 
             {
+
+                LayoutMaterialContent();
 
                 var state = WindowState;
 
@@ -884,71 +965,19 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-        private void FillChromeBackground(Graphics g)
+        private static void DrawMaterialBodyBorder(Graphics g, int w, int h, int bodyTop)
 
         {
 
-            int w = Math.Max(1, ClientSize.Width);
-
-            int h = Math.Max(1, ClientSize.Height);
-
-            using (var header = new SolidBrush(SupeyTheme.SurfaceHeader))
-
-                g.FillRectangle(header, 0, 0, w, TitleBarHeight);
-
-
-
-            PaintTitleBarChrome(g, w);
-
-
-
-            if (h <= TitleBarHeight) return;
-
-
-
-            int bodyTop = TitleBarHeight;
-
-            int bodyH = h - TitleBarHeight;
-
-
-
-            int gutterW = TitleLeadingGutterWidth > 0
-
-                ? TitleLeadingGutterWidth
-
-                : (Padding.Left > FrameWidth ? Padding.Left : 0);
-
-            if (gutterW > FrameWidth)
+            using (var borderPen = new Pen(SupeyTheme.Divider, 1))
 
             {
 
-                using (var gutter = new SolidBrush(SupeyTheme.SurfaceHeader))
+                g.DrawLine(borderPen, 0, bodyTop, 0, h - 2);
 
-                    g.FillRectangle(gutter, 0, bodyTop, gutterW, bodyH);
+                g.DrawLine(borderPen, w - 1, bodyTop, w - 1, h - 2);
 
-            }
-
-
-
-            var dr = DisplayRectangle;
-
-            if (dr.Width > 0 && dr.Height > 0 && Padding.Left > FrameWidth)
-
-            {
-
-                using (var body = new SolidBrush(SupeyTheme.SurfaceBase))
-
-                    g.FillRectangle(body, dr.X, dr.Y, dr.Width, dr.Height);
-
-            }
-
-            else if (gutterW <= FrameWidth)
-
-            {
-
-                using (var body = new SolidBrush(SupeyTheme.SurfaceBase))
-
-                    g.FillRectangle(body, 0, bodyTop, w, bodyH);
+                g.DrawLine(borderPen, 0, h - 1, w - 1, h - 1);
 
             }
 
@@ -1198,6 +1227,32 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
+        /// <summary>MaterialForm routes WM_MOUSEMOVE over child controls so edge-resize cursors still work.</summary>
+
+        private void OnGlobalMouseMove(object sender, MouseEventArgs e)
+
+        {
+
+            if (IsDisposed || !IsHandleCreated || !Visible || WindowState == FormWindowState.Minimized)
+
+                return;
+
+
+
+            var client = PointToClient(e.Location);
+
+            if (client.X < 0 || client.Y < 0 || client.X >= ClientSize.Width || client.Y >= ClientSize.Height)
+
+                return;
+
+
+
+            OnMouseMove(new MouseEventArgs(MouseButtons.None, 0, client.X, client.Y, 0));
+
+        }
+
+
+
         protected override void OnMouseLeave(EventArgs e)
 
         {
@@ -1434,15 +1489,11 @@ namespace Hiatme_Tool_Suite_v3
 
             base.OnResize(e);
 
+            LayoutMaterialContent();
+
             if (IsHandleCreated && !Disposing && !IsDisposed)
 
-            {
-
-                Invalidate(TitleBarBounds);
-
                 OnLayoutTitleBarControls();
-
-            }
 
         }
 
@@ -1452,11 +1503,75 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-        protected override void OnPaintBackground(PaintEventArgs e) => FillChromeBackground(e.Graphics);
+        protected override void OnPaint(PaintEventArgs e)
+
+        {
+
+            if (DesignMode)
+
+            {
+
+                base.OnPaint(e);
+
+                return;
+
+            }
 
 
 
-        protected override void OnPaint(PaintEventArgs e) => base.OnPaint(e);
+            var g = e.Graphics;
+
+            g.Clear(SupeyTheme.SurfaceBase);
+
+
+
+            int w = Math.Max(1, ClientSize.Width);
+
+            int h = Math.Max(1, ClientSize.Height);
+
+
+
+            using (var header = new SolidBrush(SupeyTheme.SurfaceHeader))
+
+                g.FillRectangle(header, 0, 0, w, TitleBarHeight);
+
+
+
+            PaintTitleBarChrome(g, w);
+
+
+
+            if (h > TitleBarHeight)
+
+            {
+
+                int bodyTop = TitleBarHeight;
+
+                int bodyH = h - bodyTop;
+
+                int gutterW = TitleLeadingGutterWidth > 0 ? TitleLeadingGutterWidth : 0;
+
+                if (gutterW > 0)
+
+                {
+
+                    using (var gutter = new SolidBrush(SupeyTheme.SurfaceHeader))
+
+                        g.FillRectangle(gutter, 0, bodyTop, gutterW, bodyH);
+
+                }
+
+
+
+                DrawMaterialBodyBorder(g, w, h, bodyTop);
+
+            }
+
+
+
+            base.OnPaint(e);
+
+        }
 
 
 
@@ -1471,12 +1586,6 @@ namespace Hiatme_Tool_Suite_v3
             using (var divider = new Pen(SupeyTheme.Divider))
 
                 g.DrawLine(divider, 0, TitleBarHeight - 1, bar.Width, TitleBarHeight - 1);
-
-
-
-            using (var frame = new Pen(SupeyTheme.BorderSubtle))
-
-                g.DrawRectangle(frame, 0, 0, bar.Width - 1, bar.Height - 1);
 
 
 
@@ -1734,6 +1843,40 @@ namespace Hiatme_Tool_Suite_v3
 
     }
 
+
+
+    /// <summary>MaterialForm-style filter so <see cref="SupeyForm"/> receives mouse-move over child HWNDs.</summary>
+
+    internal sealed class SupeyMouseMessageFilter : IMessageFilter
+
+    {
+
+        private const int WM_MOUSEMOVE = 0x0200;
+
+
+
+        public event MouseEventHandler MouseMove;
+
+
+
+        public bool PreFilterMessage(ref Message m)
+
+        {
+
+            if (m.Msg == WM_MOUSEMOVE && MouseMove != null)
+
+            {
+
+                int x = Control.MousePosition.X, y = Control.MousePosition.Y;
+
+                MouseMove(null, new MouseEventArgs(MouseButtons.None, 0, x, y, 0));
+
+            }
+
+            return false;
+
+        }
+
+    }
+
 }
-
-

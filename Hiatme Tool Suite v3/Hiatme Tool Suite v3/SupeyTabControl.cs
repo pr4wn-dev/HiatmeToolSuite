@@ -17,8 +17,6 @@ namespace Hiatme_Tool_Suite_v3
         private const int TCM_ADJUSTRECT = 0x1328;
         private const int TCM_SETITEMSIZE = 0x1329;
         private const int TCM_LAYOUT = 0x130B;
-        private const int WM_ERASEBKGND = 0x0014;
-
         [StructLayout(LayoutKind.Sequential)]
         private struct SIZE { public int cx; public int cy; }
 
@@ -33,7 +31,7 @@ namespace Hiatme_Tool_Suite_v3
 
         public SupeyTabControl()
         {
-            SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+            SetStyle(ControlStyles.OptimizedDoubleBuffer, true);
             EnableDoubleBuffering(this);
 
             Multiline = false;
@@ -132,15 +130,6 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (m.Msg == TCM_ADJUSTRECT && !DesignMode)
             {
-                m.Result = (IntPtr)1;
-                return;
-            }
-
-            if (m.Msg == WM_ERASEBKGND && !DesignMode)
-            {
-                using (var g = Graphics.FromHdc(m.WParam))
-                using (var fill = new SolidBrush(SupeyTheme.SurfaceBase))
-                    g.FillRectangle(fill, ClientRectangle);
                 m.Result = (IntPtr)1;
                 return;
             }

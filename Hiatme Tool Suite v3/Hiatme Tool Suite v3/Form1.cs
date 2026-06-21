@@ -756,8 +756,6 @@ namespace Hiatme_Tool_Suite_v3
 
         private ContextMenuStrip _themePickerMenu;
         private SupeyDrawerHost _navDrawer;
-        private System.Windows.Forms.Panel _bodyShell;
-        private System.Windows.Forms.Panel _contentPlate;
 
         /// <summary>
         /// Builds the top-bar theme switcher: a ghost button showing the active preset that opens a
@@ -772,34 +770,9 @@ namespace Hiatme_Tool_Suite_v3
         {
             try
             {
-                // Body shell sits below the painted title bar (no title-bar child HWND — MaterialForm pattern).
-                Padding = new Padding(3, 0, 3, 3);
-                TitleLeadingGutterWidth = SupeyDrawer.CollapsedWidth;
+                // MaterialForm: explicit content bounds below painted title bar (not Form.Padding + Dock Fill).
+                SetMaterialContent(hiatmeTabControl, SupeyDrawer.CollapsedWidth);
 
-                if (hiatmeTabControl.Parent == this)
-                    Controls.Remove(hiatmeTabControl);
-
-                _bodyShell = new System.Windows.Forms.Panel
-                {
-                    Dock = DockStyle.None,
-                    Padding = new Padding(SupeyDrawer.CollapsedWidth, 0, 0, 0),
-                    BackColor = SupeyTheme.SurfaceBase,
-                };
-                Controls.Add(_bodyShell);
-                LayoutBodyShell();
-
-                _contentPlate = new System.Windows.Forms.Panel
-                {
-                    Dock = DockStyle.Fill,
-                    BackColor = SupeyTheme.SurfaceBase,
-                };
-                _bodyShell.Controls.Add(_contentPlate);
-
-                _contentPlate.Controls.Add(hiatmeTabControl);
-                hiatmeTabControl.Dock = DockStyle.Fill;
-                hiatmeTabControl.BringToFront();
-
-                // Drawer lives on a small opaque overlay so animation never repaints tab content.
                 _navDrawer = new SupeyDrawerHost(hiatmeTabControl, tabImageList);
                 _navDrawer.AttachTo(this);
 
@@ -814,25 +787,6 @@ namespace Hiatme_Tool_Suite_v3
             {
                 // Navigation must never block startup; the tab control still works without it.
             }
-        }
-
-        /// <summary>Keep body content below the painted title bar — Dock+Margin does not reserve that space.</summary>
-        private void LayoutBodyShell()
-        {
-            if (_bodyShell == null) return;
-            var pad = Padding;
-            int top = SupeyForm.TitleBarHeight;
-            _bodyShell.SetBounds(
-                pad.Left,
-                top,
-                Math.Max(0, ClientSize.Width - pad.Left - pad.Right),
-                Math.Max(0, ClientSize.Height - top - pad.Bottom));
-        }
-
-        protected override void OnResize(EventArgs e)
-        {
-            base.OnResize(e);
-            LayoutBodyShell();
         }
 
         private void BuildSupeyThemePicker()

@@ -8,8 +8,7 @@ namespace Hiatme_Tool_Suite_v3
 {
     /// <summary>
     /// Theme-driven left navigation drawer that replaces MaterialSkin's <c>MaterialDrawer</c>.
-    /// Hosted on a small opaque overlay (<see cref="SupeyDrawerHost"/>) so open/close animation
-    /// only repaints the rail — not the heavy tab content on the main form.
+    /// Hosted on a child control on <see cref="SupeyForm"/> (MaterialDrawer model).
     /// </summary>
     public sealed class SupeyDrawer : Control
     {
@@ -307,38 +306,28 @@ namespace Hiatme_Tool_Suite_v3
     }
 
     /// <summary>
-    /// Opaque, borderless overlay that hosts <see cref="SupeyDrawer"/> over the main form's left
-    /// edge. Sized to <see cref="SupeyDrawer.VisibleWidth"/> so animation only repaints this small
-    /// window — not the tab shell underneath. No TransparencyKey (avoids restore flash).
+    /// Opaque navigation rail hosted as a child control on <see cref="SupeyForm"/> — same model as
+    /// MaterialSkin's <see cref="MaterialDrawer"/> (not a separate overlay window).
     /// </summary>
-    public sealed class SupeyDrawerHost : Form
+    public sealed class SupeyDrawerHost
     {
         private readonly SupeyDrawer _drawer;
-        private Form _owner;
+        private SupeyForm _owner;
         private SupeyForm.ResizeDirection _drawerResize = SupeyForm.ResizeDirection.None;
 
         public SupeyDrawerHost(TabControl tabs, ImageList tabImages)
         {
-            FormBorderStyle = FormBorderStyle.None;
-            ShowInTaskbar = false;
-            StartPosition = FormStartPosition.Manual;
-            MinimizeBox = false;
-            MaximizeBox = false;
-            ControlBox = false;
-            ShowIcon = false;
-            Text = string.Empty;
-            BackColor = SupeyTheme.SurfaceHeader;
-
-            _drawer = new SupeyDrawer(tabs, tabImages) { Dock = DockStyle.Fill };
+            _drawer = new SupeyDrawer(tabs, tabImages);
             _drawer.VisibleWidthChanged += (s, e) => SyncBounds();
             _drawer.MouseMove += Drawer_MouseMove;
             _drawer.MouseDown += Drawer_MouseDown;
-            Controls.Add(_drawer);
         }
+
+        public SupeyDrawer Drawer => _drawer;
 
         private void Drawer_MouseMove(object sender, MouseEventArgs e)
         {
-            if (!(_owner is SupeyForm form) || form.WindowState == FormWindowState.Maximized || !form.Sizable)
+            if (_owner == null || _owner.WindowState == FormWindowState.Maximized || !_owner.Sizable)
             {
                 _drawerResize = SupeyForm.ResizeDirection.None;
                 return;
@@ -348,7 +337,7 @@ namespace Hiatme_Tool_Suite_v3
             SupeyForm.ResizeDirection dir = SupeyForm.ResizeDirection.None;
             Cursor cur = Cursors.Default;
 
-            if (e.X <= b && e.Y >= ClientSize.Height - b)
+            if (e.X <= b && e.Y >= _drawer.ClientSize.Height - b)
             {
                 dir = SupeyForm.ResizeDirection.BottomLeft;
                 cur = Cursors.SizeNESW;
@@ -358,90 +347,64 @@ namespace Hiatme_Tool_Suite_v3
                 dir = SupeyForm.ResizeDirection.Left;
                 cur = Cursors.SizeWE;
             }
-            else if (e.Y >= ClientSize.Height - b)
+            else if (e.Y >= _drawer.ClientSize.Height - b)
             {
                 dir = SupeyForm.ResizeDirection.Bottom;
                 cur = Cursors.SizeNS;
             }
 
             _drawerResize = dir;
-            form.SetDrawerResizeCursor(dir, cur);
+            _owner.SetDrawerResizeCursor(dir, cur);
             _drawer.Cursor = dir != SupeyForm.ResizeDirection.None ? cur : Cursors.Hand;
         }
 
         private void Drawer_MouseDown(object sender, MouseEventArgs e)
         {
-            if (e.Button != MouseButtons.Left || !(_owner is SupeyForm form))
+            if (e.Button != MouseButtons.Left || _owner == null)
                 return;
             if (_drawerResize != SupeyForm.ResizeDirection.None)
-                form.BeginResizeFromDrawer(_drawerResize);
+                _owner.BeginResizeFromDrawer(_drawerResize);
         }
 
         public bool IsOpen => _drawer.IsOpen;
         public void Toggle() => _drawer.Toggle();
-        public void Close() => _drawer.Close();
+        public void CloseDrawer() => _drawer.Close();
 
-        protected override bool ShowWithoutActivation => true;
-
-        protected override CreateParams CreateParams
-        {
-            get
-            {
-                const int WS_EX_NOACTIVATE = 0x08000000;
-                const int WS_EX_TOOLWINDOW = 0x00000080;
-                var cp = base.CreateParams;
-                cp.ExStyle |= WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW;
-                return cp;
-            }
-        }
-
-        public void AttachTo(Form owner)
+        public void AttachTo(SupeyForm owner)
         {
             _owner = owner;
-            Owner = owner;
 
-            owner.LocationChanged += (s, e) => Reposition();
-            owner.SizeChanged += (s, e) => Reposition();
-            owner.Resize += (s, e) => Reposition();
-            owner.VisibleChanged += (s, e) => Reposition();
-            owner.Activated += (s, e) => Reposition();
+            if (!owner.Controls.Contains(_drawer))
+                owner.Controls.Add(_drawer);
 
-            if (owner.IsHandleCreated && owner.Visible)
-            {
-                Reposition();
-                Show();
-            }
-            else
-            {
-                owner.Shown += (s, e) => { Reposition(); if (!Visible) Show(); };
-            }
+            owner.Resize += OwnerLayout;
+            owner.VisibleChanged += OwnerLayout;
+            owner.Shown += OwnerLayout;
+
+            SyncBounds();
+            _drawer.BringToFront();
         }
 
-        public void Reposition()
+        private void OwnerLayout(object sender, EventArgs e) => SyncBounds();
+
+        public void Reposition() => SyncBounds();
+
+        private void SyncBounds()
         {
             if (_owner == null || _owner.IsDisposed) return;
+
             if (_owner.WindowState == FormWindowState.Minimized || !_owner.Visible)
             {
-                if (Visible) Visible = false;
+                _drawer.Visible = false;
                 return;
             }
 
-            SyncBounds(showIfHidden: true);
-        }
-
-        private void SyncBounds(bool showIfHidden = false)
-        {
-            if (_owner == null || _owner.IsDisposed) return;
-            try
-            {
-                int top = SupeyForm.TitleBarHeight;
-                var origin = _owner.PointToScreen(new Point(0, top));
-                int height = Math.Max(0, _owner.ClientSize.Height - top - 3);
-                int width = Math.Max(SupeyDrawer.CollapsedWidth, _drawer.VisibleWidth);
-                Bounds = new Rectangle(origin.X, origin.Y, width, height);
-                if (showIfHidden && !Visible) Show();
-            }
-            catch { }
+            _drawer.Visible = true;
+            int top = SupeyForm.TitleBarHeight;
+            int height = Math.Max(0, _owner.ClientSize.Height - top - 3);
+            int width = Math.Max(SupeyDrawer.CollapsedWidth, _drawer.VisibleWidth);
+            _drawer.SetBounds(0, top, width, height);
+            _drawer.BringToFront();
         }
     }
 }
