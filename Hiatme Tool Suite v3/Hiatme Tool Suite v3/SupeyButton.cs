@@ -42,7 +42,8 @@ namespace Hiatme_Tool_Suite_v3
                 | ControlStyles.OptimizedDoubleBuffer
                 | ControlStyles.ResizeRedraw
                 | ControlStyles.UserPaint
-                | ControlStyles.SupportsTransparentBackColor,
+                | ControlStyles.SupportsTransparentBackColor
+                | ControlStyles.StandardClick,
                 true);
             BackColor = Color.Transparent;
             ForeColor = SupeyTheme.TextPrimary;

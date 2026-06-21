@@ -30,8 +30,11 @@ namespace Hiatme_Tool_Suite_v3
         private readonly TextBox _inner;
         private readonly Timer _focusAnimTimer;
         private string _hint = string.Empty;
-        private Image _leadingIcon;
-        private Image _trailingIcon;
+        private Image _leadingIconSource;
+        private Image _trailingIconSource;
+        private Bitmap _leadingIconTinted;
+        private Bitmap _trailingIconTinted;
+        private Color _lastIconTintColor = Color.Empty;
         private bool _useTallSize = true;
         private bool _focused;
         private float _focusAnim;
@@ -119,14 +122,14 @@ namespace Hiatme_Tool_Suite_v3
 
         public Image LeadingIcon
         {
-            get => _leadingIcon;
-            set { _leadingIcon = value; UpdateRects(); Invalidate(); }
+            get => _leadingIconSource;
+            set { _leadingIconSource = value; ClearTintedIcons(); UpdateRects(); Invalidate(); }
         }
 
         public Image TrailingIcon
         {
-            get => _trailingIcon;
-            set { _trailingIcon = value; UpdateRects(); Invalidate(); }
+            get => _trailingIconSource;
+            set { _trailingIconSource = value; ClearTintedIcons(); UpdateRects(); Invalidate(); }
         }
 
         /// <summary>Tall fields keep the floating hint visible above the text (Material UseTallSize).</summary>
@@ -218,6 +221,7 @@ namespace Hiatme_Tool_Suite_v3
             ForeColor = SupeyTheme.TextPrimary;
             _inner.BackColor = SupeyTheme.Surface;
             _inner.ForeColor = SupeyTheme.TextPrimary;
+            ClearTintedIcons();
             Invalidate();
         }
 
@@ -228,6 +232,7 @@ namespace Hiatme_Tool_Suite_v3
                 SupeyThemeManager.ThemeChanged -= OnThemeChanged;
                 _focusAnimTimer?.Stop();
                 _focusAnimTimer?.Dispose();
+                ClearTintedIcons();
             }
             base.Dispose(disposing);
         }
@@ -250,7 +255,7 @@ namespace Hiatme_Tool_Suite_v3
         protected override void OnMouseDown(MouseEventArgs e)
         {
             base.OnMouseDown(e);
-            if (_trailingIcon != null && _trailingBounds.Contains(e.Location))
+            if (_trailingIconSource != null && _trailingBounds.Contains(e.Location))
             {
                 TrailingIconClick?.Invoke(this, EventArgs.Empty);
                 return;
@@ -272,10 +277,18 @@ namespace Hiatme_Tool_Suite_v3
             if (_inner != null)
                 _inner.BackColor = SupeyTheme.Surface;
 
-            if (_leadingIcon != null)
-                g.DrawImage(_leadingIcon, _leadingBounds);
-            if (_trailingIcon != null)
-                g.DrawImage(_trailingIcon, _trailingBounds);
+            if (_leadingIconSource != null)
+            {
+                var leading = GetTintedIcon(_leadingIconSource, ref _leadingIconTinted);
+                if (leading != null)
+                    g.DrawImage(leading, _leadingBounds);
+            }
+            if (_trailingIconSource != null)
+            {
+                var trailing = GetTintedIcon(_trailingIconSource, ref _trailingIconTinted);
+                if (trailing != null)
+                    g.DrawImage(trailing, _trailingBounds);
+            }
 
             bool hasHint = !string.IsNullOrEmpty(_hint);
             bool userText = !string.IsNullOrEmpty(Text);
@@ -329,8 +342,8 @@ namespace Hiatme_Tool_Suite_v3
         private void UpdateRects()
         {
             if (_inner == null) return;
-            _leftPad = _leadingIcon != null ? LeftPadding + IconSize : LeftPadding;
-            _rightPad = _trailingIcon != null ? RightPadding + IconSize : RightPadding;
+            _leftPad = _leadingIconSource != null ? LeftPadding + IconSize : LeftPadding;
+            _rightPad = _trailingIconSource != null ? RightPadding + IconSize : RightPadding;
 
             bool hasHint = !string.IsNullOrEmpty(_hint);
             bool floatHint = hasHint && _useTallSize && !string.IsNullOrEmpty(Text);
@@ -341,6 +354,43 @@ namespace Hiatme_Tool_Suite_v3
             int iconY = (_lineY / 2) - (IconSize / 2);
             _leadingBounds = new Rectangle(8, iconY, IconSize, IconSize);
             _trailingBounds = new Rectangle(Width - IconSize - 8, iconY, IconSize, IconSize);
+        }
+
+        private Color ResolveIconTintColor()
+        {
+            if (!Enabled)
+                return SupeyTheme.TextMuted;
+            float focus = _focused ? _focusAnim : 0f;
+            return Blend(SupeyTheme.TextSecondary, SupeyTheme.AccentPrimary, focus);
+        }
+
+        private Image GetTintedIcon(Image source, ref Bitmap cache)
+        {
+            if (source == null) return null;
+            Color tint = ResolveIconTintColor();
+            if (_lastIconTintColor != tint)
+            {
+                ClearTintedIcons();
+                _lastIconTintColor = tint;
+            }
+            if (cache == null)
+                cache = SupeyIconTint.Tint(source, new Size(IconSize, IconSize), tint);
+            return cache;
+        }
+
+        private void ClearTintedIcons()
+        {
+            _lastIconTintColor = Color.Empty;
+            if (_leadingIconTinted != null)
+            {
+                _leadingIconTinted.Dispose();
+                _leadingIconTinted = null;
+            }
+            if (_trailingIconTinted != null)
+            {
+                _trailingIconTinted.Dispose();
+                _trailingIconTinted = null;
+            }
         }
 
         private static Color Blend(Color a, Color b, float t)

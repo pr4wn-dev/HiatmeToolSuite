@@ -49,7 +49,7 @@
             this.materialCard2 = new SupeyCard();
             this.loginBtn = new SupeyMaterialButton();
             this.materialCard1 = new SupeyCard();
-            this.wrPBLight = new System.Windows.Forms.PictureBox();
+            this.wrPBLight = new SupeyStatusLight();
             this.LoadingGifCard = new SupeyCard();
             this.LoadingGifSkipBtn = new SupeyMaterialButton();
             this.panel1 = new System.Windows.Forms.Panel();
@@ -235,7 +235,6 @@
             this.loginPanel.SuspendLayout();
             this.materialCard3.SuspendLayout();
             this.materialCard1.SuspendLayout();
-            ((System.ComponentModel.ISupportInitialize)(this.wrPBLight)).BeginInit();
             this.LoadingGifCard.SuspendLayout();
             this.panel1.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.LoadingGif)).BeginInit();
@@ -518,13 +517,10 @@
             // 
             // wrPBLight
             // 
-            this.wrPBLight.Image = ((System.Drawing.Image)(resources.GetObject("wrPBLight.Image")));
             this.wrPBLight.Location = new System.Drawing.Point(29, 8);
             this.wrPBLight.Name = "wrPBLight";
-            this.wrPBLight.Size = new System.Drawing.Size(18, 18);
-            this.wrPBLight.SizeMode = System.Windows.Forms.PictureBoxSizeMode.Zoom;
+            this.wrPBLight.Size = new System.Drawing.Size(20, 20);
             this.wrPBLight.TabIndex = 3;
-            this.wrPBLight.TabStop = false;
             // 
             // LoadingGifCard
             // 
@@ -2519,7 +2515,6 @@
             this.loginPanel.ResumeLayout(false);
             this.materialCard3.ResumeLayout(false);
             this.materialCard1.ResumeLayout(false);
-            ((System.ComponentModel.ISupportInitialize)(this.wrPBLight)).EndInit();
             this.LoadingGifCard.ResumeLayout(false);
             this.panel1.ResumeLayout(false);
             ((System.ComponentModel.ISupportInitialize)(this.LoadingGif)).EndInit();
@@ -2582,7 +2577,7 @@
         private SupeyMaterialButton loginBtn;
         private SupeyMaterialButton gmailDefaultBtn;
         private SupeySwitch loginSwitch;
-        private System.Windows.Forms.PictureBox wrPBLight;
+        private SupeyStatusLight wrPBLight;
         private System.Windows.Forms.ImageList lightImageList;
         private SupeyCard materialCard1;
         private SupeyCard materialCard2;

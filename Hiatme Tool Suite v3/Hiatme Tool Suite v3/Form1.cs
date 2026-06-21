@@ -2350,11 +2350,20 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
-        /// <summary>Login handlers can run during InitializeComponent before <see cref="lightImageList"/> images are loaded from the resx.</summary>
+        /// <summary>Login handlers can run during InitializeComponent before status light is ready.</summary>
         private void SetWrPbLightImage(int imageIndex)
         {
-            if (lightImageList?.Images != null && imageIndex >= 0 && imageIndex < lightImageList.Images.Count)
-                wrPBLight.Image = lightImageList.Images[imageIndex];
+            if (wrPBLight == null) return;
+            wrPBLight.State = imageIndex == 1
+                ? SupeyStatusLight.LightState.On
+                : SupeyStatusLight.LightState.Off;
+        }
+
+        private void SetLoginActionButton(string text, bool enabled = true)
+        {
+            if (loginBtn == null) return;
+            loginBtn.Text = text;
+            loginBtn.Enabled = enabled;
         }
 
         //LOGIN
@@ -2365,10 +2374,13 @@ namespace Hiatme_Tool_Suite_v3
         private const int LoginFieldGap = 8;
         private const int LoginFieldInset = 8;
         private const int LoginSwitchRowH = 34;
-        private const int LoginSwitchGap = 12;
+        private const int LoginSwitchGap = 16;
         private const int LoginBtnH = 36;
-        private const int LoginUpdateLinkGap = 8;
-        private const int LoginBtnGap = 10;
+        private const int LoginUpdateLinkGap = 10;
+        private const int LoginBtnGap = 12;
+        private const int LoginFooterPadTop = 8;
+        private const int LoginFooterPadBottom = 10;
+        private const int LoginPanelBottomPad = 16;
 
         /// <summary>Theme login tab surfaces and align all controls to a single grid.</summary>
         private void ApplyLoginVisualTheme(bool layout = true)
@@ -2516,6 +2528,7 @@ namespace Hiatme_Tool_Suite_v3
                 };
                 loginPanel.Controls.Add(_loginFooterPanel);
             }
+            _loginFooterPanel.Padding = new Padding(0, LoginFooterPadTop, 0, LoginFooterPadBottom);
 
             if (loginSwitch != null)
             {
@@ -2554,6 +2567,8 @@ namespace Hiatme_Tool_Suite_v3
             materialCard3?.SendToBack();
             _loginFooterPanel?.BringToFront();
             materialCard1?.BringToFront();
+            loginSwitch?.BringToFront();
+            loginBtn?.BringToFront();
         }
 
         private void LogLoginLayoutSnapshot(string location)
@@ -2698,7 +2713,7 @@ namespace Hiatme_Tool_Suite_v3
                 }
             }
 
-            int fieldsCardHeight = fieldsBottom + LoginFieldInset;
+            int fieldsCardHeight = fieldsBottom + LoginFieldInset + materialCard3.Padding.Vertical;
             materialCard3.MinimumSize = new Size(LoginCardWidth, fieldsCardHeight);
             materialCard3.MaximumSize = new Size(LoginCardWidth, fieldsCardHeight);
             materialCard3.SetBounds(cardX, cardTop, LoginCardWidth, fieldsCardHeight);
@@ -2709,6 +2724,7 @@ namespace Hiatme_Tool_Suite_v3
                 : LoginSwitchRowH;
 
             int updateLinkRowH = 0;
+            int footerContentTop = LoginFooterPadTop;
             bool onLoginTab = hiatmeTabControl?.SelectedTab == tabPage1;
             if (_updateStatusLink != null && !_updateStatusLink.IsDisposed && onLoginTab)
             {
@@ -2725,7 +2741,7 @@ namespace Hiatme_Tool_Suite_v3
                 updateLinkRowH = LoginUpdateLinkGap + linkH;
                 _updateStatusLink.SetBounds(
                     LoginFieldInset,
-                    switchH + LoginBtnGap + LoginBtnH + LoginUpdateLinkGap,
+                    footerContentTop + switchH + LoginBtnGap + LoginBtnH + LoginUpdateLinkGap,
                     fieldW,
                     linkH);
             }
@@ -2737,16 +2753,17 @@ namespace Hiatme_Tool_Suite_v3
                 _updateStatusLink.SendToBack();
             }
 
-            int footerH = switchH + LoginBtnGap + LoginBtnH + updateLinkRowH;
+            int footerContentH = switchH + LoginBtnGap + LoginBtnH + updateLinkRowH;
+            int footerH = LoginFooterPadTop + footerContentH + LoginFooterPadBottom;
             footer.SetBounds(cardX, footerTop, LoginCardWidth, footerH);
 
             if (loginSwitch != null)
-                loginSwitch.SetBounds(LoginFieldInset, 0, fieldW, switchH);
+                loginSwitch.SetBounds(LoginFieldInset, footerContentTop, fieldW, switchH);
 
             if (loginBtn != null)
-                loginBtn.SetBounds(LoginFieldInset, switchH + LoginBtnGap, fieldW, LoginBtnH);
+                loginBtn.SetBounds(LoginFieldInset, footerContentTop + switchH + LoginBtnGap, fieldW, LoginBtnH);
 
-            loginPanel.Height = footerTop + footerH + 12;
+            loginPanel.Height = footerTop + footerH + LoginPanelBottomPad;
 
             // #region agent log
             LoginLayoutDebug.LogSimple("LayoutLoginFormFields", "H2",
@@ -2948,7 +2965,7 @@ namespace Hiatme_Tool_Suite_v3
             loginUserTB.Enabled = true;
             loginPassTB.Enabled = true;
             loginSwitch.Enabled = true;
-            loginBtn.Text = "Login";
+            SetLoginActionButton("Login");
             loginCB.SelectedIndex = 0;
             loginCB.Focus();
             RelayoutLoginForm();
@@ -2961,7 +2978,7 @@ namespace Hiatme_Tool_Suite_v3
             loginUserTB.Enabled = false;
             loginPassTB.Enabled = false;
             loginSwitch.Enabled = false;
-            loginBtn.Text = "Logout";
+            SetLoginActionButton("Logout");
             loginCB.SelectedIndex = 0;
             RelayoutLoginForm();
         }
@@ -3410,7 +3427,7 @@ namespace Hiatme_Tool_Suite_v3
             loginUserTB.Enabled = true;
             loginPassTB.Enabled = true;
             loginSwitch.Enabled = true;
-            loginBtn.Text = "Login";
+            SetLoginActionButton("Login");
             loginCB.SelectedIndex = 2;
             loginCB.Focus();
             RelayoutLoginForm();
@@ -3421,7 +3438,7 @@ namespace Hiatme_Tool_Suite_v3
             loginUserTB.Enabled = false;
             loginPassTB.Enabled = false;
             loginSwitch.Enabled = false;
-            loginBtn.Text = "Logout";
+            SetLoginActionButton("Logout");
             loginCB.SelectedIndex = 2;
             RelayoutLoginForm();
         }
@@ -3463,8 +3480,7 @@ namespace Hiatme_Tool_Suite_v3
             loginPassTB.Enabled = false;
             // Do not touch loginSwitch.Checked — it is shared with WellRyde/Modivcare/Hiatme.
             loginSwitch.Enabled = false;
-            loginBtn.Text = "Ready";
-            loginBtn.Enabled = false;
+            SetLoginActionButton("Ready", enabled: false);
             SetWrPbLightImage(1);
             RelayoutLoginForm();
         }
@@ -3473,7 +3489,7 @@ namespace Hiatme_Tool_Suite_v3
         {
             loginCodeTB.Enabled = false;
             loginUserTB.Enabled = true;
-            loginBtn.Text = "Test my Gmail";
+            SetLoginActionButton("Test my Gmail");
             loginCB.SelectedIndex = 3;
 
             if (Properties.Settings.Default.gmailUseOfficeDefault
@@ -3488,8 +3504,7 @@ namespace Hiatme_Tool_Suite_v3
             SetWrPbLightImage(0);
             loginPassTB.Enabled = true;
             loginSwitch.Enabled = true;
-            loginBtn.Enabled = true;
-            loginBtn.Text = "Test my Gmail";
+            SetLoginActionButton("Test my Gmail");
             UpdateGmailDefaultButtonVisibility();
             loginCB.Focus();
             RelayoutLoginForm();
@@ -3502,8 +3517,7 @@ namespace Hiatme_Tool_Suite_v3
             loginUserTB.Enabled = true;
             loginPassTB.Enabled = true;
             loginSwitch.Enabled = true;
-            loginBtn.Enabled = true;
-            loginBtn.Text = "Test my Gmail";
+            SetLoginActionButton("Test my Gmail");
             loginCB.SelectedIndex = 3;
             UpdateGmailDefaultButtonVisibility();
             RelayoutLoginForm();
@@ -3561,8 +3575,7 @@ namespace Hiatme_Tool_Suite_v3
             loginPassTB.Text = string.Empty;
             loginPassTB.Enabled = true;
             loginSwitch.Enabled = true;
-            loginBtn.Enabled = true;
-            loginBtn.Text = "Test my Gmail";
+            SetLoginActionButton("Test my Gmail");
             SetWrPbLightImage(0);
         }
 
@@ -3863,7 +3876,7 @@ namespace Hiatme_Tool_Suite_v3
             loginUserTB.Enabled = true;
             loginPassTB.Enabled = true;
             loginSwitch.Enabled = true;
-            loginBtn.Text = "Login";
+            SetLoginActionButton("Login");
             loginCB.SelectedIndex = 1;
             loginCB.Focus();
             RelayoutLoginForm();
@@ -3876,7 +3889,7 @@ namespace Hiatme_Tool_Suite_v3
             loginUserTB.Enabled = false;
             loginPassTB.Enabled = false;
             loginSwitch.Enabled = false;
-            loginBtn.Text = "Logout";
+            SetLoginActionButton("Logout");
             loginCB.SelectedIndex = 1;
             RelayoutLoginForm();
         }

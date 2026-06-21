@@ -252,25 +252,7 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         private static Bitmap Tint(Image src, Size sz, Color tint)
-        {
-            var bmp = new Bitmap(sz.Width, sz.Height);
-            var cm = new ColorMatrix(new[]
-            {
-                new float[] { 0, 0, 0, 0, 0 },
-                new float[] { 0, 0, 0, 0, 0 },
-                new float[] { 0, 0, 0, 0, 0 },
-                new float[] { 0, 0, 0, 1, 0 },
-                new float[] { tint.R / 255f, tint.G / 255f, tint.B / 255f, 0, 1 }
-            });
-            using (var g = Graphics.FromImage(bmp))
-            using (var ia = new ImageAttributes())
-            {
-                ia.SetColorMatrix(cm, ColorMatrixFlag.Default, ColorAdjustType.Bitmap);
-                g.DrawImage(src, new Rectangle(0, 0, sz.Width, sz.Height),
-                    0, 0, src.Width, src.Height, GraphicsUnit.Pixel, ia);
-            }
-            return bmp;
-        }
+            => SupeyIconTint.Tint(src, sz, tint);
 
         private void DisposeIconCache()
         {
