@@ -19,8 +19,10 @@ namespace Hiatme_Tool_Suite_v3
         private const int ItemHeight = 40;
         private const int ItemPitch = 48;
         private const int TopPad = 8;
-        private const int IconBox = 40;   // left square the icon centers within
-        private const int SidePad = 6;
+        /// <summary>Icon column matches collapsed rail width so icons stay centered when the drawer opens.</summary>
+        private const int IconColumnWidth = CollapsedWidth;
+        private const int ItemSideInset = 8;
+        private const int LabelGap = 12;
 
         private readonly TabControl _tabs;
         private readonly ImageList _tabImages;
@@ -149,8 +151,13 @@ namespace Hiatme_Tool_Suite_v3
 
         private Rectangle ItemRect(int i)
         {
-            return new Rectangle(SidePad, TopPad + i * ItemPitch, VisibleWidth - SidePad * 2, ItemHeight);
+            int w = Math.Min(VisibleWidth, Width);
+            int inset = w > CollapsedWidth ? ItemSideInset : Math.Max(4, (CollapsedWidth - 48) / 2);
+            return new Rectangle(inset, TopPad + i * ItemPitch, w - inset * 2, ItemHeight);
         }
+
+        private static int IconLeft(Size iconSize) =>
+            Math.Max(0, (IconColumnWidth - iconSize.Width) / 2);
 
         protected override void OnPaint(PaintEventArgs e)
         {
@@ -194,7 +201,7 @@ namespace Hiatme_Tool_Suite_v3
                 Bitmap icon = (selected ? _iconActive : hot ? _iconHot : _iconMuted).TryGetValue(page, out var bmp) ? bmp : null;
                 if (icon != null)
                 {
-                    int ix = rect.Left + (IconBox - isz.Width) / 2;
+                    int ix = IconLeft(isz);
                     int iy = rect.Top + (rect.Height - isz.Height) / 2;
                     g.DrawImageUnscaled(icon, ix, iy);
                 }
@@ -204,8 +211,8 @@ namespace Hiatme_Tool_Suite_v3
                     Color baseColor = selected ? SupeyTheme.AccentPrimary
                                     : hot ? SupeyTheme.TextPrimary
                                     : SupeyTheme.TextSecondary;
-                    var textRect = new RectangleF(rect.Left + IconBox + 4, rect.Top,
-                        rect.Right - (rect.Left + IconBox + 4) - 8, rect.Height);
+                    var textRect = new RectangleF(IconColumnWidth + LabelGap, rect.Top,
+                        rect.Right - IconColumnWidth - LabelGap, rect.Height);
                     using (var br = new SolidBrush(Color.FromArgb(labelAlpha, baseColor)))
                     using (var fmt = new StringFormat(StringFormatFlags.NoWrap)
                     { LineAlignment = StringAlignment.Center, Trimming = StringTrimming.EllipsisCharacter })

@@ -52,6 +52,7 @@ namespace Hiatme_Tool_Suite_v3
         private bool _wellRydePanelSessionActive;
 
         private WellRydePortalSession _wellRydeSession;
+        private readonly SemaphoreSlim _wellRydeLoginGate = new SemaphoreSlim(1, 1);
 
         public System.Windows.Forms.Timer billtimer;
 
@@ -2434,82 +2435,99 @@ namespace Hiatme_Tool_Suite_v3
             loginCB.SelectedIndex = 0;
         }
 
-        /// <summary>Bootstrap + Spring login + /portal/nu. On failure abandons <see cref="_wellRydeSession"/>.</summary>
+        /// <summary>Bootstrap + Spring login + /portal/nu. On failure abandons the in-flight session only.</summary>
         /// <returns><c>null</c> on success; otherwise an error message for the user.</returns>
         private async Task<string> TryWellRydePortalHttpLoginAsync(string companycode, string username, string password)
         {
-            WellRydePortalLog.Info("LOGIN", "TryWellRydePortalHttpLoginAsync start (company=" + (companycode ?? "") + ")");
-            await SetLoadingGifLabel("Checking connections");
-            _wellRydeSession?.Dispose();
-            _wellRydeSession = new WellRydePortalSession();
-            WellRydePortalBootstrapResult wrBoot;
+            await _wellRydeLoginGate.WaitAsync().ConfigureAwait(true);
+            WellRydePortalSession session = null;
             try
             {
-                wrBoot = await _wellRydeSession.BootstrapMainPageAsync();
-            }
-            catch (Exception ex)
-            {
-                _wellRydeSession.Dispose();
+                WellRydePortalLog.Info("LOGIN", "TryWellRydePortalHttpLoginAsync start (company=" + (companycode ?? "") + ")");
+                await SetLoadingGifLabel("Checking connections");
+                _wellRydeSession?.Dispose();
                 _wellRydeSession = null;
-                WellRydePortalLog.Error("LOGIN", "bootstrap failed", ex);
-                return "WellRyde portal request failed: " + ex.Message + WellRydePortalLog.UserHintSuffix();
-            }
-            if (!wrBoot.IsSuccess)
-            {
-                _wellRydeSession.Dispose();
-                _wellRydeSession = null;
-                var prefix = wrBoot.StatusCode.HasValue
-                    ? "HTTP " + (int)wrBoot.StatusCode.Value + " — "
-                    : "";
-                WellRydePortalLog.Error("LOGIN", "bootstrap HTTP failed: " + (wrBoot.ErrorMessage ?? ""));
-                return prefix + (wrBoot.ErrorMessage ?? "Could not load portal.") + WellRydePortalLog.UserHintSuffix();
-            }
-            await SetLoadingGifLabel("Signing in to WellRyde");
-            WellRydePortalLoginResult wrLogin;
-            try
-            {
-                wrLogin = await _wellRydeSession.LoginSpringSecurityAsync(companycode, username, password);
-            }
-            catch (Exception ex)
-            {
-                _wellRydeSession.Dispose();
-                _wellRydeSession = null;
-                return "WellRyde login failed: " + ex.Message;
-            }
-            if (!wrLogin.IsSuccess)
-            {
-                _wellRydeSession.Dispose();
-                _wellRydeSession = null;
-                return wrLogin.ErrorMessage ?? "WellRyde login was not accepted.";
-            }
-            await SetLoadingGifLabel("Loading WellRyde portal…");
-            WellRydePortalNuResult wrNu;
-            try
-            {
-                if (!string.IsNullOrWhiteSpace(wrLogin.Location))
-                    wrNu = await _wellRydeSession.CompleteLoginNavigationAsync(wrLogin.Location);
-                else
-                    wrNu = await _wellRydeSession.GetPortalNuAsync();
-            }
-            catch (Exception ex)
-            {
-                _wellRydeSession.Dispose();
-                _wellRydeSession = null;
-                return "WellRyde /portal/nu failed: " + ex.Message;
-            }
-            if (!wrNu.IsSuccess)
-            {
-                _wellRydeSession.Dispose();
-                _wellRydeSession = null;
-                var nuPrefix = wrNu.StatusCode.HasValue
-                    ? "HTTP " + (int)wrNu.StatusCode.Value + " — "
-                    : "";
-                return nuPrefix + (wrNu.ErrorMessage ?? "Could not load /portal/nu.");
-            }
 
-            _wellRydeSession.SyncSnapshotCookiesIntoJar();
-            WellRydePortalLog.Info("LOGIN", "TryWellRydePortalHttpLoginAsync OK");
-            return null;
+                session = new WellRydePortalSession();
+                WellRydePortalBootstrapResult wrBoot;
+                try
+                {
+                    wrBoot = await session.BootstrapMainPageAsync().ConfigureAwait(true);
+                }
+                catch (Exception ex)
+                {
+                    session.Dispose();
+                    session = null;
+                    WellRydePortalLog.Error("LOGIN", "bootstrap failed", ex);
+                    return "WellRyde portal request failed: " + ex.Message + WellRydePortalLog.UserHintSuffix();
+                }
+                if (!wrBoot.IsSuccess)
+                {
+                    session.Dispose();
+                    session = null;
+                    var prefix = wrBoot.StatusCode.HasValue
+                        ? "HTTP " + (int)wrBoot.StatusCode.Value + " — "
+                        : "";
+                    WellRydePortalLog.Error("LOGIN", "bootstrap HTTP failed: " + (wrBoot.ErrorMessage ?? ""));
+                    return prefix + (wrBoot.ErrorMessage ?? "Could not load portal.") + WellRydePortalLog.UserHintSuffix();
+                }
+                await SetLoadingGifLabel("Signing in to WellRyde");
+                WellRydePortalLoginResult wrLogin;
+                try
+                {
+                    wrLogin = await session.LoginSpringSecurityAsync(companycode, username, password).ConfigureAwait(true);
+                }
+                catch (Exception ex)
+                {
+                    session.Dispose();
+                    session = null;
+                    return "WellRyde login failed: " + ex.Message;
+                }
+                if (!wrLogin.IsSuccess)
+                {
+                    session.Dispose();
+                    session = null;
+                    return wrLogin.ErrorMessage ?? "WellRyde login was not accepted.";
+                }
+                await SetLoadingGifLabel("Loading WellRyde portal…");
+                WellRydePortalNuResult wrNu;
+                try
+                {
+                    if (!string.IsNullOrWhiteSpace(wrLogin.Location))
+                        wrNu = await session.CompleteLoginNavigationAsync(wrLogin.Location).ConfigureAwait(true);
+                    else
+                        wrNu = await session.GetPortalNuAsync().ConfigureAwait(true);
+                }
+                catch (Exception ex)
+                {
+                    session.Dispose();
+                    session = null;
+                    return "WellRyde /portal/nu failed: " + ex.Message;
+                }
+                if (!wrNu.IsSuccess)
+                {
+                    session.Dispose();
+                    session = null;
+                    var nuPrefix = wrNu.StatusCode.HasValue
+                        ? "HTTP " + (int)wrNu.StatusCode.Value + " — "
+                        : "";
+                    return nuPrefix + (wrNu.ErrorMessage ?? "Could not load /portal/nu.");
+                }
+
+                session.SyncSnapshotCookiesIntoJar();
+                _wellRydeSession = session;
+                session = null;
+                WellRydePortalLog.Info("LOGIN", "TryWellRydePortalHttpLoginAsync OK");
+                return null;
+            }
+            finally
+            {
+                if (session != null)
+                {
+                    try { session.Dispose(); } catch { }
+                }
+                _wellRydeLoginGate.Release();
+            }
         }
 
         private void InvalidateWellRydePortalSession()
