@@ -113,6 +113,12 @@ namespace Hiatme_Tool_Suite_v3
         private SupeyMapLoadingOverlay _analyzerLoadingOverlay;
         private int _analyzerLoadingDepth;
         private string _analyzerLoadingBaseMessage = "";
+        private readonly Dictionary<TabPage, SupeyMapLoadingOverlay> _tabLoadingOverlays
+            = new Dictionary<TabPage, SupeyMapLoadingOverlay>();
+        private readonly Dictionary<TabPage, int> _tabLoadingDepth
+            = new Dictionary<TabPage, int>();
+        private readonly HashSet<TabPage> _tabLoadingResizeHooked
+            = new HashSet<TabPage>();
 
         /// <summary>
         /// Removes WIP tabs from <see cref="hiatmeTabControl"/> (and the Material drawer icons).
@@ -5941,6 +5947,7 @@ namespace Hiatme_Tool_Suite_v3
             if (_applicationExitRequested || IsDisposed)
                 return;
             LoadingGifSkipBtn.Visible = false;
+            PositionBillingSkipButton(false);
             HideLoadingGif();
             hidegiftimer.Stop();
             
@@ -5956,7 +5963,7 @@ namespace Hiatme_Tool_Suite_v3
             }
             else
             {
-                LoadingGifSkipBtn.Visible = true;
+                PositionBillingSkipButton(true);
                 await CheckForBillCompletion(billedtrips);
             }
         }
@@ -6487,6 +6494,14 @@ namespace Hiatme_Tool_Suite_v3
                 idx = 0;
             if (idx >= hiatmeTabControl.TabCount)
                 idx = hiatmeTabControl.TabCount - 1;
+
+            if (ReferenceEquals(hiatmeTabControl.TabPages[idx], tabPage1)
+                || ReferenceEquals(hiatmeTabControl.TabPages[idx], tabPage2))
+            {
+                ShowTabLoadingOverlay(hiatmeTabControl.TabPages[idx]);
+                return;
+            }
+
             LoadingGifCard.Parent = hiatmeTabControl.TabPages[idx];
             LoadingGifCard.BringToFront();
             LoadingGifCard.Dock = DockStyle.Fill;
@@ -6500,6 +6515,15 @@ namespace Hiatme_Tool_Suite_v3
                 return;
             try
             {
+                var activeTab = GetActiveTabLoadingPage();
+                if (activeTab != null)
+                {
+                    HideTabLoadingOverlay(activeTab, force: true);
+                    if (ReferenceEquals(activeTab, tabPage2))
+                        PositionBillingSkipButton(false);
+                    return;
+                }
+
                 LoadingGifCard.Visible = false;
                 if (hiatmeTabControl?.SelectedTab == tabPage1)
                     pictureBox1?.Invalidate();
@@ -6510,6 +6534,184 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        private bool IsModernLoadingTab(TabPage tab)
+            => tab == tabPage1 || tab == tabPage2;
+
+        private TabPage GetActiveTabLoadingPage()
+        {
+            foreach (var pair in _tabLoadingDepth)
+            {
+                if (pair.Value > 0)
+                    return pair.Key;
+            }
+            return null;
+        }
+
+        private int GetTabLoadingDepth(TabPage tab)
+            => tab != null && _tabLoadingDepth.TryGetValue(tab, out int depth) ? depth : 0;
+
+        private void EnsureTabLoadingOverlay(TabPage tab)
+        {
+            if (tab == null || tab.IsDisposed || !IsModernLoadingTab(tab))
+                return;
+
+            if (_tabLoadingOverlays.TryGetValue(tab, out var existing) && existing != null && !existing.IsDisposed
+                && !ReferenceEquals(existing.Parent, tab))
+            {
+                existing.Dispose();
+                _tabLoadingOverlays.Remove(tab);
+            }
+
+            if (!_tabLoadingOverlays.TryGetValue(tab, out existing) || existing == null || existing.IsDisposed)
+            {
+                existing = new SupeyMapLoadingOverlay { Visible = false };
+                _tabLoadingOverlays[tab] = existing;
+                tab.Controls.Add(existing);
+            }
+
+            if (_tabLoadingResizeHooked.Add(tab))
+            {
+                tab.Resize += (s, e) =>
+                {
+                    SyncTabLoadingOverlayBounds(tab);
+                    if (ReferenceEquals(tab, tabPage2) && LoadingGifSkipBtn != null && LoadingGifSkipBtn.Visible)
+                        PositionBillingSkipButton(true);
+                };
+            }
+
+            SyncTabLoadingOverlayBounds(tab);
+        }
+
+        private void SyncTabLoadingOverlayBounds(TabPage tab)
+        {
+            if (tab == null || tab.IsDisposed
+                || !_tabLoadingOverlays.TryGetValue(tab, out var overlay)
+                || overlay == null || overlay.IsDisposed)
+                return;
+
+            overlay.Bounds = tab.ClientRectangle;
+        }
+
+        private void ShowTabLoadingOverlay(TabPage tab, string message = null)
+        {
+            if (tab == null || tab.IsDisposed || !IsModernLoadingTab(tab))
+                return;
+            if (tab.InvokeRequired)
+            {
+                tab.BeginInvoke((MethodInvoker)(() => ShowTabLoadingOverlay(tab, message)));
+                return;
+            }
+
+            EnsureTabLoadingOverlay(tab);
+            if (!_tabLoadingOverlays.TryGetValue(tab, out var overlay) || overlay == null || overlay.IsDisposed)
+                return;
+
+            if (!string.IsNullOrWhiteSpace(message))
+                overlay.Message = message.Trim();
+            else if (GetTabLoadingDepth(tab) == 0)
+                overlay.Message = "Loading…";
+
+            _tabLoadingDepth[tab] = GetTabLoadingDepth(tab) + 1;
+            if (GetTabLoadingDepth(tab) != 1)
+                return;
+
+            SyncTabLoadingOverlayBounds(tab);
+            overlay.Visible = tab.Visible;
+            overlay.IsAnimating = true;
+            overlay.BringToFront();
+            if (ReferenceEquals(tab, tabPage2) && LoadingGifSkipBtn != null && LoadingGifSkipBtn.Visible)
+                PositionBillingSkipButton(true);
+        }
+
+        private void HideTabLoadingOverlay(TabPage tab, bool force = false)
+        {
+            if (tab == null || !IsModernLoadingTab(tab))
+                return;
+
+            if (!_tabLoadingOverlays.TryGetValue(tab, out var overlay) || overlay == null || overlay.IsDisposed)
+            {
+                _tabLoadingDepth[tab] = 0;
+                return;
+            }
+
+            if (tab.InvokeRequired)
+            {
+                tab.BeginInvoke((MethodInvoker)(() => HideTabLoadingOverlay(tab, force)));
+                return;
+            }
+
+            if (force)
+                _tabLoadingDepth[tab] = 0;
+            else
+                _tabLoadingDepth[tab] = Math.Max(0, GetTabLoadingDepth(tab) - 1);
+
+            if (GetTabLoadingDepth(tab) > 0)
+                return;
+
+            overlay.IsAnimating = false;
+            overlay.Visible = false;
+            if (ReferenceEquals(tab, tabPage2))
+                PositionBillingSkipButton(false);
+            if (ReferenceEquals(tab, tabPage1) && hiatmeTabControl?.SelectedTab == tabPage1)
+                pictureBox1?.Invalidate();
+        }
+
+        private void UpdateTabLoadingOverlayMessage(TabPage tab, string text)
+        {
+            if (GetTabLoadingDepth(tab) <= 0
+                || !_tabLoadingOverlays.TryGetValue(tab, out var overlay)
+                || overlay == null || overlay.IsDisposed)
+                return;
+
+            void apply()
+            {
+                if (overlay == null || overlay.IsDisposed)
+                    return;
+                overlay.Message = text;
+                overlay.BringToFront();
+                if (ReferenceEquals(tab, tabPage2) && LoadingGifSkipBtn != null && LoadingGifSkipBtn.Visible)
+                    LoadingGifSkipBtn.BringToFront();
+            }
+
+            if (tab.InvokeRequired)
+                tab.BeginInvoke((MethodInvoker)apply);
+            else
+                apply();
+        }
+
+        private void PositionBillingSkipButton(bool visible)
+        {
+            if (LoadingGifSkipBtn == null || tabPage2 == null || tabPage2.IsDisposed)
+                return;
+            if (tabPage2.InvokeRequired)
+            {
+                tabPage2.BeginInvoke((MethodInvoker)(() => PositionBillingSkipButton(visible)));
+                return;
+            }
+
+            if (!visible)
+            {
+                LoadingGifSkipBtn.Visible = false;
+                return;
+            }
+
+            if (LoadingGifSkipBtn.Parent != tabPage2)
+            {
+                LoadingGifSkipBtn.Parent?.Controls.Remove(LoadingGifSkipBtn);
+                tabPage2.Controls.Add(LoadingGifSkipBtn);
+            }
+
+            const int w = 131;
+            const int h = 36;
+            LoadingGifSkipBtn.SetBounds(
+                Math.Max(8, (tabPage2.ClientSize.Width - w) / 2),
+                Math.Max(8, tabPage2.ClientSize.Height - h - 24),
+                w,
+                h);
+            LoadingGifSkipBtn.Visible = true;
+            LoadingGifSkipBtn.BringToFront();
+        }
+
         /// <summary>Updates the loading overlay caption from any thread; avoids BackgroundWorker and multi-second artificial delays.</summary>
         private void ApplyLoadingGifLabel(string txt)
         {
@@ -6518,6 +6720,13 @@ namespace Hiatme_Tool_Suite_v3
             try
             {
                 var text = txt ?? string.Empty;
+                var activeTab = GetActiveTabLoadingPage();
+                if (activeTab != null)
+                {
+                    UpdateTabLoadingOverlayMessage(activeTab, text);
+                    return;
+                }
+
                 if (LoadingGifLabel == null)
                     return;
                 if (LoadingGifLabel.InvokeRequired)

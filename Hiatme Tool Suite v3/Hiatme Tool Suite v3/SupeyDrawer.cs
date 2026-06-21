@@ -40,6 +40,7 @@ namespace Hiatme_Tool_Suite_v3
         private readonly System.Collections.Generic.Dictionary<TabPage, Bitmap> _iconHot
             = new System.Collections.Generic.Dictionary<TabPage, Bitmap>();
         private bool _iconsDirty = true;
+        private Font _labelFont;
 
         public SupeyDrawer(TabControl tabs, ImageList tabImages)
         {
@@ -65,7 +66,13 @@ namespace Hiatme_Tool_Suite_v3
             SupeyThemeManager.ThemeChanged += (s, e) =>
             {
                 if (IsDisposed) return;
-                try { _iconsDirty = true; Invalidate(); } catch { }
+                try
+                {
+                    _iconsDirty = true;
+                    ResetLabelFont();
+                    Invalidate();
+                }
+                catch { }
             };
         }
 
@@ -215,7 +222,7 @@ namespace Hiatme_Tool_Suite_v3
                     using (var br = new SolidBrush(Color.FromArgb(labelAlpha, baseColor)))
                     using (var fmt = new StringFormat(StringFormatFlags.NoWrap)
                     { LineAlignment = StringAlignment.Center, Trimming = StringTrimming.EllipsisCharacter })
-                        g.DrawString(page.Text ?? "", SupeyTheme.BodyFont, br, textRect, fmt);
+                        g.DrawString(page.Text ?? "", LabelFont, br, textRect, fmt);
                 }
             }
 
@@ -254,6 +261,30 @@ namespace Hiatme_Tool_Suite_v3
         private static Bitmap Tint(Image src, Size sz, Color tint)
             => SupeyIconTint.Tint(src, sz, tint);
 
+        private Font LabelFont
+        {
+            get
+            {
+                if (_labelFont == null)
+                    RebuildLabelFont();
+                return _labelFont;
+            }
+        }
+
+        private void RebuildLabelFont()
+        {
+            ResetLabelFont();
+            var body = SupeyTheme.BodyFont;
+            _labelFont = new Font(body.FontFamily, body.Size, FontStyle.Bold, body.Unit);
+        }
+
+        private void ResetLabelFont()
+        {
+            if (_labelFont == null) return;
+            try { _labelFont.Dispose(); } catch { }
+            _labelFont = null;
+        }
+
         private void DisposeIconCache()
         {
             foreach (var d in new[] { _iconMuted, _iconActive, _iconHot })
@@ -270,6 +301,7 @@ namespace Hiatme_Tool_Suite_v3
                 _anim?.Stop();
                 _anim?.Dispose();
                 DisposeIconCache();
+                ResetLabelFont();
             }
             base.Dispose(disposing);
         }
