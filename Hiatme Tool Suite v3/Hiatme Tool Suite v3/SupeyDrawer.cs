@@ -315,6 +315,7 @@ namespace Hiatme_Tool_Suite_v3
     {
         private readonly SupeyDrawer _drawer;
         private Form _owner;
+        private SupeyForm.ResizeDirection _drawerResize = SupeyForm.ResizeDirection.None;
 
         public SupeyDrawerHost(TabControl tabs, ImageList tabImages)
         {
@@ -330,7 +331,50 @@ namespace Hiatme_Tool_Suite_v3
 
             _drawer = new SupeyDrawer(tabs, tabImages) { Dock = DockStyle.Fill };
             _drawer.VisibleWidthChanged += (s, e) => SyncBounds();
+            _drawer.MouseMove += Drawer_MouseMove;
+            _drawer.MouseDown += Drawer_MouseDown;
             Controls.Add(_drawer);
+        }
+
+        private void Drawer_MouseMove(object sender, MouseEventArgs e)
+        {
+            if (!(_owner is SupeyForm form) || form.WindowState == FormWindowState.Maximized || !form.Sizable)
+            {
+                _drawerResize = SupeyForm.ResizeDirection.None;
+                return;
+            }
+
+            int b = SupeyForm.BorderWidth;
+            SupeyForm.ResizeDirection dir = SupeyForm.ResizeDirection.None;
+            Cursor cur = Cursors.Default;
+
+            if (e.X <= b && e.Y >= ClientSize.Height - b)
+            {
+                dir = SupeyForm.ResizeDirection.BottomLeft;
+                cur = Cursors.SizeNESW;
+            }
+            else if (e.X <= b)
+            {
+                dir = SupeyForm.ResizeDirection.Left;
+                cur = Cursors.SizeWE;
+            }
+            else if (e.Y >= ClientSize.Height - b)
+            {
+                dir = SupeyForm.ResizeDirection.Bottom;
+                cur = Cursors.SizeNS;
+            }
+
+            _drawerResize = dir;
+            form.SetDrawerResizeCursor(dir, cur);
+            _drawer.Cursor = dir != SupeyForm.ResizeDirection.None ? cur : Cursors.Hand;
+        }
+
+        private void Drawer_MouseDown(object sender, MouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Left || !(_owner is SupeyForm form))
+                return;
+            if (_drawerResize != SupeyForm.ResizeDirection.None)
+                form.BeginResizeFromDrawer(_drawerResize);
         }
 
         public bool IsOpen => _drawer.IsOpen;
@@ -398,54 +442,6 @@ namespace Hiatme_Tool_Suite_v3
                 if (showIfHidden && !Visible) Show();
             }
             catch { }
-        }
-    }
-
-    /// <summary>Three-line hamburger toggle for the title bar; raises <see cref="Control.Click"/>.</summary>
-    public sealed class SupeyHamburger : Control
-    {
-        private bool _hot;
-
-        public SupeyHamburger()
-        {
-            SetStyle(ControlStyles.AllPaintingInWmPaint
-                   | ControlStyles.OptimizedDoubleBuffer
-                   | ControlStyles.UserPaint
-                   | ControlStyles.Opaque, true);
-            Size = new Size(38, 30);
-            Cursor = Cursors.Hand;
-            BackColor = SupeyTheme.SurfaceHeader;
-            SupeyThemeManager.ThemeChanged += (s, e) =>
-            {
-                if (IsDisposed) return;
-                try { BackColor = SupeyTheme.SurfaceHeader; Invalidate(); } catch { }
-            };
-        }
-
-        protected override void OnMouseEnter(EventArgs e) { base.OnMouseEnter(e); _hot = true; Invalidate(); }
-        protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); _hot = false; Invalidate(); }
-
-        protected override void OnPaint(PaintEventArgs e)
-        {
-            var g = e.Graphics;
-            using (var bg = new SolidBrush(_hot ? SupeyTheme.SurfaceElevated : SupeyTheme.SurfaceHeader))
-                g.FillRectangle(bg, ClientRectangle);
-
-            Color line = _hot ? SupeyTheme.TextPrimary : SupeyTheme.TextSecondary;
-            int cx = Width / 2;
-            int cy = Height / 2;
-            using (var pen = new Pen(line, 2f))
-            {
-                g.DrawLine(pen, cx - 8, cy - 6, cx + 8, cy - 6);
-                g.DrawLine(pen, cx - 8, cy, cx + 8, cy);
-                g.DrawLine(pen, cx - 8, cy + 6, cx + 8, cy + 6);
-            }
-        }
-
-        protected override void OnVisibleChanged(EventArgs e)
-        {
-            base.OnVisibleChanged(e);
-            if (Visible) Invalidate(true);
         }
     }
 }

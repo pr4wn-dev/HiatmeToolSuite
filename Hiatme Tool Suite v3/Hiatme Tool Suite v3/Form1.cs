@@ -47,6 +47,11 @@ namespace Hiatme_Tool_Suite_v3
         private const bool ShowSupeyScheduleTab = false;
         private const bool ShowCameraTab = false;
 
+        /// <summary>Preferred launch client size; clamped to the monitor work area on startup.</summary>
+        private const int PreferredStartupWidth = 1280;
+        private const int PreferredStartupHeight = 800;
+        private const int StartupWorkAreaMargin = 48;
+
         private bool manuallogin = false;
         /// <summary>True after WellRyde portal bootstrap (GET main page) succeeds.</summary>
         private bool _wellRydePanelSessionActive;
@@ -152,6 +157,7 @@ namespace Hiatme_Tool_Suite_v3
             InitializeMCLoginHandler();
             InitializeHiatmeLoginHandler();
             InitializeComponent();;
+            ApplyComfortableStartupSize();
             InitializeScheduleBuilderTab();
             ApplyHiddenToolTabs();
             // Tabs added after the designer-baked ImageStream need their icon injected before the first tab strip paint.
@@ -230,6 +236,31 @@ namespace Hiatme_Tool_Suite_v3
             // Default login provider is set in the designer before SelectedIndexChanged is wired; sync saved credentials once at show.
             Shown += Form1_Shown_SyncLoginPanelFromSettings;
             Load += Form1_OnLoad_DeferRevampPaintHook;
+        }
+
+        /// <summary>
+        /// Launch at a comfortable size (1280×800) that fits typical laptops and 1080p desktops,
+        /// never exceeding the current monitor work area or going below <see cref="Form.MinimumSize"/>.
+        /// </summary>
+        private void ApplyComfortableStartupSize()
+        {
+            try
+            {
+                Rectangle work = Screen.PrimaryScreen?.WorkingArea
+                    ?? new Rectangle(0, 0, PreferredStartupWidth, PreferredStartupHeight);
+
+                int w = Math.Min(PreferredStartupWidth, work.Width - StartupWorkAreaMargin);
+                int h = Math.Min(PreferredStartupHeight, work.Height - StartupWorkAreaMargin);
+                w = Math.Max(w, MinimumSize.Width);
+                h = Math.Max(h, MinimumSize.Height);
+
+                ClientSize = new Size(w, h);
+                StartPosition = FormStartPosition.CenterScreen;
+            }
+            catch
+            {
+                ClientSize = new Size(PreferredStartupWidth, PreferredStartupHeight);
+            }
         }
 
         /// <summary>
@@ -723,10 +754,9 @@ namespace Hiatme_Tool_Suite_v3
                 SupeyDarkScrollBars.Apply(tabPage4);
         }
 
-        private SupeyButton _themePickerBtn;
         private ContextMenuStrip _themePickerMenu;
         private SupeyDrawerHost _navDrawer;
-        private SupeyHamburger _navHamburger;
+        private System.Windows.Forms.Panel _bodyShell;
         private System.Windows.Forms.Panel _contentPlate;
 
         /// <summary>
@@ -742,19 +772,31 @@ namespace Hiatme_Tool_Suite_v3
         {
             try
             {
-                // Inset tab content by the collapsed rail width (left), keep the existing top app-bar
-                // and frame insets.
-                Padding = new Padding(SupeyDrawer.CollapsedWidth, SupeyForm.TitleBarHeight, 3, 3);
+                // Body shell sits below the painted title bar (no title-bar child HWND — MaterialForm pattern).
+                Padding = new Padding(3, 0, 3, 3);
+                TitleLeadingGutterWidth = SupeyDrawer.CollapsedWidth;
 
-                // Opaque plate under the tab shell — if the native host hiccups on restore, this
-                // shows SurfaceBase instead of the desktop bleeding through.
+                if (hiatmeTabControl.Parent == this)
+                    Controls.Remove(hiatmeTabControl);
+
+                _bodyShell = new System.Windows.Forms.Panel
+                {
+                    Dock = DockStyle.None,
+                    Padding = new Padding(SupeyDrawer.CollapsedWidth, 0, 0, 0),
+                    BackColor = SupeyTheme.SurfaceBase,
+                };
+                Controls.Add(_bodyShell);
+                LayoutBodyShell();
+
                 _contentPlate = new System.Windows.Forms.Panel
                 {
                     Dock = DockStyle.Fill,
                     BackColor = SupeyTheme.SurfaceBase,
                 };
-                Controls.Add(_contentPlate);
-                Controls.SetChildIndex(_contentPlate, 0);
+                _bodyShell.Controls.Add(_contentPlate);
+
+                _contentPlate.Controls.Add(hiatmeTabControl);
+                hiatmeTabControl.Dock = DockStyle.Fill;
                 hiatmeTabControl.BringToFront();
 
                 // Drawer lives on a small opaque overlay so animation never repaints tab content.
@@ -763,18 +805,34 @@ namespace Hiatme_Tool_Suite_v3
 
                 hiatmeTabControl.DetachImageListForDrawer();
 
-                _navHamburger = new SupeyHamburger { Location = new Point(6, 17) };
-                _navHamburger.Click += (s, e) => _navDrawer?.Toggle();
-                Controls.Add(_navHamburger);
-                _navHamburger.BringToFront();
+                ShowNavMenuButton = true;
+                NavMenuClick += (s, e) => _navDrawer?.Toggle();
 
-                // Make room for the hamburger in the title text.
-                TitleLeftInset = 40;
+                RefreshTitleBarChrome();
             }
             catch
             {
                 // Navigation must never block startup; the tab control still works without it.
             }
+        }
+
+        /// <summary>Keep body content below the painted title bar — Dock+Margin does not reserve that space.</summary>
+        private void LayoutBodyShell()
+        {
+            if (_bodyShell == null) return;
+            var pad = Padding;
+            int top = SupeyForm.TitleBarHeight;
+            _bodyShell.SetBounds(
+                pad.Left,
+                top,
+                Math.Max(0, ClientSize.Width - pad.Left - pad.Right),
+                Math.Max(0, ClientSize.Height - top - pad.Bottom));
+        }
+
+        protected override void OnResize(EventArgs e)
+        {
+            base.OnResize(e);
+            LayoutBodyShell();
         }
 
         private void BuildSupeyThemePicker()
@@ -784,23 +842,14 @@ namespace Hiatme_Tool_Suite_v3
                 _themePickerMenu = new ContextMenuStrip { Renderer = new DarkContextMenuRenderer() };
                 RebuildThemeMenuItems();
 
-                _themePickerBtn = new SupeyButton
+                TitleBarThemeText = "Theme: " + SupeyThemeManager.Current.Name;
+                TitleBarThemeClick += (s, e) =>
                 {
-                    Kind = SupeyButton.Variant.Ghost,
-                    Text = "Theme: " + SupeyThemeManager.Current.Name,
-                    Size = new Size(190, 30),
-                    Anchor = AnchorStyles.Top | AnchorStyles.Right,
-                    ForeColor = SupeyTheme.TextPrimary,
+                    if (_themePickerMenu == null) return;
+                    var r = TitleBarThemeButtonBounds;
+                    if (r.IsEmpty) return;
+                    _themePickerMenu.Show(this, new Point(r.Left, r.Bottom));
                 };
-                _themePickerBtn.Location = new Point(Math.Max(8, ClientSize.Width - _themePickerBtn.Width - 150), 17);
-                _themePickerBtn.Click += (s, e) =>
-                {
-                    if (_themePickerMenu != null)
-                        _themePickerMenu.Show(_themePickerBtn, new Point(0, _themePickerBtn.Height));
-                };
-
-                Controls.Add(_themePickerBtn);
-                _themePickerBtn.BringToFront();
             }
             catch
             {
@@ -850,10 +899,10 @@ namespace Hiatme_Tool_Suite_v3
                 // Charts paint their own surface/plot/axes that the color-remap walk can't reach.
                 ApplyTimeCorrectionChartTheme();
 
-                if (_themePickerBtn != null && !_themePickerBtn.IsDisposed)
+                if (_themePickerMenu != null)
                 {
-                    _themePickerBtn.Text = "Theme: " + SupeyThemeManager.Current.Name;
-                    _themePickerBtn.ForeColor = SupeyTheme.TextPrimary;
+                    TitleBarThemeText = "Theme: " + SupeyThemeManager.Current.Name;
+                    RefreshTitleBarChrome();
                 }
                 RebuildThemeMenuItems();
 
