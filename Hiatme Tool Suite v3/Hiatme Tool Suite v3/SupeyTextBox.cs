@@ -2,6 +2,7 @@ using System;
 using System.ComponentModel;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace Hiatme_Tool_Suite_v3
@@ -21,6 +22,10 @@ namespace Hiatme_Tool_Suite_v3
         private const int ActivationH = 2;
         private const int TallHeight = 58;
         private const int ShortHeight = 36;
+        private const int EM_SETCUEBANNER = 0x1501;
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, string lParam);
 
         private readonly TextBox _inner;
         private readonly Timer _focusAnimTimer;
@@ -57,9 +62,10 @@ namespace Hiatme_Tool_Suite_v3
             TabStop = false;
             Controls.Add(_inner);
 
-            _inner.GotFocus += (_, __) => { _focused = true; StartFocusAnim(); UpdateRects(); Invalidate(); };
-            _inner.LostFocus += (_, __) => { _focused = false; StartFocusAnim(); UpdateRects(); Invalidate(); };
-            _inner.TextChanged += (_, __) => { OnTextChanged(EventArgs.Empty); UpdateRects(); Invalidate(); };
+            _inner.HandleCreated += (_, __) => SyncInnerEditorState();
+            _inner.GotFocus += (_, __) => { _focused = true; SyncInnerEditorState(); StartFocusAnim(); Invalidate(); };
+            _inner.LostFocus += (_, __) => { _focused = false; SyncInnerEditorState(); StartFocusAnim(); Invalidate(); };
+            _inner.TextChanged += (_, __) => { OnTextChanged(EventArgs.Empty); SyncInnerEditorState(); Invalidate(); };
             _inner.KeyDown += (s, e) => OnKeyDown(e);
             _inner.KeyPress += (s, e) => OnKeyPress(e);
             _inner.KeyUp += (s, e) => OnKeyUp(e);
@@ -69,7 +75,7 @@ namespace Hiatme_Tool_Suite_v3
             // After _inner exists — Font assignment triggers OnFontChanged.
             Font = SupeyTheme.BodyFont;
             UpdateHeight();
-            UpdateRects();
+            SyncInnerEditorState();
         }
 
         private void StartFocusAnim()
@@ -100,7 +106,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 if (_inner == null) return;
                 _inner.Text = value ?? string.Empty;
-                UpdateRects();
+                SyncInnerEditorState();
                 Invalidate();
             }
         }
@@ -108,7 +114,7 @@ namespace Hiatme_Tool_Suite_v3
         public string Hint
         {
             get => _hint;
-            set { _hint = value ?? string.Empty; UpdateRects(); Invalidate(); }
+            set { _hint = value ?? string.Empty; SyncInnerEditorState(); Invalidate(); }
         }
 
         public Image LeadingIcon
@@ -151,13 +157,23 @@ namespace Hiatme_Tool_Suite_v3
         public bool ReadOnly
         {
             get => _inner.ReadOnly;
-            set => _inner.ReadOnly = value;
+            set
+            {
+                if (_inner == null) return;
+                _inner.ReadOnly = value;
+                SyncInnerEditorState();
+            }
         }
 
         public new bool Enabled
         {
             get => base.Enabled;
-            set { base.Enabled = value; if (_inner != null) _inner.Enabled = value; Invalidate(); }
+            set
+            {
+                base.Enabled = value;
+                SyncInnerEditorState();
+                Invalidate();
+            }
         }
 
         public override Font Font
@@ -263,7 +279,7 @@ namespace Hiatme_Tool_Suite_v3
 
             bool hasHint = !string.IsNullOrEmpty(_hint);
             bool userText = !string.IsNullOrEmpty(Text);
-            bool floatHint = hasHint && _useTallSize && (_focused || userText);
+            bool floatHint = hasHint && _useTallSize && userText;
 
             var hintRect = new Rectangle(_leftPad, HintSmallY, Width - _leftPad - _rightPad, HintSmallH);
 
@@ -284,11 +300,21 @@ namespace Hiatme_Tool_Suite_v3
                 TextRenderer.DrawText(g, _hint, SupeyTheme.CaptionFont, hintRect, hintColor,
                     TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
             }
-            else if (hasHint && !userText)
+        }
+
+        /// <summary>Keep the inner editor visible; parent <see cref="Control.Visible"/> handles show/hide.</summary>
+        private void SyncInnerEditorState()
+        {
+            if (_inner == null) return;
+
+            _inner.Visible = true;
+            _inner.Enabled = Enabled && !ReadOnly;
+            UpdateRects();
+
+            if (_inner.IsHandleCreated)
             {
-                var placeRect = new Rectangle(_leftPad, 0, Width - _leftPad - _rightPad, _lineY);
-                TextRenderer.DrawText(g, _hint, Font, placeRect, SupeyTheme.TextMuted,
-                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+                bool showCue = string.IsNullOrEmpty(Text) && !string.IsNullOrEmpty(_hint);
+                SendMessage(_inner.Handle, EM_SETCUEBANNER, (IntPtr)1, showCue ? _hint : string.Empty);
             }
         }
 
@@ -307,7 +333,7 @@ namespace Hiatme_Tool_Suite_v3
             _rightPad = _trailingIcon != null ? RightPadding + IconSize : RightPadding;
 
             bool hasHint = !string.IsNullOrEmpty(_hint);
-            bool floatHint = hasHint && _useTallSize && (_focused || !string.IsNullOrEmpty(Text));
+            bool floatHint = hasHint && _useTallSize && !string.IsNullOrEmpty(Text);
 
             int textY = floatHint ? 22 : Math.Max(0, (_lineY / 2) - (FontHeight / 2));
             _inner.SetBounds(_leftPad, textY, Math.Max(20, Width - _leftPad - _rightPad), FontHeight);

@@ -222,7 +222,7 @@ namespace Hiatme_Tool_Suite_v3
 
             bool hasHint = !string.IsNullOrEmpty(_hint);
             bool hasValue = SelectedIndex >= 0 && !string.IsNullOrEmpty(Text);
-            bool floatHint = hasHint && _useTallSize && (DroppedDown || _focused || hasValue);
+            bool floatHint = hasHint && _useTallSize && hasValue;
 
             var hintRect = new Rectangle(TextPad, floatHint ? HintSmallY : 0, Width - TextPad - RightPadding - 20, floatHint ? HintSmallH : _lineY);
 
