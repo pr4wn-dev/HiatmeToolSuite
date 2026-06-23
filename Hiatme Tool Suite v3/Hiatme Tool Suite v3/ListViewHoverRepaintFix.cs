@@ -35,13 +35,27 @@ namespace Hiatme_Tool_Suite_v3
             _attached[lv] = new ListViewHoverRepaintFix(lv);
         }
 
-        private void OnDisposed(object sender, EventArgs e)
+        public static void Detach(ListView lv)
         {
-            _attached.Remove(_lv);
+            if (lv == null) return;
+            if (!_attached.TryGetValue(lv, out var fix)) return;
+            fix.Detach();
+            _attached.Remove(lv);
+        }
+
+        private void Detach()
+        {
             _lv.MouseMove -= OnMouseMove;
             _lv.Invalidated -= OnInvalidated;
             _lv.ColumnWidthChanged -= OnColumnWidthChanged;
             _lv.Disposed -= OnDisposed;
+            _hoverRepaintedRows.Clear();
+        }
+
+        private void OnDisposed(object sender, EventArgs e)
+        {
+            Detach();
+            _attached.Remove(_lv);
         }
 
         private void OnInvalidated(object sender, InvalidateEventArgs e)

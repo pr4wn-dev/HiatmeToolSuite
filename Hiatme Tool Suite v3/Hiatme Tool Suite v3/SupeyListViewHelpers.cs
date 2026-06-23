@@ -67,7 +67,7 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (listView == null) return;
             EnableDoubleBuffer(listView);
-            if (listView.OwnerDraw)
+            if (listView.OwnerDraw && !(listView is SupeyListView supeyList && supeyList.SuppressHoverRepaintFix))
                 ListViewHoverRepaintFix.Attach(listView);
             if (listView.IsHandleCreated)
                 ApplyNativeExtendedStyles(listView);

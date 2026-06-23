@@ -862,11 +862,15 @@ namespace Hiatme_Tool_Suite_v3
                 billinglistview.ForeColor = SupeyTheme.ListText;
                 billinglistview.Font = ListViewOwnerDrawFonts.Cell;
                 billinglistview.BorderStyle = System.Windows.Forms.BorderStyle.None;
-                billinglistview.GridLines = true;
+                billinglistview.GridLines = false;
                 billinglistview.FullRowSelect = true;
                 billinglistview.HideSelection = false;
+                billinglistview.HoverSelection = false;
                 billinglistview.HeaderStyle = ColumnHeaderStyle.Clickable;
                 billinglistview.View = System.Windows.Forms.View.Details;
+                billinglistview.PostPaintItems = DrawBillingListViewEmptyGrid;
+                billinglistview.SuppressHotTracking = true;
+                billinglistview.SuppressHoverRepaintFix = true;
             }
 
             SupeyChartTheme.Apply(pgchart);
@@ -6133,6 +6137,37 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>
         /// Fills <see cref="billinglistview"/> from <see cref="WRBillingTool.WRTripList"/> / <see cref="WRBillingTool.WRCalculations"/>.
         /// </summary>
+        private static string DisplayWellRydeText(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return value ?? string.Empty;
+
+            string trimmed = value.Trim();
+            bool hasLetter = trimmed.Any(char.IsLetter);
+            bool hasLower = trimmed.Any(char.IsLower);
+            if (!hasLetter || hasLower)
+                return value;
+
+            string display = CultureInfo.CurrentCulture.TextInfo.ToTitleCase(trimmed.ToLower(CultureInfo.CurrentCulture));
+            string[] tokens = display.Split(' ');
+            for (int i = 0; i < tokens.Length; i++)
+            {
+                string token = tokens[i].Trim(',', '.', ';', ':', '#');
+                if (string.Equals(token, "Ne", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(token, "Nw", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(token, "Se", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(token, "Sw", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(token, "Us", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(token, "Po", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(token, "Llc", StringComparison.OrdinalIgnoreCase))
+                {
+                    tokens[i] = tokens[i].Replace(token, token.ToUpperInvariant());
+                }
+            }
+
+            return string.Join(" ", tokens);
+        }
+
         private void BindBillingListViewFromWrTool(decimal totalbilled, bool billinprogress, bool billexrta)
         {
             if (wrBillingTool?.WRTripList == null || wrBillingTool.WRCalculations == null)
@@ -6141,6 +6176,7 @@ namespace Hiatme_Tool_Suite_v3
             try
             {
                 Dictionary<WRDownloadedTrip, WRDownloadedTrip> mismatchtrips = wrBillingTool.FindTripPriceMismatches();
+                billinglistview.BeginUpdate();
                 billinglistview.Items.Clear();
                 foreach (WRDownloadedTrip trip in wrBillingTool.WRTripList)
                 {
@@ -6155,17 +6191,17 @@ namespace Hiatme_Tool_Suite_v3
 
                     ListViewItem item = new ListViewItem();
                     item.Tag = trip;
-                    item.Text = trip.Status;
+                    item.Text = DisplayWellRydeText(trip.Status);
                     item.SubItems.Add(trip.TripNumber);
-                    item.SubItems.Add(alertseries);
-                    item.SubItems.Add(trip.ClientName);
-                    item.SubItems.Add(trip.DriverName);
+                    item.SubItems.Add(DisplayWellRydeText(alertseries));
+                    item.SubItems.Add(DisplayWellRydeText(trip.ClientName));
+                    item.SubItems.Add(DisplayWellRydeText(trip.DriverName));
                     item.SubItems.Add(FormatTimeOnly(trip.PUTime));
                     item.SubItems.Add(FormatTimeOnly(trip.DOTime));
-                    item.SubItems.Add(trip.PUStreet);
-                    item.SubItems.Add(trip.PUCity);
-                    item.SubItems.Add(trip.DOStreet);
-                    item.SubItems.Add(trip.DOCITY);
+                    item.SubItems.Add(DisplayWellRydeText(trip.PUStreet));
+                    item.SubItems.Add(DisplayWellRydeText(trip.PUCity));
+                    item.SubItems.Add(DisplayWellRydeText(trip.DOStreet));
+                    item.SubItems.Add(DisplayWellRydeText(trip.DOCITY));
                     item.SubItems.Add(trip.Miles);
                     item.SubItems.Add("$" + trip.Price);
                     item.SubItems.Add(trip.References);
@@ -6176,6 +6212,8 @@ namespace Hiatme_Tool_Suite_v3
                             item.BackColor = Color.OrangeRed;
                     }
                 }
+                billinglistview.EndUpdate();
+                billinglistview.ResetHotState();
                 if (_billingSubmitPending && _lastBillingSubmitCount > 0)
                 {
                     SetBillingStatusLabel(BuildBillingSubmitStatusMessage(billed_trips_counter));
@@ -7634,6 +7672,48 @@ namespace Hiatme_Tool_Suite_v3
                || ReferenceEquals(listView, tcbatchelinkslv)
                || ReferenceEquals(listView, billinglistview);
 
+        private static Color BlendColors(Color from, Color to, double amountTo)
+        {
+            amountTo = Math.Max(0d, Math.Min(1d, amountTo));
+            double amountFrom = 1d - amountTo;
+            return Color.FromArgb(
+                (int)((from.R * amountFrom) + (to.R * amountTo)),
+                (int)((from.G * amountFrom) + (to.G * amountTo)),
+                (int)((from.B * amountFrom) + (to.B * amountTo)));
+        }
+
+        private static Color BillingListGridColor()
+            => BlendColors(SupeyTheme.ListBody, SupeyTheme.ListGrid, 0.36d);
+
+        private void DrawBillingListViewEmptyGrid(Graphics g)
+        {
+            if (g == null || billinglistview == null || billinglistview.IsDisposed || billinglistview.Columns.Count == 0)
+                return;
+
+            int headerH = Math.Max(20, TextRenderer.MeasureText("Status", ListViewOwnerDrawFonts.Header).Height + 8);
+            int rowH = billinglistview.Items.Count > 0
+                ? Math.Max(16, billinglistview.Items[0].Bounds.Height)
+                : Math.Max(18, TextRenderer.MeasureText("Ag", billinglistview.Font).Height + 5);
+
+            int contentW = 0;
+            foreach (ColumnHeader col in billinglistview.Columns)
+                contentW += col.Width;
+            contentW = Math.Max(contentW, billinglistview.ClientSize.Width);
+
+            using (var pen = new Pen(BillingListGridColor(), 1f))
+            {
+                int x = 0;
+                foreach (ColumnHeader col in billinglistview.Columns)
+                {
+                    x += col.Width;
+                    g.DrawLine(pen, x - 1, headerH, x - 1, billinglistview.ClientSize.Height - 1);
+                }
+
+                for (int y = headerH + rowH - 1; y < billinglistview.ClientSize.Height; y += rowH)
+                    g.DrawLine(pen, 0, y, contentW - 1, y);
+            }
+        }
+
         private void listView_DrawColumnHeader(object sender, DrawListViewColumnHeaderEventArgs e)
         {
             ListView listView = (ListView)sender;
@@ -7704,6 +7784,14 @@ namespace Hiatme_Tool_Suite_v3
         {
             ListView listView = (ListView)sender;
             bool themed = UsesSupeyListChrome(listView);
+            if (ReferenceEquals(listView, billinglistview) && listView.View == System.Windows.Forms.View.Details)
+            {
+                // In Details owner-draw, Win32 can repaint only column 0 on hover. Painting the
+                // whole row here wipes subitem text; paint Billing cells in DrawSubItem instead.
+                e.DrawDefault = false;
+                return;
+            }
+
             if ((e.State & ListViewItemStates.Selected) != 0)
             {
                 if (listView.Focused && e.Item.Selected)
@@ -7774,12 +7862,32 @@ namespace Hiatme_Tool_Suite_v3
                     align = TextFormatFlags.Left;
                     break;
             }
-            bool selected = (e.ItemState & ListViewItemStates.Selected) != 0 && listView.Focused;
+            bool selected = ReferenceEquals(listView, billinglistview)
+                ? (e.Item.Selected && listView.Focused)
+                : ((e.ItemState & ListViewItemStates.Selected) != 0 && listView.Focused);
+            if (ReferenceEquals(listView, billinglistview))
+            {
+                Color bg = selected ? SupeyTheme.ListSelected : e.Item.BackColor;
+                if (bg == Color.Empty || bg == Color.Transparent)
+                    bg = SupeyTheme.ListBody;
+                using (var rowBrush = new SolidBrush(bg))
+                    e.Graphics.FillRectangle(rowBrush, e.Bounds);
+            }
+
             Color textColor = themed
                 ? (selected ? SupeyTheme.ListSelectedText : SupeyTheme.ListText)
                 : Color.White;
             TextRenderer.DrawText(e.Graphics, e.SubItem.Text, ListViewOwnerDrawFonts.Cell, bounds, textColor,
                 align | TextFormatFlags.SingleLine | TextFormatFlags.GlyphOverhangPadding | TextFormatFlags.VerticalCenter | TextFormatFlags.WordEllipsis);
+
+            if (ReferenceEquals(listView, billinglistview))
+            {
+                using (var gridPen = new Pen(BillingListGridColor(), 1f))
+                {
+                    e.Graphics.DrawLine(gridPen, e.Bounds.Right - 1, e.Bounds.Top, e.Bounds.Right - 1, e.Bounds.Bottom - 1);
+                    e.Graphics.DrawLine(gridPen, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right - 1, e.Bounds.Bottom - 1);
+                }
+            }
         }
         private void ListView_SizeChanged(object sender, EventArgs e)
         {

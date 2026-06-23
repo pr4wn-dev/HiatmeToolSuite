@@ -8,7 +8,7 @@ namespace Hiatme_Tool_Suite_v3
     /// </summary>
     internal static class ListViewOwnerDrawFonts
     {
-        public static readonly Font Cell = new Font("Ariel", 10f, FontStyle.Regular);
-        public static readonly Font Header = new Font("Archivo Medium", 11f, FontStyle.Regular);
+        public static readonly Font Cell = new Font("Segoe UI", 9.5f, FontStyle.Regular);
+        public static readonly Font Header = new Font("Segoe UI Semibold", 9.25f, FontStyle.Regular);
     }
 }
