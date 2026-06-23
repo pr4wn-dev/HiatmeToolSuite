@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Windows.Forms;
 
 namespace Hiatme_Tool_Suite_v3
 {
@@ -195,6 +196,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 Name = "Black & Lime",
                 Level = 0,
+                LoginBackgroundKey = "classic-black-lime",
                 ListGridLine = Color.FromArgb(47, 47, 47),
             };
         }
@@ -205,6 +207,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 Name = "Midnight",
                 Level = 0,
+                LoginBackgroundKey = "classic-midnight",
                 SurfaceBase = Color.FromArgb(15, 18, 28),
                 Surface = Color.FromArgb(22, 26, 38),
                 SurfaceElevated = Color.FromArgb(30, 35, 50),
@@ -236,6 +239,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 Name = "Graphite",
                 Level = 0,
+                LoginBackgroundKey = "classic-graphite",
                 SurfaceBase = Color.FromArgb(22, 22, 24),
                 Surface = Color.FromArgb(30, 30, 33),
                 SurfaceElevated = Color.FromArgb(40, 40, 44),
@@ -270,6 +274,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 Name = "Slate",
                 Level = 0,
+                LoginBackgroundKey = "classic-slate",
                 SurfaceBase = Color.FromArgb(20, 24, 26),
                 Surface = Color.FromArgb(28, 33, 36),
                 SurfaceElevated = Color.FromArgb(37, 43, 47),
@@ -293,6 +298,103 @@ namespace Hiatme_Tool_Suite_v3
                 ListSelectedText = Color.FromArgb(246, 250, 249),
                 ListText = Color.FromArgb(222, 229, 229),
             };
+        }
+    }
+
+    /// <summary>
+    /// Loads per-theme login background PNGs from <c>Resources/login_backgrounds/</c> beside the EXE.
+    /// </summary>
+    internal static class SupeyLoginBackgroundManager
+    {
+        private static readonly Dictionary<string, Image> Cache =
+            new Dictionary<string, Image>(StringComparer.OrdinalIgnoreCase);
+
+        private static Image _appliedImage;
+
+        public static string ResolveKey(SupeyThemePalette palette)
+        {
+            if (palette == null)
+                return null;
+            if (!string.IsNullOrWhiteSpace(palette.LoginBackgroundKey))
+                return palette.LoginBackgroundKey.Trim();
+            if (palette.Level <= 0)
+                return ClassicKeyFromName(palette.Name);
+            return ThemeKey(palette.Level, palette.Index);
+        }
+
+        public static string ThemeKey(int level, int index)
+            => "L" + level.ToString("D2") + "-" + index.ToString("D2");
+
+        public static string ClassicKeyFromName(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                return "classic-black-lime";
+            string n = name.ToLowerInvariant();
+            if (n.Contains("midnight")) return "classic-midnight";
+            if (n.Contains("graphite")) return "classic-graphite";
+            if (n.Contains("slate")) return "classic-slate";
+            return "classic-black-lime";
+        }
+
+        public static Image GetImage(string key)
+        {
+            if (string.IsNullOrWhiteSpace(key))
+                return null;
+
+            if (Cache.TryGetValue(key, out var cached))
+                return cached;
+
+            string path = Path.Combine(BackgroundDirectory, key + ".png");
+            if (!File.Exists(path))
+                return null;
+
+            try
+            {
+                using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+                {
+                    var img = Image.FromStream(fs);
+                    Cache[key] = img;
+                    return img;
+                }
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        public static void ApplyToPictureBox(PictureBox pictureBox, SupeyThemePalette palette, Image fallback = null)
+        {
+            if (pictureBox == null || pictureBox.IsDisposed)
+                return;
+
+            string key = ResolveKey(palette);
+            Image next = GetImage(key) ?? fallback;
+            if (next == null)
+                return;
+
+            if (!ReferenceEquals(pictureBox.Image, next))
+            {
+                if (ReferenceEquals(pictureBox.Image, _appliedImage))
+                    pictureBox.Image = null;
+                pictureBox.Image = next;
+                _appliedImage = next;
+            }
+
+            pictureBox.Invalidate();
+        }
+
+        public static string BackgroundDirectory =>
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", "login_backgrounds");
+
+        public static void ClearCache()
+        {
+            foreach (var img in Cache.Values)
+            {
+                try { img?.Dispose(); } catch { }
+            }
+            Cache.Clear();
+            _appliedImage = null;
         }
     }
 }

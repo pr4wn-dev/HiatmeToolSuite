@@ -24,6 +24,9 @@ namespace Hiatme_Tool_Suite_v3
 
         public bool IsGenerated;
 
+        /// <summary>Filename stem under Resources/login_backgrounds/ (no extension).</summary>
+        public string LoginBackgroundKey;
+
         // ── Surfaces ─────────────────────────────────────────────────────────────
         public Color SurfaceBase = Color.FromArgb(24, 24, 24);
         public Color Surface = Color.FromArgb(32, 32, 32);

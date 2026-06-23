@@ -87,6 +87,7 @@ namespace Hiatme_Tool_Suite_v3
         private bool _revampFontLoadAttempted;
         private Font _loginWatermarkTopFont;
         private Font _loginWatermarkBottomFont;
+        private Image _loginBackgroundFallback;
         /// <summary>Unmanaged copy of embedded font bytes; must stay allocated until <see cref="_revampFontCollection"/> is disposed (GDI+ requirement).</summary>
         private IntPtr _revampEmbeddedFontAlloc;
 
@@ -3662,6 +3663,15 @@ namespace Hiatme_Tool_Suite_v3
             if (pb == null)
                 return;
 
+            try
+            {
+                DrawLoginBackgroundScrim(e.Graphics, pb);
+            }
+            catch
+            {
+                // ignore scrim failures
+            }
+
             Region clipRestore = ApplyLoginPanelPictureBoxClip(e.Graphics, pb);
             try
             {
@@ -4181,6 +4191,47 @@ namespace Hiatme_Tool_Suite_v3
             {
                 LayoutLoginFormFields();
                 LayoutLoginPanel();
+            }
+
+            ApplyLoginBackground();
+        }
+
+        private void ApplyLoginBackground()
+        {
+            if (pictureBox1 == null || pictureBox1.IsDisposed)
+                return;
+
+            if (_loginBackgroundFallback == null && pictureBox1.Image != null)
+            {
+                try { _loginBackgroundFallback = new Bitmap(pictureBox1.Image); }
+                catch { /* keep embedded image as-is */ }
+            }
+
+            SupeyLoginBackgroundManager.ApplyToPictureBox(
+                pictureBox1, SupeyThemeManager.Current, _loginBackgroundFallback);
+        }
+
+        private static void DrawLoginBackgroundScrim(Graphics g, PictureBox pb)
+        {
+            if (g == null || pb == null)
+                return;
+
+            var palette = SupeyThemeManager.Current;
+            int tintAlpha = palette != null && palette.Level >= 22 ? 68 : palette != null && palette.Level >= 14 ? 82 : 96;
+            using (var tint = new SolidBrush(Color.FromArgb(tintAlpha, SupeyTheme.SurfaceBase)))
+                g.FillRectangle(tint, pb.ClientRectangle);
+
+            using (var path = new GraphicsPath())
+            {
+                path.AddRectangle(pb.ClientRectangle);
+                using (var vignette = new PathGradientBrush(path))
+                {
+                    vignette.CenterColor = Color.FromArgb(0, 0, 0, 0);
+                    vignette.SurroundColors = new[] { Color.FromArgb(120, 0, 0, 0) };
+                    vignette.CenterPoint = new PointF(pb.ClientSize.Width * 0.52f, pb.ClientSize.Height * 0.42f);
+                    vignette.FocusScales = new PointF(0.78f, 0.72f);
+                    g.FillRectangle(vignette, pb.ClientRectangle);
+                }
             }
         }
 

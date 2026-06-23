@@ -79,6 +79,7 @@ namespace Hiatme_Tool_Suite_v3
                 Level = level,
                 Index = index,
                 IsGenerated = true,
+                LoginBackgroundKey = SupeyLoginBackgroundManager.ThemeKey(level, index),
                 SurfaceBase = surfaceBase,
                 Surface = surface,
                 SurfaceElevated = surfaceElevated,

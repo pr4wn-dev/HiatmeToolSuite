@@ -505,12 +505,16 @@
     <Compile Include="SupeyCard.cs">
       <SubType>Component</SubType>
     </Compile>
-    <Compile Include="SupeyStatusLight.cs" />
+    <Compile Include="SupeyStatusLight.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="SupeyIconTint.cs" />
     <Compile Include="SupeyDropDownField.cs">
       <SubType>Component</SubType>
     </Compile>
-    <Compile Include="SupeyFieldDropDownPopup.cs" />
+    <Compile Include="SupeyFieldDropDownPopup.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="SupeyComboBox.cs">
       <SubType>Component</SubType>
     </Compile>
@@ -624,6 +628,9 @@
     </None>
   </ItemGroup>
   <ItemGroup>
+    <Content Include="Resources\login_backgrounds\*.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <None Include="Resources\companycode.png" />
   </ItemGroup>
   <ItemGroup>
