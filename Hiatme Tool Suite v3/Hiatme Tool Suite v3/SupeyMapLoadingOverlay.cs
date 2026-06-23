@@ -7,22 +7,17 @@ using System.Windows.Forms;
 namespace Hiatme_Tool_Suite_v3
 {
     /// <summary>
-    /// Single-surface map loading veil — opaque map backdrop, one dot lit at a time, status text.
-    /// No child controls (avoids WinForms transparency / z-order artifacts over GMap).
+    /// Single-surface loading veil — themed backdrop, dot spinner, status text.
+    /// No child controls (avoids WinForms transparency / z-order artifacts over maps and lists).
     /// </summary>
     internal sealed class SupeyMapLoadingOverlay : Control
     {
-        public static readonly Color MapBackdrop = Color.FromArgb(30, 30, 30);
-
         private const int DotCount = 8;
         private const int SpinnerDiameter = 52;
-        private static readonly Color DimDot = Color.FromArgb(72, 72, 72);
-        private static readonly Color LitDot = Color.FromArgb(215, 218, 222);
-        private static readonly Font MessageFont = new Font("Segoe UI", 9.5f);
 
         private readonly Timer _timer;
         private int _tick;
-        private string _message = "Loading map data…";
+        private string _message = "Loading…";
 
         public SupeyMapLoadingOverlay()
         {
@@ -33,7 +28,7 @@ namespace Hiatme_Tool_Suite_v3
                     | ControlStyles.ResizeRedraw,
                 true);
 
-            BackColor = MapBackdrop;
+            ApplyTheme();
             Visible = false;
             TabStop = false;
 
@@ -43,6 +38,8 @@ namespace Hiatme_Tool_Suite_v3
                 _tick = (_tick + 1) % DotCount;
                 Invalidate();
             };
+
+            SupeyThemeManager.ThemeChanged += OnThemeChanged;
         }
 
         public string Message
@@ -78,9 +75,40 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        /// <summary>Sync backdrop to the active Supey theme and repaint.</summary>
+        public void ApplyTheme()
+        {
+            BackColor = ResolveBackdrop();
+            Invalidate();
+        }
+
+        private void OnThemeChanged(object sender, EventArgs e)
+        {
+            if (IsDisposed)
+                return;
+            if (InvokeRequired)
+            {
+                try { BeginInvoke(new Action(ApplyTheme)); } catch { }
+                return;
+            }
+            ApplyTheme();
+        }
+
+        private static Color ResolveBackdrop()
+            => Blend(SupeyTheme.SurfaceBase, SupeyTheme.SurfaceHeader, 0.72f);
+
+        private static Color ResolveDimDot()
+            => Blend(SupeyTheme.TextMuted, SupeyTheme.SurfaceBase, 0.42f);
+
+        private static Color ResolveLitDot()
+            => SupeyTheme.TextSecondary;
+
+        private static Font ResolveMessageFont()
+            => SupeyTheme.CaptionFont ?? SupeyTheme.BodyFont;
+
         protected override void OnPaintBackground(PaintEventArgs pevent)
         {
-            using (var brush = new SolidBrush(MapBackdrop))
+            using (var brush = new SolidBrush(ResolveBackdrop()))
                 pevent.Graphics.FillRectangle(brush, ClientRectangle);
         }
 
@@ -90,12 +118,14 @@ namespace Hiatme_Tool_Suite_v3
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
 
-            using (var backdrop = new SolidBrush(MapBackdrop))
-                g.FillRectangle(backdrop, ClientRectangle);
+            var backdrop = ResolveBackdrop();
+            using (var backdropBrush = new SolidBrush(backdrop))
+                g.FillRectangle(backdropBrush, ClientRectangle);
 
             int cx = Width / 2;
             int cy = Height / 2;
-            int textHeight = (int)Math.Ceiling(g.MeasureString(_message, MessageFont, Width).Height);
+            var messageFont = ResolveMessageFont();
+            int textHeight = (int)Math.Ceiling(g.MeasureString(_message, messageFont, Width).Height);
             int blockHeight = SpinnerDiameter + 10 + textHeight;
             int spinnerCy = cy - blockHeight / 2 + SpinnerDiameter / 2;
 
@@ -110,7 +140,7 @@ namespace Hiatme_Tool_Suite_v3
                     LineAlignment = StringAlignment.Near,
                     Trimming = StringTrimming.EllipsisCharacter,
                 };
-                g.DrawString(_message, MessageFont, brush, textRect, format);
+                g.DrawString(_message, messageFont, brush, textRect, format);
             }
         }
 
@@ -118,12 +148,14 @@ namespace Hiatme_Tool_Suite_v3
         {
             float orbit = SpinnerDiameter / 2f - 8f;
             int active = _tick % DotCount;
+            var dimDot = ResolveDimDot();
+            var litDot = ResolveLitDot();
 
             for (int i = 0; i < DotCount; i++)
             {
                 bool lit = i == active;
                 float dotSize = lit ? 7f : 5.5f;
-                Color color = lit ? LitDot : DimDot;
+                Color color = lit ? litDot : dimDot;
 
                 double angle = (i * (Math.PI * 2 / DotCount)) - (Math.PI / 2);
                 float x = cx + (float)(Math.Cos(angle) * orbit);
@@ -134,10 +166,22 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        private static Color Blend(Color a, Color b, float t)
+        {
+            t = Math.Max(0f, Math.Min(1f, t));
+            return Color.FromArgb(
+                (int)(a.R + (b.R - a.R) * t),
+                (int)(a.G + (b.G - a.G) * t),
+                (int)(a.B + (b.B - a.B) * t));
+        }
+
         protected override void Dispose(bool disposing)
         {
             if (disposing)
+            {
+                SupeyThemeManager.ThemeChanged -= OnThemeChanged;
                 _timer?.Dispose();
+            }
             base.Dispose(disposing);
         }
     }

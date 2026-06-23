@@ -38,6 +38,7 @@ namespace Hiatme_Tool_Suite_v3
         private DateTime _tripDate;
         private SupeyMapLoadingOverlay _loadingOverlay;
         private int _loadingDepth;
+        private bool _loadingControlAddedHooked;
 
         public EmployeeStatManager(TabPage formtabpage, MCLoginHandler mclh)
         {
@@ -468,8 +469,22 @@ namespace Hiatme_Tool_Suite_v3
 
             if (_loadingOverlay == null || _loadingOverlay.IsDisposed)
             {
-                _loadingOverlay = new SupeyMapLoadingOverlay { Visible = false };
+                _loadingOverlay = new SupeyMapLoadingOverlay { Visible = false, Dock = DockStyle.Fill };
                 tabPage.Resize += (s, e) => SyncLocalLoadingOverlayBounds();
+            }
+            else if (_loadingOverlay.Dock != DockStyle.Fill)
+            {
+                _loadingOverlay.Dock = DockStyle.Fill;
+            }
+
+            if (!_loadingControlAddedHooked)
+            {
+                _loadingControlAddedHooked = true;
+                tabPage.ControlAdded += (s, e) =>
+                {
+                    if (_loadingDepth > 0)
+                        RefreshLocalLoadingZOrder();
+                };
             }
 
             if (!ReferenceEquals(_loadingOverlay.Parent, tabPage))
@@ -483,7 +498,18 @@ namespace Hiatme_Tool_Suite_v3
             if (tabPage == null || tabPage.IsDisposed || _loadingOverlay == null || _loadingOverlay.IsDisposed)
                 return;
 
-            _loadingOverlay.Bounds = tabPage.ClientRectangle;
+            if (_loadingOverlay.Dock != DockStyle.Fill)
+                _loadingOverlay.Bounds = tabPage.ClientRectangle;
+
+            RefreshLocalLoadingZOrder();
+        }
+
+        private void RefreshLocalLoadingZOrder()
+        {
+            if (_loadingDepth <= 0 || _loadingOverlay == null || _loadingOverlay.IsDisposed || !_loadingOverlay.Visible)
+                return;
+
+            _loadingOverlay.BringToFront();
         }
 
         private void ShowLocalLoading(string message = null)
@@ -508,7 +534,7 @@ namespace Hiatme_Tool_Suite_v3
                 SyncLocalLoadingOverlayBounds();
                 _loadingOverlay.Visible = true;
                 _loadingOverlay.IsAnimating = true;
-                _loadingOverlay.BringToFront();
+                RefreshLocalLoadingZOrder();
             }
         }
 
@@ -529,7 +555,7 @@ namespace Hiatme_Tool_Suite_v3
                 return;
 
             _loadingOverlay.Message = message.Trim();
-            _loadingOverlay.BringToFront();
+            RefreshLocalLoadingZOrder();
         }
 
         private void HideLocalLoading()

@@ -1403,11 +1403,14 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
+                ShowTabLoadingOverlay(tabPage6, "Loading schedule…");
+
                 try
 
                 {
 
                     SetScheduleBuilderStatus("Loading schedule…");
+                    UpdateTabLoadingOverlayMessage(tabPage6, "Loading schedule…");
 
                     ScheduleBuilderLoadResult load;
 
@@ -1609,6 +1612,8 @@ namespace Hiatme_Tool_Suite_v3
 
                 {
 
+                    HideTabLoadingOverlay(tabPage6, force: true);
+
                     EnableScheduleBuilderInputs(true);
 
                 }
@@ -1678,9 +1683,16 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-            void OnBuildStatus(string text) => SetScheduleBuilderStatus(text);
+            void OnBuildStatus(string text)
+            {
+                SetScheduleBuilderStatus(text);
+                if (!string.IsNullOrWhiteSpace(text))
+                    UpdateTabLoadingOverlayMessage(tabPage6, text);
+            }
 
 
+
+            ShowTabLoadingOverlay(tabPage6, "Checking connections…");
 
             try
 
@@ -1834,6 +1846,8 @@ namespace Hiatme_Tool_Suite_v3
                 if (fsbuilder != null)
 
                     fsbuilder.UpdateLoadingScreen -= OnBuildStatus;
+
+                HideTabLoadingOverlay(tabPage6, force: true);
 
                 EnableScheduleBuilderInputs(true);
 
@@ -2632,11 +2646,18 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-            void OnSaveStatus(string text) => SetScheduleBuilderStatus(text ?? "Saving…");
+            void OnSaveStatus(string text)
+            {
+                SetScheduleBuilderStatus(text ?? "Saving…");
+                if (!string.IsNullOrWhiteSpace(text))
+                    UpdateTabLoadingOverlayMessage(tabPage6, text);
+            }
 
 
 
             fsbuilder.UpdateLoadingScreen += OnSaveStatus;
+
+            ShowTabLoadingOverlay(tabPage6, "Preparing export…");
 
             if (fsbdatepicker != null) fsbdatepicker.Enabled = false;
 
@@ -2726,6 +2747,8 @@ namespace Hiatme_Tool_Suite_v3
             {
 
                 fsbuilder.UpdateLoadingScreen -= OnSaveStatus;
+
+                HideTabLoadingOverlay(tabPage6, force: true);
 
                 EnableScheduleBuilderInputs(true);
 

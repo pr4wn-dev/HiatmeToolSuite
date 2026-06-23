@@ -119,6 +119,8 @@ namespace Hiatme_Tool_Suite_v3
             = new Dictionary<TabPage, int>();
         private readonly HashSet<TabPage> _tabLoadingResizeHooked
             = new HashSet<TabPage>();
+        private readonly HashSet<TabPage> _tabLoadingControlAddedHooked
+            = new HashSet<TabPage>();
 
         /// <summary>
         /// Removes WIP tabs from <see cref="hiatmeTabControl"/> (and the Material drawer icons).
@@ -191,6 +193,8 @@ namespace Hiatme_Tool_Suite_v3
             ApplyTimeCorrectionVisualTheme();
             ApplyBillingVisualTheme();
             ApplyLoginVisualTheme(layout: false);
+            if (LoadingGifCard != null)
+                LoadingGifCard.Visible = false;
             if (loginPanel != null)
                 loginPanel.Visible = false;
             // The MaterialForm body behind the tab control (3px margins + app-bar strip) defaults to
@@ -848,6 +852,13 @@ namespace Hiatme_Tool_Suite_v3
                 billingstatuslbl.BackColor = SupeyTheme.SurfaceStatusBar;
             }
 
+            if (LoadingGifSkipBtn != null)
+            {
+                LoadingGifSkipBtn.Type = SupeyMaterialButton.MaterialButtonType.Contained;
+                LoadingGifSkipBtn.Font = new Font(SupeyTheme.BodyFont.FontFamily, SupeyTheme.BodyFont.Size, FontStyle.Bold);
+                LoadingGifSkipBtn.HighEmphasis = true;
+            }
+
             if (rjDatePicker1 != null)
             {
                 rjDatePicker1.SkinColor = SupeyTheme.SurfaceElevated;
@@ -1105,6 +1116,7 @@ namespace Hiatme_Tool_Suite_v3
 
             LayoutStatusLabelInCard(billingstatuspanel, billingstatuslbl);
             LayoutBillingCharts();
+            RefreshTabLoadingOverlayZOrder(tabPage2);
         }
 
         /// <summary>Align date picker, action buttons, and billing filters on one toolbar row.</summary>
@@ -1298,6 +1310,7 @@ namespace Hiatme_Tool_Suite_v3
                 SupeyDarkScrollBars.Apply(this);
                 ApplyLoginVisualTheme();
                 ApplyBillingVisualTheme();
+                ApplyLoadingOverlayTheme();
                 Invalidate(true);
             }
             catch
@@ -1762,7 +1775,9 @@ namespace Hiatme_Tool_Suite_v3
             if (onLoginTab)
             {
                 // Positioned inside _loginFooterPanel by LayoutLoginFormFields — keep login card on top.
-                loginPanel?.BringToFront();
+                if (GetTabLoadingDepth(tabPage1) <= 0)
+                    loginPanel?.BringToFront();
+                RefreshTabLoadingOverlayZOrder(tabPage1);
                 return;
             }
 
@@ -2880,10 +2895,11 @@ namespace Hiatme_Tool_Suite_v3
                 gmailDefaultBtn.Font = SupeyTheme.BodyFont;
             }
 
-            if (LoadingGifCard != null)
+            if (LoadingGifSkipBtn != null)
             {
-                LoadingGifCard.BackColor = SupeyTheme.SurfaceBase;
-                LoadingGifCard.ForeColor = SupeyTheme.TextPrimary;
+                LoadingGifSkipBtn.Type = SupeyMaterialButton.MaterialButtonType.Contained;
+                LoadingGifSkipBtn.Font = new Font(SupeyTheme.BodyFont.FontFamily, SupeyTheme.BodyFont.Size, FontStyle.Bold);
+                LoadingGifSkipBtn.HighEmphasis = true;
             }
 
             if (layout)
@@ -2930,10 +2946,12 @@ namespace Hiatme_Tool_Suite_v3
             loginPanel.Location = new Point(
                 Math.Max(12, (tabPage1.ClientSize.Width - loginPanel.Width) / 2),
                 Math.Max(32, (tabPage1.ClientSize.Height - loginPanel.Height) / 2 - 16));
-            loginPanel.BringToFront();
+            if (GetTabLoadingDepth(tabPage1) <= 0)
+                loginPanel.BringToFront();
             if (pictureBox1 != null && tabPage1 != null && pictureBox1.Parent == tabPage1)
                 pictureBox1.SendToBack();
             PositionUpdateStatusLink();
+            RefreshTabLoadingOverlayZOrder(tabPage1);
         }
 
         private System.Windows.Forms.Panel EnsureLoginFooterPanel()
@@ -3205,6 +3223,7 @@ namespace Hiatme_Tool_Suite_v3
             // #endregion
 
             ApplyLoginZOrder();
+            RefreshTabLoadingOverlayZOrder(tabPage1);
             LogLoginLayoutSnapshot("LayoutLoginFormFields:end");
             }
             finally
@@ -6990,18 +7009,7 @@ namespace Hiatme_Tool_Suite_v3
             if (idx >= hiatmeTabControl.TabCount)
                 idx = hiatmeTabControl.TabCount - 1;
 
-            if (ReferenceEquals(hiatmeTabControl.TabPages[idx], tabPage1)
-                || ReferenceEquals(hiatmeTabControl.TabPages[idx], tabPage2))
-            {
-                ShowTabLoadingOverlay(hiatmeTabControl.TabPages[idx]);
-                return;
-            }
-
-            LoadingGifCard.Parent = hiatmeTabControl.TabPages[idx];
-            LoadingGifCard.BringToFront();
-            LoadingGifCard.Dock = DockStyle.Fill;
-            LoadingGifCard.BackColor = Color.Black;
-            LoadingGifCard.Visible = true;
+            ShowTabLoadingOverlay(hiatmeTabControl.TabPages[idx]);
         }
 
         public void HideLoadingGif()
@@ -7019,7 +7027,8 @@ namespace Hiatme_Tool_Suite_v3
                     return;
                 }
 
-                LoadingGifCard.Visible = false;
+                if (LoadingGifCard != null && LoadingGifCard.Visible)
+                    LoadingGifCard.Visible = false;
                 if (hiatmeTabControl?.SelectedTab == tabPage1)
                     pictureBox1?.Invalidate();
             }
@@ -7029,11 +7038,10 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
-        private bool IsModernLoadingTab(TabPage tab)
-            => tab == tabPage1 || tab == tabPage2;
-
         private TabPage GetActiveTabLoadingPage()
         {
+            if (hiatmeTabControl?.SelectedTab != null && GetTabLoadingDepth(hiatmeTabControl.SelectedTab) > 0)
+                return hiatmeTabControl.SelectedTab;
             foreach (var pair in _tabLoadingDepth)
             {
                 if (pair.Value > 0)
@@ -7047,7 +7055,7 @@ namespace Hiatme_Tool_Suite_v3
 
         private void EnsureTabLoadingOverlay(TabPage tab)
         {
-            if (tab == null || tab.IsDisposed || !IsModernLoadingTab(tab))
+            if (tab == null || tab.IsDisposed)
                 return;
 
             if (_tabLoadingOverlays.TryGetValue(tab, out var existing) && existing != null && !existing.IsDisposed
@@ -7059,9 +7067,13 @@ namespace Hiatme_Tool_Suite_v3
 
             if (!_tabLoadingOverlays.TryGetValue(tab, out existing) || existing == null || existing.IsDisposed)
             {
-                existing = new SupeyMapLoadingOverlay { Visible = false };
+                existing = new SupeyMapLoadingOverlay { Visible = false, Dock = DockStyle.Fill };
                 _tabLoadingOverlays[tab] = existing;
                 tab.Controls.Add(existing);
+            }
+            else if (existing.Dock != DockStyle.Fill)
+            {
+                existing.Dock = DockStyle.Fill;
             }
 
             if (_tabLoadingResizeHooked.Add(tab))
@@ -7071,6 +7083,15 @@ namespace Hiatme_Tool_Suite_v3
                     SyncTabLoadingOverlayBounds(tab);
                     if (ReferenceEquals(tab, tabPage2) && LoadingGifSkipBtn != null && LoadingGifSkipBtn.Visible)
                         PositionBillingSkipButton(true);
+                };
+            }
+
+            if (_tabLoadingControlAddedHooked.Add(tab))
+            {
+                tab.ControlAdded += (s, e) =>
+                {
+                    if (GetTabLoadingDepth(tab) > 0)
+                        RefreshTabLoadingOverlayZOrder(tab);
                 };
             }
 
@@ -7084,12 +7105,30 @@ namespace Hiatme_Tool_Suite_v3
                 || overlay == null || overlay.IsDisposed)
                 return;
 
-            overlay.Bounds = tab.ClientRectangle;
+            if (overlay.Dock != DockStyle.Fill)
+                overlay.Bounds = tab.ClientRectangle;
+
+            RefreshTabLoadingOverlayZOrder(tab);
+        }
+
+        /// <summary>Keep the loading veil above tab content after resize or Controls.Add during an active load.</summary>
+        private void RefreshTabLoadingOverlayZOrder(TabPage tab)
+        {
+            if (tab == null || tab.IsDisposed || GetTabLoadingDepth(tab) <= 0)
+                return;
+            if (!_tabLoadingOverlays.TryGetValue(tab, out var overlay) || overlay == null || overlay.IsDisposed)
+                return;
+            if (!overlay.Visible)
+                return;
+
+            overlay.BringToFront();
+            if (ReferenceEquals(tab, tabPage2) && LoadingGifSkipBtn != null && LoadingGifSkipBtn.Visible)
+                LoadingGifSkipBtn.BringToFront();
         }
 
         private void ShowTabLoadingOverlay(TabPage tab, string message = null)
         {
-            if (tab == null || tab.IsDisposed || !IsModernLoadingTab(tab))
+            if (tab == null || tab.IsDisposed)
                 return;
             if (tab.InvokeRequired)
             {
@@ -7113,14 +7152,14 @@ namespace Hiatme_Tool_Suite_v3
             SyncTabLoadingOverlayBounds(tab);
             overlay.Visible = tab.Visible;
             overlay.IsAnimating = true;
-            overlay.BringToFront();
+            RefreshTabLoadingOverlayZOrder(tab);
             if (ReferenceEquals(tab, tabPage2) && LoadingGifSkipBtn != null && LoadingGifSkipBtn.Visible)
                 PositionBillingSkipButton(true);
         }
 
         private void HideTabLoadingOverlay(TabPage tab, bool force = false)
         {
-            if (tab == null || !IsModernLoadingTab(tab))
+            if (tab == null)
                 return;
 
             if (!_tabLoadingOverlays.TryGetValue(tab, out var overlay) || overlay == null || overlay.IsDisposed)
@@ -7163,9 +7202,7 @@ namespace Hiatme_Tool_Suite_v3
                 if (overlay == null || overlay.IsDisposed)
                     return;
                 overlay.Message = text;
-                overlay.BringToFront();
-                if (ReferenceEquals(tab, tabPage2) && LoadingGifSkipBtn != null && LoadingGifSkipBtn.Visible)
-                    LoadingGifSkipBtn.BringToFront();
+                RefreshTabLoadingOverlayZOrder(tab);
             }
 
             if (tab.InvokeRequired)
@@ -7204,7 +7241,7 @@ namespace Hiatme_Tool_Suite_v3
                 w,
                 h);
             LoadingGifSkipBtn.Visible = true;
-            LoadingGifSkipBtn.BringToFront();
+            RefreshTabLoadingOverlayZOrder(tabPage2);
         }
 
         /// <summary>Updates the loading overlay caption from any thread; avoids BackgroundWorker and multi-second artificial delays.</summary>
@@ -7222,20 +7259,27 @@ namespace Hiatme_Tool_Suite_v3
                     return;
                 }
 
-                if (LoadingGifLabel == null)
-                    return;
-                if (LoadingGifLabel.InvokeRequired)
-                    LoadingGifLabel.BeginInvoke((MethodInvoker)(() =>
-                    {
-                        if (!IsDisposed && LoadingGifLabel != null && !LoadingGifLabel.IsDisposed)
-                            LoadingGifLabel.Text = text;
-                    }));
-                else if (!LoadingGifLabel.IsDisposed)
-                    LoadingGifLabel.Text = text;
+                if (hiatmeTabControl?.SelectedTab != null && GetTabLoadingDepth(hiatmeTabControl.SelectedTab) > 0)
+                    UpdateTabLoadingOverlayMessage(hiatmeTabControl.SelectedTab, text);
             }
             catch (ObjectDisposedException)
             {
                 // ignore
+            }
+        }
+
+        private void ApplyLoadingOverlayTheme()
+        {
+            foreach (var overlay in _tabLoadingOverlays.Values)
+                overlay?.ApplyTheme();
+            _tripScoutLoadingOverlay?.ApplyTheme();
+            _analyzerLoadingOverlay?.ApplyTheme();
+
+            if (LoadingGifSkipBtn != null && !LoadingGifSkipBtn.IsDisposed)
+            {
+                LoadingGifSkipBtn.Type = SupeyMaterialButton.MaterialButtonType.Contained;
+                LoadingGifSkipBtn.Font = new Font(SupeyTheme.BodyFont.FontFamily, SupeyTheme.BodyFont.Size, FontStyle.Bold);
+                LoadingGifSkipBtn.HighEmphasis = true;
             }
         }
 
