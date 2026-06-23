@@ -3,12 +3,12 @@ using System.Drawing;
 namespace Hiatme_Tool_Suite_v3
 {
     /// <summary>
-    /// Fonts used by <c>listView_DrawColumnHeader</c> / <c>listView_DrawSubItem</c> and by
-    /// <see cref="ListViewMinWidthEnforcer"/> so column widths match painted text (not <see cref="ListView.Font"/>).
+    /// Fonts used by owner-draw ListViews and <see cref="ListViewMinWidthEnforcer"/>.
+    /// Follows the active theme so generated palettes can change list typography.
     /// </summary>
     internal static class ListViewOwnerDrawFonts
     {
-        public static readonly Font Cell = new Font("Segoe UI", 9.5f, FontStyle.Regular);
-        public static readonly Font Header = new Font("Segoe UI Semibold", 9.25f, FontStyle.Regular);
+        public static Font Cell => SupeyTheme.ListCellFont;
+        public static Font Header => SupeyTheme.ListHeaderFont;
     }
 }

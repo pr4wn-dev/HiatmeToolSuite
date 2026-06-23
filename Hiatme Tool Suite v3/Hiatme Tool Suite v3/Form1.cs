@@ -1748,14 +1748,22 @@ namespace Hiatme_Tool_Suite_v3
             {
                 _themePickerMenu = new ContextMenuStrip { Renderer = new DarkContextMenuRenderer() };
                 RebuildThemeMenuItems();
+                _themePickerMenu.Closed += (s, e) =>
+                {
+                    TitleBarThemeOpen = false;
+                    RefreshTitleBarChrome();
+                };
 
-                TitleBarThemeText = "Theme: " + SupeyThemeManager.Current.Name;
+                TitleBarThemeValue = SupeyThemeManager.Current.Name;
+                TitleBarThemeText = null;
                 TitleBarThemeClick += (s, e) =>
                 {
                     if (_themePickerMenu == null) return;
                     var r = TitleBarThemeButtonBounds;
                     if (r.IsEmpty) return;
-                    _themePickerMenu.Show(this, new Point(r.Left, r.Bottom));
+                    TitleBarThemeOpen = true;
+                    RefreshTitleBarChrome();
+                    _themePickerMenu.Show(this, new Point(r.Left, r.Bottom + 2));
                 };
             }
             catch
@@ -1768,18 +1776,51 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (_themePickerMenu == null) return;
             _themePickerMenu.Items.Clear();
-            foreach (string name in SupeyThemeManager.PresetNames)
+
+            var classics = new ToolStripMenuItem("Classics")
             {
-                string presetName = name;
-                var item = new ToolStripMenuItem(presetName)
+                BackColor = DarkContextMenuRenderer.Background,
+                ForeColor = DarkContextMenuRenderer.ForeColor,
+            };
+            foreach (var palette in SupeyThemeManager.ClassicPresets)
+                classics.DropDownItems.Add(CreateThemeMenuItem(palette));
+            _themePickerMenu.Items.Add(classics);
+
+            for (int level = 1; level <= SupeyThemeManager.MaxLevel; level++)
+            {
+                int lv = level;
+                var levelItem = new ToolStripMenuItem("Level " + level)
                 {
                     BackColor = DarkContextMenuRenderer.Background,
                     ForeColor = DarkContextMenuRenderer.ForeColor,
-                    Checked = string.Equals(presetName, SupeyThemeManager.Current.Name, StringComparison.OrdinalIgnoreCase),
                 };
-                item.Click += (s, e) => SupeyThemeManager.Apply(presetName);
-                _themePickerMenu.Items.Add(item);
+                levelItem.DropDownOpening += (s, e) => PopulateLevelThemeMenu(levelItem, lv);
+                _themePickerMenu.Items.Add(levelItem);
             }
+        }
+
+        private void PopulateLevelThemeMenu(ToolStripMenuItem levelItem, int level)
+        {
+            if (levelItem.Tag != null)
+                return;
+
+            levelItem.DropDownItems.Clear();
+            foreach (var palette in SupeyThemeManager.GetThemesForLevel(level))
+                levelItem.DropDownItems.Add(CreateThemeMenuItem(palette));
+            levelItem.Tag = level;
+        }
+
+        private ToolStripMenuItem CreateThemeMenuItem(SupeyThemePalette palette)
+        {
+            string presetName = palette.Name;
+            var item = new ToolStripMenuItem(presetName)
+            {
+                BackColor = DarkContextMenuRenderer.Background,
+                ForeColor = DarkContextMenuRenderer.ForeColor,
+                Checked = string.Equals(presetName, SupeyThemeManager.Current.Name, StringComparison.OrdinalIgnoreCase),
+            };
+            item.Click += (s, e) => SupeyThemeManager.Apply(presetName);
+            return item;
         }
 
         /// <summary>Live-recolor the whole window when the active theme changes.</summary>
@@ -1808,7 +1849,7 @@ namespace Hiatme_Tool_Suite_v3
 
                 if (_themePickerMenu != null)
                 {
-                    TitleBarThemeText = "Theme: " + SupeyThemeManager.Current.Name;
+                    TitleBarThemeValue = SupeyThemeManager.Current.Name;
                     RefreshTitleBarChrome();
                 }
                 RebuildThemeMenuItems();

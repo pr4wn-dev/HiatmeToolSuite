@@ -9,31 +9,27 @@ namespace Hiatme_Tool_Suite_v3
     /// <summary>
     /// Owns the active <see cref="SupeyThemePalette"/> and the set of built-in presets, persists the
     /// user's choice, and raises <see cref="ThemeChanged"/> so live UI can retint without a restart.
-    ///
-    /// The whole app reads colors through the <see cref="SupeyTheme"/> static facade, which forwards
-    /// to <see cref="Current"/>. So the flow is: pick a preset -> <see cref="Apply(string)"/> swaps
-    /// <see cref="Current"/>, saves the name, and fires <see cref="ThemeChanged"/> -> subscribers
-    /// (forms, custom controls) recolor + invalidate.
     /// </summary>
     internal static class SupeyThemeManager
     {
         /// <summary>Fired after <see cref="Current"/> changes. Handlers should recolor and invalidate.</summary>
         public static event EventHandler ThemeChanged;
 
+        public const int MaxLevel = SupeyThemeGenerator.MaxLevel;
+        public const int ThemesPerLevel = SupeyThemeGenerator.ThemesPerLevel;
+
         private static SupeyThemePalette _current = BuildBlackLime();
+        private static readonly Dictionary<string, SupeyThemePalette> GeneratedCache =
+            new Dictionary<string, SupeyThemePalette>(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>The palette every <see cref="SupeyTheme"/> reference resolves against.</summary>
         public static SupeyThemePalette Current => _current;
 
-        /// <summary>
-        /// The palette that was active immediately before the last <see cref="Apply(string)"/>.
-        /// Live recoloring uses this to remap controls whose colors were set imperatively from the
-        /// old palette onto the matching new-palette color.
-        /// </summary>
+        /// <summary>The palette that was active immediately before the last apply.</summary>
         public static SupeyThemePalette Previous { get; private set; } = BuildBlackLime();
 
-        /// <summary>All selectable presets, in display order.</summary>
-        public static IReadOnlyList<SupeyThemePalette> BuiltInPresets { get; } = new List<SupeyThemePalette>
+        /// <summary>Hand-tuned starter presets (level 0).</summary>
+        public static IReadOnlyList<SupeyThemePalette> ClassicPresets { get; } = new List<SupeyThemePalette>
         {
             BuildBlackLime(),
             BuildMidnight(),
@@ -41,54 +37,136 @@ namespace Hiatme_Tool_Suite_v3
             BuildSlate(),
         };
 
-        public static IEnumerable<string> PresetNames => BuiltInPresets.Select(p => p.Name);
+        /// <summary>Legacy alias.</summary>
+        public static IReadOnlyList<SupeyThemePalette> BuiltInPresets => ClassicPresets;
+
+        public static IEnumerable<string> ClassicPresetNames => ClassicPresets.Select(p => p.Name);
+
+        public static IEnumerable<string> PresetNames => ClassicPresetNames;
 
         private static string ConfigDir => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "hiatme_config");
         private static string ConfigPath => Path.Combine(ConfigDir, "theme.json");
 
-        /// <summary>Read the saved preset name (if any) and make it active. Call once at startup.</summary>
         public static void LoadSavedOrDefault()
         {
             string saved = ReadSavedName();
-            var match = FindByName(saved) ?? BuiltInPresets[0];
+            var match = ResolveTheme(saved) ?? ClassicPresets[0];
             _current = match;
-            // No event here: this runs before the UI exists; the first paint uses Current directly.
         }
 
-        /// <summary>Switch to the named preset, persist the choice, and notify listeners.</summary>
         public static void Apply(string name)
         {
-            var match = FindByName(name);
-            if (match == null) return;
-            if (ReferenceEquals(match, _current)) return;
+            var match = ResolveTheme(name);
+            if (match == null)
+                return;
+            ApplyPalette(match);
+        }
+
+        public static void Apply(int level, int index)
+        {
+            if (level <= 0)
+                return;
+            ApplyPalette(GetGenerated(level, index));
+        }
+
+        public static SupeyThemePalette GetGenerated(int level, int index)
+        {
+            string key = ThemeKey(level, index);
+            if (!GeneratedCache.TryGetValue(key, out var palette))
+            {
+                palette = SupeyThemeGenerator.Generate(level, index);
+                GeneratedCache[key] = palette;
+            }
+            return palette;
+        }
+
+        public static IEnumerable<SupeyThemePalette> GetThemesForLevel(int level)
+        {
+            if (level <= 0)
+            {
+                foreach (var p in ClassicPresets)
+                    yield return p;
+                yield break;
+            }
+
+            for (int i = 0; i < ThemesPerLevel; i++)
+                yield return GetGenerated(level, i);
+        }
+
+        private static void ApplyPalette(SupeyThemePalette match)
+        {
+            if (ReferenceEquals(match, _current))
+                return;
             Previous = _current;
             _current = match;
             SaveName(match.Name);
             ThemeChanged?.Invoke(null, EventArgs.Empty);
         }
 
-        private static SupeyThemePalette FindByName(string name)
+        private static SupeyThemePalette ResolveTheme(string name)
         {
-            if (string.IsNullOrWhiteSpace(name)) return null;
-            return BuiltInPresets.FirstOrDefault(p =>
+            if (string.IsNullOrWhiteSpace(name))
+                return null;
+
+            var classic = ClassicPresets.FirstOrDefault(p =>
                 string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (classic != null)
+                return classic;
+
+            var cached = GeneratedCache.Values.FirstOrDefault(p =>
+                string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (cached != null)
+                return cached;
+
+            if (TryParseLevelFromName(name, out int level))
+            {
+                for (int i = 0; i < ThemesPerLevel; i++)
+                {
+                    var candidate = GetGenerated(level, i);
+                    if (string.Equals(candidate.Name, name, StringComparison.OrdinalIgnoreCase))
+                        return candidate;
+                }
+            }
+
+            return null;
         }
+
+        internal static bool TryParseLevelFromName(string name, out int level)
+        {
+            level = 0;
+            if (string.IsNullOrWhiteSpace(name) || name[0] != 'L')
+                return false;
+
+            int i = 1;
+            while (i < name.Length && char.IsDigit(name[i]))
+                i++;
+            if (i <= 1)
+                return false;
+
+            return int.TryParse(name.Substring(1, i - 1), out level) && level >= 1 && level <= MaxLevel;
+        }
+
+        private static string ThemeKey(int level, int index) => level.ToString("D2") + ":" + index;
 
         private static string ReadSavedName()
         {
             try
             {
-                if (!File.Exists(ConfigPath)) return null;
-                // Tiny hand-rolled read so we don't depend on a serializer for one field.
+                if (!File.Exists(ConfigPath))
+                    return null;
                 string text = File.ReadAllText(ConfigPath);
                 int i = text.IndexOf("\"Theme\"", StringComparison.OrdinalIgnoreCase);
-                if (i < 0) return null;
+                if (i < 0)
+                    return null;
                 int colon = text.IndexOf(':', i);
-                if (colon < 0) return null;
+                if (colon < 0)
+                    return null;
                 int firstQuote = text.IndexOf('"', colon);
-                if (firstQuote < 0) return null;
+                if (firstQuote < 0)
+                    return null;
                 int secondQuote = text.IndexOf('"', firstQuote + 1);
-                if (secondQuote < 0) return null;
+                if (secondQuote < 0)
+                    return null;
                 return text.Substring(firstQuote + 1, secondQuote - firstQuote - 1);
             }
             catch
@@ -106,19 +184,17 @@ namespace Hiatme_Tool_Suite_v3
             }
             catch
             {
-                // Persistence is best-effort; a read-only install just won't remember the choice.
             }
         }
 
-        // ── Built-in presets ─────────────────────────────────────────────────────
+        // ── Classic presets ─────────────────────────────────────────────────────
 
         private static SupeyThemePalette BuildBlackLime()
         {
-            // The original Supey look: near-black charcoal surfaces with a lime call-to-action.
             return new SupeyThemePalette
             {
                 Name = "Black & Lime",
-                // ~11 steps above ListBody (36) — readable grid, still below ListGrid (48).
+                Level = 0,
                 ListGridLine = Color.FromArgb(47, 47, 47),
             };
         }
@@ -128,6 +204,7 @@ namespace Hiatme_Tool_Suite_v3
             return new SupeyThemePalette
             {
                 Name = "Midnight",
+                Level = 0,
                 SurfaceBase = Color.FromArgb(15, 18, 28),
                 Surface = Color.FromArgb(22, 26, 38),
                 SurfaceElevated = Color.FromArgb(30, 35, 50),
@@ -158,6 +235,7 @@ namespace Hiatme_Tool_Suite_v3
             return new SupeyThemePalette
             {
                 Name = "Graphite",
+                Level = 0,
                 SurfaceBase = Color.FromArgb(22, 22, 24),
                 Surface = Color.FromArgb(30, 30, 33),
                 SurfaceElevated = Color.FromArgb(40, 40, 44),
@@ -191,6 +269,7 @@ namespace Hiatme_Tool_Suite_v3
             return new SupeyThemePalette
             {
                 Name = "Slate",
+                Level = 0,
                 SurfaceBase = Color.FromArgb(20, 24, 26),
                 Surface = Color.FromArgb(28, 33, 36),
                 SurfaceElevated = Color.FromArgb(37, 43, 47),

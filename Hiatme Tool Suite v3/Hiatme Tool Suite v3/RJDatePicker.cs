@@ -113,6 +113,7 @@ namespace Hiatme_Tool_Suite_v3
             CalendarTitleBackColor = SupeyTheme.SurfaceHeader;
             CalendarTitleForeColor = SupeyTheme.TextPrimary;
             CalendarTrailingForeColor = SupeyTheme.TextMuted;
+            Font = SupeyTheme.BodyFont;
             this.Invalidate();
         }
 

@@ -17,6 +17,13 @@ namespace Hiatme_Tool_Suite_v3
     {
         public string Name = "Black & Lime";
 
+        /// <summary>0 = classic preset; 1+ = generated Tetris-style level.</summary>
+        public int Level;
+
+        public int Index;
+
+        public bool IsGenerated;
+
         // ── Surfaces ─────────────────────────────────────────────────────────────
         public Color SurfaceBase = Color.FromArgb(24, 24, 24);
         public Color Surface = Color.FromArgb(32, 32, 32);
@@ -52,6 +59,12 @@ namespace Hiatme_Tool_Suite_v3
         public Color ListSelected = Color.FromArgb(56, 110, 168);
         public Color ListSelectedText = Color.FromArgb(245, 245, 245);
         public Color ListText = Color.FromArgb(225, 225, 225);
+
+        /// <summary>Owner-draw list cell font; falls back to <see cref="BodyFont"/> when null.</summary>
+        public Font ListCellFont;
+
+        /// <summary>Owner-draw list header font; falls back to <see cref="SubHeaderFont"/> when null.</summary>
+        public Font ListHeaderFont;
 
         // ── Typography (shared across presets unless a preset overrides) ──────────
         public Font HeaderFont = new Font("Segoe UI Semibold", 10f);

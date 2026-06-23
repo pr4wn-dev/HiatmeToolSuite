@@ -62,6 +62,8 @@ namespace Hiatme_Tool_Suite_v3
         public static Font BodyFont => P.BodyFont;
         public static Font CaptionFont => P.CaptionFont;
         public static Font MonoFont => P.MonoFont;
+        public static Font ListCellFont => P.ListCellFont ?? P.BodyFont;
+        public static Font ListHeaderFont => P.ListHeaderFont ?? P.SubHeaderFont;
 
         private static Color ResolveListGridLine(SupeyThemePalette palette)
         {

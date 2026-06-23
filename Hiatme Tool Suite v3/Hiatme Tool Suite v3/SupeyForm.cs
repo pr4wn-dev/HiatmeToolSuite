@@ -312,6 +312,8 @@ namespace Hiatme_Tool_Suite_v3
 
         private bool _themeBtnHot;
 
+        private bool _themePickerOpen;
+
         private FormWindowState _lastWindowState = FormWindowState.Normal;
 
         private bool _inSizeMove;
@@ -329,6 +331,14 @@ namespace Hiatme_Tool_Suite_v3
         private const int NavMenuButtonWidth = 38;
 
         private const int NavMenuButtonHeight = 30;
+
+        private const int ThemeComboHeight = 30;
+
+        private const int ThemeArrowWidth = 28;
+
+        private const int ThemeMinWidth = 176;
+
+        private const int ThemeLabelInnerWidth = 44;
 
 
 
@@ -356,9 +366,28 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-        /// <summary>Text for the painted theme-picker chip in the title bar (empty = hidden).</summary>
+        /// <summary>Text for the painted theme-picker chip in the title bar (empty = hidden). Legacy — prefer <see cref="TitleBarThemeValue"/>.</summary>
 
         public string TitleBarThemeText { get; set; }
+
+        /// <summary>Active theme preset name shown in the title-bar combo.</summary>
+
+        public string TitleBarThemeValue { get; set; }
+
+        /// <summary>True while the theme dropdown menu is open (highlights arrow like SupeyComboBox).</summary>
+
+        public bool TitleBarThemeOpen
+        {
+            get => _themePickerOpen;
+            set
+            {
+                if (_themePickerOpen == value)
+                    return;
+                _themePickerOpen = value;
+                if (IsHandleCreated)
+                    Invalidate(ThemeButtonRect);
+            }
+        }
 
 
 
@@ -657,26 +686,42 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-        private Rectangle ThemeButtonRectFor(int barWidth)
+        private bool HasThemePicker =>
+            !string.IsNullOrEmpty(TitleBarThemeValue) || !string.IsNullOrEmpty(TitleBarThemeText);
 
+        private string GetThemeDisplayValue()
         {
+            if (!string.IsNullOrWhiteSpace(TitleBarThemeValue))
+                return TitleBarThemeValue.Trim();
+            string t = TitleBarThemeText ?? string.Empty;
+            const string prefix = "Theme: ";
+            if (t.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                return t.Substring(prefix.Length).Trim();
+            return t.Trim();
+        }
 
-            if (string.IsNullOrEmpty(TitleBarThemeText))
-
+        private Rectangle ThemeButtonRectFor(int barWidth)
+        {
+            if (!HasThemePicker)
                 return Rectangle.Empty;
 
-            Size text = TextRenderer.MeasureText(TitleBarThemeText, SupeyTheme.BodyFont);
+            string value = GetThemeDisplayValue();
+            if (string.IsNullOrEmpty(value))
+                return Rectangle.Empty;
 
-            int w = Math.Max(120, Math.Min(text.Width + 24, barWidth - ButtonWidth * 3 - 48));
+            int valueW = TextRenderer.MeasureText(
+                value,
+                SupeyTheme.BodyFont,
+                new Size(int.MaxValue, ThemeComboHeight),
+                TextFormatFlags.SingleLine | TextFormatFlags.NoPadding).Width;
 
-            int h = 30;
-
-            int x = Math.Max(TitleLeadingGutterWidth + 8, barWidth - ButtonWidth * 3 - w - 12);
-
-            int y = (TitleBarHeight - h) / 2;
+            int innerW = ThemeLabelInnerWidth + 1 + 10 + valueW + ThemeArrowWidth + 14;
+            int w = Math.Max(ThemeMinWidth, Math.Min(innerW, barWidth - ButtonWidth * 3 - 56));
+            int h = ThemeComboHeight;
+            int x = Math.Max(TitleLeadingGutterWidth + 8, barWidth - ButtonWidth * 3 - w - 8);
+            int y = 0;
 
             return new Rectangle(x, y, w, h);
-
         }
 
 
@@ -1602,29 +1647,66 @@ namespace Hiatme_Tool_Suite_v3
 
 
         private void DrawThemeButton(Graphics g, int barWidth)
-
         {
-
             var r = ThemeButtonRectFor(barWidth);
+            if (r.IsEmpty)
+                return;
 
-            if (r.IsEmpty) return;
+            string value = GetThemeDisplayValue();
+            bool hot = _themeBtnHot || _themePickerOpen;
+            Color bg = hot ? SupeyTheme.SurfaceElevated : SupeyTheme.Surface;
+            Color border = hot ? SupeyTheme.BorderSubtle : SupeyTheme.Divider;
 
+            using (var bgBrush = new SolidBrush(bg))
+                g.FillRectangle(bgBrush, r);
+            using (var pen = new Pen(border, 1f))
+                g.DrawRectangle(pen, r.X, r.Y, r.Width - 1, r.Height - 1);
 
+            var labelRect = new Rectangle(r.Left + 10, r.Top, ThemeLabelInnerWidth, r.Height);
+            TextRenderer.DrawText(g, "Theme", SupeyTheme.CaptionFont, labelRect,
+                SupeyTheme.TextMuted,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
 
-            using (var bg = new SolidBrush(_themeBtnHot ? SupeyTheme.SurfaceElevated : SupeyTheme.SurfaceHeader))
+            int divX = r.Left + 10 + ThemeLabelInnerWidth;
+            using (var divPen = new Pen(SupeyTheme.Divider, 1f))
+                g.DrawLine(divPen, divX, r.Top + 7, divX, r.Bottom - 7);
 
-                g.FillRectangle(bg, r);
-
-
-
-            TextRenderer.DrawText(g, TitleBarThemeText, SupeyTheme.BodyFont, r,
-
+            var valueRect = new Rectangle(
+                divX + 10,
+                r.Top,
+                Math.Max(0, r.Width - ThemeArrowWidth - (divX - r.Left) - 10),
+                r.Height);
+            TextRenderer.DrawText(g, value, SupeyTheme.BodyFont, valueRect,
                 SupeyTheme.TextPrimary,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter
+                | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
 
-                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter
+            DrawThemeDropdownArrow(g, r, hot);
+        }
 
-                | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
-
+        private static void DrawThemeDropdownArrow(Graphics g, Rectangle comboBounds, bool hot)
+        {
+            var state = g.Save();
+            try
+            {
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                int cy = comboBounds.Top + comboBounds.Height / 2;
+                int ax = comboBounds.Right - 14;
+                Color arrowColor = hot ? SupeyTheme.AccentPrimary : SupeyTheme.TextSecondary;
+                using (var brush = new SolidBrush(arrowColor))
+                {
+                    g.FillPolygon(brush, new[]
+                    {
+                        new Point(ax - 5, cy - 2),
+                        new Point(ax + 5, cy - 2),
+                        new Point(ax, cy + 3),
+                    });
+                }
+            }
+            finally
+            {
+                g.Restore(state);
+            }
         }
 
 

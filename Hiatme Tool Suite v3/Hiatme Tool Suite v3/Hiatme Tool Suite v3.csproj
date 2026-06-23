@@ -549,6 +549,7 @@
     </Compile>
     <Compile Include="SupeyTheme.cs" />
     <Compile Include="SupeyThemePalette.cs" />
+    <Compile Include="SupeyThemeGenerator.cs" />
     <Compile Include="SupeyThemeManager.cs" />
     <Compile Include="SupeyThemeApplier.cs" />
     <Compile Include="SupeyToolTip.cs" />
