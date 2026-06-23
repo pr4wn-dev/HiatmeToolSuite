@@ -48,6 +48,7 @@ Server/node_modules/
 tools/osrm/data/
 
 # Python helper scripts
+**/__pycache__/
 scripts/__pycache__/
 *.pyc
 
@@ -61,3 +62,6 @@ Thumbs.db
 # Local editor / tooling (empty dirs Cursor shows as untracked)
 .cursor/
 .tools/
+
+# Empty local test project folder (not part of the solution)
+Hiatme Tool Suite v3/Hiatme.ToolSuite.WellRyde.Tests/
