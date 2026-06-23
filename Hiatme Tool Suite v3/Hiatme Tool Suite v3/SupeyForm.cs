@@ -1655,7 +1655,9 @@ namespace Hiatme_Tool_Suite_v3
             string value = GetThemeDisplayValue();
             bool hot = _themeBtnHot || _themePickerOpen;
             Color bg = hot ? SupeyTheme.SurfaceElevated : SupeyTheme.Surface;
-            Color border = hot ? SupeyTheme.BorderSubtle : SupeyTheme.Divider;
+            Color border = _themePickerOpen
+                ? SupeyTheme.AccentPrimary
+                : hot ? SupeyTheme.BorderSubtle : SupeyTheme.Divider;
 
             using (var bgBrush = new SolidBrush(bg))
                 g.FillRectangle(bgBrush, r);

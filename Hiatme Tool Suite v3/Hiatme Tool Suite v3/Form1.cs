@@ -1747,6 +1747,7 @@ namespace Hiatme_Tool_Suite_v3
             try
             {
                 _themePickerMenu = new ContextMenuStrip { Renderer = new DarkContextMenuRenderer() };
+                ApplyThemePickerMenuChrome();
                 RebuildThemeMenuItems();
                 _themePickerMenu.Closed += (s, e) =>
                 {
@@ -1759,6 +1760,7 @@ namespace Hiatme_Tool_Suite_v3
                 TitleBarThemeClick += (s, e) =>
                 {
                     if (_themePickerMenu == null) return;
+                    ApplyThemePickerMenuChrome();
                     var r = TitleBarThemeButtonBounds;
                     if (r.IsEmpty) return;
                     TitleBarThemeOpen = true;
@@ -1772,16 +1774,31 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        private void ApplyThemePickerMenuChrome()
+        {
+            if (_themePickerMenu == null) return;
+            _themePickerMenu.BackColor = SupeyTheme.SurfaceElevated;
+            _themePickerMenu.ForeColor = SupeyTheme.TextPrimary;
+            _themePickerMenu.Font = SupeyTheme.BodyFont;
+            _themePickerMenu.Renderer = new DarkContextMenuRenderer();
+        }
+
+        private static ToolStripMenuItem CreateThemeMenuShell(string text)
+        {
+            return new ToolStripMenuItem(text)
+            {
+                BackColor = SupeyTheme.SurfaceElevated,
+                ForeColor = SupeyTheme.TextPrimary,
+                Font = SupeyTheme.BodyFont,
+            };
+        }
+
         private void RebuildThemeMenuItems()
         {
             if (_themePickerMenu == null) return;
             _themePickerMenu.Items.Clear();
 
-            var classics = new ToolStripMenuItem("Classics")
-            {
-                BackColor = DarkContextMenuRenderer.Background,
-                ForeColor = DarkContextMenuRenderer.ForeColor,
-            };
+            var classics = CreateThemeMenuShell("Classics");
             foreach (var palette in SupeyThemeManager.ClassicPresets)
                 classics.DropDownItems.Add(CreateThemeMenuItem(palette));
             _themePickerMenu.Items.Add(classics);
@@ -1789,11 +1806,7 @@ namespace Hiatme_Tool_Suite_v3
             for (int level = 1; level <= SupeyThemeManager.MaxLevel; level++)
             {
                 int lv = level;
-                var levelItem = new ToolStripMenuItem("Level " + level)
-                {
-                    BackColor = DarkContextMenuRenderer.Background,
-                    ForeColor = DarkContextMenuRenderer.ForeColor,
-                };
+                var levelItem = CreateThemeMenuShell("Level " + level);
                 levelItem.DropDownOpening += (s, e) => PopulateLevelThemeMenu(levelItem, lv);
                 _themePickerMenu.Items.Add(levelItem);
             }
@@ -1815,8 +1828,9 @@ namespace Hiatme_Tool_Suite_v3
             string presetName = palette.Name;
             var item = new ToolStripMenuItem(presetName)
             {
-                BackColor = DarkContextMenuRenderer.Background,
-                ForeColor = DarkContextMenuRenderer.ForeColor,
+                BackColor = SupeyTheme.SurfaceElevated,
+                ForeColor = SupeyTheme.TextPrimary,
+                Font = SupeyTheme.BodyFont,
                 Checked = string.Equals(presetName, SupeyThemeManager.Current.Name, StringComparison.OrdinalIgnoreCase),
             };
             item.Click += (s, e) => SupeyThemeManager.Apply(presetName);
@@ -1850,6 +1864,7 @@ namespace Hiatme_Tool_Suite_v3
                 if (_themePickerMenu != null)
                 {
                     TitleBarThemeValue = SupeyThemeManager.Current.Name;
+                    ApplyThemePickerMenuChrome();
                     RefreshTitleBarChrome();
                 }
                 RebuildThemeMenuItems();
