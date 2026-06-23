@@ -265,6 +265,12 @@ namespace Hiatme_Tool_Suite_v3
                 _inner.Focus();
         }
 
+        /// <summary>Move keyboard focus to the inner text editor.</summary>
+        public void FocusEditor()
+        {
+            _inner?.Focus();
+        }
+
         protected override void OnPaint(PaintEventArgs e)
         {
             var g = e.Graphics;

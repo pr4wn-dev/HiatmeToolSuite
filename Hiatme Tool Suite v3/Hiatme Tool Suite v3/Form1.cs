@@ -182,12 +182,14 @@ namespace Hiatme_Tool_Suite_v3
             // dynamically built panels (Supey tab, lazy tabs, dialogs) inherit
             // automatically.
             SupeyDarkScrollBars.Apply(this);
+            EnsureGmailLoginFieldHooks();
             BuildTimeCorrectionTripListContextMenu();
             // Trip Scout right-click menu inherits the listview's dark palette + gets generated person+badge icons.
             ApplyTripScoutContextMenuTheme();
             ApplyTripScoutVisualTheme();
             ApplyTemplatesVisualTheme();
             ApplyTimeCorrectionVisualTheme();
+            ApplyBillingVisualTheme();
             ApplyLoginVisualTheme(layout: false);
             if (loginPanel != null)
                 loginPanel.Visible = false;
@@ -765,6 +767,399 @@ namespace Hiatme_Tool_Suite_v3
                 SupeyDarkScrollBars.Apply(tabPage4);
         }
 
+        private const int BillingCardPad = 12;
+        private const int BillingToolbarH = 104;
+        private const int BillingControlH = 30;
+        private const int BillingToolbarGap = 8;
+        private System.Windows.Forms.Panel _billingToolbarPanel;
+        private System.Windows.Forms.Label _billingToolbarTitle;
+        private System.Windows.Forms.Label _billingToolbarSubtitle;
+
+        /// <summary>Theme the Billing tab card, toolbar controls, and list view.</summary>
+        private void ApplyBillingVisualTheme(bool layout = true)
+        {
+            if (tabPage2 != null)
+            {
+                tabPage2.BackColor = SupeyTheme.SurfaceBase;
+                tabPage2.ForeColor = SupeyTheme.TextPrimary;
+                tabPage2.Resize -= TabPage2_ResizeBillingLayout;
+                tabPage2.Resize += TabPage2_ResizeBillingLayout;
+            }
+
+            if (materialCard4 != null)
+            {
+                materialCard4.SurfaceLevel = SupeyCard.Surface.Standard;
+                materialCard4.ShowBorder = true;
+                materialCard4.CornerRadius = 8;
+                materialCard4.ForeColor = SupeyTheme.TextPrimary;
+                materialCard4.Padding = Padding.Empty;
+            }
+
+            foreach (var card in new[] { materialCard5, materialCard6 })
+            {
+                if (card == null) continue;
+                card.SurfaceLevel = SupeyCard.Surface.Standard;
+                card.ShowBorder = true;
+                card.CornerRadius = 8;
+                card.ForeColor = SupeyTheme.TextPrimary;
+                card.Padding = Padding.Empty;
+            }
+
+            if (billingstatuspanel != null)
+            {
+                billingstatuspanel.SurfaceLevel = SupeyCard.Surface.StatusBar;
+                billingstatuspanel.ShowBorder = true;
+                billingstatuspanel.CornerRadius = 6;
+                billingstatuspanel.ForeColor = SupeyTheme.TextPrimary;
+                billingstatuspanel.Padding = new Padding(14, 0, 14, 0);
+            }
+
+            if (billingstatuslbl != null)
+            {
+                billingstatuslbl.AutoSize = false;
+                billingstatuslbl.ForeColor = SupeyTheme.TextSecondary;
+                billingstatuslbl.Font = SupeyTheme.BodyFont;
+                billingstatuslbl.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
+                billingstatuslbl.BackColor = SupeyTheme.SurfaceStatusBar;
+            }
+
+            if (rjDatePicker1 != null)
+            {
+                rjDatePicker1.SkinColor = SupeyTheme.SurfaceElevated;
+                rjDatePicker1.TextColor = SupeyTheme.TextPrimary;
+                rjDatePicker1.BorderColor = SupeyTheme.BorderSubtle;
+                rjDatePicker1.BorderSize = 1;
+                rjDatePicker1.Font = SupeyTheme.BodyFont;
+                rjDatePicker1.MinimumSize = new Size(4, BillingControlH);
+            }
+
+            foreach (var btn in new[] { billloadbtn, billsubmitbtn })
+            {
+                if (btn == null) continue;
+                btn.Type = SupeyMaterialButton.MaterialButtonType.Contained;
+                btn.UseAccentColor = true;
+                btn.HighEmphasis = true;
+                btn.Density = SupeyMaterialButton.MaterialButtonDensity.Dense;
+                btn.Font = new Font("Segoe UI Semibold", 9.25f);
+                btn.CornerRadius = 4;
+                btn.MinimumSize = Size.Empty;
+                btn.Margin = Padding.Empty;
+                btn.AutoSize = false;
+            }
+
+            foreach (var cb in new[] { billingmmcb, billingallcb })
+            {
+                if (cb == null) continue;
+                cb.AutoSize = false;
+                cb.Font = SupeyTheme.BodyFont;
+                cb.ForeColor = SupeyTheme.TextPrimary;
+                cb.BackColor = SupeyTheme.SurfaceHeader;
+            }
+
+            if (billinglistview != null)
+            {
+                billinglistview.BackColor = SupeyTheme.ListBody;
+                billinglistview.ForeColor = SupeyTheme.ListText;
+                billinglistview.Font = ListViewOwnerDrawFonts.Cell;
+                billinglistview.BorderStyle = System.Windows.Forms.BorderStyle.None;
+                billinglistview.GridLines = true;
+                billinglistview.FullRowSelect = true;
+                billinglistview.HideSelection = false;
+                billinglistview.HeaderStyle = ColumnHeaderStyle.Clickable;
+                billinglistview.View = System.Windows.Forms.View.Details;
+            }
+
+            SupeyChartTheme.Apply(pgchart);
+            SupeyChartTheme.Apply(incomevslosseschart);
+
+            EnsureBillingToolbarChrome();
+
+            if (layout)
+            {
+                LayoutBillingTabPanels();
+                LayoutBillingToolbar();
+                LayoutBillingListViewBounds();
+                LayoutBillingCharts();
+            }
+        }
+
+        private void TabPage2_ResizeBillingLayout(object sender, EventArgs e)
+        {
+            LayoutBillingTabPanels();
+            LayoutBillingToolbar();
+            LayoutBillingListViewBounds();
+            LayoutBillingCharts();
+        }
+
+        /// <summary>Inset header band inside the Billing queue card.</summary>
+        private void EnsureBillingToolbarChrome()
+        {
+            if (materialCard4 == null || rjDatePicker1 == null)
+                return;
+
+            CleanupBillingListHostPanelLegacy();
+            CleanupBillingListSpacer();
+
+            if (_billingToolbarPanel == null || _billingToolbarPanel.IsDisposed)
+            {
+                _billingToolbarPanel = new System.Windows.Forms.Panel
+                {
+                    Name = "billingToolbarPanel",
+                    Height = BillingToolbarH,
+                    BackColor = SupeyTheme.SurfaceHeader,
+                    Padding = new Padding(14, 8, 14, 8),
+                };
+
+                var divider = new System.Windows.Forms.Panel
+                {
+                    Name = "billingToolbarDivider",
+                    Dock = DockStyle.Bottom,
+                    Height = 1,
+                    BackColor = SupeyTheme.Divider,
+                };
+                _billingToolbarPanel.Controls.Add(divider);
+
+                _billingToolbarTitle = new System.Windows.Forms.Label
+                {
+                    Name = "billingToolbarTitle",
+                    AutoSize = false,
+                    Text = "Billing Queue",
+                    Font = SupeyTheme.SubHeaderFont,
+                    ForeColor = SupeyTheme.TextPrimary,
+                    BackColor = SupeyTheme.SurfaceHeader,
+                    TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
+                };
+                _billingToolbarSubtitle = new System.Windows.Forms.Label
+                {
+                    Name = "billingToolbarSubtitle",
+                    AutoSize = false,
+                    Text = "Load, review, and submit WellRyde trips for the selected service date.",
+                    Font = SupeyTheme.CaptionFont,
+                    ForeColor = SupeyTheme.TextSecondary,
+                    BackColor = SupeyTheme.SurfaceHeader,
+                    TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
+                };
+                _billingToolbarPanel.Controls.Add(_billingToolbarTitle);
+                _billingToolbarPanel.Controls.Add(_billingToolbarSubtitle);
+                materialCard4.Controls.Add(_billingToolbarPanel);
+                materialCard4.Resize -= MaterialCard4_ResizeBillingList;
+                materialCard4.Resize += MaterialCard4_ResizeBillingList;
+            }
+
+            _billingToolbarPanel.BackColor = SupeyTheme.SurfaceHeader;
+            _billingToolbarPanel.Height = BillingToolbarH;
+            _billingToolbarPanel.SetBounds(
+                BillingCardPad,
+                BillingCardPad,
+                Math.Max(120, materialCard4.ClientSize.Width - (BillingCardPad * 2)),
+                BillingToolbarH);
+            if (_billingToolbarTitle != null)
+            {
+                _billingToolbarTitle.Font = SupeyTheme.SubHeaderFont;
+                _billingToolbarTitle.ForeColor = SupeyTheme.TextPrimary;
+                _billingToolbarTitle.BackColor = SupeyTheme.SurfaceHeader;
+            }
+            if (_billingToolbarSubtitle != null)
+            {
+                _billingToolbarSubtitle.Font = SupeyTheme.CaptionFont;
+                _billingToolbarSubtitle.ForeColor = SupeyTheme.TextSecondary;
+                _billingToolbarSubtitle.BackColor = SupeyTheme.SurfaceHeader;
+            }
+            var toolbarDivider = _billingToolbarPanel.Controls["billingToolbarDivider"];
+            if (toolbarDivider != null)
+                toolbarDivider.BackColor = SupeyTheme.Divider;
+
+            foreach (var ctrl in new System.Windows.Forms.Control[] { rjDatePicker1, billloadbtn, billsubmitbtn, billingmmcb, billingallcb })
+            {
+                if (ctrl == null || ctrl.IsDisposed) continue;
+                if (!ReferenceEquals(ctrl.Parent, _billingToolbarPanel))
+                    _billingToolbarPanel.Controls.Add(ctrl);
+                if (ctrl is SupeyCheckbox cb)
+                    cb.BackColor = SupeyTheme.SurfaceHeader;
+            }
+
+            if (billinglistview != null && !billinglistview.IsDisposed
+                && !ReferenceEquals(billinglistview.Parent, materialCard4))
+                materialCard4.Controls.Add(billinglistview);
+
+            _billingToolbarPanel.BringToFront();
+            LayoutBillingListViewBounds();
+        }
+
+        private void MaterialCard4_ResizeBillingList(object sender, EventArgs e)
+            => LayoutBillingListViewBounds();
+
+        /// <summary>Position the grid as an inset body inside the main Billing card.</summary>
+        private void LayoutBillingListViewBounds()
+        {
+            if (materialCard4 == null || materialCard4.IsDisposed || billinglistview == null || billinglistview.IsDisposed)
+                return;
+            if (_billingToolbarPanel == null || _billingToolbarPanel.IsDisposed)
+                return;
+
+            _billingToolbarPanel.SetBounds(
+                BillingCardPad,
+                BillingCardPad,
+                Math.Max(120, materialCard4.ClientSize.Width - (BillingCardPad * 2)),
+                BillingToolbarH);
+
+            int listTop = _billingToolbarPanel.Bottom + BillingCardPad;
+            billinglistview.Dock = DockStyle.None;
+            billinglistview.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            billinglistview.SetBounds(
+                BillingCardPad,
+                listTop,
+                Math.Max(120, materialCard4.ClientSize.Width - (BillingCardPad * 2)),
+                Math.Max(80, materialCard4.ClientSize.Height - listTop - BillingCardPad));
+        }
+
+        private void CleanupBillingListSpacer()
+        {
+            if (materialCard4 == null) return;
+            var spacer = materialCard4.Controls["billingListSpacer"];
+            if (spacer == null || spacer.IsDisposed) return;
+            materialCard4.Controls.Remove(spacer);
+            spacer.Dispose();
+        }
+
+        /// <summary>Drop the old padded host panel — it clipped ListView headers when the list was docked inside it.</summary>
+        private void CleanupBillingListHostPanelLegacy()
+        {
+            var legacy = materialCard4.Controls["billingListHostPanel"];
+            if (legacy == null || legacy.IsDisposed)
+                return;
+
+            if (billinglistview != null && !billinglistview.IsDisposed
+                && ReferenceEquals(billinglistview.Parent, legacy))
+            {
+                legacy.Controls.Remove(billinglistview);
+                materialCard4.Controls.Add(billinglistview);
+            }
+
+            materialCard4.Controls.Remove(legacy);
+            legacy.Dispose();
+        }
+
+        /// <summary>Size the trip-list card above the charts and pin the status strip to the tab bottom.</summary>
+        private void LayoutBillingTabPanels()
+        {
+            if (tabPage2 == null || materialCard4 == null || billingstatuspanel == null)
+                return;
+
+            const int inset = 16;
+            const int topInset = 16;
+            const int gap = 12;
+            const int statusH = 41;
+            const int chartH = 202;
+            const int chartRightW = 376;
+
+            int tabW = tabPage2.ClientSize.Width;
+            int tabH = tabPage2.ClientSize.Height;
+
+            materialCard4.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            materialCard5.Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            materialCard6.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
+            billingstatuspanel.Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+
+            int statusTop = Math.Max(topInset, tabH - inset - statusH);
+            billingstatuspanel.SetBounds(inset, statusTop, Math.Max(200, tabW - (inset * 2)), statusH);
+
+            int chartTop = Math.Max(topInset, statusTop - gap - chartH);
+            int chartLeftW = Math.Max(260, tabW - (inset * 2) - chartRightW - gap);
+            materialCard5.SetBounds(inset, chartTop, chartLeftW, chartH);
+            materialCard6.SetBounds(inset + chartLeftW + gap, chartTop, chartRightW, chartH);
+
+            int cardH = Math.Max(160, chartTop - topInset - gap);
+            materialCard4.SetBounds(inset, topInset, Math.Max(200, tabW - (inset * 2)), cardH);
+
+            billingstatuspanel.BringToFront();
+            materialCard5.BringToFront();
+            materialCard6.BringToFront();
+
+            LayoutStatusLabelInCard(billingstatuspanel, billingstatuslbl);
+            LayoutBillingCharts();
+        }
+
+        /// <summary>Align date picker, action buttons, and billing filters on one toolbar row.</summary>
+        private void LayoutBillingToolbar()
+        {
+            if (_billingToolbarPanel == null || _billingToolbarPanel.IsDisposed)
+                return;
+
+            int padL = _billingToolbarPanel.Padding.Left;
+            int padR = _billingToolbarPanel.Padding.Right;
+            int clientW = _billingToolbarPanel.ClientSize.Width;
+            int titleW = 170;
+            if (_billingToolbarTitle != null)
+                _billingToolbarTitle.SetBounds(padL, 10, titleW, 22);
+            if (_billingToolbarSubtitle != null)
+                _billingToolbarSubtitle.SetBounds(padL + titleW + 12, 12,
+                    Math.Max(220, clientW - padL - padR - titleW - 12), 18);
+
+            int rowY = 56;
+
+            int x = padL;
+            const int dateW = 248;
+
+            if (rjDatePicker1 != null && !rjDatePicker1.IsDisposed)
+                rjDatePicker1.SetBounds(x, rowY, dateW, BillingControlH);
+            x += dateW + BillingToolbarGap;
+
+            if (billloadbtn != null && !billloadbtn.IsDisposed)
+            {
+                int loadW = Math.Max(72, MeasureButtonWidth(billloadbtn, 72));
+                billloadbtn.SetBounds(x, rowY, loadW, BillingControlH);
+                x += loadW + BillingToolbarGap;
+            }
+
+            if (billsubmitbtn != null && !billsubmitbtn.IsDisposed)
+            {
+                int submitW = Math.Max(88, MeasureButtonWidth(billsubmitbtn, 88));
+                billsubmitbtn.SetBounds(x, rowY, submitW, BillingControlH);
+                x += submitW + BillingToolbarGap;
+            }
+
+            int mmW = billingmmcb != null && !billingmmcb.IsDisposed ? billingmmcb.PreferredWidth(BillingControlH) : 0;
+            int allW = billingallcb != null && !billingallcb.IsDisposed ? billingallcb.PreferredWidth(BillingControlH) : 0;
+            int cbGap = BillingToolbarGap + 4;
+            int blockW = mmW + (mmW > 0 && allW > 0 ? cbGap : 0) + allW;
+            int blockLeft = Math.Max(x + BillingToolbarGap, clientW - padR - blockW);
+
+            if (billingmmcb != null && !billingmmcb.IsDisposed)
+                billingmmcb.SetBounds(blockLeft, rowY, mmW, BillingControlH);
+            if (billingallcb != null && !billingallcb.IsDisposed)
+                billingallcb.SetBounds(blockLeft + mmW + cbGap, rowY, allW, BillingControlH);
+        }
+
+        private void LayoutBillingCharts()
+        {
+            LayoutBillingChartCard(materialCard5, pgchart);
+            LayoutBillingChartCard(materialCard6, incomevslosseschart);
+        }
+
+        private static void LayoutBillingChartCard(SupeyCard card, System.Windows.Forms.DataVisualization.Charting.Chart chart)
+        {
+            if (card == null || card.IsDisposed || chart == null || chart.IsDisposed)
+                return;
+
+            const int pad = 10;
+            chart.SetBounds(
+                pad,
+                pad,
+                Math.Max(80, card.ClientSize.Width - (pad * 2)),
+                Math.Max(60, card.ClientSize.Height - (pad * 2)));
+        }
+
+        private static int MeasureButtonWidth(SupeyMaterialButton btn, int fallback)
+        {
+            if (btn == null || string.IsNullOrEmpty(btn.Text))
+                return fallback;
+            int textW = TextRenderer.MeasureText(btn.Text, btn.Font,
+                new Size(int.MaxValue, btn.Height > 0 ? btn.Height : BillingControlH),
+                TextFormatFlags.SingleLine | TextFormatFlags.NoPadding).Width;
+            return textW + 22;
+        }
+
         private ContextMenuStrip _themePickerMenu;
         private SupeyDrawerHost _navDrawer;
 
@@ -875,6 +1270,7 @@ namespace Hiatme_Tool_Suite_v3
                 // re-assert anyway so any freshly themed surface keeps matching chrome.
                 SupeyDarkScrollBars.Apply(this);
                 ApplyLoginVisualTheme();
+                ApplyBillingVisualTheme();
                 Invalidate(true);
             }
             catch
@@ -1280,6 +1676,7 @@ namespace Hiatme_Tool_Suite_v3
         private System.Windows.Forms.LinkLabel _updateStatusLink;
         private bool _updateInProgress;
         private System.Windows.Forms.Panel _loginFooterPanel;
+        private bool _gmailLoginFieldHooksWired;
 
         /// <summary>
         /// Sets the title bar to include the current version and adds a clickable bottom-right "Check for updates"
@@ -3460,7 +3857,7 @@ namespace Hiatme_Tool_Suite_v3
                 return;
             }
 
-            loginPassTB.Enabled = true;
+            SetGmailLoginFieldsEditable(true);
             loginSwitch.Enabled = true;
 
             if (!string.IsNullOrWhiteSpace(Properties.Settings.Default.gmailUserName))
@@ -3479,11 +3876,47 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        private void SetGmailLoginFieldsEditable(bool editable)
+        {
+            if (loginUserTB != null)
+            {
+                loginUserTB.Enabled = editable;
+                loginUserTB.ReadOnly = !editable;
+            }
+            if (loginPassTB != null)
+            {
+                loginPassTB.Enabled = editable;
+                loginPassTB.ReadOnly = !editable;
+            }
+        }
+
+        private void EnsureGmailLoginFieldHooks()
+        {
+            if (_gmailLoginFieldHooksWired)
+                return;
+            _gmailLoginFieldHooksWired = true;
+
+            if (loginUserTB != null)
+                loginUserTB.MouseDown += GmailLoginField_MouseDown;
+            if (loginPassTB != null)
+                loginPassTB.MouseDown += GmailLoginField_MouseDown;
+        }
+
+        private void GmailLoginField_MouseDown(object sender, MouseEventArgs e)
+        {
+            if (loginCB == null || loginCB.SelectedIndex != 3)
+                return;
+            BeginGmailPersonalEntryIfOfficeMode();
+        }
+
         private void ApplyGmailOfficeDefaultUi(string officeAddress)
         {
             loginUserTB.Text = officeAddress ?? string.Empty;
             loginPassTB.Text = string.Empty;
+            loginUserTB.Enabled = true;
+            loginUserTB.ReadOnly = false;
             loginPassTB.Enabled = false;
+            loginPassTB.ReadOnly = false;
             // Do not touch loginSwitch.Checked — it is shared with WellRyde/Modivcare/Hiatme.
             loginSwitch.Enabled = false;
             SetLoginActionButton("Ready", enabled: false);
@@ -3494,7 +3927,7 @@ namespace Hiatme_Tool_Suite_v3
         private void EnableGmailLogin()
         {
             loginCodeTB.Enabled = false;
-            loginUserTB.Enabled = true;
+            SetGmailLoginFieldsEditable(true);
             SetLoginActionButton("Test my Gmail");
             loginCB.SelectedIndex = 3;
 
@@ -3508,7 +3941,6 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             SetWrPbLightImage(0);
-            loginPassTB.Enabled = true;
             loginSwitch.Enabled = true;
             SetLoginActionButton("Test my Gmail");
             UpdateGmailDefaultButtonVisibility();
@@ -3520,8 +3952,7 @@ namespace Hiatme_Tool_Suite_v3
         {
             SetWrPbLightImage(1);
             loginCodeTB.Enabled = false;
-            loginUserTB.Enabled = true;
-            loginPassTB.Enabled = true;
+            SetGmailLoginFieldsEditable(true);
             loginSwitch.Enabled = true;
             SetLoginActionButton("Test my Gmail");
             loginCB.SelectedIndex = 3;
@@ -3579,10 +4010,13 @@ namespace Hiatme_Tool_Suite_v3
 
             loginUserTB.Text = string.Empty;
             loginPassTB.Text = string.Empty;
-            loginPassTB.Enabled = true;
+            SetGmailLoginFieldsEditable(true);
             loginSwitch.Enabled = true;
             SetLoginActionButton("Test my Gmail");
             SetWrPbLightImage(0);
+            UpdateGmailDefaultButtonVisibility();
+            RelayoutLoginForm();
+            loginUserTB.FocusEditor();
         }
 
         private async Task GmailLoginTestAsync()
@@ -3605,7 +4039,7 @@ namespace Hiatme_Tool_Suite_v3
                 await ScheduleBuilderGmailMailer.TestConnectionAsync(address, password).ConfigureAwait(true);
                 Properties.Settings.Default.gmailUseOfficeDefault = false;
                 GmailSaveCredentials(address, password);
-                loginPassTB.Enabled = true;
+                SetGmailLoginFieldsEditable(true);
                 loginSwitch.Enabled = true;
                 DisableGmailLogin();
             }
@@ -7192,13 +7626,20 @@ namespace Hiatme_Tool_Suite_v3
         {
 
         }
+        private bool UsesSupeyListChrome(ListView listView)
+            => ReferenceEquals(listView, tslv)
+               || ReferenceEquals(listView, aalv)
+               || ReferenceEquals(listView, templatelv)
+               || ReferenceEquals(listView, tctripcorrectlv)
+               || ReferenceEquals(listView, tcbatchelinkslv)
+               || ReferenceEquals(listView, billinglistview);
+
         private void listView_DrawColumnHeader(object sender, DrawListViewColumnHeaderEventArgs e)
         {
             ListView listView = (ListView)sender;
-            // Trip Scout and the Analyzer trip list share the polished SupeyTheme header palette.
-            bool isTripScoutList = ReferenceEquals(listView, tslv) || ReferenceEquals(listView, aalv) || ReferenceEquals(listView, templatelv) || ReferenceEquals(listView, tctripcorrectlv) || ReferenceEquals(listView, tcbatchelinkslv);
-            // Draw the standard header background.
-            Color lvbg = isTripScoutList ? SupeyTheme.ListHeader : ColorTranslator.FromHtml("#333333");
+            bool themed = UsesSupeyListChrome(listView);
+            // Trip Scout, Billing, and the other owner-draw trip lists share the SupeyTheme header palette.
+            Color lvbg = themed ? SupeyTheme.ListHeader : ColorTranslator.FromHtml("#333333");
 
             SolidBrush bluegrayBrush = new SolidBrush(lvbg);
 
@@ -7232,12 +7673,12 @@ namespace Hiatme_Tool_Suite_v3
                     break;
             }
             TextRenderer.DrawText(e.Graphics, e.Header.Text, ListViewOwnerDrawFonts.Header, bounds,
-                isTripScoutList ? SupeyTheme.ListHeaderText : Color.Gainsboro,
+                themed ? SupeyTheme.ListHeaderText : Color.Gainsboro,
                 align | TextFormatFlags.SingleLine | TextFormatFlags.GlyphOverhangPadding | TextFormatFlags.VerticalCenter | TextFormatFlags.WordEllipsis);
 
             // Faint divider on the right edge of every header cell so users see the resize grabber
             // (the flat #333333 fill above otherwise hides Windows' default column boundary).
-            using (var dividerPen = new Pen(isTripScoutList ? SupeyTheme.ListGrid : Color.FromArgb(64, 255, 255, 255), 1f))
+            using (var dividerPen = new Pen(themed ? SupeyTheme.ListGrid : Color.FromArgb(64, 255, 255, 255), 1f))
             {
                 e.Graphics.DrawLine(dividerPen, e.Bounds.Right - 1, e.Bounds.Top + 4, e.Bounds.Right - 1, e.Bounds.Bottom - 4);
             }
@@ -7251,7 +7692,7 @@ namespace Hiatme_Tool_Suite_v3
                 Point[] tri = sorter.Order == SortOrder.Ascending
                     ? new[] { new Point(cx, cy + 3), new Point(cx + 8, cy + 3), new Point(cx + 4, cy - 3) }
                     : new[] { new Point(cx, cy - 3), new Point(cx + 8, cy - 3), new Point(cx + 4, cy + 3) };
-                using (var arrowBrush = new SolidBrush(isTripScoutList ? SupeyTheme.ListHeaderText : Color.Gainsboro))
+                using (var arrowBrush = new SolidBrush(themed ? SupeyTheme.ListHeaderText : Color.Gainsboro))
                 {
                     e.Graphics.FillPolygon(arrowBrush, tri);
                 }
@@ -7262,8 +7703,7 @@ namespace Hiatme_Tool_Suite_v3
         private void listView_DrawItem(object sender, DrawListViewItemEventArgs e)
         {
             ListView listView = (ListView)sender;
-            // Trip Scout and the Analyzer trip list share the polished SupeyTheme selection highlight.
-            bool isTripScoutList = ReferenceEquals(listView, tslv) || ReferenceEquals(listView, aalv) || ReferenceEquals(listView, templatelv) || ReferenceEquals(listView, tctripcorrectlv) || ReferenceEquals(listView, tcbatchelinkslv);
+            bool themed = UsesSupeyListChrome(listView);
             if ((e.State & ListViewItemStates.Selected) != 0)
             {
                 if (listView.Focused && e.Item.Selected)
@@ -7271,11 +7711,11 @@ namespace Hiatme_Tool_Suite_v3
 
                     Rectangle R = e.Bounds;
                     R.Inflate(-1, -1);
-                    using (Brush brush = new SolidBrush(isTripScoutList ? SupeyTheme.ListSelected : Color.RoyalBlue))
+                    using (Brush brush = new SolidBrush(themed ? SupeyTheme.ListSelected : Color.RoyalBlue))
                     {
                         e.Graphics.FillRectangle(brush, R);
                     }
-                    using (Pen pen = new Pen(isTripScoutList ? SupeyTheme.BorderSubtle : Color.Black, 1.5f))
+                    using (Pen pen = new Pen(themed ? SupeyTheme.BorderSubtle : Color.Black, 1.5f))
                     {
                         e.Graphics.DrawRectangle(pen, R);
                     }
@@ -7288,10 +7728,13 @@ namespace Hiatme_Tool_Suite_v3
             else
             {
                 // Owner-draw suppresses the default item background, so paint the row's
-                // BackColor ourselves — this is what shows the Analyzer's alert color coding.
-                if (ReferenceEquals(listView, aalv))
+                // BackColor ourselves — Analyzer alert colors and Billing mismatch highlights.
+                if (ReferenceEquals(listView, aalv) || ReferenceEquals(listView, billinglistview))
                 {
-                    using (var rowBrush = new SolidBrush(e.Item.BackColor))
+                    Color bg = e.Item.BackColor;
+                    if (bg == Color.Empty || bg == Color.Transparent)
+                        bg = SupeyTheme.ListBody;
+                    using (var rowBrush = new SolidBrush(bg))
                         e.Graphics.FillRectangle(rowBrush, e.Bounds);
                 }
             }
@@ -7313,7 +7756,7 @@ namespace Hiatme_Tool_Suite_v3
         private void listView_DrawSubItem(object sender, DrawListViewSubItemEventArgs e)
         {
             ListView listView = (ListView)sender;
-            bool isTripScoutList = ReferenceEquals(listView, tslv) || ReferenceEquals(listView, aalv) || ReferenceEquals(listView, templatelv) || ReferenceEquals(listView, tctripcorrectlv) || ReferenceEquals(listView, tcbatchelinkslv);
+            bool themed = UsesSupeyListChrome(listView);
 
             Rectangle rowBounds = e.Bounds;
             Rectangle bounds = new Rectangle(rowBounds.Left + 10, rowBounds.Top, Math.Max(0, rowBounds.Width - 10 - 1), rowBounds.Height);
@@ -7332,7 +7775,7 @@ namespace Hiatme_Tool_Suite_v3
                     break;
             }
             bool selected = (e.ItemState & ListViewItemStates.Selected) != 0 && listView.Focused;
-            Color textColor = isTripScoutList
+            Color textColor = themed
                 ? (selected ? SupeyTheme.ListSelectedText : SupeyTheme.ListText)
                 : Color.White;
             TextRenderer.DrawText(e.Graphics, e.SubItem.Text, ListViewOwnerDrawFonts.Cell, bounds, textColor,

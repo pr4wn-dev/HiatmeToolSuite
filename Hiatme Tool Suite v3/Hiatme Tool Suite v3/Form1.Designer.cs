@@ -67,7 +67,7 @@
             this.billingmmcb = new SupeyCheckbox();
             this.rjDatePicker1 = new Hiatme_Tool_Suite_v3.RJDatePicker();
             this.billloadbtn = new SupeyMaterialButton();
-            this.billinglistview = new System.Windows.Forms.ListView();
+            this.billinglistview = new SupeyListView();
             this.columnHeader13 = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
             this.columnHeader2 = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
             this.columnHeader14 = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
@@ -697,8 +697,7 @@
             // 
             // materialCard4
             // 
-            this.materialCard4.Anchor = ((System.Windows.Forms.AnchorStyles)((((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Bottom) 
-            | System.Windows.Forms.AnchorStyles.Left) 
+            this.materialCard4.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left) 
             | System.Windows.Forms.AnchorStyles.Right)));
             this.materialCard4.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(255)))), ((int)(((byte)(255)))), ((int)(((byte)(255)))));
             this.materialCard4.Controls.Add(this.billingallcb);
@@ -719,8 +718,7 @@
             // 
             // billingallcb
             // 
-            this.billingallcb.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
-            this.billingallcb.AutoSize = true;
+            this.billingallcb.AutoSize = false;
             this.billingallcb.Depth = 0;
             this.billingallcb.Location = new System.Drawing.Point(1370, 24);
             this.billingallcb.Margin = new System.Windows.Forms.Padding(0);
@@ -729,7 +727,7 @@
             this.billingallcb.Name = "billingallcb";
             this.billingallcb.ReadOnly = false;
             this.billingallcb.Ripple = true;
-            this.billingallcb.Size = new System.Drawing.Size(79, 37);
+            this.billingallcb.Size = new System.Drawing.Size(90, 36);
             this.billingallcb.TabIndex = 10;
             this.billingallcb.Text = "Bill All";
             this.billingallcb.UseVisualStyleBackColor = true;
@@ -756,8 +754,7 @@
             // 
             // billingmmcb
             // 
-            this.billingmmcb.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
-            this.billingmmcb.AutoSize = true;
+            this.billingmmcb.AutoSize = false;
             this.billingmmcb.Checked = true;
             this.billingmmcb.CheckState = System.Windows.Forms.CheckState.Checked;
             this.billingmmcb.Depth = 0;
@@ -768,7 +765,7 @@
             this.billingmmcb.Name = "billingmmcb";
             this.billingmmcb.ReadOnly = false;
             this.billingmmcb.Ripple = true;
-            this.billingmmcb.Size = new System.Drawing.Size(148, 37);
+            this.billingmmcb.Size = new System.Drawing.Size(160, 36);
             this.billingmmcb.TabIndex = 9;
             this.billingmmcb.Text = "Bill Mismatches";
             this.billingmmcb.UseVisualStyleBackColor = true;
@@ -808,9 +805,6 @@
             // 
             // billinglistview
             // 
-            this.billinglistview.Anchor = ((System.Windows.Forms.AnchorStyles)((((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Bottom) 
-            | System.Windows.Forms.AnchorStyles.Left) 
-            | System.Windows.Forms.AnchorStyles.Right)));
             this.billinglistview.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(70)))), ((int)(((byte)(70)))), ((int)(((byte)(70)))));
             this.billinglistview.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
             this.billinglistview.Columns.AddRange(new System.Windows.Forms.ColumnHeader[] {
@@ -832,12 +826,12 @@
             this.billinglistview.ForeColor = System.Drawing.SystemColors.Desktop;
             this.billinglistview.FullRowSelect = true;
             this.billinglistview.GridLines = true;
+            this.billinglistview.HeaderStyle = System.Windows.Forms.ColumnHeaderStyle.Clickable;
             this.billinglistview.HideSelection = false;
             this.billinglistview.Location = new System.Drawing.Point(15, 63);
             this.billinglistview.Name = "billinglistview";
             this.billinglistview.OwnerDraw = true;
             this.billinglistview.Size = new System.Drawing.Size(1447, 406);
-            this.billinglistview.Sorting = System.Windows.Forms.SortOrder.Ascending;
             this.billinglistview.TabIndex = 2;
             this.billinglistview.UseCompatibleStateImageBehavior = false;
             this.billinglistview.View = System.Windows.Forms.View.Details;
@@ -937,7 +931,6 @@
             // 
             this.billingstatuslbl.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left) 
             | System.Windows.Forms.AnchorStyles.Right)));
-            this.billingstatuslbl.AutoEllipsis = true;
             this.billingstatuslbl.AutoSize = false;
             this.billingstatuslbl.Depth = 0;
             this.billingstatuslbl.Font = new System.Drawing.Font("Roboto", 14F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Pixel);
@@ -2525,7 +2518,6 @@
             this.materialCard5.ResumeLayout(false);
             ((System.ComponentModel.ISupportInitialize)(this.pgchart)).EndInit();
             this.materialCard4.ResumeLayout(false);
-            this.materialCard4.PerformLayout();
             this.billingstatuspanel.ResumeLayout(false);
             this.billingstatuspanel.PerformLayout();
             this.tabPage4.ResumeLayout(false);
@@ -2585,7 +2577,7 @@
         private System.Windows.Forms.PictureBox pictureBox1;
         private System.Windows.Forms.TabPage tabPage2;
         private SupeyMaterialButton billloadbtn;
-        private System.Windows.Forms.ListView billinglistview;
+        private SupeyListView billinglistview;
         private System.Windows.Forms.ColumnHeader columnHeader2;
         private System.Windows.Forms.ColumnHeader columnHeader3;
         private System.Windows.Forms.ColumnHeader columnHeader4;
