@@ -21,6 +21,7 @@ namespace Hiatme_Tool_Suite_v3
         private const int LVM_SETEXTENDEDLISTVIEWSTYLE = LVM_FIRST + 54;
         private const int LVM_GETEXTENDEDLISTVIEWSTYLE = LVM_FIRST + 55;
         private const int LVM_SETHOTITEM = LVM_FIRST + 60;
+        private const int LVS_EX_GRIDLINES = 0x00000001;
         private const int LVS_EX_TRACKSELECT = 0x00000008;
         private const int LVS_EX_ONECLICKACTIVATE = 0x00000040;
         private const int LVS_EX_TWOCLICKACTIVATE = 0x00000080;
@@ -81,7 +82,10 @@ namespace Hiatme_Tool_Suite_v3
                 _gridLines = value;
                 base.GridLines = false;
                 if (IsHandleCreated)
+                {
+                    SuppressNativeGridLines();
                     Invalidate(true);
+                }
             }
         }
 
@@ -107,6 +111,7 @@ namespace Hiatme_Tool_Suite_v3
             FullRowSelect = true;
             HideSelection = false;
             HoverSelection = false;
+            SuppressNativeGridLines();
             if (SuppressHotTracking)
                 ApplyHotTrackingSuppression();
             EnsureAutoGridHooked();
@@ -135,7 +140,26 @@ namespace Hiatme_Tool_Suite_v3
                 return;
             if (SupeyListViewHelpers.ShouldSkipCellGrid(e.Item))
                 return;
-            SupeyListViewHelpers.DrawCellGridLines(e.Graphics, e.Bounds, this);
+            e.DrawDefault = false;
+            SupeyListViewHelpers.DrawCellGridLinesAuto(e.Graphics, e.Bounds);
+        }
+
+        /// <summary>Win32 grid lines ignore owner-draw and paint system chrome on top of our hairlines.</summary>
+        private void SuppressNativeGridLines()
+        {
+            if (!IsHandleCreated)
+                return;
+            try
+            {
+                base.GridLines = false;
+                IntPtr stylePtr = SendMessage(Handle, LVM_GETEXTENDEDLISTVIEWSTYLE, IntPtr.Zero, IntPtr.Zero);
+                int style = stylePtr.ToInt32() & ~LVS_EX_GRIDLINES;
+                SendMessage(Handle, LVM_SETEXTENDEDLISTVIEWSTYLE, new IntPtr(LVS_EX_GRIDLINES), new IntPtr(style));
+            }
+            catch
+            {
+                // Extended styles are best-effort.
+            }
         }
 
         protected override void WndProc(ref Message m)

@@ -21,12 +21,15 @@ namespace Hiatme_Tool_Suite_v3
         private const int ActivationH = 2;
         private const int TallHeight = 58;
         private const int ShortHeight = 36;
+        /// <summary>Matches Billing/toolbar row height (30px).</summary>
+        private const int ToolbarHeight = 30;
         private const int ArrowInset = 12;
         private const int IconSize = 24;
 
         private readonly Timer _focusAnimTimer;
         private string _hint = string.Empty;
         private bool _useTallSize = true;
+        private bool _useToolbarSize;
         private bool _focused;
         private float _focusAnim;
         private int _lineY;
@@ -77,7 +80,14 @@ namespace Hiatme_Tool_Suite_v3
         public bool UseTallSize
         {
             get => _useTallSize;
-            set { _useTallSize = value; ApplyHeightMetrics(); Invalidate(); }
+            set { _useTallSize = value; if (value) _useToolbarSize = false; ApplyHeightMetrics(); Invalidate(); }
+        }
+
+        /// <summary>30px height for Billing-style toolbar rows (date picker / button alignment).</summary>
+        public bool UseToolbarSize
+        {
+            get => _useToolbarSize;
+            set { _useToolbarSize = value; if (value) _useTallSize = false; ApplyHeightMetrics(); Invalidate(); }
         }
 
         public string Hint
@@ -202,11 +212,11 @@ namespace Hiatme_Tool_Suite_v3
 
         private void ApplyHeightMetrics()
         {
-            int h = _useTallSize ? TallHeight : ShortHeight;
+            int h = _useTallSize ? TallHeight : (_useToolbarSize ? ToolbarHeight : ShortHeight);
             if (Height != h)
                 Height = h;
             _lineY = h - BottomPad;
-            ItemHeight = Math.Max(28, h - 8);
+            ItemHeight = Math.Max(22, h - 8);
             DropDownHeight = ItemHeight * Math.Min(MaxDropDownItems, Math.Max(4, Items.Count)) + 2;
             DropDownWidth = Math.Max(Width, DropDownWidth);
         }

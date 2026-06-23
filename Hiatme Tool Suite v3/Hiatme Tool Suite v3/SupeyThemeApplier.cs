@@ -58,6 +58,8 @@ namespace Hiatme_Tool_Suite_v3
             Add(a.ListHeader, b.ListHeader);
             Add(a.ListHeaderText, b.ListHeaderText);
             Add(a.ListGrid, b.ListGrid);
+            Add(SupeyTheme.LegacyListGridLineBlend(a), SupeyTheme.ListGridLineForPalette(b));
+            Add(SupeyTheme.ListGridLineForPalette(a), SupeyTheme.ListGridLineForPalette(b));
             Add(a.ListSelected, b.ListSelected);
             Add(a.ListSelectedText, b.ListSelectedText);
             Add(a.ListText, b.ListText);

@@ -107,6 +107,18 @@ namespace Hiatme_Tool_Suite_v3
         private FlowLayoutPanel _tripScoutToolbarRightFlow;
         private System.Windows.Forms.Panel _templatesToolbarPanel;
         private SupeyButton _templatesAddBtn;
+        private System.Windows.Forms.Label _tripScoutToolbarTitle;
+        private System.Windows.Forms.Label _tripScoutToolbarSubtitle;
+        private System.Windows.Forms.Label _templatesToolbarTitle;
+        private System.Windows.Forms.Label _templatesToolbarSubtitle;
+        private System.Windows.Forms.Panel _autoAssignToolbarPanel;
+        private System.Windows.Forms.Label _aaToolbarTitle;
+        private System.Windows.Forms.Label _aaToolbarSubtitle;
+        private bool _autoAssignToolbarReady;
+        private System.Windows.Forms.Panel _cameraToolbarPanel;
+        private System.Windows.Forms.Label _cameraToolbarTitle;
+        private System.Windows.Forms.Label _cameraToolbarSubtitle;
+        private bool _cameraToolbarReady;
         private SupeyMapLoadingOverlay _tripScoutLoadingOverlay;
         private int _tripScoutLoadingDepth;
         private bool _tripScoutFirstLoadTriggered;
@@ -192,6 +204,9 @@ namespace Hiatme_Tool_Suite_v3
             ApplyTemplatesVisualTheme();
             ApplyTimeCorrectionVisualTheme();
             ApplyBillingVisualTheme();
+            ApplyAutoAssignVisualTheme();
+            ApplyProductionVisualTheme();
+            ApplyCameraVisualTheme();
             ApplyLoginVisualTheme(layout: false);
             if (LoadingGifCard != null)
                 LoadingGifCard.Visible = false;
@@ -473,57 +488,25 @@ namespace Hiatme_Tool_Suite_v3
             return c.R == c.G && c.G == c.B && c.R >= 38 && c.R <= 90;
         }
 
-        private void ApplyTripScoutVisualTheme()
+        private void ApplyTripScoutVisualTheme(bool layout = true)
         {
             if (tabPage9 != null)
-                tabPage9.BackColor = SupeyTheme.SurfaceBase;
-
-            if (tsmaterialCard != null)
             {
-                tsmaterialCard.BackColor = SupeyTheme.SurfaceBase;
-                tsmaterialCard.ForeColor = SupeyTheme.TextPrimary;
-                tsmaterialCard.Padding = new Padding(0);
+                tabPage9.BackColor = SupeyTheme.SurfaceBase;
+                tabPage9.ForeColor = SupeyTheme.TextPrimary;
+                tabPage9.Resize -= TabPage9_LayoutTripScoutPanels;
+                tabPage9.Resize += TabPage9_LayoutTripScoutPanels;
             }
+
+            StyleToolTabCard(tsmaterialCard, SupeyCard.Surface.Standard);
 
             if (tsstatuspanel != null)
             {
                 tsstatuspanel.Visible = true;
-                tsstatuspanel.BackColor = SupeyTheme.SurfaceHeader;
-                tsstatuspanel.ForeColor = SupeyTheme.TextPrimary;
-                tsstatuspanel.Padding = new Padding(0);
-
-                var fill = tsstatuspanel.Controls["tsStatusFillPanel"] as System.Windows.Forms.Panel;
-                if (fill == null)
-                {
-                    fill = new System.Windows.Forms.Panel
-                    {
-                        Name = "tsStatusFillPanel",
-                        Dock = DockStyle.Fill,
-                        BackColor = SupeyTheme.SurfaceStatusBar,
-                        Padding = new Padding(10, 0, 10, 0),
-                    };
-                    tsstatuspanel.Controls.Add(fill);
-                }
-                else
-                {
-                    fill.BackColor = SupeyTheme.SurfaceStatusBar;
-                }
-
-                var divider = fill.Controls["tsStatusTopDivider"] as System.Windows.Forms.Panel;
-                if (divider == null)
-                {
-                    divider = new System.Windows.Forms.Panel
-                    {
-                        Name = "tsStatusTopDivider",
-                        Dock = DockStyle.Top,
-                        Height = 1,
-                        BackColor = SupeyTheme.Divider,
-                    };
-                    fill.Controls.Add(divider);
-                    divider.BringToFront();
-                }
-
-                fill.Resize += (_, __) => LayoutStatusLabelInCard(fill, tsstatuslbl);
+                StyleToolTabStatusBar(tsstatuspanel);
+                var fill = EnsureToolTabStatusFill(tsstatuspanel, "tsStatusFillPanel");
+                fill.Resize -= TsStatusFill_Resize;
+                fill.Resize += TsStatusFill_Resize;
             }
 
             if (tsstatuslbl != null)
@@ -544,70 +527,74 @@ namespace Hiatme_Tool_Suite_v3
                 tslv.BackColor = SupeyTheme.ListBody;
                 tslv.ForeColor = SupeyTheme.ListText;
                 tslv.Font = ListViewOwnerDrawFonts.Cell;
-                tslv.Dock = DockStyle.Fill;
+                tslv.BorderStyle = System.Windows.Forms.BorderStyle.None;
+                tslv.FullRowSelect = true;
+                tslv.HideSelection = false;
+                tslv.HeaderStyle = ColumnHeaderStyle.Clickable;
             }
 
             EnsureTripScoutToolbarChrome();
+            if (tsmaterialCard != null)
+            {
+                tsmaterialCard.Resize -= TsmaterialCard_LayoutTripScoutContent;
+                tsmaterialCard.Resize += TsmaterialCard_LayoutTripScoutContent;
+            }
+
+            if (tabPage9 != null)
+            {
+                SupeyDarkScrollBars.Apply(tabPage9);
+                tabPage9.VisibleChanged -= TabPage9_ApplyDarkScrollOnShow;
+                tabPage9.VisibleChanged += TabPage9_ApplyDarkScrollOnShow;
+            }
+
+            if (layout)
+                LayoutTripScoutTabPanels();
+        }
+
+        private void TsStatusFill_Resize(object sender, EventArgs e)
+        {
+            var fill = sender as System.Windows.Forms.Panel;
+            LayoutStatusLabelInCard(fill ?? tsstatuspanel, tsstatuslbl);
+        }
+
+        private void TabPage9_LayoutTripScoutPanels(object sender, EventArgs e)
+            => LayoutTripScoutTabPanels();
+
+        private void TsmaterialCard_LayoutTripScoutContent(object sender, EventArgs e)
+        {
+            LayoutTripScoutToolbarBounds();
+            LayoutTripScoutListBounds();
+        }
+
+        private void TabPage9_ApplyDarkScrollOnShow(object sender, EventArgs e)
+        {
+            if (tabPage9 != null && tabPage9.Visible)
+                SupeyDarkScrollBars.Apply(tabPage9);
         }
 
         /// <summary>
-        /// Keeps the Templates tab visually aligned with the Schedule Builder/Trip Scout dark chrome.
+        /// Keeps the Templates tab visually aligned with Billing / Time Correction chrome.
         /// Styling only — no template workflow behavior changes.
         /// </summary>
-        private void ApplyTemplatesVisualTheme()
+        private void ApplyTemplatesVisualTheme(bool layout = true)
         {
             if (tabPage5 != null)
             {
                 tabPage5.BackColor = SupeyTheme.SurfaceBase;
                 tabPage5.ForeColor = SupeyTheme.TextPrimary;
+                tabPage5.Resize -= TabPage5_LayoutTemplatesPanels;
+                tabPage5.Resize += TabPage5_LayoutTemplatesPanels;
             }
 
-            if (materialCard12 != null)
-            {
-                materialCard12.BackColor = SupeyTheme.SurfaceBase;
-                materialCard12.ForeColor = SupeyTheme.TextPrimary;
-                materialCard12.Padding = new Padding(12, 10, 12, 10);
-            }
+            StyleToolTabCard(materialCard12, SupeyCard.Surface.Standard);
 
             if (materialCard13 != null)
             {
                 materialCard13.Visible = true;
-                materialCard13.BackColor = SupeyTheme.SurfaceHeader;
-                materialCard13.ForeColor = SupeyTheme.TextPrimary;
-                materialCard13.Padding = new Padding(0);
-
-                var fill = materialCard13.Controls["tbStatusFillPanel"] as System.Windows.Forms.Panel;
-                if (fill == null)
-                {
-                    fill = new System.Windows.Forms.Panel
-                    {
-                        Name = "tbStatusFillPanel",
-                        Dock = DockStyle.Fill,
-                        BackColor = SupeyTheme.SurfaceStatusBar,
-                        Padding = new Padding(10, 0, 10, 0),
-                    };
-                    materialCard13.Controls.Add(fill);
-                }
-                else
-                {
-                    fill.BackColor = SupeyTheme.SurfaceStatusBar;
-                }
-
-                var divider = fill.Controls["tbStatusTopDivider"] as System.Windows.Forms.Panel;
-                if (divider == null)
-                {
-                    divider = new System.Windows.Forms.Panel
-                    {
-                        Name = "tbStatusTopDivider",
-                        Dock = DockStyle.Top,
-                        Height = 1,
-                        BackColor = SupeyTheme.Divider,
-                    };
-                    fill.Controls.Add(divider);
-                    divider.BringToFront();
-                }
-
-                fill.Resize += (_, __) => LayoutStatusLabelInCard(fill, tbstatuslbl);
+                StyleToolTabStatusBar(materialCard13);
+                var fill = EnsureToolTabStatusFill(materialCard13, "tbStatusFillPanel");
+                fill.Resize -= TbStatusFill_Resize;
+                fill.Resize += TbStatusFill_Resize;
                 materialCard13.Resize -= MaterialCard13_ResizeTemplateStatus;
                 materialCard13.Resize += MaterialCard13_ResizeTemplateStatus;
             }
@@ -629,28 +616,52 @@ namespace Hiatme_Tool_Suite_v3
             {
                 templatelv.BackColor = SupeyTheme.ListBody;
                 templatelv.ForeColor = SupeyTheme.ListText;
-                templatelv.Location = new Point(18, 86);
+                templatelv.Font = ListViewOwnerDrawFonts.Cell;
+                templatelv.BorderStyle = System.Windows.Forms.BorderStyle.None;
+                templatelv.FullRowSelect = true;
+                templatelv.HideSelection = false;
+                templatelv.HeaderStyle = ColumnHeaderStyle.Clickable;
             }
 
             if (tbcb != null)
-            {
-                tbcb.BackColor = SupeyTheme.SurfaceElevated;
-                tbcb.ForeColor = SupeyTheme.TextPrimary;
-            }
-
+                ConfigureToolbarSupeyCombo(tbcb, 150);
             if (tbtemplatenamecb != null)
-            {
-                tbtemplatenamecb.BackColor = SupeyTheme.SurfaceElevated;
-                tbtemplatenamecb.ForeColor = SupeyTheme.TextPrimary;
-            }
+                ConfigureToolbarSupeyCombo(tbtemplatenamecb, 240);
 
             if (addtemplatebtn != null)
-            {
-                // Replaced visually by SupeyButton to match Schedule Builder BUILD chrome.
                 addtemplatebtn.Visible = false;
-            }
 
             EnsureTemplatesToolbarChrome();
+            if (materialCard12 != null)
+            {
+                materialCard12.Resize -= MaterialCard12_ResizeTemplatesToolbar;
+                materialCard12.Resize += MaterialCard12_ResizeTemplatesToolbar;
+            }
+
+            if (tabPage5 != null)
+            {
+                SupeyDarkScrollBars.Apply(tabPage5);
+                tabPage5.VisibleChanged -= TabPage5_ApplyDarkScrollOnShow;
+                tabPage5.VisibleChanged += TabPage5_ApplyDarkScrollOnShow;
+            }
+
+            if (layout)
+                LayoutTemplatesTabPanels();
+        }
+
+        private void TbStatusFill_Resize(object sender, EventArgs e)
+        {
+            var fill = sender as System.Windows.Forms.Panel;
+            LayoutStatusLabelInCard(fill ?? materialCard13, tbstatuslbl);
+        }
+
+        private void TabPage5_LayoutTemplatesPanels(object sender, EventArgs e)
+            => LayoutTemplatesTabPanels();
+
+        private void TabPage5_ApplyDarkScrollOnShow(object sender, EventArgs e)
+        {
+            if (tabPage5 != null && tabPage5.Visible)
+                SupeyDarkScrollBars.Apply(tabPage5);
         }
 
         private void MaterialCard13_ResizeTemplateStatus(object sender, EventArgs e)
@@ -660,72 +671,37 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         /// <summary>
-        /// Dark-themes the Time Correction tab (tabPage4): content cards, the control-panel
-        /// card with its flat combo + Find/Load/Execute buttons, both owner-drawn list views,
-        /// the bottom status strip, and the accuracy chart. Styling only — no behavior changes.
+        /// Themes the Time Correction tab: bordered SupeyCards, batch/trip toolbars, list polish,
+        /// status strip, and accuracy chart — aligned with Billing / Supey Schedule chrome.
         /// </summary>
-        private void ApplyTimeCorrectionVisualTheme()
+        private void ApplyTimeCorrectionVisualTheme(bool layout = true)
         {
             if (tabPage4 != null)
             {
                 tabPage4.BackColor = SupeyTheme.SurfaceBase;
                 tabPage4.ForeColor = SupeyTheme.TextPrimary;
+                tabPage4.Resize -= TabPage4_LayoutTimeCorrectionPanels;
+                tabPage4.Resize += TabPage4_LayoutTimeCorrectionPanels;
             }
 
-            // Content cards (batch list host, trip list, chart) sit flush on the base surface so
-            // the tab reads as one flat dark panel (like Schedule Builder) instead of a grid of
-            // lighter gray cards floating on a darker background.
-            foreach (var card in new[] { materialCard8, materialCard9, materialCard11 })
-            {
-                if (card == null) continue;
-                card.BackColor = SupeyTheme.SurfaceBase;
-                card.ForeColor = SupeyTheme.TextPrimary;
-            }
+            StyleToolTabCard(materialCard8, SupeyCard.Surface.Standard);
+            StyleToolTabCard(materialCard9, SupeyCard.Surface.Standard);
+            StyleToolTabCard(materialCard11, SupeyCard.Surface.Standard);
 
-            // The control-panel card reads as a small header strip.
             if (materialCard19 != null)
             {
-                materialCard19.BackColor = SupeyTheme.SurfaceHeader;
+                materialCard19.SurfaceLevel = SupeyCard.Surface.Elevated;
+                materialCard19.ShowBorder = true;
+                materialCard19.CornerRadius = 8;
                 materialCard19.ForeColor = SupeyTheme.TextPrimary;
+                materialCard19.Padding = Padding.Empty;
             }
 
-            if (materialLabel1 != null)
-            {
-                materialLabel1.ForeColor = SupeyTheme.TextSecondary;
-                materialLabel1.BackColor = SupeyTheme.SurfaceHeader;
-                materialLabel1.Font = SupeyTheme.BodyFont;
-            }
-
-            // Flat dark combo (reuses the Templates combo configuration + owner-draw rows).
-            if (tccb != null)
-            {
-                ConfigureTemplatesCombo(tccb, 232);
-                // Restore the default selection (Modivcare) that the old Material combo showed.
-                if (tccb.SelectedIndex < 0 && tccb.Items.Count > 0)
-                {
-                    int idx = tccb.Items.IndexOf("Modivcare");
-                    tccb.SelectedIndex = idx >= 0 ? idx : 0;
-                }
-            }
-
-            // Flat buttons, primary accent reserved for the Execute action.
-            if (tcfindbatchesbtn != null) tcfindbatchesbtn.Kind = SupeyButton.Variant.Secondary;
-            if (tcloadbtn != null) tcloadbtn.Kind = SupeyButton.Variant.Secondary;
-            if (tcexebtn != null) tcexebtn.Kind = SupeyButton.Variant.Primary;
-            LayoutTimeCorrectionControlPanel();
-
-            // Owner-drawn lists pick up the shared SupeyTheme palette (see ListView draw handlers).
-            foreach (var lv in new[] { tctripcorrectlv, tcbatchelinkslv })
-            {
-                if (lv == null) continue;
-                lv.BackColor = SupeyTheme.ListBody;
-                lv.ForeColor = SupeyTheme.ListText;
-            }
-
-            // Bottom status strip, styled like the other tabs.
             if (materialCard10 != null)
             {
-                materialCard10.BackColor = SupeyTheme.SurfaceHeader;
+                materialCard10.SurfaceLevel = SupeyCard.Surface.StatusBar;
+                materialCard10.ShowBorder = true;
+                materialCard10.CornerRadius = 6;
                 materialCard10.ForeColor = SupeyTheme.TextPrimary;
                 materialCard10.Padding = new Padding(0);
 
@@ -769,25 +745,541 @@ namespace Hiatme_Tool_Suite_v3
                     tcorrectstatuslbl.Font = SupeyTheme.BodyFont;
                     tcorrectstatuslbl.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
                     tcorrectstatuslbl.BackColor = SupeyTheme.SurfaceStatusBar;
-                    LayoutStatusLabelInCard(fill, tcorrectstatuslbl);
                 }
 
                 materialCard10.Resize -= MaterialCard10_ResizeTcStatus;
                 materialCard10.Resize += MaterialCard10_ResizeTcStatus;
             }
 
+            if (materialLabel1 != null)
+            {
+                materialLabel1.ForeColor = SupeyTheme.TextSecondary;
+                materialLabel1.BackColor = SupeyTheme.SurfaceElevated;
+                materialLabel1.Font = SupeyTheme.CaptionFont;
+            }
+
+            if (tccb is SupeyComboBox compareCb)
+            {
+                ConfigureToolbarSupeyCombo(compareCb, 232);
+                if (compareCb.SelectedIndex < 0 && compareCb.Items.Count > 0)
+                {
+                    int idx = compareCb.Items.IndexOf("Modivcare");
+                    compareCb.SelectedIndex = idx >= 0 ? idx : 0;
+                }
+            }
+            else if (tccb != null)
+            {
+                ConfigureTemplatesCombo(tccb, 232);
+                if (tccb.SelectedIndex < 0 && tccb.Items.Count > 0)
+                {
+                    int idx = tccb.Items.IndexOf("Modivcare");
+                    tccb.SelectedIndex = idx >= 0 ? idx : 0;
+                }
+            }
+
+            if (tcfindbatchesbtn != null) tcfindbatchesbtn.Kind = SupeyButton.Variant.Secondary;
+            if (tcloadbtn != null) tcloadbtn.Kind = SupeyButton.Variant.Secondary;
+            if (tcexebtn != null) tcexebtn.Kind = SupeyButton.Variant.Primary;
+
+            EnsureTimeCorrectionBatchToolbarChrome();
+            EnsureTimeCorrectionTripToolbarChrome();
+            RefreshTimeCorrectionToolbarTheme();
+
+            materialCard19.Resize -= MaterialCard19_LayoutTimeCorrectionControlPanel;
+            materialCard19.Resize += MaterialCard19_LayoutTimeCorrectionControlPanel;
+            materialCard8.Resize -= MaterialCard8_LayoutTimeCorrectionBatchArea;
+            materialCard8.Resize += MaterialCard8_LayoutTimeCorrectionBatchArea;
+            materialCard9.Resize -= MaterialCard9_LayoutTimeCorrectionTripList;
+            materialCard9.Resize += MaterialCard9_LayoutTimeCorrectionTripList;
+            materialCard11.Resize -= MaterialCard11_LayoutTimeCorrectionChart;
+            materialCard11.Resize += MaterialCard11_LayoutTimeCorrectionChart;
+
+            foreach (var lv in new[] { tctripcorrectlv, tcbatchelinkslv })
+            {
+                if (lv == null) continue;
+                lv.BackColor = SupeyTheme.ListBody;
+                lv.ForeColor = SupeyTheme.ListText;
+                lv.Font = ListViewOwnerDrawFonts.Cell;
+                lv.BorderStyle = System.Windows.Forms.BorderStyle.None;
+                lv.FullRowSelect = true;
+                lv.HideSelection = false;
+                lv.HeaderStyle = ColumnHeaderStyle.Clickable;
+            }
+
             ApplyTimeCorrectionChartTheme();
 
-            // The form-level dark-scrollbar walk runs before this tab's controls have window
-            // handles, so its list views keep bright-gray native scrollbars and a light header
-            // strip past the last column. Re-apply here (idempotent) and once more the first time
-            // the tab is shown — exactly how the Supey and Schedule Builder tabs do it.
             if (tabPage4 != null)
             {
                 SupeyDarkScrollBars.Apply(tabPage4);
                 tabPage4.VisibleChanged -= TabPage4_ApplyDarkScrollOnShow;
                 tabPage4.VisibleChanged += TabPage4_ApplyDarkScrollOnShow;
             }
+
+            if (layout)
+            {
+                LayoutTimeCorrectionTabPanels();
+                LayoutTimeCorrectionControlPanel();
+            }
+        }
+
+        private static void StyleToolTabCard(SupeyCard card, SupeyCard.Surface level)
+        {
+            if (card == null) return;
+            card.SurfaceLevel = level;
+            card.ShowBorder = true;
+            card.CornerRadius = 8;
+            card.ForeColor = SupeyTheme.TextPrimary;
+            card.Padding = Padding.Empty;
+        }
+
+        private static void StyleToolTabStatusBar(SupeyCard card)
+        {
+            if (card == null) return;
+            card.SurfaceLevel = SupeyCard.Surface.StatusBar;
+            card.ShowBorder = true;
+            card.CornerRadius = 6;
+            card.ForeColor = SupeyTheme.TextPrimary;
+            card.Padding = Padding.Empty;
+        }
+
+        private static System.Windows.Forms.Panel EnsureToolTabStatusFill(SupeyCard card, string fillName)
+        {
+            if (card == null) return null;
+
+            var fill = card.Controls[fillName] as System.Windows.Forms.Panel;
+            if (fill == null)
+            {
+                fill = new System.Windows.Forms.Panel
+                {
+                    Name = fillName,
+                    Dock = DockStyle.Fill,
+                    BackColor = SupeyTheme.SurfaceStatusBar,
+                    Padding = new Padding(10, 0, 10, 0),
+                };
+                card.Controls.Add(fill);
+
+                var divider = new System.Windows.Forms.Panel
+                {
+                    Name = fillName + "TopDivider",
+                    Dock = DockStyle.Top,
+                    Height = 1,
+                    BackColor = SupeyTheme.Divider,
+                };
+                fill.Controls.Add(divider);
+                divider.BringToFront();
+            }
+            else
+            {
+                fill.BackColor = SupeyTheme.SurfaceStatusBar;
+            }
+
+            return fill;
+        }
+
+        private const int ToolTabInset = 16;
+        private const int ToolTabGap = 12;
+        private const int ToolTabStatusH = 41;
+
+        /// <summary>Theme the Auto Assign tab: bordered cards, toolbar, list polish, status strip.</summary>
+        private void ApplyAutoAssignVisualTheme(bool layout = true)
+        {
+            if (tabPage7 != null)
+            {
+                tabPage7.BackColor = SupeyTheme.SurfaceBase;
+                tabPage7.ForeColor = SupeyTheme.TextPrimary;
+                tabPage7.Resize -= TabPage7_LayoutAutoAssignPanels;
+                tabPage7.Resize += TabPage7_LayoutAutoAssignPanels;
+            }
+
+            StyleToolTabCard(materialCard16, SupeyCard.Surface.Standard);
+
+            if (materialCard17 != null)
+            {
+                materialCard17.Visible = true;
+                StyleToolTabStatusBar(materialCard17);
+                var fill = EnsureToolTabStatusFill(materialCard17, "aaStatusFillPanel");
+                fill.Resize -= AaStatusFill_Resize;
+                fill.Resize += AaStatusFill_Resize;
+                materialCard17.Resize -= MaterialCard17_ResizeAaStatus;
+                materialCard17.Resize += MaterialCard17_ResizeAaStatus;
+            }
+
+            if (aastatuslbl != null)
+            {
+                var fill = materialCard17?.Controls["aaStatusFillPanel"] as System.Windows.Forms.Panel;
+                if (fill != null && !ReferenceEquals(aastatuslbl.Parent, fill))
+                    fill.Controls.Add(aastatuslbl);
+                aastatuslbl.AutoSize = false;
+                aastatuslbl.ForeColor = SupeyTheme.TextSecondary;
+                aastatuslbl.Font = SupeyTheme.BodyFont;
+                aastatuslbl.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
+                aastatuslbl.BackColor = SupeyTheme.SurfaceStatusBar;
+                LayoutStatusLabelInCard(fill ?? materialCard17, aastatuslbl);
+            }
+
+            if (aadatepicker != null)
+            {
+                aadatepicker.Anchor = AnchorStyles.Top | AnchorStyles.Left;
+                aadatepicker.SkinColor = SupeyTheme.SurfaceElevated;
+                aadatepicker.TextColor = SupeyTheme.TextPrimary;
+                aadatepicker.BorderColor = SupeyTheme.BorderSubtle;
+                aadatepicker.BorderSize = 1;
+                aadatepicker.Font = SupeyTheme.BodyFont;
+                aadatepicker.MinimumSize = new Size(4, BillingControlH);
+            }
+
+            foreach (var btn in new[] { aaloadbtn, aaassbtn, aareservesbtn })
+            {
+                if (btn == null) continue;
+                btn.Anchor = AnchorStyles.Top | AnchorStyles.Left;
+                btn.Type = SupeyMaterialButton.MaterialButtonType.Contained;
+                btn.UseAccentColor = btn == aaassbtn;
+                btn.HighEmphasis = true;
+                btn.Density = SupeyMaterialButton.MaterialButtonDensity.Dense;
+                btn.Font = new Font("Segoe UI Semibold", 9.25f);
+                btn.CornerRadius = 4;
+                btn.MinimumSize = Size.Empty;
+                btn.Margin = Padding.Empty;
+                btn.AutoSize = false;
+            }
+
+            if (aalv != null)
+            {
+                aalv.BackColor = SupeyTheme.ListBody;
+                aalv.ForeColor = SupeyTheme.ListText;
+                aalv.Font = ListViewOwnerDrawFonts.Cell;
+                aalv.BorderStyle = System.Windows.Forms.BorderStyle.None;
+                aalv.FullRowSelect = true;
+                aalv.HideSelection = false;
+                aalv.HeaderStyle = ColumnHeaderStyle.Clickable;
+            }
+
+            EnsureAutoAssignToolbarChrome();
+            if (materialCard16 != null)
+            {
+                materialCard16.Resize -= MaterialCard16_LayoutAutoAssignContent;
+                materialCard16.Resize += MaterialCard16_LayoutAutoAssignContent;
+            }
+
+            if (tabPage7 != null)
+            {
+                SupeyDarkScrollBars.Apply(tabPage7);
+                tabPage7.VisibleChanged -= TabPage7_ApplyDarkScrollOnShow;
+                tabPage7.VisibleChanged += TabPage7_ApplyDarkScrollOnShow;
+            }
+
+            if (layout)
+                LayoutAutoAssignTabPanels();
+        }
+
+        private void AaStatusFill_Resize(object sender, EventArgs e)
+        {
+            var fill = sender as System.Windows.Forms.Panel;
+            LayoutStatusLabelInCard(fill ?? materialCard17, aastatuslbl);
+        }
+
+        private void MaterialCard17_ResizeAaStatus(object sender, EventArgs e)
+        {
+            var fill = materialCard17?.Controls["aaStatusFillPanel"] as System.Windows.Forms.Panel;
+            LayoutStatusLabelInCard(fill ?? materialCard17, aastatuslbl);
+        }
+
+        private void TabPage7_LayoutAutoAssignPanels(object sender, EventArgs e)
+            => LayoutAutoAssignTabPanels();
+
+        private void MaterialCard16_LayoutAutoAssignContent(object sender, EventArgs e)
+        {
+            LayoutAutoAssignToolbar();
+            LayoutAutoAssignListBounds();
+        }
+
+        private void TabPage7_ApplyDarkScrollOnShow(object sender, EventArgs e)
+        {
+            if (tabPage7 != null && tabPage7.Visible)
+                SupeyDarkScrollBars.Apply(tabPage7);
+        }
+
+        /// <summary>Theme the Production tab surface; employee cards pick up borders when built.</summary>
+        private void ApplyProductionVisualTheme()
+        {
+            if (tabPage8 != null)
+            {
+                tabPage8.BackColor = SupeyTheme.SurfaceBase;
+                tabPage8.ForeColor = SupeyTheme.TextPrimary;
+                SupeyDarkScrollBars.Apply(tabPage8);
+                tabPage8.VisibleChanged -= TabPage8_ApplyDarkScrollOnShow;
+                tabPage8.VisibleChanged += TabPage8_ApplyDarkScrollOnShow;
+            }
+
+            empStatManager?.ApplyVisualTheme();
+        }
+
+        private void TabPage8_ApplyDarkScrollOnShow(object sender, EventArgs e)
+        {
+            if (tabPage8 != null && tabPage8.Visible)
+                SupeyDarkScrollBars.Apply(tabPage8);
+        }
+
+        /// <summary>Theme the Camera tab (hidden by default) to match other tool tabs.</summary>
+        private void ApplyCameraVisualTheme(bool layout = true)
+        {
+            if (tabPage3 != null)
+            {
+                tabPage3.BackColor = SupeyTheme.SurfaceBase;
+                tabPage3.ForeColor = SupeyTheme.TextPrimary;
+                tabPage3.Resize -= TabPage3_LayoutCameraPanels;
+                tabPage3.Resize += TabPage3_LayoutCameraPanels;
+            }
+
+            StyleToolTabCard(materialCard7, SupeyCard.Surface.Standard);
+
+            if (materialCard18 != null)
+            {
+                materialCard18.Visible = true;
+                StyleToolTabStatusBar(materialCard18);
+                var fill = EnsureToolTabStatusFill(materialCard18, "camStatusFillPanel");
+                if (onlinecountlbl != null && !ReferenceEquals(onlinecountlbl.Parent, fill))
+                {
+                    fill.Controls.Add(onlinecountlbl);
+                    onlinecountlbl.AutoSize = false;
+                    onlinecountlbl.ForeColor = SupeyTheme.TextSecondary;
+                    onlinecountlbl.Font = SupeyTheme.BodyFont;
+                    onlinecountlbl.BackColor = SupeyTheme.SurfaceStatusBar;
+                    onlinecountlbl.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
+                }
+                fill.Resize -= CamStatusFill_Resize;
+                fill.Resize += CamStatusFill_Resize;
+            }
+
+            if (listView1 != null)
+            {
+                listView1.BackColor = SupeyTheme.ListBody;
+                listView1.ForeColor = SupeyTheme.ListText;
+                listView1.Font = ListViewOwnerDrawFonts.Cell;
+                listView1.BorderStyle = System.Windows.Forms.BorderStyle.None;
+                listView1.FullRowSelect = true;
+                listView1.HideSelection = false;
+                listView1.HeaderStyle = ColumnHeaderStyle.Clickable;
+            }
+
+            if (listenswitch != null)
+            {
+                listenswitch.Font = SupeyTheme.BodyFont;
+                listenswitch.ForeColor = SupeyTheme.TextPrimary;
+            }
+
+            if (portlbl != null)
+            {
+                portlbl.ForeColor = SupeyTheme.TextSecondary;
+                portlbl.Font = SupeyTheme.CaptionFont;
+            }
+
+            EnsureCameraToolbarChrome();
+            if (materialCard7 != null)
+            {
+                materialCard7.Resize -= MaterialCard7_LayoutCameraContent;
+                materialCard7.Resize += MaterialCard7_LayoutCameraContent;
+            }
+
+            if (tabPage3 != null)
+            {
+                SupeyDarkScrollBars.Apply(tabPage3);
+                tabPage3.VisibleChanged -= TabPage3_ApplyDarkScrollOnShow;
+                tabPage3.VisibleChanged += TabPage3_ApplyDarkScrollOnShow;
+            }
+
+            if (layout)
+                LayoutCameraTabPanels();
+        }
+
+        private void CamStatusFill_Resize(object sender, EventArgs e)
+        {
+            var fill = sender as System.Windows.Forms.Panel;
+            LayoutStatusLabelInCard(fill ?? materialCard18, onlinecountlbl);
+        }
+
+        private void TabPage3_LayoutCameraPanels(object sender, EventArgs e)
+            => LayoutCameraTabPanels();
+
+        private void MaterialCard7_LayoutCameraContent(object sender, EventArgs e)
+        {
+            LayoutCameraToolbar();
+            LayoutCameraListBounds();
+        }
+
+        private void TabPage3_ApplyDarkScrollOnShow(object sender, EventArgs e)
+        {
+            if (tabPage3 != null && tabPage3.Visible)
+                SupeyDarkScrollBars.Apply(tabPage3);
+        }
+
+        /// <summary>Header band inside the batch card (FIND / LOAD / EXECUTE row lives below the batch list).</summary>
+        private void EnsureTimeCorrectionBatchToolbarChrome()
+        {
+            if (materialCard8 == null || _tcBatchToolbarReady)
+                return;
+
+            _tcBatchToolbarPanel = new System.Windows.Forms.Panel
+            {
+                Name = "tcBatchToolbarPanel",
+                Height = TimeCorrectionBatchToolbarH,
+                BackColor = SupeyTheme.SurfaceHeader,
+                Padding = new Padding(14, 8, 14, 8),
+            };
+
+            var divider = new System.Windows.Forms.Panel
+            {
+                Name = "tcBatchToolbarDivider",
+                Dock = DockStyle.Bottom,
+                Height = 1,
+                BackColor = SupeyTheme.Divider,
+            };
+            _tcBatchToolbarPanel.Controls.Add(divider);
+
+            _tcBatchToolbarTitle = new System.Windows.Forms.Label
+            {
+                Name = "tcBatchToolbarTitle",
+                AutoSize = false,
+                Text = "Batch queue",
+                Font = SupeyTheme.SubHeaderFont,
+                ForeColor = SupeyTheme.TextPrimary,
+                BackColor = SupeyTheme.SurfaceHeader,
+                TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
+            };
+            _tcBatchToolbarSubtitle = new System.Windows.Forms.Label
+            {
+                Name = "tcBatchToolbarSubtitle",
+                AutoSize = false,
+                Text = "Find Modivcare batches, load a batch, then review and execute trip corrections.",
+                Font = SupeyTheme.CaptionFont,
+                ForeColor = SupeyTheme.TextSecondary,
+                BackColor = SupeyTheme.SurfaceHeader,
+                TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
+            };
+
+            _tcBatchToolbarPanel.Controls.Add(_tcBatchToolbarTitle);
+            _tcBatchToolbarPanel.Controls.Add(_tcBatchToolbarSubtitle);
+            materialCard8.Controls.Add(_tcBatchToolbarPanel);
+            _tcBatchToolbarPanel.BringToFront();
+            _tcBatchToolbarReady = true;
+        }
+
+        /// <summary>Header band above the trip correction grid.</summary>
+        private void EnsureTimeCorrectionTripToolbarChrome()
+        {
+            if (materialCard9 == null || _tcTripToolbarReady)
+                return;
+
+            _tcTripToolbarPanel = new System.Windows.Forms.Panel
+            {
+                Name = "tcTripToolbarPanel",
+                Height = TimeCorrectionBatchToolbarH,
+                BackColor = SupeyTheme.SurfaceHeader,
+                Padding = new Padding(14, 8, 14, 8),
+            };
+
+            var divider = new System.Windows.Forms.Panel
+            {
+                Name = "tcTripToolbarDivider",
+                Dock = DockStyle.Bottom,
+                Height = 1,
+                BackColor = SupeyTheme.Divider,
+            };
+            _tcTripToolbarPanel.Controls.Add(divider);
+
+            _tcTripToolbarTitle = new System.Windows.Forms.Label
+            {
+                Name = "tcTripToolbarTitle",
+                AutoSize = false,
+                Text = "Trips in batch",
+                Font = SupeyTheme.SubHeaderFont,
+                ForeColor = SupeyTheme.TextPrimary,
+                BackColor = SupeyTheme.SurfaceHeader,
+                TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
+            };
+            _tcTripToolbarSubtitle = new System.Windows.Forms.Label
+            {
+                Name = "tcTripToolbarSubtitle",
+                AutoSize = false,
+                Text = "Suggested PU/DO times, alerts, and submission status for the loaded batch.",
+                Font = SupeyTheme.CaptionFont,
+                ForeColor = SupeyTheme.TextSecondary,
+                BackColor = SupeyTheme.SurfaceHeader,
+                TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
+            };
+
+            _tcTripToolbarPanel.Controls.Add(_tcTripToolbarTitle);
+            _tcTripToolbarPanel.Controls.Add(_tcTripToolbarSubtitle);
+            materialCard9.Controls.Add(_tcTripToolbarPanel);
+            _tcTripToolbarPanel.BringToFront();
+            _tcTripToolbarReady = true;
+        }
+
+        private void RefreshTimeCorrectionToolbarTheme()
+        {
+            if (_tcBatchToolbarPanel != null)
+            {
+                _tcBatchToolbarPanel.BackColor = SupeyTheme.SurfaceHeader;
+                var div = _tcBatchToolbarPanel.Controls["tcBatchToolbarDivider"];
+                if (div != null) div.BackColor = SupeyTheme.Divider;
+            }
+            if (_tcBatchToolbarTitle != null)
+            {
+                _tcBatchToolbarTitle.ForeColor = SupeyTheme.TextPrimary;
+                _tcBatchToolbarTitle.BackColor = SupeyTheme.SurfaceHeader;
+                _tcBatchToolbarTitle.Font = SupeyTheme.SubHeaderFont;
+            }
+            if (_tcBatchToolbarSubtitle != null)
+            {
+                _tcBatchToolbarSubtitle.ForeColor = SupeyTheme.TextSecondary;
+                _tcBatchToolbarSubtitle.BackColor = SupeyTheme.SurfaceHeader;
+                _tcBatchToolbarSubtitle.Font = SupeyTheme.CaptionFont;
+            }
+
+            if (_tcTripToolbarPanel != null)
+            {
+                _tcTripToolbarPanel.BackColor = SupeyTheme.SurfaceHeader;
+                var div = _tcTripToolbarPanel.Controls["tcTripToolbarDivider"];
+                if (div != null) div.BackColor = SupeyTheme.Divider;
+            }
+            if (_tcTripToolbarTitle != null)
+            {
+                _tcTripToolbarTitle.ForeColor = SupeyTheme.TextPrimary;
+                _tcTripToolbarTitle.BackColor = SupeyTheme.SurfaceHeader;
+                _tcTripToolbarTitle.Font = SupeyTheme.SubHeaderFont;
+            }
+            if (_tcTripToolbarSubtitle != null)
+            {
+                _tcTripToolbarSubtitle.ForeColor = SupeyTheme.TextSecondary;
+                _tcTripToolbarSubtitle.BackColor = SupeyTheme.SurfaceHeader;
+                _tcTripToolbarSubtitle.Font = SupeyTheme.CaptionFont;
+            }
+        }
+
+        private void LayoutTimeCorrectionBatchToolbar()
+        {
+            if (_tcBatchToolbarPanel == null || _tcBatchToolbarPanel.IsDisposed)
+                return;
+
+            int padL = _tcBatchToolbarPanel.Padding.Left;
+            int clientW = _tcBatchToolbarPanel.ClientSize.Width;
+            if (_tcBatchToolbarTitle != null)
+                _tcBatchToolbarTitle.SetBounds(padL, 10, Math.Max(120, clientW - padL - 14), 22);
+            if (_tcBatchToolbarSubtitle != null)
+                _tcBatchToolbarSubtitle.SetBounds(padL, 32, Math.Max(160, clientW - padL - 14), 18);
+        }
+
+        private void LayoutTimeCorrectionTripToolbar()
+        {
+            if (_tcTripToolbarPanel == null || _tcTripToolbarPanel.IsDisposed)
+                return;
+
+            int padL = _tcTripToolbarPanel.Padding.Left;
+            int clientW = _tcTripToolbarPanel.ClientSize.Width;
+            if (_tcTripToolbarTitle != null)
+                _tcTripToolbarTitle.SetBounds(padL, 10, Math.Max(120, clientW - padL - 14), 22);
+            if (_tcTripToolbarSubtitle != null)
+                _tcTripToolbarSubtitle.SetBounds(padL, 32, Math.Max(160, clientW - padL - 14), 18);
         }
 
         private void TabPage4_ApplyDarkScrollOnShow(object sender, EventArgs e)
@@ -803,6 +1295,22 @@ namespace Hiatme_Tool_Suite_v3
         private System.Windows.Forms.Panel _billingToolbarPanel;
         private System.Windows.Forms.Label _billingToolbarTitle;
         private System.Windows.Forms.Label _billingToolbarSubtitle;
+
+        private const int TimeCorrectionCardPad = 12;
+        private const int TimeCorrectionBatchToolbarH = 72;
+        private const int TimeCorrectionControlPanelW = 280;
+        private const int TimeCorrectionStatusH = 41;
+        private const int TimeCorrectionChartH = 202;
+        private const int TimeCorrectionControlPanelMinH = 160;
+        private const int TimeCorrectionBatchCardH = 272;
+        private System.Windows.Forms.Panel _tcBatchToolbarPanel;
+        private System.Windows.Forms.Label _tcBatchToolbarTitle;
+        private System.Windows.Forms.Label _tcBatchToolbarSubtitle;
+        private System.Windows.Forms.Panel _tcTripToolbarPanel;
+        private System.Windows.Forms.Label _tcTripToolbarTitle;
+        private System.Windows.Forms.Label _tcTripToolbarSubtitle;
+        private bool _tcBatchToolbarReady;
+        private bool _tcTripToolbarReady;
 
         /// <summary>Theme the Billing tab card, toolbar controls, and list view.</summary>
         private void ApplyBillingVisualTheme(bool layout = true)
@@ -1309,8 +1817,15 @@ namespace Hiatme_Tool_Suite_v3
                 // re-assert anyway so any freshly themed surface keeps matching chrome.
                 SupeyDarkScrollBars.Apply(this);
                 ApplyLoginVisualTheme();
-                ApplyBillingVisualTheme();
+                ApplyBillingVisualTheme(layout: false);
+                ApplyTimeCorrectionVisualTheme(layout: false);
+                ApplyTripScoutVisualTheme(layout: false);
+                ApplyTemplatesVisualTheme(layout: false);
+                ApplyAutoAssignVisualTheme(layout: false);
+                ApplyProductionVisualTheme();
+                ApplyCameraVisualTheme(layout: false);
                 ApplyLoadingOverlayTheme();
+                InvalidateToolTabListViews();
                 Invalidate(true);
             }
             catch
@@ -1325,35 +1840,204 @@ namespace Hiatme_Tool_Suite_v3
             LayoutStatusLabelInCard(fill ?? materialCard10, tcorrectstatuslbl);
         }
 
+        private void MaterialCard19_LayoutTimeCorrectionControlPanel(object sender, EventArgs e)
+            => LayoutTimeCorrectionControlPanel();
+
         // Lays out the control-panel card (label, combo, three action buttons) on a tidy grid.
         private void LayoutTimeCorrectionControlPanel()
         {
             if (materialCard19 == null || materialCard19.IsDisposed)
                 return;
 
-            const int left = 18;
-            const int right = 18;
-            const int gap = 8;
-            int w = materialCard19.Width;
+            const int pad = 12;
+            const int rowGap = 10;
+            const int btnH = 32;
+            const int btnGap = 8;
+            int clientW = materialCard19.ClientSize.Width;
+            int fieldW = Math.Max(120, clientW - pad * 2);
+            int y = pad;
 
             if (materialLabel1 != null && !materialLabel1.IsDisposed)
-                materialLabel1.Location = new Point(left, 18);
+            {
+                materialLabel1.AutoSize = true;
+                materialLabel1.MaximumSize = new Size(fieldW, 0);
+                materialLabel1.Location = new Point(pad, y);
+                y = materialLabel1.Bottom + rowGap;
+            }
+
+            if (tccb is SupeyComboBox supeyCompare)
+            {
+                supeyCompare.UseToolbarSize = true;
+                supeyCompare.Width = fieldW;
+            }
 
             if (tccb != null && !tccb.IsDisposed)
-                tccb.SetBounds(left, 46, Math.Max(120, w - left - right), 30);
+            {
+                tccb.Location = new Point(pad, y);
+                tccb.Width = fieldW;
+                y = tccb.Bottom + rowGap;
+            }
 
-            int avail = Math.Max(150, w - left - right - (gap * 2));
-            int bw = avail / 3;
-            int btnY = 96;
-            const int btnH = 30;
+            int avail = Math.Max(150, clientW - pad * 2);
+            int bw = Math.Max(64, (avail - btnGap * 2) / 3);
+            int lastW = Math.Max(64, avail - (2 * bw) - (btnGap * 2));
 
             if (tcfindbatchesbtn != null && !tcfindbatchesbtn.IsDisposed)
-                tcfindbatchesbtn.SetBounds(left, btnY, bw, btnH);
+                tcfindbatchesbtn.SetBounds(pad, y, bw, btnH);
             if (tcloadbtn != null && !tcloadbtn.IsDisposed)
-                tcloadbtn.SetBounds(left + bw + gap, btnY, bw, btnH);
+                tcloadbtn.SetBounds(pad + bw + btnGap, y, bw, btnH);
             if (tcexebtn != null && !tcexebtn.IsDisposed)
-                tcexebtn.SetBounds(left + (2 * (bw + gap)), btnY, avail - (2 * bw), btnH);
+                tcexebtn.SetBounds(pad + (2 * (bw + btnGap)), y, lastW, btnH);
         }
+
+        /// <summary>Minimum height the compare-driver control card needs (label + combo + button row).</summary>
+        private int MeasureTimeCorrectionControlPanelMinHeight()
+        {
+            const int pad = 12;
+            const int rowGap = 10;
+            const int btnH = 32;
+            const int comboH = BillingControlH;
+            int fieldW = Math.Max(120, TimeCorrectionControlPanelW - pad * 2);
+            int h = pad;
+
+            string labelText = materialLabel1?.Text ?? "Compare driver times to:";
+            var labelFont = materialLabel1?.Font ?? SupeyTheme.CaptionFont;
+            h += TextRenderer.MeasureText(labelText, labelFont, new Size(fieldW, int.MaxValue),
+                TextFormatFlags.WordBreak).Height + rowGap;
+            h += comboH + rowGap + btnH + pad;
+            return Math.Max(TimeCorrectionControlPanelMinH, h);
+        }
+
+        private int GetTimeCorrectionBatchCardHeight()
+        {
+            return TimeCorrectionCardPad + TimeCorrectionBatchToolbarH + TimeCorrectionCardPad
+                + MeasureTimeCorrectionControlPanelMinHeight() + TimeCorrectionCardPad;
+        }
+
+        private void MaterialCard8_LayoutTimeCorrectionBatchArea(object sender, EventArgs e)
+            => LayoutTimeCorrectionBatchArea();
+
+        private void MaterialCard9_LayoutTimeCorrectionTripList(object sender, EventArgs e)
+            => LayoutTimeCorrectionTripList();
+
+        private void MaterialCard11_LayoutTimeCorrectionChart(object sender, EventArgs e)
+            => LayoutTimeCorrectionChartCard();
+
+        /// <summary>Position batch card, trip grid, chart, and status strip on the tab (Billing-style).</summary>
+        private void LayoutTimeCorrectionTabPanels()
+        {
+            if (tabPage4 == null || materialCard8 == null || materialCard9 == null
+                || materialCard10 == null || materialCard11 == null)
+                return;
+
+            const int inset = 16;
+            const int topInset = 16;
+            const int gap = 12;
+
+            int tabW = tabPage4.ClientSize.Width;
+            int tabH = tabPage4.ClientSize.Height;
+
+            materialCard8.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            materialCard9.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            materialCard10.Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            materialCard11.Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+
+            int statusTop = Math.Max(topInset, tabH - inset - TimeCorrectionStatusH);
+            materialCard10.SetBounds(inset, statusTop, Math.Max(200, tabW - (inset * 2)), TimeCorrectionStatusH);
+
+            int chartTop = Math.Max(topInset, statusTop - gap - TimeCorrectionChartH);
+            materialCard11.SetBounds(inset, chartTop, Math.Max(200, tabW - (inset * 2)), TimeCorrectionChartH);
+
+            int batchCardH = Math.Max(TimeCorrectionBatchCardH, GetTimeCorrectionBatchCardHeight());
+            materialCard8.SetBounds(inset, topInset, Math.Max(200, tabW - (inset * 2)), batchCardH);
+
+            int tripTop = topInset + batchCardH + gap;
+            int tripH = Math.Max(120, chartTop - gap - tripTop);
+            materialCard9.SetBounds(inset, tripTop, Math.Max(200, tabW - (inset * 2)), tripH);
+
+            LayoutTimeCorrectionBatchToolbar();
+            LayoutTimeCorrectionTripToolbar();
+            LayoutTimeCorrectionBatchArea();
+            LayoutTimeCorrectionTripList();
+            LayoutTimeCorrectionChartCard();
+            LayoutTimeCorrectionControlPanel();
+
+            materialCard10.BringToFront();
+            var fill = materialCard10.Controls["tcStatusFillPanel"] as System.Windows.Forms.Panel;
+            LayoutStatusLabelInCard(fill ?? materialCard10, tcorrectstatuslbl);
+        }
+
+        private void LayoutTimeCorrectionBatchArea()
+        {
+            if (materialCard8 == null || materialCard8.IsDisposed)
+                return;
+
+            const int pad = TimeCorrectionCardPad;
+            int clientW = materialCard8.ClientSize.Width;
+            int clientH = materialCard8.ClientSize.Height;
+
+            if (_tcBatchToolbarPanel != null && !_tcBatchToolbarPanel.IsDisposed)
+            {
+                _tcBatchToolbarPanel.SetBounds(
+                    pad, pad,
+                    Math.Max(120, clientW - (pad * 2)),
+                    TimeCorrectionBatchToolbarH);
+                _tcBatchToolbarPanel.BringToFront();
+            }
+
+            int bodyTop = pad + TimeCorrectionBatchToolbarH + pad;
+            int controlMinH = MeasureTimeCorrectionControlPanelMinHeight();
+            int bodyH = Math.Max(controlMinH, clientH - bodyTop - pad);
+            int panelW = Math.Min(TimeCorrectionControlPanelW, Math.Max(220, clientW / 3));
+
+            if (materialCard19 != null && !materialCard19.IsDisposed)
+            {
+                materialCard19.SetBounds(
+                    Math.Max(pad, clientW - pad - panelW),
+                    bodyTop,
+                    panelW,
+                    bodyH);
+                materialCard19.BringToFront();
+            }
+
+            if (tcbatchelinkslv != null && !tcbatchelinkslv.IsDisposed)
+            {
+                tcbatchelinkslv.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+                tcbatchelinkslv.SetBounds(
+                    pad,
+                    bodyTop,
+                    Math.Max(160, clientW - (pad * 3) - panelW),
+                    bodyH);
+            }
+        }
+
+        private void LayoutTimeCorrectionTripList()
+        {
+            if (materialCard9 == null || materialCard9.IsDisposed || tctripcorrectlv == null || tctripcorrectlv.IsDisposed)
+                return;
+
+            const int pad = TimeCorrectionCardPad;
+            int listTop = pad + TimeCorrectionBatchToolbarH + pad;
+
+            if (_tcTripToolbarPanel != null && !_tcTripToolbarPanel.IsDisposed)
+            {
+                _tcTripToolbarPanel.SetBounds(
+                    pad, pad,
+                    Math.Max(120, materialCard9.ClientSize.Width - (pad * 2)),
+                    TimeCorrectionBatchToolbarH);
+                _tcTripToolbarPanel.BringToFront();
+            }
+
+            tctripcorrectlv.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            tctripcorrectlv.SetBounds(
+                pad,
+                listTop,
+                Math.Max(120, materialCard9.ClientSize.Width - (pad * 2)),
+                Math.Max(80, materialCard9.ClientSize.Height - listTop - pad));
+        }
+
+        private void LayoutTimeCorrectionChartCard()
+            => LayoutBillingChartCard(materialCard11, tcchart);
 
         /// <summary>Theme every DataVisualization chart in the app so none render the default gray.</summary>
         private void ApplyTimeCorrectionChartTheme()
@@ -1361,11 +2045,13 @@ namespace Hiatme_Tool_Suite_v3
             SupeyChartTheme.Apply(tcchart);
             SupeyChartTheme.Apply(pgchart);
             SupeyChartTheme.Apply(incomevslosseschart);
+            ConfigureAccuracyChartLayout();
+            if (mcTimeCorrectionTool?.mcBatchRecords?.MCBatchTrips != null
+                && mcTimeCorrectionTool.mcBatchRecords.MCBatchTrips.Count > 0)
+                RefreshAccuracyChart();
         }
 
-        // The Templates toolbar mirrors the Schedule Builder header: a full-width docked band
-        // with a hairline bottom divider and a single left-docked auto-size flow that arranges
-        // uniform 30px-tall flat controls. No manual pixel math = no drift or clipping.
+        // Templates toolbar: Billing-style header band with title row and control row below.
         private void EnsureTemplatesToolbarChrome()
         {
             if (materialCard12 == null || tbcb == null || tbtemplatenamecb == null || addtemplatebtn == null)
@@ -1376,29 +2062,48 @@ namespace Hiatme_Tool_Suite_v3
                 _templatesToolbarPanel = new System.Windows.Forms.Panel
                 {
                     Name = "templatesToolbarPanel",
-                    Dock = DockStyle.Top,
-                    Height = 56,
                     BackColor = SupeyTheme.SurfaceHeader,
-                    Padding = new Padding(0),
+                    Padding = new Padding(14, 8, 14, 8),
                 };
 
                 var divider = new System.Windows.Forms.Panel
                 {
+                    Name = "templatesToolbarDivider",
                     Dock = DockStyle.Bottom,
                     Height = 1,
                     BackColor = SupeyTheme.Divider,
                 };
 
+                _templatesToolbarTitle = new System.Windows.Forms.Label
+                {
+                    Name = "templatesToolbarTitle",
+                    AutoSize = false,
+                    Text = "Templates",
+                    Font = SupeyTheme.SubHeaderFont,
+                    ForeColor = SupeyTheme.TextPrimary,
+                    BackColor = SupeyTheme.SurfaceHeader,
+                    TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
+                };
+                _templatesToolbarSubtitle = new System.Windows.Forms.Label
+                {
+                    Name = "templatesToolbarSubtitle",
+                    AutoSize = false,
+                    Text = "Manage weekday driver templates and add new entries.",
+                    Font = SupeyTheme.CaptionFont,
+                    ForeColor = SupeyTheme.TextSecondary,
+                    BackColor = SupeyTheme.SurfaceHeader,
+                    TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
+                };
+
                 var leftFlow = new FlowLayoutPanel
                 {
                     Name = "templatesToolbarLeftFlow",
-                    Dock = DockStyle.Left,
                     FlowDirection = FlowDirection.LeftToRight,
                     WrapContents = false,
                     AutoSize = true,
                     AutoSizeMode = AutoSizeMode.GrowAndShrink,
                     BackColor = SupeyTheme.SurfaceHeader,
-                    Padding = new Padding(14, 12, 0, 0),
+                    Padding = new Padding(0),
                 };
 
                 var weekdayCaption = new Label
@@ -1408,7 +2113,7 @@ namespace Hiatme_Tool_Suite_v3
                     ForeColor = SupeyTheme.TextSecondary,
                     BackColor = SupeyTheme.SurfaceHeader,
                     Font = SupeyTheme.CaptionFont,
-                    Margin = new Padding(0, 8, 10, 0),
+                    Margin = new Padding(0, 0, 10, 0),
                 };
                 var driverCaption = new Label
                 {
@@ -1417,11 +2122,11 @@ namespace Hiatme_Tool_Suite_v3
                     ForeColor = SupeyTheme.TextSecondary,
                     BackColor = SupeyTheme.SurfaceHeader,
                     Font = SupeyTheme.CaptionFont,
-                    Margin = new Padding(0, 8, 10, 0),
+                    Margin = new Padding(0, 0, 10, 0),
                 };
 
-                ConfigureTemplatesCombo(tbcb, 150);
-                ConfigureTemplatesCombo(tbtemplatenamecb, 240);
+                ConfigureToolbarSupeyCombo(tbcb, 150);
+                ConfigureToolbarSupeyCombo(tbtemplatenamecb, 240);
 
                 if (_templatesAddBtn == null || _templatesAddBtn.IsDisposed)
                 {
@@ -1441,29 +2146,52 @@ namespace Hiatme_Tool_Suite_v3
                 leftFlow.Controls.Add(tbtemplatenamecb);
                 leftFlow.Controls.Add(MakeFsToolbarSeparator());
                 leftFlow.Controls.Add(_templatesAddBtn);
+                leftFlow.Name = "templatesToolbarLeftFlow";
 
                 _templatesToolbarPanel.Controls.Add(divider);
                 _templatesToolbarPanel.Controls.Add(leftFlow);
+                _templatesToolbarPanel.Controls.Add(_templatesToolbarTitle);
+                _templatesToolbarPanel.Controls.Add(_templatesToolbarSubtitle);
                 materialCard12.Controls.Add(_templatesToolbarPanel);
                 _templatesToolbarPanel.BringToFront();
             }
+            else
+            {
+                _templatesToolbarPanel.Dock = DockStyle.None;
+            }
 
-            materialCard12.Resize -= MaterialCard12_ResizeTemplatesToolbar;
-            materialCard12.Resize += MaterialCard12_ResizeTemplatesToolbar;
-
-            // Default the weekday box to today so the tab never opens blank. The tab-change
-            // handler reads tbcb.Text to populate the driver list (which auto-selects index 0),
-            // so seeding the weekday gives both boxes a sensible default value.
             if (tbcb.SelectedIndex < 0 && tbcb.Items.Count > 0)
                 tbcb.SelectedIndex = ((int)DateTime.Today.DayOfWeek + 6) % 7;
 
             LayoutTemplatesToolbarControls();
         }
 
+        /// <summary>30px SupeyComboBox for toolbar rows — matches date pickers and buttons.</summary>
+        private void ConfigureToolbarSupeyCombo(SupeyComboBox cb, int width)
+        {
+            if (cb == null || cb.IsDisposed)
+                return;
+
+            cb.DrawItem -= TemplatesCombo_DrawItem;
+            cb.UseToolbarSize = true;
+            cb.Hint = string.Empty;
+            cb.Font = SupeyTheme.BodyFont;
+            cb.Width = width;
+            cb.Margin = new Padding(0, 0, 14, 0);
+        }
+
+        // Legacy flat ComboBox styling (non-Supey controls only).
         private void ConfigureTemplatesCombo(System.Windows.Forms.ComboBox cb, int width)
         {
             if (cb == null || cb.IsDisposed)
                 return;
+
+            if (cb is SupeyComboBox supeyCb)
+            {
+                ConfigureToolbarSupeyCombo(supeyCb, width);
+                return;
+            }
+
             cb.DropDownStyle = ComboBoxStyle.DropDownList;
             cb.FlatStyle = FlatStyle.Flat;
             cb.DrawMode = DrawMode.OwnerDrawFixed;
@@ -1500,9 +2228,23 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
-        private void MaterialCard12_ResizeTemplatesToolbar(object sender, EventArgs e)
+        private const int TemplatesToolbarControlRowH = BillingControlH;
+
+        private int MeasureTemplatesToolbarHeight()
         {
-            LayoutTemplatesToolbarControls();
+            if (_templatesToolbarPanel == null || _templatesToolbarPanel.IsDisposed)
+                return Math.Max(BillingToolbarH, 56 + TemplatesToolbarControlRowH + 16);
+
+            const int rowY = 56;
+            int controlRowH = TemplatesToolbarControlRowH;
+            var leftFlow = _templatesToolbarPanel.Controls["templatesToolbarLeftFlow"] as FlowLayoutPanel;
+            if (leftFlow != null && !leftFlow.IsDisposed)
+            {
+                leftFlow.PerformLayout();
+                controlRowH = Math.Max(TemplatesToolbarControlRowH, leftFlow.PreferredSize.Height);
+            }
+
+            return _templatesToolbarPanel.Padding.Top + rowY + controlRowH + _templatesToolbarPanel.Padding.Bottom;
         }
 
         private void LayoutTemplatesToolbarControls()
@@ -1510,15 +2252,100 @@ namespace Hiatme_Tool_Suite_v3
             if (_templatesToolbarPanel == null || _templatesToolbarPanel.IsDisposed || materialCard12 == null)
                 return;
 
-            if (templatelv != null && !templatelv.IsDisposed)
+            int padL = _templatesToolbarPanel.Padding.Left;
+            int padR = _templatesToolbarPanel.Padding.Right;
+            int clientW = _templatesToolbarPanel.ClientSize.Width;
+            int titleW = 170;
+            if (_templatesToolbarTitle != null)
             {
-                int listTop = _templatesToolbarPanel.Bottom + 10;
-                int bottomPad = 18;
-                templatelv.Location = new Point(18, listTop);
-                templatelv.Size = new Size(
-                    Math.Max(220, materialCard12.ClientSize.Width - 36),
-                    Math.Max(180, materialCard12.ClientSize.Height - listTop - bottomPad));
+                _templatesToolbarTitle.Font = SupeyTheme.SubHeaderFont;
+                _templatesToolbarTitle.ForeColor = SupeyTheme.TextPrimary;
+                _templatesToolbarTitle.BackColor = SupeyTheme.SurfaceHeader;
+                _templatesToolbarTitle.SetBounds(padL, 10, titleW, 22);
             }
+            if (_templatesToolbarSubtitle != null)
+            {
+                _templatesToolbarSubtitle.Font = SupeyTheme.CaptionFont;
+                _templatesToolbarSubtitle.ForeColor = SupeyTheme.TextSecondary;
+                _templatesToolbarSubtitle.BackColor = SupeyTheme.SurfaceHeader;
+                _templatesToolbarSubtitle.SetBounds(padL + titleW + 12, 12,
+                    Math.Max(220, clientW - padL - padR - titleW - 12), 18);
+            }
+
+            var leftFlow = _templatesToolbarPanel.Controls["templatesToolbarLeftFlow"] as FlowLayoutPanel;
+            if (leftFlow != null)
+            {
+                leftFlow.PerformLayout();
+                int controlRowH = Math.Max(TemplatesToolbarControlRowH, leftFlow.PreferredSize.Height);
+                leftFlow.SetBounds(padL, 56, Math.Max(200, clientW - padL - padR), controlRowH);
+            }
+
+            int toolbarH = MeasureTemplatesToolbarHeight();
+            if (_templatesToolbarPanel.Height != toolbarH)
+                _templatesToolbarPanel.Height = toolbarH;
+
+            LayoutTemplatesListBounds();
+        }
+
+        private void MaterialCard12_ResizeTemplatesToolbar(object sender, EventArgs e)
+        {
+            LayoutTemplatesToolbarControls();
+        }
+
+        private void LayoutTemplatesListBounds()
+        {
+            if (materialCard12 == null || materialCard12.IsDisposed || templatelv == null || templatelv.IsDisposed)
+                return;
+            if (_templatesToolbarPanel == null || _templatesToolbarPanel.IsDisposed)
+                return;
+
+            int listTop = _templatesToolbarPanel.Bottom + BillingCardPad;
+            templatelv.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            templatelv.SetBounds(
+                BillingCardPad,
+                listTop,
+                Math.Max(220, materialCard12.ClientSize.Width - (BillingCardPad * 2)),
+                Math.Max(180, materialCard12.ClientSize.Height - listTop - BillingCardPad));
+        }
+
+        private void LayoutTemplatesTabPanels()
+        {
+            if (tabPage5 == null || materialCard12 == null || materialCard13 == null)
+                return;
+
+            int tabW = tabPage5.ClientSize.Width;
+            int tabH = tabPage5.ClientSize.Height;
+
+            materialCard12.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            materialCard13.Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+
+            int statusTop = Math.Max(ToolTabInset, tabH - ToolTabInset - ToolTabStatusH);
+            materialCard13.SetBounds(ToolTabInset, statusTop, Math.Max(200, tabW - (ToolTabInset * 2)), ToolTabStatusH);
+            materialCard12.SetBounds(ToolTabInset, ToolTabInset, Math.Max(200, tabW - (ToolTabInset * 2)),
+                Math.Max(160, statusTop - ToolTabInset - ToolTabGap));
+
+            LayoutTemplatesToolbarBounds();
+            LayoutTemplatesListBounds();
+
+            var fill = materialCard13.Controls["tbStatusFillPanel"] as System.Windows.Forms.Panel;
+            LayoutStatusLabelInCard(fill ?? materialCard13, tbstatuslbl);
+            materialCard13.BringToFront();
+            RefreshTabLoadingOverlayZOrder(tabPage5);
+        }
+
+        private void LayoutTemplatesToolbarBounds()
+        {
+            if (_templatesToolbarPanel == null || _templatesToolbarPanel.IsDisposed || materialCard12 == null)
+                return;
+
+            int toolbarH = MeasureTemplatesToolbarHeight();
+            _templatesToolbarPanel.SetBounds(
+                BillingCardPad,
+                BillingCardPad,
+                Math.Max(120, materialCard12.ClientSize.Width - (BillingCardPad * 2)),
+                toolbarH);
+            _templatesToolbarPanel.BringToFront();
+            LayoutTemplatesToolbarControls();
         }
 
         private void EnsureTripScoutToolbarChrome()
@@ -1531,41 +2358,62 @@ namespace Hiatme_Tool_Suite_v3
             {
                 _tripScoutToolbarPanel = new System.Windows.Forms.Panel
                 {
-                    Dock = DockStyle.Top,
-                    Height = 56,
+                    Height = BillingToolbarH,
                     BackColor = SupeyTheme.SurfaceHeader,
-                    Padding = new Padding(0),
+                    Padding = new Padding(14, 8, 14, 8),
                     Name = "tripScoutToolbarPanel",
                 };
 
                 var divider = new System.Windows.Forms.Panel
                 {
+                    Name = "tripScoutToolbarDivider",
                     Dock = DockStyle.Bottom,
                     Height = 1,
                     BackColor = SupeyTheme.Divider,
                 };
 
+                _tripScoutToolbarTitle = new System.Windows.Forms.Label
+                {
+                    Name = "tripScoutToolbarTitle",
+                    AutoSize = false,
+                    Text = "Trip Scout",
+                    Font = SupeyTheme.SubHeaderFont,
+                    ForeColor = SupeyTheme.TextPrimary,
+                    BackColor = SupeyTheme.SurfaceHeader,
+                    TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
+                };
+                _tripScoutToolbarSubtitle = new System.Windows.Forms.Label
+                {
+                    Name = "tripScoutToolbarSubtitle",
+                    AutoSize = false,
+                    Text = "Search and inspect WellRyde trips for a service date.",
+                    Font = SupeyTheme.CaptionFont,
+                    ForeColor = SupeyTheme.TextSecondary,
+                    BackColor = SupeyTheme.SurfaceHeader,
+                    TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
+                };
+
                 var leftFlow = new FlowLayoutPanel
                 {
-                    Dock = DockStyle.Left,
                     FlowDirection = FlowDirection.LeftToRight,
                     WrapContents = false,
                     AutoSize = true,
                     AutoSizeMode = AutoSizeMode.GrowAndShrink,
                     BackColor = SupeyTheme.SurfaceHeader,
-                    Padding = new Padding(12, 12, 0, 0),
+                    Padding = new Padding(0),
+                    Name = "tripScoutToolbarLeftFlow",
                 };
                 _tripScoutToolbarLeftFlow = leftFlow;
 
                 var rightFlow = new FlowLayoutPanel
                 {
-                    Dock = DockStyle.Right,
                     FlowDirection = FlowDirection.LeftToRight,
                     WrapContents = false,
                     AutoSize = true,
                     AutoSizeMode = AutoSizeMode.GrowAndShrink,
                     BackColor = SupeyTheme.SurfaceHeader,
-                    Padding = new Padding(0, 12, 12, 0),
+                    Padding = new Padding(0),
+                    Name = "tripScoutToolbarRightFlow",
                 };
                 _tripScoutToolbarRightFlow = rightFlow;
 
@@ -1618,11 +2466,32 @@ namespace Hiatme_Tool_Suite_v3
                 _tripScoutToolbarPanel.Controls.Add(divider);
                 _tripScoutToolbarPanel.Controls.Add(rightFlow);
                 _tripScoutToolbarPanel.Controls.Add(leftFlow);
+                _tripScoutToolbarPanel.Controls.Add(_tripScoutToolbarTitle);
+                _tripScoutToolbarPanel.Controls.Add(_tripScoutToolbarSubtitle);
                 _tripScoutToolbarPanel.Resize += (_, __) => LayoutTripScoutToolbarControls();
+            }
+            else
+            {
+                _tripScoutToolbarPanel.Dock = DockStyle.None;
+                _tripScoutToolbarPanel.Height = BillingToolbarH;
             }
 
             if (!ReferenceEquals(_tripScoutToolbarPanel.Parent, tsmaterialCard))
                 tsmaterialCard.Controls.Add(_tripScoutToolbarPanel);
+            _tripScoutToolbarPanel.BringToFront();
+            LayoutTripScoutToolbarBounds();
+        }
+
+        private void LayoutTripScoutToolbarBounds()
+        {
+            if (_tripScoutToolbarPanel == null || _tripScoutToolbarPanel.IsDisposed || tsmaterialCard == null)
+                return;
+
+            _tripScoutToolbarPanel.SetBounds(
+                BillingCardPad,
+                BillingCardPad,
+                Math.Max(120, tsmaterialCard.ClientSize.Width - (BillingCardPad * 2)),
+                BillingToolbarH);
             LayoutTripScoutToolbarControls();
         }
 
@@ -1632,10 +2501,360 @@ namespace Hiatme_Tool_Suite_v3
                 _tripScoutToolbarRightFlow == null || _tripScoutToolbarRightFlow.IsDisposed)
                 return;
 
-            int reservedRight = _tripScoutToolbarRightFlow.Width + 56;
-            int available = _tripScoutToolbarPanel.ClientSize.Width - reservedRight;
+            int padL = _tripScoutToolbarPanel.Padding.Left;
+            int padR = _tripScoutToolbarPanel.Padding.Right;
+            int clientW = _tripScoutToolbarPanel.ClientSize.Width;
+            int titleW = 170;
+            if (_tripScoutToolbarTitle != null)
+            {
+                _tripScoutToolbarTitle.Font = SupeyTheme.SubHeaderFont;
+                _tripScoutToolbarTitle.ForeColor = SupeyTheme.TextPrimary;
+                _tripScoutToolbarTitle.BackColor = SupeyTheme.SurfaceHeader;
+                _tripScoutToolbarTitle.SetBounds(padL, 10, titleW, 22);
+            }
+            if (_tripScoutToolbarSubtitle != null)
+            {
+                _tripScoutToolbarSubtitle.Font = SupeyTheme.CaptionFont;
+                _tripScoutToolbarSubtitle.ForeColor = SupeyTheme.TextSecondary;
+                _tripScoutToolbarSubtitle.BackColor = SupeyTheme.SurfaceHeader;
+                _tripScoutToolbarSubtitle.SetBounds(padL + titleW + 12, 12,
+                    Math.Max(220, clientW - padL - padR - titleW - 12), 18);
+            }
+
+            int rowY = 56;
+            _tripScoutToolbarRightFlow.SetBounds(
+                Math.Max(padL, clientW - padR - _tripScoutToolbarRightFlow.Width),
+                rowY,
+                _tripScoutToolbarRightFlow.Width,
+                BillingControlH);
+
+            int reservedRight = _tripScoutToolbarRightFlow.Width + padR + 12;
+            int available = clientW - padL - reservedRight;
             int searchWidth = Math.Max(280, Math.Min(920, available));
             tssearchbox.Width = searchWidth;
+            if (_tripScoutToolbarLeftFlow != null)
+                _tripScoutToolbarLeftFlow.SetBounds(padL, rowY, searchWidth + 80, BillingControlH);
+        }
+
+        private void LayoutTripScoutListBounds()
+        {
+            if (tsmaterialCard == null || tsmaterialCard.IsDisposed || tslv == null || tslv.IsDisposed)
+                return;
+            if (_tripScoutToolbarPanel == null || _tripScoutToolbarPanel.IsDisposed)
+                return;
+
+            int listTop = _tripScoutToolbarPanel.Bottom + BillingCardPad;
+            tslv.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            tslv.SetBounds(
+                BillingCardPad,
+                listTop,
+                Math.Max(120, tsmaterialCard.ClientSize.Width - (BillingCardPad * 2)),
+                Math.Max(80, tsmaterialCard.ClientSize.Height - listTop - BillingCardPad));
+        }
+
+        private void LayoutTripScoutTabPanels()
+        {
+            if (tabPage9 == null || tsmaterialCard == null || tsstatuspanel == null)
+                return;
+
+            int tabW = tabPage9.ClientSize.Width;
+            int tabH = tabPage9.ClientSize.Height;
+
+            tsmaterialCard.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            tsstatuspanel.Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+
+            int statusTop = Math.Max(ToolTabInset, tabH - ToolTabInset - ToolTabStatusH);
+            tsstatuspanel.SetBounds(ToolTabInset, statusTop, Math.Max(200, tabW - (ToolTabInset * 2)), ToolTabStatusH);
+            tsmaterialCard.SetBounds(ToolTabInset, ToolTabInset, Math.Max(200, tabW - (ToolTabInset * 2)),
+                Math.Max(160, statusTop - ToolTabInset - ToolTabGap));
+
+            LayoutTripScoutToolbarBounds();
+            LayoutTripScoutListBounds();
+
+            var fill = tsstatuspanel.Controls["tsStatusFillPanel"] as System.Windows.Forms.Panel;
+            LayoutStatusLabelInCard(fill ?? tsstatuspanel, tsstatuslbl);
+            tsstatuspanel.BringToFront();
+            RefreshTabLoadingOverlayZOrder(tabPage9);
+        }
+
+        private void EnsureAutoAssignToolbarChrome()
+        {
+            if (materialCard16 == null || aadatepicker == null || aaloadbtn == null
+                || aaassbtn == null || aareservesbtn == null || _autoAssignToolbarReady)
+                return;
+
+            _autoAssignToolbarPanel = new System.Windows.Forms.Panel
+            {
+                Name = "aaToolbarPanel",
+                Height = BillingToolbarH,
+                BackColor = SupeyTheme.SurfaceHeader,
+                Padding = new Padding(14, 8, 14, 8),
+            };
+
+            var divider = new System.Windows.Forms.Panel
+            {
+                Name = "aaToolbarDivider",
+                Dock = DockStyle.Bottom,
+                Height = 1,
+                BackColor = SupeyTheme.Divider,
+            };
+            _autoAssignToolbarPanel.Controls.Add(divider);
+
+            _aaToolbarTitle = new System.Windows.Forms.Label
+            {
+                Name = "aaToolbarTitle",
+                AutoSize = false,
+                Text = "Auto Assign",
+                Font = SupeyTheme.SubHeaderFont,
+                ForeColor = SupeyTheme.TextPrimary,
+                BackColor = SupeyTheme.SurfaceHeader,
+                TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
+            };
+            _aaToolbarSubtitle = new System.Windows.Forms.Label
+            {
+                Name = "aaToolbarSubtitle",
+                AutoSize = false,
+                Text = "Load a schedule, review trip alerts, then assign or pull reserves.",
+                Font = SupeyTheme.CaptionFont,
+                ForeColor = SupeyTheme.TextSecondary,
+                BackColor = SupeyTheme.SurfaceHeader,
+                TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
+            };
+            _autoAssignToolbarPanel.Controls.Add(_aaToolbarTitle);
+            _autoAssignToolbarPanel.Controls.Add(_aaToolbarSubtitle);
+            materialCard16.Controls.Add(_autoAssignToolbarPanel);
+            _autoAssignToolbarPanel.BringToFront();
+            _autoAssignToolbarReady = true;
+        }
+
+        private void LayoutAutoAssignToolbar()
+        {
+            if (_autoAssignToolbarPanel == null || _autoAssignToolbarPanel.IsDisposed || materialCard16 == null)
+                return;
+
+            _autoAssignToolbarPanel.SetBounds(
+                BillingCardPad,
+                BillingCardPad,
+                Math.Max(120, materialCard16.ClientSize.Width - (BillingCardPad * 2)),
+                BillingToolbarH);
+            _autoAssignToolbarPanel.BackColor = SupeyTheme.SurfaceHeader;
+            _autoAssignToolbarPanel.BringToFront();
+
+            int padL = _autoAssignToolbarPanel.Padding.Left;
+            int padR = _autoAssignToolbarPanel.Padding.Right;
+            int clientW = _autoAssignToolbarPanel.ClientSize.Width;
+            int titleW = 170;
+            if (_aaToolbarTitle != null)
+            {
+                _aaToolbarTitle.Font = SupeyTheme.SubHeaderFont;
+                _aaToolbarTitle.ForeColor = SupeyTheme.TextPrimary;
+                _aaToolbarTitle.BackColor = SupeyTheme.SurfaceHeader;
+                _aaToolbarTitle.SetBounds(padL, 10, titleW, 22);
+            }
+            if (_aaToolbarSubtitle != null)
+            {
+                _aaToolbarSubtitle.Font = SupeyTheme.CaptionFont;
+                _aaToolbarSubtitle.ForeColor = SupeyTheme.TextSecondary;
+                _aaToolbarSubtitle.BackColor = SupeyTheme.SurfaceHeader;
+                _aaToolbarSubtitle.SetBounds(padL + titleW + 12, 12,
+                    Math.Max(220, clientW - padL - padR - titleW - 12), 18);
+            }
+
+            var divider = _autoAssignToolbarPanel.Controls["aaToolbarDivider"] as System.Windows.Forms.Panel;
+            if (divider != null)
+                divider.BackColor = SupeyTheme.Divider;
+
+            const int rowY = 56;
+            const int dateW = 248;
+            int loadW = aaloadbtn != null && !aaloadbtn.IsDisposed ? Math.Max(64, MeasureButtonWidth(aaloadbtn, 64)) : 64;
+            int assignW = aaassbtn != null && !aaassbtn.IsDisposed ? Math.Max(73, MeasureButtonWidth(aaassbtn, 73)) : 73;
+            int reservesW = aareservesbtn != null && !aareservesbtn.IsDisposed ? Math.Max(92, MeasureButtonWidth(aareservesbtn, 92)) : 92;
+            int blockW = dateW + BillingToolbarGap + loadW + BillingToolbarGap + assignW + BillingToolbarGap + reservesW;
+            int panelLeft = BillingCardPad + padL;
+            int x = Math.Max(panelLeft, BillingCardPad + _autoAssignToolbarPanel.Width - padR - blockW);
+
+            if (aadatepicker != null && !aadatepicker.IsDisposed)
+                aadatepicker.SetBounds(x, rowY, dateW, BillingControlH);
+            x += dateW + BillingToolbarGap;
+
+            if (aaloadbtn != null && !aaloadbtn.IsDisposed)
+            {
+                aaloadbtn.SetBounds(x, rowY, loadW, BillingControlH);
+                x += loadW + BillingToolbarGap;
+            }
+            if (aaassbtn != null && !aaassbtn.IsDisposed)
+            {
+                aaassbtn.SetBounds(x, rowY, assignW, BillingControlH);
+                x += assignW + BillingToolbarGap;
+            }
+            if (aareservesbtn != null && !aareservesbtn.IsDisposed)
+                aareservesbtn.SetBounds(x, rowY, reservesW, BillingControlH);
+
+            foreach (var ctrl in new System.Windows.Forms.Control[] { aadatepicker, aaloadbtn, aaassbtn, aareservesbtn })
+            {
+                if (ctrl != null && !ctrl.IsDisposed)
+                    ctrl.BringToFront();
+            }
+        }
+
+        private void LayoutAutoAssignListBounds()
+        {
+            if (materialCard16 == null || materialCard16.IsDisposed || aalv == null || aalv.IsDisposed)
+                return;
+            if (_autoAssignToolbarPanel == null || _autoAssignToolbarPanel.IsDisposed)
+                return;
+
+            int listTop = _autoAssignToolbarPanel.Bottom + BillingCardPad;
+            aalv.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            aalv.SetBounds(
+                BillingCardPad,
+                listTop,
+                Math.Max(120, materialCard16.ClientSize.Width - (BillingCardPad * 2)),
+                Math.Max(80, materialCard16.ClientSize.Height - listTop - BillingCardPad));
+        }
+
+        private void LayoutAutoAssignTabPanels()
+        {
+            if (tabPage7 == null || materialCard16 == null || materialCard17 == null)
+                return;
+
+            int tabW = tabPage7.ClientSize.Width;
+            int tabH = tabPage7.ClientSize.Height;
+
+            materialCard16.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            materialCard17.Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+
+            int statusTop = Math.Max(ToolTabInset, tabH - ToolTabInset - ToolTabStatusH);
+            materialCard17.SetBounds(ToolTabInset, statusTop, Math.Max(200, tabW - (ToolTabInset * 2)), ToolTabStatusH);
+            materialCard16.SetBounds(ToolTabInset, ToolTabInset, Math.Max(200, tabW - (ToolTabInset * 2)),
+                Math.Max(160, statusTop - ToolTabInset - ToolTabGap));
+
+            LayoutAutoAssignToolbar();
+            LayoutAutoAssignListBounds();
+
+            var fill = materialCard17.Controls["aaStatusFillPanel"] as System.Windows.Forms.Panel;
+            LayoutStatusLabelInCard(fill ?? materialCard17, aastatuslbl);
+            materialCard17.BringToFront();
+            RefreshTabLoadingOverlayZOrder(tabPage7);
+        }
+
+        private void EnsureCameraToolbarChrome()
+        {
+            if (materialCard7 == null || listenswitch == null || _cameraToolbarReady)
+                return;
+
+            _cameraToolbarPanel = new System.Windows.Forms.Panel
+            {
+                Name = "cameraToolbarPanel",
+                Height = BillingToolbarH,
+                BackColor = SupeyTheme.SurfaceHeader,
+                Padding = new Padding(14, 8, 14, 8),
+            };
+
+            var divider = new System.Windows.Forms.Panel
+            {
+                Name = "cameraToolbarDivider",
+                Dock = DockStyle.Bottom,
+                Height = 1,
+                BackColor = SupeyTheme.Divider,
+            };
+            _cameraToolbarPanel.Controls.Add(divider);
+
+            _cameraToolbarTitle = new System.Windows.Forms.Label
+            {
+                Name = "cameraToolbarTitle",
+                AutoSize = false,
+                Text = "Camera server",
+                Font = SupeyTheme.SubHeaderFont,
+                ForeColor = SupeyTheme.TextPrimary,
+                BackColor = SupeyTheme.SurfaceHeader,
+                TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
+            };
+            _cameraToolbarSubtitle = new System.Windows.Forms.Label
+            {
+                Name = "cameraToolbarSubtitle",
+                AutoSize = false,
+                Text = "Accept driver camera connections and manage live sessions.",
+                Font = SupeyTheme.CaptionFont,
+                ForeColor = SupeyTheme.TextSecondary,
+                BackColor = SupeyTheme.SurfaceHeader,
+                TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
+            };
+            _cameraToolbarPanel.Controls.Add(_cameraToolbarTitle);
+            _cameraToolbarPanel.Controls.Add(_cameraToolbarSubtitle);
+            materialCard7.Controls.Add(_cameraToolbarPanel);
+            _cameraToolbarPanel.BringToFront();
+            _cameraToolbarReady = true;
+        }
+
+        private void LayoutCameraToolbar()
+        {
+            if (_cameraToolbarPanel == null || _cameraToolbarPanel.IsDisposed || materialCard7 == null)
+                return;
+
+            _cameraToolbarPanel.SetBounds(
+                BillingCardPad,
+                BillingCardPad,
+                Math.Max(120, materialCard7.ClientSize.Width - (BillingCardPad * 2)),
+                BillingToolbarH);
+            _cameraToolbarPanel.BringToFront();
+
+            int padL = _cameraToolbarPanel.Padding.Left;
+            int padR = _cameraToolbarPanel.Padding.Right;
+            int clientW = _cameraToolbarPanel.ClientSize.Width;
+            int titleW = 170;
+            if (_cameraToolbarTitle != null)
+                _cameraToolbarTitle.SetBounds(padL, 10, titleW, 22);
+            if (_cameraToolbarSubtitle != null)
+                _cameraToolbarSubtitle.SetBounds(padL + titleW + 12, 12,
+                    Math.Max(220, clientW - padL - padR - titleW - 12), 18);
+
+            int rowY = 56;
+            if (portlbl != null && !portlbl.IsDisposed)
+                portlbl.SetBounds(padL, rowY + 6, 120, 20);
+            if (listenswitch != null && !listenswitch.IsDisposed)
+                listenswitch.SetBounds(Math.Max(padL, clientW - padR - listenswitch.Width), rowY, listenswitch.Width, BillingControlH);
+        }
+
+        private void LayoutCameraListBounds()
+        {
+            if (materialCard7 == null || materialCard7.IsDisposed || listView1 == null || listView1.IsDisposed)
+                return;
+            if (_cameraToolbarPanel == null || _cameraToolbarPanel.IsDisposed)
+                return;
+
+            int listTop = _cameraToolbarPanel.Bottom + BillingCardPad;
+            listView1.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            listView1.SetBounds(
+                BillingCardPad,
+                listTop,
+                Math.Max(120, materialCard7.ClientSize.Width - (BillingCardPad * 2)),
+                Math.Max(80, materialCard7.ClientSize.Height - listTop - BillingCardPad));
+        }
+
+        private void LayoutCameraTabPanels()
+        {
+            if (tabPage3 == null || materialCard7 == null || materialCard18 == null)
+                return;
+
+            int tabW = tabPage3.ClientSize.Width;
+            int tabH = tabPage3.ClientSize.Height;
+
+            materialCard7.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            materialCard18.Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+
+            int statusTop = Math.Max(ToolTabInset, tabH - ToolTabInset - ToolTabStatusH);
+            materialCard18.SetBounds(ToolTabInset, statusTop, Math.Max(200, tabW - (ToolTabInset * 2)), ToolTabStatusH);
+            materialCard7.SetBounds(ToolTabInset, ToolTabInset, Math.Max(200, tabW - (ToolTabInset * 2)),
+                Math.Max(160, statusTop - ToolTabInset - ToolTabGap));
+
+            LayoutCameraToolbar();
+            LayoutCameraListBounds();
+
+            var fill = materialCard18.Controls["camStatusFillPanel"] as System.Windows.Forms.Panel;
+            LayoutStatusLabelInCard(fill ?? materialCard18, onlinecountlbl);
+            materialCard18.BringToFront();
+            RefreshTabLoadingOverlayZOrder(tabPage3);
         }
 
         /// <summary>
@@ -2842,7 +4061,7 @@ namespace Hiatme_Tool_Suite_v3
             if (loginPanel != null)
             {
                 loginPanel.SurfaceLevel = SupeyCard.Surface.Elevated;
-                loginPanel.ShowBorder = false;
+                loginPanel.ShowBorder = true;
                 loginPanel.CornerRadius = 8;
                 loginPanel.ForeColor = SupeyTheme.TextPrimary;
                 loginPanel.Padding = Padding.Empty;
@@ -5015,43 +6234,14 @@ namespace Hiatme_Tool_Suite_v3
             if (_tcAccuracyChartUiReady || materialCard11 == null)
                 return;
 
-            materialCard11.Controls.Remove(tcchart);
-            materialCard11.Controls.Add(tcchart);
-            tcchart.Dock = DockStyle.Fill;
-            tcchart.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
-
-            tabPage4.Resize -= TabPage4_LayoutTimeCorrectionPanels;
-            tabPage4.Resize += TabPage4_LayoutTimeCorrectionPanels;
+            if (tcchart != null && materialCard11.Controls.Contains(tcchart))
+            {
+                tcchart.Dock = DockStyle.None;
+                tcchart.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            }
 
             _tcAccuracyChartUiReady = true;
-            LayoutTimeCorrectionBottomPanels();
             ConfigureAccuracyChartLayout();
-            LayoutStatusLabelInCard(materialCard10, tcorrectstatuslbl);
-        }
-
-        /// <summary>
-        /// Keeps the accuracy chart directly above the status bar without overlapping it.
-        /// </summary>
-        private void LayoutTimeCorrectionBottomPanels()
-        {
-            if (materialCard11 == null || materialCard10 == null || tabPage4 == null)
-                return;
-
-            const int gapPx = 8;
-            const int chartHeightPx = 186;
-
-            materialCard10.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
-            materialCard11.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
-
-            int bottomInset = 8;
-            materialCard10.Top = tabPage4.ClientSize.Height - bottomInset - materialCard10.Height;
-            materialCard11.Height = chartHeightPx;
-            materialCard11.Top = materialCard10.Top - gapPx - chartHeightPx;
-            materialCard11.Left = materialCard10.Left;
-            materialCard11.Width = materialCard10.Width;
-
-            materialCard10.BringToFront();
-            LayoutStatusLabelInCard(materialCard10, tcorrectstatuslbl);
         }
 
         /// <summary>Centers status text vertically inside the slim status card without increasing card height.</summary>
@@ -5079,9 +6269,7 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         private void TabPage4_LayoutTimeCorrectionPanels(object sender, EventArgs e)
-        {
-            LayoutTimeCorrectionBottomPanels();
-        }
+            => LayoutTimeCorrectionTabPanels();
 
         private void RefreshAccuracyChart()
         {
@@ -5101,7 +6289,7 @@ namespace Hiatme_Tool_Suite_v3
             tcchart.Titles.Clear();
 
             string text;
-            Color color = Color.Gainsboro;
+            Color color = SupeyTheme.TextSecondary;
             if (snapshot == null || snapshot.TotalLegs == 0)
             {
                 text = "Company accuracy: —";
@@ -5114,7 +6302,7 @@ namespace Hiatme_Tool_Suite_v3
                 text = "Company" + datePart + ": " + snapshot.CompanyAccuracyPercent.ToString("0") + "%" +
                     "  |  " + snapshot.AccurateLegs + "/" + snapshot.TotalLegs + " legs" +
                     "  |  " + snapshot.PassedTrips + "/" + snapshot.TotalTrips + " trips passed";
-                color = snapshot.CompanyAccuracyPercent >= 70 ? Color.LightGreen : Color.Salmon;
+                color = snapshot.CompanyAccuracyPercent >= 70 ? SupeyTheme.SuccessText : SupeyTheme.ErrorText;
             }
 
             var title = new Title
@@ -5125,7 +6313,7 @@ namespace Hiatme_Tool_Suite_v3
                 IsDockedInsideChartArea = false,
                 Alignment = System.Drawing.ContentAlignment.TopRight,
                 ForeColor = color,
-                Font = new Font("Segoe UI", 9.5F, FontStyle.Bold, GraphicsUnit.Point),
+                Font = new Font(SupeyTheme.BodyFont.FontFamily, SupeyTheme.BodyFont.Size, FontStyle.Bold),
                 BackColor = Color.Transparent,
             };
             tcchart.Titles.Add(title);
@@ -6949,6 +8137,7 @@ namespace Hiatme_Tool_Suite_v3
                     return;
                 manager.SetLoadingOverlayMessage("Loading Production dashboard...");
                 await empStatManager.InitializeEmployeeDler(this, wrSession, null, loadToken);
+                ApplyProductionVisualTheme();
             }
             catch (OperationCanceledException)
             {
@@ -7352,7 +8541,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 IntervalOffset = 70,
                 StripWidth = 1,
-                BackColor = Color.Orange,
+                BackColor = SupeyTheme.WarnText,
             };
             area.AxisY.StripLines.Add(stripline);
 
@@ -7368,11 +8557,11 @@ namespace Hiatme_Tool_Suite_v3
                 series.Points.Add(pct);
 
                 if ((int)pct > 70)
-                    series.Points[point].Color = Color.ForestGreen;
+                    series.Points[point].Color = SupeyTheme.SuccessText;
                 else
-                    series.Points[point].Color = Color.DarkRed;
+                    series.Points[point].Color = SupeyTheme.ErrorText;
 
-                series.Points[point].LabelForeColor = Color.White;
+                series.Points[point].LabelForeColor = SupeyTheme.TextPrimary;
                 series.Points[point].AxisLabel = SplitDriverName(driver.Driver);
                 series.Points[point].LegendText = "...";
                 series.Points[point].Label = pct.ToString("0") + "%";
@@ -7734,10 +8923,21 @@ namespace Hiatme_Tool_Suite_v3
         private bool UsesSupeyListChrome(ListView listView)
             => listView is SupeyListView;
 
+        private void InvalidateToolTabListViews()
+        {
+            foreach (var lv in new ListView[] { billinglistview, tctripcorrectlv, tcbatchelinkslv, templatelv, aalv, tslv, listView1 })
+            {
+                if (lv == null || lv.IsDisposed) continue;
+                lv.Invalidate(true);
+            }
+        }
+
         private void listView_DrawColumnHeader(object sender, DrawListViewColumnHeaderEventArgs e)
         {
             ListView listView = (ListView)sender;
             bool themed = UsesSupeyListChrome(listView);
+            if (themed)
+                e.DrawDefault = false;
             // Trip Scout, Billing, and the other owner-draw trip lists share the SupeyTheme header palette.
             Color lvbg = themed ? SupeyTheme.ListHeader : ColorTranslator.FromHtml("#333333");
 
@@ -7776,11 +8976,16 @@ namespace Hiatme_Tool_Suite_v3
                 themed ? SupeyTheme.ListHeaderText : Color.Gainsboro,
                 align | TextFormatFlags.SingleLine | TextFormatFlags.GlyphOverhangPadding | TextFormatFlags.VerticalCenter | TextFormatFlags.WordEllipsis);
 
-            // Faint divider on the right edge of every header cell so users see the resize grabber
-            // (the flat #333333 fill above otherwise hides Windows' default column boundary).
-            using (var dividerPen = new Pen(themed ? SupeyTheme.ListGrid : Color.FromArgb(64, 255, 255, 255), 1f))
+            if (themed)
             {
-                e.Graphics.DrawLine(dividerPen, e.Bounds.Right - 1, e.Bounds.Top + 4, e.Bounds.Right - 1, e.Bounds.Bottom - 4);
+                using (var rowPen = new Pen(SupeyTheme.ListGridLine, 1f))
+                    e.Graphics.DrawLine(rowPen, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right - 1, e.Bounds.Bottom - 1);
+            }
+
+            // Column boundary + resize affordance (full height so the grid reads clearly).
+            using (var dividerPen = new Pen(themed ? SupeyTheme.ListGridLine : Color.FromArgb(64, 255, 255, 255), 1f))
+            {
+                e.Graphics.DrawLine(dividerPen, e.Bounds.Right - 1, e.Bounds.Top, e.Bounds.Right - 1, e.Bounds.Bottom - 1);
             }
 
             // Sort arrow indicator if this column is the active sort column on a ListViewSorter-equipped list.
@@ -7869,6 +9074,8 @@ namespace Hiatme_Tool_Suite_v3
             ListView listView = (ListView)sender;
             bool themed = UsesSupeyListChrome(listView);
             bool isSupey = listView is SupeyListView;
+            if (isSupey)
+                e.DrawDefault = false;
 
             Rectangle rowBounds = e.Bounds;
             Rectangle bounds = new Rectangle(rowBounds.Left + 10, rowBounds.Top, Math.Max(0, rowBounds.Width - 10 - 1), rowBounds.Height);
@@ -7904,11 +9111,6 @@ namespace Hiatme_Tool_Suite_v3
                 : Color.White;
             TextRenderer.DrawText(e.Graphics, e.SubItem.Text, ListViewOwnerDrawFonts.Cell, bounds, textColor,
                 align | TextFormatFlags.SingleLine | TextFormatFlags.GlyphOverhangPadding | TextFormatFlags.VerticalCenter | TextFormatFlags.WordEllipsis);
-
-            if (isSupey)
-            {
-                SupeyListViewHelpers.DrawCellGridLines(e.Graphics, e.Bounds, listView);
-            }
         }
         private void ListView_SizeChanged(object sender, EventArgs e)
         {

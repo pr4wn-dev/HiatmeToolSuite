@@ -50,6 +50,8 @@ namespace Hiatme_Tool_Suite_v3
         public static Color ListHeader => P.ListHeader;
         public static Color ListHeaderText => P.ListHeaderText;
         public static Color ListGrid => P.ListGrid;
+        /// <summary>Owner-draw cell grid lines — readable on ListBody but softer than legacy ListGrid.</summary>
+        public static Color ListGridLine => ResolveListGridLine(P);
         public static Color ListSelected => P.ListSelected;
         public static Color ListSelectedText => P.ListSelectedText;
         public static Color ListText => P.ListText;
@@ -60,5 +62,31 @@ namespace Hiatme_Tool_Suite_v3
         public static Font BodyFont => P.BodyFont;
         public static Font CaptionFont => P.CaptionFont;
         public static Font MonoFont => P.MonoFont;
+
+        private static Color ResolveListGridLine(SupeyThemePalette palette)
+        {
+            if (palette == null)
+                return Color.FromArgb(42, 42, 44);
+            if (!palette.ListGridLine.IsEmpty)
+                return palette.ListGridLine;
+            // Midpoint between row fill and theme divider — visible workbook grid, not flat ListGrid.
+            return BlendColors(palette.ListBody, palette.Divider, 0.48);
+        }
+
+        internal static Color ListGridLineForPalette(SupeyThemePalette palette) => ResolveListGridLine(palette);
+
+        /// <summary>Previous cell grid formula — used only for live theme-switch color remap.</summary>
+        internal static Color LegacyListGridLineBlend(SupeyThemePalette palette)
+            => BlendColors(palette.ListBody, palette.ListGrid, 0.36);
+
+        private static Color BlendColors(Color from, Color to, double amountTo)
+        {
+            amountTo = amountTo < 0d ? 0d : amountTo > 1d ? 1d : amountTo;
+            double amountFrom = 1d - amountTo;
+            return Color.FromArgb(
+                (int)((from.R * amountFrom) + (to.R * amountTo)),
+                (int)((from.G * amountFrom) + (to.G * amountTo)),
+                (int)((from.B * amountFrom) + (to.B * amountTo)));
+        }
     }
 }

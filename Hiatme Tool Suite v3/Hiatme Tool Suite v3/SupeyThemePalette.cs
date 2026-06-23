@@ -47,6 +47,8 @@ namespace Hiatme_Tool_Suite_v3
         public Color ListHeader = Color.FromArgb(26, 26, 26);
         public Color ListHeaderText = Color.FromArgb(200, 200, 200);
         public Color ListGrid = Color.FromArgb(48, 48, 48);
+        /// <summary>Owner-draw cell grid hairline; <see cref="Color.Empty"/> = auto from ListBody + Divider.</summary>
+        public Color ListGridLine = Color.Empty;
         public Color ListSelected = Color.FromArgb(56, 110, 168);
         public Color ListSelectedText = Color.FromArgb(245, 245, 245);
         public Color ListText = Color.FromArgb(225, 225, 225);

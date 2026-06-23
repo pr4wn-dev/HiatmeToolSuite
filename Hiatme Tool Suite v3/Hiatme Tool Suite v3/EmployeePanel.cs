@@ -292,7 +292,9 @@ namespace Hiatme_Tool_Suite_v3
                     Tag = employeestat,
                     Margin = new Padding(8),
                     Padding = new Padding(10),
-                    BackColor = SupeyTheme.SurfaceElevated,
+                    SurfaceLevel = SupeyCard.Surface.Elevated,
+                    ShowBorder = true,
+                    CornerRadius = 8,
                     ForeColor = SupeyTheme.TextPrimary,
                     MouseState = SupeyMouseState.HOVER,
                     MinimumSize = new Size(300, 250),
@@ -591,6 +593,39 @@ namespace Hiatme_Tool_Suite_v3
         public void PopLoadingOverlay()
         {
             HideLocalLoading();
+        }
+
+        /// <summary>Re-apply bordered card chrome after a theme switch or tab revisit.</summary>
+        public void ApplyVisualTheme()
+        {
+            if (tabPage == null || tabPage.IsDisposed) return;
+            tabPage.BackColor = SupeyTheme.SurfaceBase;
+            tabPage.ForeColor = SupeyTheme.TextPrimary;
+
+            foreach (Control c in tabPage.Controls)
+            {
+                if (c is System.Windows.Forms.Panel scroller && scroller.Name == "ProductionScroller")
+                {
+                    scroller.BackColor = SupeyTheme.SurfaceBase;
+                    foreach (Control child in scroller.Controls)
+                    {
+                        if (child is TableLayoutPanel table)
+                            table.BackColor = SupeyTheme.SurfaceBase;
+                    }
+                }
+            }
+
+            if (primaryTable == null || primaryTable.IsDisposed) return;
+            foreach (Control cell in primaryTable.Controls)
+            {
+                if (cell is SupeyCard card)
+                {
+                    card.SurfaceLevel = SupeyCard.Surface.Elevated;
+                    card.ShowBorder = true;
+                    card.CornerRadius = 8;
+                    card.ForeColor = SupeyTheme.TextPrimary;
+                }
+            }
         }
 
 

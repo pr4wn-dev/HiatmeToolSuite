@@ -50,8 +50,8 @@ namespace Hiatme_Tool_Suite_v3
                 (int)((from.B * amountFrom) + (to.B * amountTo)));
         }
 
-        /// <summary>Grid line color for owner-drawn Supey ListViews (blended to match the billing list style).</summary>
-        public static Color ListGridLineColor => BlendColors(SupeyTheme.ListBody, SupeyTheme.ListGrid, 0.36d);
+        /// <summary>Grid line color for owner-drawn Supey ListViews (theme-aware hairline).</summary>
+        public static Color ListGridLineColor => SupeyTheme.ListGridLine;
 
         /// <summary>
         /// Merged/group-bar rows paint in <c>DrawItem</c> across all columns — skip per-cell grids
@@ -273,8 +273,11 @@ namespace Hiatme_Tool_Suite_v3
             e.DrawDefault = false;
             using (var brush = new SolidBrush(SupeyTheme.ListHeader))
                 e.Graphics.FillRectangle(brush, e.Bounds);
-            using (var pen = new Pen(SupeyTheme.Divider, 1f))
-                e.Graphics.DrawLine(pen, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
+            using (var pen = new Pen(ListGridLineColor, 1f))
+            {
+                e.Graphics.DrawLine(pen, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right - 1, e.Bounds.Bottom - 1);
+                e.Graphics.DrawLine(pen, e.Bounds.Right - 1, e.Bounds.Top, e.Bounds.Right - 1, e.Bounds.Bottom - 1);
+            }
             var rect = new Rectangle(e.Bounds.Left + 6, e.Bounds.Top, e.Bounds.Width - 6, e.Bounds.Height);
             TextRenderer.DrawText(e.Graphics, e.Header?.Text ?? "", ListViewOwnerDrawFonts.Header, rect,
                 SupeyTheme.ListHeaderText,
@@ -387,17 +390,45 @@ namespace Hiatme_Tool_Suite_v3
         /// <c>GridLines = true</c> in owner-draw mode. Single source of truth so
         /// every Supey-styled ListView uses the same grid color / weight.
         /// </summary>
+        /// <remarks>
+        /// On <see cref="SupeyListView"/> with <c>GridLines = true</c>, this is a no-op — the control
+        /// paints grids once after all <see cref="ListView.DrawSubItem"/> handlers. Call this only from
+        /// custom handlers when <c>GridLines = false</c> (Schedule Builder trips, driver picker, etc.).
+        /// </remarks>
         public static void DrawCellGridLines(Graphics g, Rectangle bounds, ListView listView = null)
         {
-            if (listView is SupeyListView slv && !slv.GridLines)
-                return;
+            if (listView is SupeyListView slv)
+            {
+                if (slv.GridLines)
+                    return;
+            }
+            PaintCellGridLines(g, bounds);
+        }
+
+        /// <summary>Used by <see cref="SupeyListView"/> after owner-draw handlers — always paints when enabled.</summary>
+        internal static void DrawCellGridLinesAuto(Graphics g, Rectangle bounds)
+            => PaintCellGridLines(g, bounds);
+
+        private static void PaintCellGridLines(Graphics g, Rectangle bounds)
+        {
             if (g == null || bounds.Width <= 0 || bounds.Height <= 0)
                 return;
 
-            using (var pen = new Pen(ListGridLineColor, 1f))
+            var saved = g.Save();
+            try
             {
-                g.DrawLine(pen, bounds.Right - 1, bounds.Top, bounds.Right - 1, bounds.Bottom - 1);
-                g.DrawLine(pen, bounds.Left, bounds.Bottom - 1, bounds.Right - 1, bounds.Bottom - 1);
+                g.PixelOffsetMode = PixelOffsetMode.Half;
+                int right = bounds.Right - 1;
+                int bottom = bounds.Bottom - 1;
+                using (var pen = new Pen(ListGridLineColor, 1f))
+                {
+                    g.DrawLine(pen, right, bounds.Top, right, bottom);
+                    g.DrawLine(pen, bounds.Left, bottom, right, bottom);
+                }
+            }
+            finally
+            {
+                g.Restore(saved);
             }
         }
 

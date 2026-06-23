@@ -115,7 +115,12 @@ namespace Hiatme_Tool_Suite_v3
         private static SupeyThemePalette BuildBlackLime()
         {
             // The original Supey look: near-black charcoal surfaces with a lime call-to-action.
-            return new SupeyThemePalette { Name = "Black & Lime" };
+            return new SupeyThemePalette
+            {
+                Name = "Black & Lime",
+                // ~11 steps above ListBody (36) — readable grid, still below ListGrid (48).
+                ListGridLine = Color.FromArgb(47, 47, 47),
+            };
         }
 
         private static SupeyThemePalette BuildMidnight()
@@ -141,6 +146,7 @@ namespace Hiatme_Tool_Suite_v3
                 ListHeader = Color.FromArgb(16, 20, 30),
                 ListHeaderText = Color.FromArgb(190, 200, 218),
                 ListGrid = Color.FromArgb(40, 48, 66),
+                ListGridLine = Color.FromArgb(38, 45, 62),
                 ListSelected = Color.FromArgb(48, 108, 182),
                 ListSelectedText = Color.FromArgb(245, 248, 252),
                 ListText = Color.FromArgb(220, 227, 238),
@@ -173,6 +179,7 @@ namespace Hiatme_Tool_Suite_v3
                 ListHeader = Color.FromArgb(25, 25, 28),
                 ListHeaderText = Color.FromArgb(202, 198, 190),
                 ListGrid = Color.FromArgb(50, 50, 54),
+                ListGridLine = Color.FromArgb(48, 48, 52),
                 ListSelected = Color.FromArgb(150, 108, 40),
                 ListSelectedText = Color.FromArgb(250, 246, 238),
                 ListText = Color.FromArgb(226, 223, 216),
@@ -202,6 +209,7 @@ namespace Hiatme_Tool_Suite_v3
                 ListHeader = Color.FromArgb(22, 27, 29),
                 ListHeaderText = Color.FromArgb(194, 204, 205),
                 ListGrid = Color.FromArgb(46, 54, 58),
+                ListGridLine = Color.FromArgb(44, 52, 55),
                 ListSelected = Color.FromArgb(46, 132, 116),
                 ListSelectedText = Color.FromArgb(246, 250, 249),
                 ListText = Color.FromArgb(222, 229, 229),
