@@ -9,7 +9,7 @@ namespace Hiatme_Tool_Suite_v3
     /// Owner-drawn Supey ListView with double-buffering and reduced erase flicker.
     /// Use instead of <see cref="ListView"/> on the schedule tab and related dialogs.
     /// </summary>
-    internal class SupeyListView : ListView
+    public sealed class SupeyListView : ListView
     {
         private const int WM_ERASEBKGND = 0x0014;
         private const int WM_PAINT = 0x000F;
@@ -65,18 +65,77 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         private int _wndProcDepth;
+        private bool _gridLines = true;
+
+        /// <summary>
+        /// Themed owner-draw grid lines (per-cell + empty area below rows). Default on.
+        /// Native <see cref="ListView.GridLines"/> is never used — we paint SupeyTheme grids instead.
+        /// </summary>
+        public new bool GridLines
+        {
+            get => _gridLines;
+            set
+            {
+                if (_gridLines == value)
+                    return;
+                _gridLines = value;
+                base.GridLines = false;
+                if (IsHandleCreated)
+                    Invalidate(true);
+            }
+        }
 
         public SupeyListView()
         {
             DoubleBuffered = true;
+            base.GridLines = false;
+            OwnerDraw = true;
+            BorderStyle = System.Windows.Forms.BorderStyle.None;
+            FullRowSelect = true;
+            HideSelection = false;
+            HoverSelection = false;
         }
 
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
             SupeyListViewHelpers.ApplyNativeFlickerFixes(this);
+            // Re-force after handle creation because designer-generated code can set these after ctor.
+            base.GridLines = false;
+            OwnerDraw = true;
+            BorderStyle = System.Windows.Forms.BorderStyle.None;
+            FullRowSelect = true;
+            HideSelection = false;
+            HoverSelection = false;
             if (SuppressHotTracking)
                 ApplyHotTrackingSuppression();
+            EnsureAutoGridHooked();
+            try
+            {
+                if (IsHandleCreated)
+                    BeginInvoke(new Action(EnsureAutoGridHooked));
+            }
+            catch (InvalidOperationException)
+            {
+            }
+        }
+
+        /// <summary>
+        /// Re-subscribes so grid lines paint after every other <see cref="DrawSubItem"/> handler.
+        /// </summary>
+        private void EnsureAutoGridHooked()
+        {
+            DrawSubItem -= OnAutoDrawCellGrid;
+            DrawSubItem += OnAutoDrawCellGrid;
+        }
+
+        private void OnAutoDrawCellGrid(object sender, DrawListViewSubItemEventArgs e)
+        {
+            if (!GridLines || View != View.Details || e?.Graphics == null || e.Item == null)
+                return;
+            if (SupeyListViewHelpers.ShouldSkipCellGrid(e.Item))
+                return;
+            SupeyListViewHelpers.DrawCellGridLines(e.Graphics, e.Bounds, this);
         }
 
         protected override void WndProc(ref Message m)
@@ -128,7 +187,7 @@ namespace Hiatme_Tool_Suite_v3
                 return;
 
             var postPaint = PostPaintItems;
-            if (postPaint == null || !Visible)
+            if (!Visible)
                 return;
 
             try
@@ -136,7 +195,9 @@ namespace Hiatme_Tool_Suite_v3
                 using (var g = CreateGraphics())
                 {
                     g.SetClip(ClientRectangle);
-                    postPaint(g);
+                    if (GridLines && View == View.Details)
+                        SupeyListViewHelpers.PaintEmptyDetailsGrid(this, g);
+                    postPaint?.Invoke(g);
                 }
             }
             catch (ObjectDisposedException)

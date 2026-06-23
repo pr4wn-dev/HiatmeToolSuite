@@ -90,7 +90,7 @@
             this.materialCard10 = new SupeyCard();
             this.tcorrectstatuslbl = new SupeyLabel();
             this.materialCard9 = new SupeyCard();
-            this.tctripcorrectlv = new System.Windows.Forms.ListView();
+            this.tctripcorrectlv = new SupeyListView();
             this.columnHeader28 = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
             this.columnHeader29 = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
             this.columnHeader43 = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
@@ -114,7 +114,7 @@
             this.tcloadbtn = new Hiatme_Tool_Suite_v3.SupeyButton();
             this.tcexebtn = new Hiatme_Tool_Suite_v3.SupeyButton();
             this.tcfindbatchesbtn = new Hiatme_Tool_Suite_v3.SupeyButton();
-            this.tcbatchelinkslv = new System.Windows.Forms.ListView();
+            this.tcbatchelinkslv = new SupeyListView();
             this.columnHeader21 = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
             this.columnHeader22 = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
             this.columnHeader23 = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
@@ -127,7 +127,7 @@
             this.tbstatuslbl = new SupeyLabel();
             this.materialCard12 = new SupeyCard();
             this.addtemplatebtn = new SupeyMaterialButton();
-            this.templatelv = new System.Windows.Forms.ListView();
+            this.templatelv = new SupeyListView();
             this.columnHeader44 = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
             this.columnHeader45 = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
             this.columnHeader46 = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
@@ -156,7 +156,7 @@
             this.materialCard17 = new SupeyCard();
             this.aastatuslbl = new SupeyLabel();
             this.materialCard16 = new SupeyCard();
-            this.aalv = new System.Windows.Forms.ListView();
+            this.aalv = new SupeyListView();
             this.columnHeader58 = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
             this.columnHeader59 = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
             this.columnHeader60 = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
@@ -178,7 +178,7 @@
             this.tabPage8 = new System.Windows.Forms.TabPage();
             this.tabPage9 = new System.Windows.Forms.TabPage();
             this.tsmaterialCard = new SupeyCard();
-            this.tslv = new System.Windows.Forms.ListView();
+            this.tslv = new SupeyListView();
             this.tsColStatus = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
             this.tsColTripId = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
             this.tsColAlerts = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
@@ -209,7 +209,7 @@
             this.listenswitch = new SupeySwitch();
             this.onlinecountlbl = new SupeyLabel();
             this.portlbl = new SupeyLabel();
-            this.listView1 = new System.Windows.Forms.ListView();
+            this.listView1 = new SupeyListView();
             this.columnHeader15 = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
             this.columnHeader16 = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
             this.columnHeader17 = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
@@ -2608,7 +2608,7 @@
         private SupeyTextBox materialTextBox1;
         private System.Windows.Forms.NumericUpDown numericUpDown1;
         private System.Windows.Forms.ListBox listBox1;
-        private System.Windows.Forms.ListView listView1;
+        private SupeyListView listView1;
         private SupeyLabel onlinecountlbl;
         private SupeyLabel portlbl;
         private System.Windows.Forms.ColumnHeader columnHeader15;
@@ -2624,8 +2624,8 @@
         private System.Windows.Forms.TabPage tabPage4;
         private SupeyCard materialCard9;
         private SupeyCard materialCard8;
-        private System.Windows.Forms.ListView tcbatchelinkslv;
-        private System.Windows.Forms.ListView tctripcorrectlv;
+        private SupeyListView tcbatchelinkslv;
+        private SupeyListView tctripcorrectlv;
         private Hiatme_Tool_Suite_v3.SupeyButton tcexebtn;
         private Hiatme_Tool_Suite_v3.SupeyButton tcloadbtn;
         private Hiatme_Tool_Suite_v3.SupeyButton tcfindbatchesbtn;
@@ -2664,7 +2664,7 @@
         private SupeyCard materialCard13;
         private SupeyCard materialCard12;
         private SupeyMaterialButton addtemplatebtn;
-        private System.Windows.Forms.ListView templatelv;
+        private SupeyListView templatelv;
         private Hiatme_Tool_Suite_v3.SupeyComboBox tbtemplatenamecb;
         private Hiatme_Tool_Suite_v3.SupeyComboBox tbcb;
         private System.Windows.Forms.ColumnHeader columnHeader44;
@@ -2697,7 +2697,7 @@
         private SupeyMaterialButton aaassbtn;
         private SupeyMaterialButton aaloadbtn;
         private RJDatePicker aadatepicker;
-        private System.Windows.Forms.ListView aalv;
+        private SupeyListView aalv;
         private SupeyLabel aastatuslbl;
         private System.Windows.Forms.ColumnHeader columnHeader58;
         private System.Windows.Forms.ColumnHeader columnHeader59;
@@ -2726,7 +2726,7 @@
         private System.Windows.Forms.ToolStripMenuItem tsTripCtxUnassign;
         private System.Windows.Forms.ToolStripSeparator tsTripCtxLocateSeparator;
         private System.Windows.Forms.ToolStripMenuItem tsTripCtxLocate;
-        private System.Windows.Forms.ListView tslv;
+        private SupeyListView tslv;
         private System.Windows.Forms.ColumnHeader tsColStatus;
         private System.Windows.Forms.ColumnHeader tsColTripId;
         private System.Windows.Forms.ColumnHeader tsColAlerts;

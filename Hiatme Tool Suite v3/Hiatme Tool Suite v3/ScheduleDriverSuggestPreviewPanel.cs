@@ -119,7 +119,7 @@ namespace Hiatme_Tool_Suite_v3
                 textBounds,
                 fg,
                 TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
-            SupeyListViewHelpers.DrawCellGridLines(e.Graphics, e.Bounds);
+            SupeyListViewHelpers.DrawCellGridLines(e.Graphics, e.Bounds, e.Item?.ListView);
         }
     }
 }

@@ -3368,7 +3368,7 @@ namespace Hiatme_Tool_Suite_v3
             TextRenderer.DrawText(e.Graphics, e.SubItem.Text ?? "", drawFont, bounds, textColor,
                 TextFormatFlags.Left | TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter | TextFormatFlags.WordEllipsis | TextFormatFlags.GlyphOverhangPadding);
 
-            SupeyListViewHelpers.DrawCellGridLines(e.Graphics, e.Bounds);
+            SupeyListViewHelpers.DrawCellGridLines(e.Graphics, e.Bounds, _supeyPreviewLv);
         }
 
         // ---------- Owner-draw for the roster ListView (mirrors preview's look) ----------
@@ -3392,7 +3392,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 SupeyListViewHelpers.DrawModernCheckbox(e.Graphics, e.Bounds,
                     e.Item != null && e.Item.Checked, sel);
-                SupeyListViewHelpers.DrawCellGridLines(e.Graphics, e.Bounds);
+                SupeyListViewHelpers.DrawCellGridLines(e.Graphics, e.Bounds, _supeyDriversLv);
                 return;
             }
 
@@ -3400,7 +3400,7 @@ namespace Hiatme_Tool_Suite_v3
             TextRenderer.DrawText(e.Graphics, e.SubItem.Text ?? "", _supeyDriversLv.Font, bounds, sel ? SupeyLvSelText : SupeyLvText,
                 TextFormatFlags.Left | TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter | TextFormatFlags.WordEllipsis | TextFormatFlags.GlyphOverhangPadding);
 
-            SupeyListViewHelpers.DrawCellGridLines(e.Graphics, e.Bounds);
+            SupeyListViewHelpers.DrawCellGridLines(e.Graphics, e.Bounds, _supeyDriversLv);
         }
 
         // ---------- Helpers ----------

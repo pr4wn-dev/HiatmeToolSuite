@@ -302,7 +302,10 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             if (billinglistview != null)
+            {
                 ListViewMinWidthEnforcer.SetColumnFloor(billinglistview, 13, 500);
+                ConfigureBillingColumnWidths();
+            }
 
             if (tsColAlerts != null)
             {
@@ -311,6 +314,24 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             ConfigureTripScoutColumnWidths();
+        }
+
+        private void ConfigureBillingColumnWidths()
+        {
+            if (billinglistview == null) return;
+            var lv = billinglistview;
+            // Cap wide-text columns so they stay compact like Trip Scout.
+            // Col 0=Status, 1=Trip#, 2=Alerts, 3=Client, 4=Driver,
+            // 5=PU Time, 6=DO Time, 7=PU Street, 8=PU City,
+            // 9=DO Street, 10=DO City, 11=Miles, 12=Price, 13=References
+            ListViewMinWidthEnforcer.SetColumnCeiling(lv, 0,  90);  // Status
+            ListViewMinWidthEnforcer.SetColumnCeiling(lv, 2, 120);  // Alerts
+            ListViewMinWidthEnforcer.SetColumnCeiling(lv, 3, 160);  // Client
+            ListViewMinWidthEnforcer.SetColumnCeiling(lv, 4, 140);  // Driver
+            ListViewMinWidthEnforcer.SetColumnCeiling(lv, 7, 180);  // PU Street
+            ListViewMinWidthEnforcer.SetColumnCeiling(lv, 8, 110);  // PU City
+            ListViewMinWidthEnforcer.SetColumnCeiling(lv, 9, 180);  // DO Street
+            ListViewMinWidthEnforcer.SetColumnCeiling(lv, 10, 110); // DO City
         }
 
         private void ConfigureTripScoutColumnWidths()
@@ -389,6 +410,15 @@ namespace Hiatme_Tool_Suite_v3
                             page.BackColor = SupeyTheme.SurfaceBase;
                             page.ForeColor = SupeyTheme.TextPrimary;
                         }
+                        break;
+                    case SupeyListView slv:
+                        slv.BackColor = SupeyTheme.ListBody;
+                        slv.ForeColor = SupeyTheme.ListText;
+                        slv.Font = ListViewOwnerDrawFonts.Cell;
+                        slv.BorderStyle = System.Windows.Forms.BorderStyle.None;
+                        slv.FullRowSelect = true;
+                        slv.HideSelection = false;
+                        slv.HoverSelection = false;
                         break;
                     case ListView lv:
                         if (!IsPaletteSurface(lv.BackColor))
@@ -510,7 +540,6 @@ namespace Hiatme_Tool_Suite_v3
                 tslv.BackColor = SupeyTheme.ListBody;
                 tslv.ForeColor = SupeyTheme.ListText;
                 tslv.Font = ListViewOwnerDrawFonts.Cell;
-                tslv.GridLines = true;
                 tslv.Dock = DockStyle.Fill;
             }
 
@@ -596,8 +625,6 @@ namespace Hiatme_Tool_Suite_v3
             {
                 templatelv.BackColor = SupeyTheme.ListBody;
                 templatelv.ForeColor = SupeyTheme.ListText;
-                templatelv.GridLines = true;
-                templatelv.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
                 templatelv.Location = new Point(18, 86);
             }
 
@@ -689,8 +716,6 @@ namespace Hiatme_Tool_Suite_v3
                 if (lv == null) continue;
                 lv.BackColor = SupeyTheme.ListBody;
                 lv.ForeColor = SupeyTheme.ListText;
-                lv.GridLines = true;
-                lv.BorderStyle = System.Windows.Forms.BorderStyle.None;
             }
 
             // Bottom status strip, styled like the other tabs.
@@ -862,13 +887,11 @@ namespace Hiatme_Tool_Suite_v3
                 billinglistview.ForeColor = SupeyTheme.ListText;
                 billinglistview.Font = ListViewOwnerDrawFonts.Cell;
                 billinglistview.BorderStyle = System.Windows.Forms.BorderStyle.None;
-                billinglistview.GridLines = false;
                 billinglistview.FullRowSelect = true;
                 billinglistview.HideSelection = false;
                 billinglistview.HoverSelection = false;
                 billinglistview.HeaderStyle = ColumnHeaderStyle.Clickable;
                 billinglistview.View = System.Windows.Forms.View.Details;
-                billinglistview.PostPaintItems = DrawBillingListViewEmptyGrid;
                 billinglistview.SuppressHotTracking = true;
                 billinglistview.SuppressHoverRepaintFix = true;
             }
@@ -7665,54 +7688,7 @@ namespace Hiatme_Tool_Suite_v3
 
         }
         private bool UsesSupeyListChrome(ListView listView)
-            => ReferenceEquals(listView, tslv)
-               || ReferenceEquals(listView, aalv)
-               || ReferenceEquals(listView, templatelv)
-               || ReferenceEquals(listView, tctripcorrectlv)
-               || ReferenceEquals(listView, tcbatchelinkslv)
-               || ReferenceEquals(listView, billinglistview);
-
-        private static Color BlendColors(Color from, Color to, double amountTo)
-        {
-            amountTo = Math.Max(0d, Math.Min(1d, amountTo));
-            double amountFrom = 1d - amountTo;
-            return Color.FromArgb(
-                (int)((from.R * amountFrom) + (to.R * amountTo)),
-                (int)((from.G * amountFrom) + (to.G * amountTo)),
-                (int)((from.B * amountFrom) + (to.B * amountTo)));
-        }
-
-        private static Color BillingListGridColor()
-            => BlendColors(SupeyTheme.ListBody, SupeyTheme.ListGrid, 0.36d);
-
-        private void DrawBillingListViewEmptyGrid(Graphics g)
-        {
-            if (g == null || billinglistview == null || billinglistview.IsDisposed || billinglistview.Columns.Count == 0)
-                return;
-
-            int headerH = Math.Max(20, TextRenderer.MeasureText("Status", ListViewOwnerDrawFonts.Header).Height + 8);
-            int rowH = billinglistview.Items.Count > 0
-                ? Math.Max(16, billinglistview.Items[0].Bounds.Height)
-                : Math.Max(18, TextRenderer.MeasureText("Ag", billinglistview.Font).Height + 5);
-
-            int contentW = 0;
-            foreach (ColumnHeader col in billinglistview.Columns)
-                contentW += col.Width;
-            contentW = Math.Max(contentW, billinglistview.ClientSize.Width);
-
-            using (var pen = new Pen(BillingListGridColor(), 1f))
-            {
-                int x = 0;
-                foreach (ColumnHeader col in billinglistview.Columns)
-                {
-                    x += col.Width;
-                    g.DrawLine(pen, x - 1, headerH, x - 1, billinglistview.ClientSize.Height - 1);
-                }
-
-                for (int y = headerH + rowH - 1; y < billinglistview.ClientSize.Height; y += rowH)
-                    g.DrawLine(pen, 0, y, contentW - 1, y);
-            }
-        }
+            => listView is SupeyListView;
 
         private void listView_DrawColumnHeader(object sender, DrawListViewColumnHeaderEventArgs e)
         {
@@ -7784,10 +7760,13 @@ namespace Hiatme_Tool_Suite_v3
         {
             ListView listView = (ListView)sender;
             bool themed = UsesSupeyListChrome(listView);
-            if (ReferenceEquals(listView, billinglistview) && listView.View == System.Windows.Forms.View.Details)
+            bool isSupey = listView is SupeyListView;
+
+            if (isSupey && listView.View == System.Windows.Forms.View.Details)
             {
-                // In Details owner-draw, Win32 can repaint only column 0 on hover. Painting the
-                // whole row here wipes subitem text; paint Billing cells in DrawSubItem instead.
+                // For our owner-drawn Details lists, never let DrawItem paint the full row background.
+                // It can repaint only column 0 and wipe the subitem text we draw later.
+                // We paint backgrounds + grids per-cell in DrawSubItem instead.
                 e.DrawDefault = false;
                 return;
             }
@@ -7816,8 +7795,8 @@ namespace Hiatme_Tool_Suite_v3
             else
             {
                 // Owner-draw suppresses the default item background, so paint the row's
-                // BackColor ourselves — Analyzer alert colors and Billing mismatch highlights.
-                if (ReferenceEquals(listView, aalv) || ReferenceEquals(listView, billinglistview))
+                // BackColor ourselves if the item has a custom one (alerts, price mismatches, etc.).
+                if (isSupey)
                 {
                     Color bg = e.Item.BackColor;
                     if (bg == Color.Empty || bg == Color.Transparent)
@@ -7845,6 +7824,7 @@ namespace Hiatme_Tool_Suite_v3
         {
             ListView listView = (ListView)sender;
             bool themed = UsesSupeyListChrome(listView);
+            bool isSupey = listView is SupeyListView;
 
             Rectangle rowBounds = e.Bounds;
             Rectangle bounds = new Rectangle(rowBounds.Left + 10, rowBounds.Top, Math.Max(0, rowBounds.Width - 10 - 1), rowBounds.Height);
@@ -7862,10 +7842,11 @@ namespace Hiatme_Tool_Suite_v3
                     align = TextFormatFlags.Left;
                     break;
             }
-            bool selected = ReferenceEquals(listView, billinglistview)
+            bool selected = isSupey
                 ? (e.Item.Selected && listView.Focused)
                 : ((e.ItemState & ListViewItemStates.Selected) != 0 && listView.Focused);
-            if (ReferenceEquals(listView, billinglistview))
+
+            if (isSupey)
             {
                 Color bg = selected ? SupeyTheme.ListSelected : e.Item.BackColor;
                 if (bg == Color.Empty || bg == Color.Transparent)
@@ -7880,13 +7861,9 @@ namespace Hiatme_Tool_Suite_v3
             TextRenderer.DrawText(e.Graphics, e.SubItem.Text, ListViewOwnerDrawFonts.Cell, bounds, textColor,
                 align | TextFormatFlags.SingleLine | TextFormatFlags.GlyphOverhangPadding | TextFormatFlags.VerticalCenter | TextFormatFlags.WordEllipsis);
 
-            if (ReferenceEquals(listView, billinglistview))
+            if (isSupey)
             {
-                using (var gridPen = new Pen(BillingListGridColor(), 1f))
-                {
-                    e.Graphics.DrawLine(gridPen, e.Bounds.Right - 1, e.Bounds.Top, e.Bounds.Right - 1, e.Bounds.Bottom - 1);
-                    e.Graphics.DrawLine(gridPen, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right - 1, e.Bounds.Bottom - 1);
-                }
+                SupeyListViewHelpers.DrawCellGridLines(e.Graphics, e.Bounds, listView);
             }
         }
         private void ListView_SizeChanged(object sender, EventArgs e)

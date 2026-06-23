@@ -203,15 +203,7 @@ namespace Hiatme_Tool_Suite_v3
 
         private void OnDriverListDrawItem(object sender, DrawListViewItemEventArgs e)
         {
-            // e.Item.Selected is the per-row truth — e.State's Selected bit can read inconsistently
-            // for non-focused items in Details view, which previously made every row paint blue.
-            bool selected = e.Item != null && e.Item.Selected;
-            using (var bg = new SolidBrush(selected ? ListSelected : ListBackground))
-            {
-                e.Graphics.FillRectangle(bg, e.Bounds);
-            }
-            // No focus/selection border — the RoyalBlue fill on the active row is the sole
-            // indicator. A 1px border was leaving stale pixels between selection changes.
+            SupeyListViewHelpers.SuppressDefaultDrawItem(e);
         }
 
         private void OnDriverListDrawSubItem(object sender, DrawListViewSubItemEventArgs e)
@@ -229,6 +221,8 @@ namespace Hiatme_Tool_Suite_v3
                 | TextFormatFlags.VerticalCenter | TextFormatFlags.WordEllipsis | TextFormatFlags.GlyphOverhangPadding;
             TextRenderer.DrawText(e.Graphics, e.SubItem.Text ?? "", _driverList.Font, bounds,
                 selected ? ListSelectedText : ListText, flags);
+
+            SupeyListViewHelpers.DrawCellGridLines(e.Graphics, e.Bounds, _driverList);
         }
     }
 }

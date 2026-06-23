@@ -533,7 +533,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 SupeyListViewHelpers.DrawModernCheckbox(e.Graphics, e.Bounds,
                     e.Item != null && e.Item.Checked, selected);
-                SupeyListViewHelpers.DrawCellGridLines(e.Graphics, e.Bounds);
+                SupeyListViewHelpers.DrawCellGridLines(e.Graphics, e.Bounds, _driverList);
                 return;
             }
 
@@ -548,7 +548,7 @@ namespace Hiatme_Tool_Suite_v3
                 | TextFormatFlags.VerticalCenter | TextFormatFlags.WordEllipsis | TextFormatFlags.GlyphOverhangPadding;
             TextRenderer.DrawText(e.Graphics, e.SubItem.Text ?? "", _driverList.Font, bounds, fg, flags);
 
-            SupeyListViewHelpers.DrawCellGridLines(e.Graphics, e.Bounds);
+            SupeyListViewHelpers.DrawCellGridLines(e.Graphics, e.Bounds, _driverList);
         }
 
         private bool ItemIsAlreadyImported(ListViewItem item)

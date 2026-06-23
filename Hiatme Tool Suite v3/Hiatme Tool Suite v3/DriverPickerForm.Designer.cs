@@ -16,7 +16,7 @@ namespace Hiatme_Tool_Suite_v3
             this._headerLabel = new System.Windows.Forms.Label();
             this._tripsLabel = new System.Windows.Forms.Label();
             this._searchBox = new SupeyTextBox();
-            this._driverList = new System.Windows.Forms.ListView();
+            this._driverList = new SupeyListView();
             this._driverColName = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
             this._countLabel = new System.Windows.Forms.Label();
             this._okButton = new Hiatme_Tool_Suite_v3.DarkOnAccentMaterialButton();
@@ -147,7 +147,7 @@ namespace Hiatme_Tool_Suite_v3
         private System.Windows.Forms.Label _headerLabel;
         private System.Windows.Forms.Label _tripsLabel;
         private SupeyTextBox _searchBox;
-        private System.Windows.Forms.ListView _driverList;
+        private SupeyListView _driverList;
         private System.Windows.Forms.ColumnHeader _driverColName;
         private System.Windows.Forms.Label _countLabel;
         private Hiatme_Tool_Suite_v3.DarkOnAccentMaterialButton _okButton;

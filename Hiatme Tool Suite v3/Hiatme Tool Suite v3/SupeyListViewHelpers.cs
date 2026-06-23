@@ -40,7 +40,42 @@ namespace Hiatme_Tool_Suite_v3
                 "DoubleBuffered",
                 BindingFlags.Instance | BindingFlags.NonPublic);
 
-        private static readonly Pen _gridPen = new Pen(SupeyTheme.ListGrid, 1f);
+        private static Color BlendColors(Color from, Color to, double amountTo)
+        {
+            amountTo = Math.Max(0d, Math.Min(1d, amountTo));
+            double amountFrom = 1d - amountTo;
+            return Color.FromArgb(
+                (int)((from.R * amountFrom) + (to.R * amountTo)),
+                (int)((from.G * amountFrom) + (to.G * amountTo)),
+                (int)((from.B * amountFrom) + (to.B * amountTo)));
+        }
+
+        /// <summary>Grid line color for owner-drawn Supey ListViews (blended to match the billing list style).</summary>
+        public static Color ListGridLineColor => BlendColors(SupeyTheme.ListBody, SupeyTheme.ListGrid, 0.36d);
+
+        /// <summary>
+        /// Merged/group-bar rows paint in <c>DrawItem</c> across all columns — skip per-cell grids
+        /// so vertical dividers do not cut through the bar.
+        /// </summary>
+        public static bool ShouldSkipCellGrid(ListViewItem item)
+        {
+            if (item?.Tag == null)
+                return false;
+
+            switch (item.Tag)
+            {
+                case SuggestPreviewRowTag tag when tag.IsGroupBar || tag.IsGap:
+                    return true;
+                case FsPreviewGapTag _:
+                    return true;
+                case FsPreviewNoteTag note when note.Group != null:
+                    return true;
+                case FsPreviewSectionHeaderTag _:
+                    return true;
+                default:
+                    return item.Tag.GetType().Name == "SupeyPreviewGroupHeaderTag";
+            }
+        }
 
         /// <summary>
         /// Turn on double-buffered painting for an owner-drawn ListView. Safe to call before
@@ -319,7 +354,8 @@ namespace Hiatme_Tool_Suite_v3
                     }
                 }
 
-                g.DrawLine(_gridPen, mergedBounds.Left, mergedBounds.Bottom - 1, mergedBounds.Right - 1, mergedBounds.Bottom - 1);
+                using (var pen = new Pen(ListGridLineColor, 1f))
+                    g.DrawLine(pen, mergedBounds.Left, mergedBounds.Bottom - 1, mergedBounds.Right - 1, mergedBounds.Bottom - 1);
             }
             finally
             {
@@ -342,15 +378,75 @@ namespace Hiatme_Tool_Suite_v3
                 e.Graphics.FillRectangle(brush, bounds);
         }
 
+        /// <summary>True when <paramref name="listView"/> should paint themed grid lines.</summary>
+        public static bool ShowsGridLines(ListView listView)
+            => listView is SupeyListView slv ? slv.GridLines : listView?.GridLines == true;
+
         /// <summary>
         /// Paints a 1px right + bottom hairline on a sub-item cell to emulate
         /// <c>GridLines = true</c> in owner-draw mode. Single source of truth so
         /// every Supey-styled ListView uses the same grid color / weight.
         /// </summary>
-        public static void DrawCellGridLines(Graphics g, Rectangle bounds)
+        public static void DrawCellGridLines(Graphics g, Rectangle bounds, ListView listView = null)
         {
-            g.DrawLine(_gridPen, bounds.Right - 1, bounds.Top, bounds.Right - 1, bounds.Bottom - 1);
-            g.DrawLine(_gridPen, bounds.Left, bounds.Bottom - 1, bounds.Right - 1, bounds.Bottom - 1);
+            if (listView is SupeyListView slv && !slv.GridLines)
+                return;
+            if (g == null || bounds.Width <= 0 || bounds.Height <= 0)
+                return;
+
+            using (var pen = new Pen(ListGridLineColor, 1f))
+            {
+                g.DrawLine(pen, bounds.Right - 1, bounds.Top, bounds.Right - 1, bounds.Bottom - 1);
+                g.DrawLine(pen, bounds.Left, bounds.Bottom - 1, bounds.Right - 1, bounds.Bottom - 1);
+            }
+        }
+
+        /// <summary>
+        /// Extends column + row grid lines through the empty client area below the last item,
+        /// matching the billing list workbook look.
+        /// </summary>
+        public static void PaintEmptyDetailsGrid(ListView listView, Graphics g)
+        {
+            if (listView is SupeyListView slv && !slv.GridLines)
+                return;
+            if (g == null || listView == null || listView.IsDisposed || listView.View != View.Details
+                || listView.Columns.Count == 0)
+                return;
+
+            int headerH = listView.Items.Count > 0
+                ? Math.Max(0, listView.Items[0].Bounds.Top)
+                : Math.Max(20, TextRenderer.MeasureText("Status", ListViewOwnerDrawFonts.Header).Height + 8);
+            if (headerH <= 0)
+                headerH = Math.Max(20, TextRenderer.MeasureText("Status", ListViewOwnerDrawFonts.Header).Height + 8);
+
+            int rowH = listView.Items.Count > 0
+                ? Math.Max(16, listView.Items[0].Bounds.Height)
+                : Math.Max(18, TextRenderer.MeasureText("Ag", listView.Font ?? ListViewOwnerDrawFonts.Cell).Height + 5);
+
+            int contentW = 0;
+            foreach (ColumnHeader col in listView.Columns)
+                contentW += col.Width;
+            contentW = Math.Max(contentW, listView.ClientSize.Width);
+
+            int startY = headerH;
+            if (listView.Items.Count > 0)
+            {
+                var last = listView.Items[listView.Items.Count - 1];
+                startY = Math.Max(headerH, last.Bounds.Bottom);
+            }
+
+            using (var pen = new Pen(ListGridLineColor, 1f))
+            {
+                int x = 0;
+                foreach (ColumnHeader col in listView.Columns)
+                {
+                    x += col.Width;
+                    g.DrawLine(pen, x - 1, startY, x - 1, listView.ClientSize.Height - 1);
+                }
+
+                for (int y = startY + rowH - 1; y < listView.ClientSize.Height; y += rowH)
+                    g.DrawLine(pen, 0, y, contentW - 1, y);
+            }
         }
 
         /// <summary>

@@ -512,7 +512,7 @@ namespace Hiatme_Tool_Suite_v3
                 TextFormatFlags.Left | TextFormatFlags.VerticalCenter
                 | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine);
 
-            SupeyListViewHelpers.DrawCellGridLines(g, cellBounds);
+            SupeyListViewHelpers.DrawCellGridLines(g, cellBounds, _fsTripsLv);
         }
     }
 }

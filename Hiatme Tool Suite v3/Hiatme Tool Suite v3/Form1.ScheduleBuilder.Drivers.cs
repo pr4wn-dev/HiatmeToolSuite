@@ -768,7 +768,7 @@ namespace Hiatme_Tool_Suite_v3
                 TextFormatFlags.Left | TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter
                     | TextFormatFlags.WordEllipsis | TextFormatFlags.GlyphOverhangPadding);
 
-            SupeyListViewHelpers.DrawCellGridLines(e.Graphics, e.Bounds);
+            SupeyListViewHelpers.DrawCellGridLines(e.Graphics, e.Bounds, _fsDriversLv);
         }
     }
 }

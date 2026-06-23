@@ -1026,7 +1026,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 var faint = Color.FromArgb(120, SupeyTheme.ListBody);
                 SupeyListViewHelpers.DrawSubItemCellBackground(e, faint);
-                SupeyListViewHelpers.DrawCellGridLines(e.Graphics, e.Bounds);
+                SupeyListViewHelpers.DrawCellGridLines(e.Graphics, e.Bounds, _fsTripsLv);
                 return;
             }
 
@@ -1136,7 +1136,7 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-            SupeyListViewHelpers.DrawCellGridLines(e.Graphics, cellBounds);
+            SupeyListViewHelpers.DrawCellGridLines(e.Graphics, cellBounds, _fsTripsLv);
 
         }
 

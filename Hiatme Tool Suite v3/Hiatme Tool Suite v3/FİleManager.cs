@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Net.Sockets;
@@ -17,6 +18,7 @@ namespace Hiatme_Tool_Suite_v3
             InitializeComponent();
             SupeyListViewHelpers.EnableDoubleBufferRecursively(this);
             SupeyDarkScrollBars.Apply(this);
+            ThemeFileLists();
             soketimiz = s;
             ID = aydi;
             dizin_yukari.ImageIndex = 13;
@@ -465,6 +467,68 @@ namespace Hiatme_Tool_Suite_v3
                 Form1.CommandSend("GIZKAPA", "[VERI][0x09]", soketimiz);
             }
             catch (Exception) { }
+        }
+
+        // --- Owner-draw theming so these SupeyListViews get dark chrome + gridlines like billinglistview ---
+
+        private void ThemeFileLists()
+        {
+            this.BackColor = SupeyTheme.SurfaceBase;
+            if (tabPage1 != null) tabPage1.BackColor = SupeyTheme.SurfaceBase;
+            if (tabPage2 != null) tabPage2.BackColor = SupeyTheme.SurfaceBase;
+            if (textBox1 != null) { textBox1.BackColor = SupeyTheme.SurfaceElevated; textBox1.ForeColor = SupeyTheme.TextPrimary; }
+            if (textBox2 != null) { textBox2.BackColor = SupeyTheme.SurfaceElevated; textBox2.ForeColor = SupeyTheme.TextPrimary; }
+
+            foreach (var lv in new[] { listView1, listView2 })
+            {
+                if (lv == null) continue;
+                lv.BackColor = SupeyTheme.ListBody;
+                lv.ForeColor = SupeyTheme.ListText;
+                lv.Font = ListViewOwnerDrawFonts.Cell;
+                lv.BorderStyle = BorderStyle.None;
+                lv.HeaderStyle = ColumnHeaderStyle.Clickable;
+                lv.DrawColumnHeader += FileList_DrawColumnHeader;
+                lv.DrawItem += FileList_DrawItem;
+                lv.DrawSubItem += FileList_DrawSubItem;
+            }
+        }
+
+        private void FileList_DrawColumnHeader(object sender, DrawListViewColumnHeaderEventArgs e)
+        {
+            SupeyListViewHelpers.DrawColumnHeader(e);
+        }
+
+        private void FileList_DrawItem(object sender, DrawListViewItemEventArgs e)
+        {
+            SupeyListViewHelpers.SuppressDefaultDrawItem(e);
+        }
+
+        private void FileList_DrawSubItem(object sender, DrawListViewSubItemEventArgs e)
+        {
+            var lv = sender as ListView;
+            bool selected = e.Item != null && e.Item.Selected;
+            Color bg = selected ? SupeyTheme.ListSelected : SupeyTheme.ListBody;
+            SupeyListViewHelpers.DrawSubItemCellBackground(e, bg);
+
+            // Column 0 may have a file-type icon from SmallImageList; draw it ourselves under owner-draw.
+            int textLeft = e.Bounds.Left + 6;
+            if (e.ColumnIndex == 0 && lv?.SmallImageList != null && e.Item.ImageIndex >= 0 && e.Item.ImageIndex < lv.SmallImageList.Images.Count)
+            {
+                var img = lv.SmallImageList.Images[e.Item.ImageIndex];
+                const int iconSize = 16;
+                int iconY = e.Bounds.Top + (e.Bounds.Height - iconSize) / 2;
+                e.Graphics.DrawImage(img, e.Bounds.Left + 4, iconY, iconSize, iconSize);
+                textLeft = e.Bounds.Left + 4 + iconSize + 4;
+            }
+
+            var textBounds = new Rectangle(textLeft, e.Bounds.Top, Math.Max(0, e.Bounds.Right - textLeft - 6), e.Bounds.Height);
+            Color fg = selected ? SupeyTheme.ListSelectedText : SupeyTheme.ListText;
+            TextRenderer.DrawText(e.Graphics, e.SubItem?.Text ?? "",
+                lv?.Font ?? ListViewOwnerDrawFonts.Cell, textBounds, fg,
+                TextFormatFlags.Left | TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter
+                | TextFormatFlags.WordEllipsis | TextFormatFlags.GlyphOverhangPadding);
+
+            SupeyListViewHelpers.DrawCellGridLines(e.Graphics, e.Bounds, lv);
         }
     }
 }
