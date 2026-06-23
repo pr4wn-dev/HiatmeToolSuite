@@ -57,3 +57,7 @@ scripts/__pycache__/
 *.pdb
 *.exe
 Thumbs.db
+
+# Local editor / tooling (empty dirs Cursor shows as untracked)
+.cursor/
+.tools/
