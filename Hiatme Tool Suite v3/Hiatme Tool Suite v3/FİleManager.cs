@@ -523,7 +523,8 @@ namespace Hiatme_Tool_Suite_v3
 
             var textBounds = new Rectangle(textLeft, e.Bounds.Top, Math.Max(0, e.Bounds.Right - textLeft - 6), e.Bounds.Height);
             Color fg = selected ? SupeyTheme.ListSelectedText : SupeyTheme.ListText;
-            TextRenderer.DrawText(e.Graphics, e.SubItem?.Text ?? "",
+            TextRenderer.DrawText(e.Graphics,
+                SupeyListViewHelpers.GetCellDisplayText(lv, e.ColumnIndex, e.SubItem?.Text ?? ""),
                 lv?.Font ?? ListViewOwnerDrawFonts.Cell, textBounds, fg,
                 TextFormatFlags.Left | TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter
                 | TextFormatFlags.WordEllipsis | TextFormatFlags.GlyphOverhangPadding);

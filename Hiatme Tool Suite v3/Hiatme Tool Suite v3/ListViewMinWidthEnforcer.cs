@@ -273,11 +273,18 @@ namespace Hiatme_Tool_Suite_v3
 
         private static string GetCellText(ListViewItem it, int columnIndex)
         {
+            var lv = it?.ListView;
+            string raw;
             if (columnIndex == 0)
-                return it.Text ?? "";
-            if (columnIndex < it.SubItems.Count)
-                return it.SubItems[columnIndex].Text ?? "";
-            return "";
+                raw = it.Text ?? "";
+            else if (columnIndex < it.SubItems.Count)
+                raw = it.SubItems[columnIndex].Text ?? "";
+            else
+                raw = "";
+
+            return lv != null
+                ? WellRydeDisplayText.FormatListCell(lv, columnIndex, raw)
+                : WellRydeDisplayText.Format(raw);
         }
 
         private void ScheduleRecompute()

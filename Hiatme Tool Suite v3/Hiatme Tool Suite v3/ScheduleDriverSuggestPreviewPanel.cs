@@ -114,7 +114,7 @@ namespace Hiatme_Tool_Suite_v3
             var textBounds = new Rectangle(e.Bounds.Left + 4, e.Bounds.Top, e.Bounds.Width - 8, e.Bounds.Height);
             TextRenderer.DrawText(
                 e.Graphics,
-                e.SubItem?.Text ?? "",
+                SupeyListViewHelpers.GetCellDisplayText(e.Item?.ListView, e.ColumnIndex, e.SubItem?.Text ?? ""),
                 e.Item?.ListView?.Font ?? SystemFonts.DefaultFont,
                 textBounds,
                 fg,

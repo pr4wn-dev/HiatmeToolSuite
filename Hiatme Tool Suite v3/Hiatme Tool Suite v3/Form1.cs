@@ -7366,38 +7366,8 @@ namespace Hiatme_Tool_Suite_v3
 
         /// <summary>
         /// Fills <see cref="billinglistview"/> from <see cref="WRBillingTool.WRTripList"/> / <see cref="WRBillingTool.WRCalculations"/>.
+        /// Cell text stays raw WellRyde values; <see cref="WellRydeDisplayText"/> formats at paint time only.
         /// </summary>
-        private static string DisplayWellRydeText(string value)
-        {
-            if (string.IsNullOrWhiteSpace(value))
-                return value ?? string.Empty;
-
-            string trimmed = value.Trim();
-            bool hasLetter = trimmed.Any(char.IsLetter);
-            bool hasLower = trimmed.Any(char.IsLower);
-            if (!hasLetter || hasLower)
-                return value;
-
-            string display = CultureInfo.CurrentCulture.TextInfo.ToTitleCase(trimmed.ToLower(CultureInfo.CurrentCulture));
-            string[] tokens = display.Split(' ');
-            for (int i = 0; i < tokens.Length; i++)
-            {
-                string token = tokens[i].Trim(',', '.', ';', ':', '#');
-                if (string.Equals(token, "Ne", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(token, "Nw", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(token, "Se", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(token, "Sw", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(token, "Us", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(token, "Po", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(token, "Llc", StringComparison.OrdinalIgnoreCase))
-                {
-                    tokens[i] = tokens[i].Replace(token, token.ToUpperInvariant());
-                }
-            }
-
-            return string.Join(" ", tokens);
-        }
-
         private void BindBillingListViewFromWrTool(decimal totalbilled, bool billinprogress, bool billexrta)
         {
             if (wrBillingTool?.WRTripList == null || wrBillingTool.WRCalculations == null)
@@ -7421,17 +7391,17 @@ namespace Hiatme_Tool_Suite_v3
 
                     ListViewItem item = new ListViewItem();
                     item.Tag = trip;
-                    item.Text = DisplayWellRydeText(trip.Status);
+                    item.Text = trip.Status;
                     item.SubItems.Add(trip.TripNumber);
-                    item.SubItems.Add(DisplayWellRydeText(alertseries));
-                    item.SubItems.Add(DisplayWellRydeText(trip.ClientName));
-                    item.SubItems.Add(DisplayWellRydeText(trip.DriverName));
+                    item.SubItems.Add(alertseries);
+                    item.SubItems.Add(trip.ClientName);
+                    item.SubItems.Add(trip.DriverName);
                     item.SubItems.Add(FormatTimeOnly(trip.PUTime));
                     item.SubItems.Add(FormatTimeOnly(trip.DOTime));
-                    item.SubItems.Add(DisplayWellRydeText(trip.PUStreet));
-                    item.SubItems.Add(DisplayWellRydeText(trip.PUCity));
-                    item.SubItems.Add(DisplayWellRydeText(trip.DOStreet));
-                    item.SubItems.Add(DisplayWellRydeText(trip.DOCITY));
+                    item.SubItems.Add(trip.PUStreet);
+                    item.SubItems.Add(trip.PUCity);
+                    item.SubItems.Add(trip.DOStreet);
+                    item.SubItems.Add(trip.DOCITY);
                     item.SubItems.Add(trip.Miles);
                     item.SubItems.Add("$" + trip.Price);
                     item.SubItems.Add(trip.References);
@@ -9109,7 +9079,9 @@ namespace Hiatme_Tool_Suite_v3
             Color textColor = themed
                 ? (selected ? SupeyTheme.ListSelectedText : SupeyTheme.ListText)
                 : Color.White;
-            TextRenderer.DrawText(e.Graphics, e.SubItem.Text, ListViewOwnerDrawFonts.Cell, bounds, textColor,
+            TextRenderer.DrawText(e.Graphics,
+                SupeyListViewHelpers.GetCellDisplayText(listView, e.ColumnIndex, e.SubItem.Text),
+                ListViewOwnerDrawFonts.Cell, bounds, textColor,
                 align | TextFormatFlags.SingleLine | TextFormatFlags.GlyphOverhangPadding | TextFormatFlags.VerticalCenter | TextFormatFlags.WordEllipsis);
         }
         private void ListView_SizeChanged(object sender, EventArgs e)

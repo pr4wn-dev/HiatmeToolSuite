@@ -1128,7 +1128,9 @@ namespace Hiatme_Tool_Suite_v3
 
                 : _fsTripsLv.Font;
 
-            TextRenderer.DrawText(e.Graphics, e.SubItem?.Text ?? "", drawFont, bounds, textColor,
+            TextRenderer.DrawText(e.Graphics,
+                SupeyListViewHelpers.GetCellDisplayText(_fsTripsLv, e.ColumnIndex, e.SubItem?.Text ?? ""),
+                drawFont, bounds, textColor,
 
                 TextFormatFlags.Left | TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter
 

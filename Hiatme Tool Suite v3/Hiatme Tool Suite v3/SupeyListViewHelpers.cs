@@ -266,6 +266,10 @@ namespace Hiatme_Tool_Suite_v3
             EnableDoubleBufferRecursively(e.Control);
         }
 
+        /// <summary>Display text for an owner-drawn ListView cell (raw SubItem text unchanged).</summary>
+        public static string GetCellDisplayText(ListView listView, int columnIndex, string raw)
+            => WellRydeDisplayText.FormatListCell(listView, columnIndex, raw);
+
         /// <summary>Shared dark column header chrome for Supey owner-draw listviews.</summary>
         public static void DrawColumnHeader(DrawListViewColumnHeaderEventArgs e)
         {

@@ -324,6 +324,7 @@
       <SubType>Component</SubType>
     </Compile>
     <Compile Include="ScheduleDateHelper.cs" />
+    <Compile Include="WellRydeDisplayText.cs" />
     <Compile Include="WellRydeFilterDataParser.cs" />
     <Compile Include="WellRydeTripPriceCalculator.cs" />
     <Compile Include="WellRydePortalSession.cs" />

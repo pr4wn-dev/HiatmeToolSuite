@@ -761,7 +761,7 @@ namespace Hiatme_Tool_Suite_v3
             var bounds = new Rectangle(e.Bounds.Left + 6, e.Bounds.Top, e.Bounds.Width - 6, e.Bounds.Height);
             TextRenderer.DrawText(
                 e.Graphics,
-                e.SubItem?.Text ?? "",
+                SupeyListViewHelpers.GetCellDisplayText(_fsDriversLv, e.ColumnIndex, e.SubItem?.Text ?? ""),
                 _fsDriversLv?.Font ?? ListViewOwnerDrawFonts.Cell,
                 bounds,
                 sel ? SupeyTheme.ListSelectedText : SupeyTheme.ListText,

@@ -3365,7 +3365,9 @@ namespace Hiatme_Tool_Suite_v3
             Font drawFont = routeHeader && e.ColumnIndex == 2 && _supeyPreviewRouteFont != null
                 ? _supeyPreviewRouteFont
                 : _supeyPreviewLv.Font;
-            TextRenderer.DrawText(e.Graphics, e.SubItem.Text ?? "", drawFont, bounds, textColor,
+            TextRenderer.DrawText(e.Graphics,
+                SupeyListViewHelpers.GetCellDisplayText(_supeyPreviewLv, e.ColumnIndex, e.SubItem.Text ?? ""),
+                drawFont, bounds, textColor,
                 TextFormatFlags.Left | TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter | TextFormatFlags.WordEllipsis | TextFormatFlags.GlyphOverhangPadding);
 
             SupeyListViewHelpers.DrawCellGridLines(e.Graphics, e.Bounds, _supeyPreviewLv);
@@ -3397,7 +3399,9 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             var bounds = new Rectangle(e.Bounds.Left + 6, e.Bounds.Top, e.Bounds.Width - 6, e.Bounds.Height);
-            TextRenderer.DrawText(e.Graphics, e.SubItem.Text ?? "", _supeyDriversLv.Font, bounds, sel ? SupeyLvSelText : SupeyLvText,
+            TextRenderer.DrawText(e.Graphics,
+                SupeyListViewHelpers.GetCellDisplayText(_supeyDriversLv, e.ColumnIndex, e.SubItem.Text ?? ""),
+                _supeyDriversLv.Font, bounds, sel ? SupeyLvSelText : SupeyLvText,
                 TextFormatFlags.Left | TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter | TextFormatFlags.WordEllipsis | TextFormatFlags.GlyphOverhangPadding);
 
             SupeyListViewHelpers.DrawCellGridLines(e.Graphics, e.Bounds, _supeyDriversLv);

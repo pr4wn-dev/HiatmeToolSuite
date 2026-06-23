@@ -546,7 +546,9 @@ namespace Hiatme_Tool_Suite_v3
             var bounds = new Rectangle(e.Bounds.Left + 8, e.Bounds.Top, e.Bounds.Width - 12, e.Bounds.Height);
             const TextFormatFlags flags = TextFormatFlags.Left | TextFormatFlags.SingleLine
                 | TextFormatFlags.VerticalCenter | TextFormatFlags.WordEllipsis | TextFormatFlags.GlyphOverhangPadding;
-            TextRenderer.DrawText(e.Graphics, e.SubItem.Text ?? "", _driverList.Font, bounds, fg, flags);
+            TextRenderer.DrawText(e.Graphics,
+                SupeyListViewHelpers.GetCellDisplayText(_driverList, e.ColumnIndex, e.SubItem.Text ?? ""),
+                _driverList.Font, bounds, fg, flags);
 
             SupeyListViewHelpers.DrawCellGridLines(e.Graphics, e.Bounds, _driverList);
         }
