@@ -245,22 +245,27 @@ namespace Hiatme_Tool_Suite_v3
             var ai = HiatmeAiSettings.Load();
             if (ai.UseServerGeo)
             {
-                if (!await HiatmeGeoSettings.RefreshConnectivityAsync(ai, token).ConfigureAwait(false))
-                    return RoutePolylineResult.Fail(HiatmeGeoSettings.ServerRequiredMessage);
-                try
+                if (await HiatmeGeoSettings.RefreshConnectivityAsync(ai, token).ConfigureAwait(false))
                 {
-                    var osrm = await HiatmeGeoClient.FetchOsrmJsonAsync(
-                        ai, waypoints, geometry: true, token).ConfigureAwait(false);
-                    if (osrm != null)
+                    try
                     {
-                        var parsed = TryParseOsrmPolyline(osrm, waypoints);
-                        if (parsed != null && parsed.Ok && !parsed.IsStraightLineFallback)
-                            return parsed;
+                        var osrm = await HiatmeGeoClient.FetchOsrmJsonAsync(
+                            ai, waypoints, geometry: true, token).ConfigureAwait(false);
+                        if (osrm != null)
+                        {
+                            var parsed = TryParseOsrmPolyline(osrm, waypoints);
+                            if (parsed != null && parsed.Ok && !parsed.IsStraightLineFallback)
+                                return parsed;
+                        }
                     }
+                    catch { /* fall through to direct OSRM */ }
                 }
-                catch { /* fall through */ }
-                return RoutePolylineResult.Fail(
-                    "Office panel route failed — check panel URL, token, and OSRM on the server PC.");
+
+                var direct = await OsrmRouteResolver.RouteBestEffortAsync(waypoints, token).ConfigureAwait(false);
+                if (direct.Ok && !direct.IsStraightLineFallback)
+                    return direct;
+
+                return RoutePolylineResult.Fail(HiatmeGeoSettings.ServerRequiredMessage);
             }
 
             return await OsrmRouteResolver.RouteBestEffortAsync(waypoints, token).ConfigureAwait(false);

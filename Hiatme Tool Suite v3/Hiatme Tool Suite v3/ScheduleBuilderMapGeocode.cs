@@ -235,14 +235,11 @@ namespace Hiatme_Tool_Suite_v3
                     if (serverPt.HasValue)
                         return (serverPt, EndpointResolveSource.Server);
 
-                    // Panel had no match (or transient issue) — use local fallback path when allowed.
-                    if (!HiatmeGeoSettings.ServerOnly)
-                    {
-                        var localPt = await AddressGeocoder.ResolveTripEndpointAsync(street, city, token)
-                            .ConfigureAwait(false);
-                        if (localPt.HasValue)
-                            return (localPt, EndpointResolveSource.LocalFallback);
-                    }
+                    var localPt = await AddressGeocoder.ResolveTripEndpointAsync(street, city, token)
+                        .ConfigureAwait(false);
+                    if (localPt.HasValue)
+                        return (localPt, EndpointResolveSource.LocalFallback);
+
                     return (null, EndpointResolveSource.None);
                 }
 

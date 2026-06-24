@@ -58,26 +58,49 @@ namespace Hiatme_Tool_Suite_v3
 
             if (aiSettings.UseServerGeo)
             {
-                HiatmeGeoSettings.Refresh();
+                await HiatmeGeoSettings.RefreshConnectivityAsync(aiSettings, cancellationToken).ConfigureAwait(false);
+                aiSettings = HiatmeAiSettings.Load();
+
                 if (HiatmeGeoSettings.ServerOnly && !HiatmeGeoSettings.UseServer)
                 {
-                    geoOk = false;
-                    geoDetail = HiatmeGeoSettings.ServerRequiredMessage;
-                    routingOk = false;
-                    routingDetail = geoDetail;
+                    var offline = await TryDirectPreviewRoutingAsync(cancellationToken).ConfigureAwait(false);
+                    if (offline.RoutingOk)
+                    {
+                        geoOk = offline.GeoOk;
+                        geoDetail = offline.GeoDetail;
+                        routingOk = true;
+                        routingDetail = offline.RoutingDetail;
+                    }
+                    else
+                    {
+                        geoOk = false;
+                        geoDetail = HiatmeGeoSettings.ServerRequiredMessage;
+                        routingOk = false;
+                        routingDetail = geoDetail;
+                    }
                 }
-                else if (!await HiatmeGeoSettings.RefreshConnectivityAsync(aiSettings, cancellationToken)
-                    .ConfigureAwait(false))
+                else if (!HiatmeGeoSettings.UseServer)
                 {
-                    geoOk = false;
-                    geoDetail = HiatmeGeoSettings.ServerRequiredMessage;
-                    routingOk = false;
-                    routingDetail = geoDetail;
+                    var offline = await TryDirectPreviewRoutingAsync(cancellationToken).ConfigureAwait(false);
+                    if (offline.RoutingOk)
+                    {
+                        geoOk = offline.GeoOk;
+                        geoDetail = offline.GeoDetail;
+                        routingOk = true;
+                        routingDetail = offline.RoutingDetail;
+                    }
+                    else
+                    {
+                        geoOk = false;
+                        geoDetail = HiatmeGeoSettings.ServerRequiredMessage;
+                        routingOk = false;
+                        routingDetail = geoDetail;
+                    }
                 }
                 else
                 {
                     geoOk = true;
-                    geoDetail = "Office AI panel OK";
+                    geoDetail = "Office AI panel OK (" + (aiSettings.BaseUrl ?? "") + ")";
                     var server = await HiatmeGeoClient.GetStatusAsync(aiSettings, cancellationToken)
                         .ConfigureAwait(false);
                     if (server != null && server.OsrmLocalOk)
@@ -85,10 +108,57 @@ namespace Hiatme_Tool_Suite_v3
                         routingOk = true;
                         routingDetail = "Server OSRM OK (" + (server.OsrmActiveEndpoint ?? "local") + ")";
                     }
+                    else if (server != null)
+                    {
+                        try
+                        {
+                            await HiatmeAiClient.EnsureOsrmAsync(aiSettings, cancellationToken)
+                                .ConfigureAwait(false);
+                            server = await HiatmeGeoClient.GetStatusAsync(aiSettings, cancellationToken)
+                                .ConfigureAwait(false);
+                        }
+                        catch { /* best effort */ }
+
+                        if (server != null && server.OsrmLocalOk)
+                        {
+                            routingOk = true;
+                            routingDetail = "Server OSRM OK (" + (server.OsrmActiveEndpoint ?? "local") + ")";
+                        }
+                        else
+                        {
+                            var fallback = await TryDirectPreviewRoutingAsync(cancellationToken).ConfigureAwait(false);
+                            if (fallback.RoutingOk)
+                            {
+                                routingOk = true;
+                                routingDetail = fallback.RoutingDetail;
+                            }
+                            else
+                            {
+                                routingOk = false;
+                                routingDetail =
+                                    "Panel reachable but Maine OSRM is not running on the server.\r\n\r\n"
+                                    + "On the server PC: Docker Desktop on, then "
+                                    + "tools\\osrm\\scripts\\start-osrm.ps1 and scripts\\restart-panel.ps1.";
+                            }
+                        }
+                    }
                     else
                     {
-                        routingOk = false;
-                        routingDetail = "Maine OSRM on the office AI server is not available.";
+                        var fallback = await TryDirectPreviewRoutingAsync(cancellationToken).ConfigureAwait(false);
+                        if (fallback.RoutingOk)
+                        {
+                            geoOk = fallback.GeoOk;
+                            geoDetail = fallback.GeoDetail;
+                            routingOk = true;
+                            routingDetail = fallback.RoutingDetail;
+                        }
+                        else
+                        {
+                            geoOk = false;
+                            geoDetail = HiatmeGeoSettings.ServerRequiredMessage;
+                            routingOk = false;
+                            routingDetail = geoDetail;
+                        }
                     }
                 }
             }
@@ -139,6 +209,29 @@ namespace Hiatme_Tool_Suite_v3
                 + "On the server PC: Docker running, then tools\\osrm\\scripts\\start-osrm.ps1 "
                 + "and scripts\\restart-panel.ps1 (AIagent repo).\r\n\r\n"
                 + "Panel: " + (HiatmeGeoSettings.ActivePanelUrl ?? aiSettings.BaseUrl ?? "(not set)"));
+        }
+
+        private static readonly GeoPoint PreviewRouteProbeA = new GeoPoint(44.80, -68.77);
+        private static readonly GeoPoint PreviewRouteProbeB = new GeoPoint(44.91, -68.65);
+
+        private static async Task<(bool RoutingOk, string RoutingDetail, bool GeoOk, string GeoDetail)>
+            TryDirectPreviewRoutingAsync(CancellationToken cancellationToken)
+        {
+            try
+            {
+                var route = await OsrmRouteResolver.RouteBestEffortAsync(
+                    new[] { PreviewRouteProbeA, PreviewRouteProbeB }, cancellationToken).ConfigureAwait(false);
+                if (route.Ok && !route.IsStraightLineFallback)
+                {
+                    return (true,
+                        "Map routing OK (direct OSRM — office server not used for this preview).",
+                        true,
+                        "Geocode via cache / local lookup when server offline");
+                }
+            }
+            catch { }
+
+            return (false, "", false, "");
         }
     }
 }

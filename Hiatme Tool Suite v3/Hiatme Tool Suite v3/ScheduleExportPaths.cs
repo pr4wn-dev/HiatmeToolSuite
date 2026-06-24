@@ -3,21 +3,45 @@ using System.IO;
 
 namespace Hiatme_Tool_Suite_v3
 {
-    /// <summary>Desktop export layout: <c>Schedule for {year}\Schedule for {Month} {day} {year}.xlsx</c>.</summary>
+    /// <summary>
+    /// Desktop export layout:
+    /// <c>Desktop\SCHEDULES FOR {year}\Schedule for {Month} {day} {year}.xlsx</c>.
+    /// </summary>
     internal static class ScheduleExportPaths
     {
-        public static string YearFolderName(int year) => "Schedule for " + year;
+        public static string YearFolderName(int year) => "SCHEDULES FOR " + year;
+
+        private static string LegacyYearFolderName(int year) => "Schedule for " + year;
 
         public static string WorkbookFileName(string monthName, int day, int year) =>
             "Schedule for " + monthName + " " + day + " " + year + ".xlsx";
 
-        public static string EnsureDesktopYearFolder(int year)
+        /// <summary>Current user's Desktop (OneDrive redirect when configured).</summary>
+        public static string GetUserDesktopPath() =>
+            Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+
+        /// <summary>
+        /// Prefer <see cref="YearFolderName"/>; use legacy <c>Schedule for {year}</c> when that is
+        /// the folder that already exists on this machine.
+        /// </summary>
+        public static string ResolveDesktopYearFolder(int year, bool createIfMissing = false)
         {
-            string desktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
-            string dir = Path.Combine(desktop, YearFolderName(year));
-            Directory.CreateDirectory(dir);
-            return dir;
+            string desktop = GetUserDesktopPath();
+            string preferred = Path.Combine(desktop, YearFolderName(year));
+            if (Directory.Exists(preferred))
+                return preferred;
+
+            string legacy = Path.Combine(desktop, LegacyYearFolderName(year));
+            if (Directory.Exists(legacy))
+                return legacy;
+
+            if (createIfMissing)
+                Directory.CreateDirectory(preferred);
+            return preferred;
         }
+
+        public static string EnsureDesktopYearFolder(int year) =>
+            ResolveDesktopYearFolder(year, createIfMissing: true);
 
         public static void GetDefaultWorkbookSaveLocation(
             string monthName,

@@ -68,11 +68,19 @@ namespace Hiatme_Tool_Suite_v3
 
         private Panel _fsTabReorderSpacer;
 
+        private Panel _fsTabReorderDropIndicator;
+
         private Point _fsTabReorderGhostOffset;
 
         private int _fsTabReorderGhostAnchorScreenY;
 
         private int _fsTabReorderVisualGapIndex = -1;
+
+        private bool _fsTabReorderDragLayoutReady;
+
+        private bool _fsTabReorderGhostRaised;
+
+        private Point _fsTabReorderGhostLastLocation = new Point(int.MinValue, int.MinValue);
 
         private string _fsActiveDriverTab;
 
@@ -172,9 +180,9 @@ namespace Hiatme_Tool_Suite_v3
 
             {
 
-                if (tabPage6.Visible)
+                if (!tabPage6.Visible) return;
 
-                    EnsureFsSplitDistance();
+                EnsureFsSplitDistance();
 
             };
 
@@ -483,7 +491,7 @@ namespace Hiatme_Tool_Suite_v3
             _fsSaveBtn.Click += fsSaveBtn_Click;
 
             saveTip.SetToolTip(_fsSaveBtn,
-                "Save the workbook using the service date (no file dialog). Overwrites the loaded .xlsx, or saves to Desktop\\Schedule for {year}\\.");
+                "Save the workbook using the service date (no file dialog). Overwrites the loaded .xlsx, or saves to Desktop\\SCHEDULES FOR {year}\\.");
 
             saveTip.SetToolTip(_fsLoadBtn,
                 "Open a saved .xlsx workbook or driver .csv (Excel not required). Date is read from the file name or trip dates and sets the date picker.");
@@ -735,6 +743,8 @@ namespace Hiatme_Tool_Suite_v3
                 Padding = new Padding(0),
 
             };
+
+            EnableFsControlDoubleBuffer(_fsDriverTabFlow);
 
             _fsDriverTabStrip.Controls.Add(_fsDriverTabFlow);
 
@@ -1406,6 +1416,9 @@ namespace Hiatme_Tool_Suite_v3
             {
 
                 dlg.Title = "Load saved schedule";
+
+                int loadYear = fsbdatepicker?.Value.Year ?? DateTime.Now.Year;
+                dlg.InitialDirectory = ScheduleExportPaths.ResolveDesktopYearFolder(loadYear);
 
                 dlg.Filter =
 
@@ -2161,14 +2174,6 @@ namespace Hiatme_Tool_Suite_v3
                 await Task.Yield();
 
                 if (gen != _fsMapRefreshGen) return;
-
-                try
-                {
-                    await HiatmeGeoSettings.RefreshConnectivityAsync(HiatmeAiSettings.Load(), CancellationToken.None)
-                        .ConfigureAwait(true);
-                }
-                catch (OperationCanceledException) { }
-                catch { }
 
                 _fsMap.SetMapLoadingMessage("Checking routing…");
                 var (routingOk, routingDetail) = await ScheduleOsrmGate.ProbePreviewRoutingAsync(

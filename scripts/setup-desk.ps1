@@ -1,12 +1,14 @@
 # Configure and build Hiatme Tool Suite on a dispatch desk.
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File scripts\setup-desk.ps1 -OfficePanelUrl "http://192.168.1.23:8787"
+#   powershell -ExecutionPolicy Bypass -File scripts\setup-desk.ps1 -OfficePanelUrl "http://192.168.1.23:8787" -RemotePanelUrl "http://100.64.0.5:8787"
 param(
     [Parameter(Mandatory = $true)]
     [string]$OfficePanelUrl,
+    [string]$RemotePanelUrl = "",
     [string]$LocalPanelUrl = "http://127.0.0.1:8787",
     [ValidateSet("Debug", "Release")]
-    [string]$Configuration = "Debug",
+    [string]$Configuration = "Release",
     [switch]$SkipBuild
 )
 
@@ -56,7 +58,12 @@ if (-not (Test-Path $syncScript)) {
 }
 
 $env:HIATME_OFFICE_PANEL_URL = $OfficePanelUrl.TrimEnd('/')
-& powershell -ExecutionPolicy Bypass -File $syncScript -OfficePanelUrl $env:HIATME_OFFICE_PANEL_URL -LocalPanelUrl $LocalPanelUrl
+if ($RemotePanelUrl) { $env:HIATME_REMOTE_PANEL_URL = $RemotePanelUrl.TrimEnd('/') }
+& powershell -ExecutionPolicy Bypass -File $syncScript `
+    -OfficePanelUrl $env:HIATME_OFFICE_PANEL_URL `
+    -RemotePanelUrl $RemotePanelUrl `
+    -LocalPanelUrl $LocalPanelUrl `
+    -Configuration $Configuration
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 $exe = Join-Path $projectDir "bin\$Configuration\Hiatme Tool Suite v3.exe"

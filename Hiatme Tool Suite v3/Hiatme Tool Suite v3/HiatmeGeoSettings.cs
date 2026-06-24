@@ -39,12 +39,22 @@ namespace Hiatme_Tool_Suite_v3
 
         public static string ActivePanelUrl => _panelUrl ?? "";
 
-        public static string ServerRequiredMessage =>
-            "Office AI server is required for geocode and road miles.\r\n\r\n"
-            + "On the server PC: start Docker OSRM and the AI panel "
-            + "(scripts\\start-local-stack.ps1 in the AIagent repo).\r\n\r\n"
-            + "On this PC: connect on the office network so Tool Suite can reach "
-            + (string.IsNullOrWhiteSpace(_panelUrl) ? "the panel URL in hiatme_ai.defaults.json" : _panelUrl) + ".";
+        public static string ServerRequiredMessage
+        {
+            get
+            {
+                var detail = HiatmeAiSettings.LastConnectionDetail;
+                if (!string.IsNullOrWhiteSpace(detail))
+                    return detail;
+                return
+                    "Office AI server is required for geocode and road miles.\r\n\r\n"
+                    + "On the server PC: start Docker OSRM and the AI panel "
+                    + "(scripts\\start-local-stack.ps1 in the AIagent repo).\r\n\r\n"
+                    + "On this PC: desks on the same office Wi‑Fi/LAN auto-find the panel — no VPN.\r\n\r\n"
+                    + "Panel: "
+                    + (string.IsNullOrWhiteSpace(_panelUrl) ? "(not configured)" : _panelUrl);
+            }
+        }
 
         public static void Configure(HiatmeAiSettings settings)
         {
@@ -93,10 +103,9 @@ namespace Hiatme_Tool_Suite_v3
             _panelUrl = settings.BaseUrl?.Trim();
             _serverOnly = settings.UseServerGeo;
 
-            bool ok = await Task.Run(
-                () => HiatmeAiSettings.ProbePanelPublic(settings.BaseUrl, settings.ApiToken),
-                token).ConfigureAwait(false);
-
+            bool ok = await HiatmeAiSettings.RefreshPanelConnectionAsync(token).ConfigureAwait(false);
+            settings = HiatmeAiSettings.Load();
+            _panelUrl = settings.BaseUrl?.Trim();
             _panelReachable = ok;
             return ok;
         }

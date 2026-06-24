@@ -487,6 +487,7 @@
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="HiatmeAiSettings.cs" />
+    <Compile Include="HiatmePanelLanDiscovery.cs" />
     <Compile Include="HiatmeAiClient.cs" />
     <Compile Include="HiatmeSchedulePatch.cs" />
     <Compile Include="HiatmeScheduleContextBuilder.cs" />

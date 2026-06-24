@@ -7890,7 +7890,7 @@ namespace Hiatme_Tool_Suite_v3
             await SetLoadingGifLabel("Select a schedule file for templates");
             OpenFileDialog openFileDialog1 = new OpenFileDialog
             {
-                InitialDirectory = System.Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
+                InitialDirectory = ScheduleExportPaths.ResolveDesktopYearFolder(DateTime.Now.Year),
                 Title = "Choose a schedule workbook to turn into templates",
 
                 CheckFileExists = true,
@@ -8013,7 +8013,7 @@ namespace Hiatme_Tool_Suite_v3
 
                 OpenFileDialog openFileDialog1 = new OpenFileDialog
                 {
-                    InitialDirectory = @"C:\Users\rneal\OneDrive\Desktop",
+                    InitialDirectory = ScheduleExportPaths.ResolveDesktopYearFolder(aadatepicker.Value.Year),
                     Title = "Browse Schedule Files",
                     CheckFileExists = true,
                     CheckPathExists = true,

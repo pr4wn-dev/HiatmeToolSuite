@@ -2,13 +2,15 @@
 # Run after pull or when HIATME_API_TOKEN changes. Safe to re-run.
 param(
     [string]$OfficePanelUrl = $(if ($env:HIATME_OFFICE_PANEL_URL) { $env:HIATME_OFFICE_PANEL_URL } else { "http://192.168.1.23:8787" }),
+    [string]$RemotePanelUrl = $(if ($env:HIATME_REMOTE_PANEL_URL) { $env:HIATME_REMOTE_PANEL_URL } else { "" }),
     [string]$LocalPanelUrl = "http://127.0.0.1:8787",
+    [ValidateSet("Debug", "Release", "Both")]
+    [string]$Configuration = "Both",
     [switch]$SkipPersonal
 )
 
 $ErrorActionPreference = "Stop"
 $projectDir = Split-Path $PSScriptRoot -Parent
-$binDir = Join-Path $projectDir "bin\Debug"
 
 function Find-AiagentEnv {
     $repoRoot = (Get-Item $projectDir).Parent.Parent.FullName
@@ -40,7 +42,7 @@ function Test-Panel($url, $token) {
     try {
         $h = @{}
         if ($token) { $h["Authorization"] = "Bearer $token" }
-        $r = Invoke-WebRequest -Uri "$($url.TrimEnd('/'))/api/hiatme/geo/status" -Headers $h -TimeoutSec 3 -UseBasicParsing
+        $r = Invoke-WebRequest -Uri "$($url.TrimEnd('/'))/api/hiatme/geo/status" -Headers $h -TimeoutSec 6 -UseBasicParsing
         return $r.StatusCode -eq 200
     } catch { return $false }
 }
@@ -50,14 +52,22 @@ if (-not $token) {
     Write-Warning "HIATME_API_TOKEN not found in AIagent .env; ApiToken left empty."
 }
 
+$fallbacks = New-Object System.Collections.Generic.List[string]
+foreach ($u in @($RemotePanelUrl, $LocalPanelUrl)) {
+    if (-not $u) { $u = "" }
+    $u = $u.Trim().TrimEnd('/')
+    if ($u -and -not $fallbacks.Contains($u)) { [void]$fallbacks.Add($u) }
+}
+
+$probeUrls = @($OfficePanelUrl.TrimEnd('/')) + $fallbacks
 $resolved = $null
-foreach ($u in @($LocalPanelUrl, $OfficePanelUrl)) {
+foreach ($u in $probeUrls) {
     if (Test-Panel $u $token) { $resolved = $u; break }
 }
 
 $defaults = [ordered]@{
-    BaseUrl                        = $OfficePanelUrl
-    FallbackBaseUrls               = @($LocalPanelUrl)
+    BaseUrl                        = $OfficePanelUrl.TrimEnd('/')
+    FallbackBaseUrls               = @($fallbacks)
     ApiToken                       = $token
     UseServerGeo                   = $true
     UseServerSolve                 = $true
@@ -71,10 +81,14 @@ if ($resolved) {
 }
 
 $json = ($defaults | ConvertTo-Json -Depth 5)
-$targets = @(
-    (Join-Path $projectDir "hiatme_ai.defaults.json"),
-    (Join-Path $binDir "hiatme_ai.defaults.json")
-)
+$targets = @((Join-Path $projectDir "hiatme_ai.defaults.json"))
+if ($Configuration -eq "Debug" -or $Configuration -eq "Both") {
+    $targets += (Join-Path $projectDir "bin\Debug\hiatme_ai.defaults.json")
+}
+if ($Configuration -eq "Release" -or $Configuration -eq "Both") {
+    $targets += (Join-Path $projectDir "bin\Release\hiatme_ai.defaults.json")
+}
+
 foreach ($t in $targets) {
     $dir = Split-Path $t -Parent
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
@@ -83,24 +97,28 @@ foreach ($t in $targets) {
 }
 
 if (-not $SkipPersonal) {
-    $personalPath = Join-Path $binDir "hiatme_ai.json"
-    $personal = [ordered]@{
-        BaseUrl                        = $OfficePanelUrl
-        FallbackBaseUrls               = @($LocalPanelUrl)
-        ApiToken                       = $token
-        ClientId                       = ""
-        LastResolvedBaseUrl            = $(if ($resolved) { $resolved } else { $LocalPanelUrl })
-        RememberOnSave                 = $true
-        UseServerGeo                   = $true
-        UseServerSolve                 = $true
-        AllowLocalSolveFallback        = $false
-        UseWeekdayTemplates            = $true
-        FinishRemainingAfterTemplates  = $true
+    foreach ($cfg in @("Debug", "Release")) {
+        if ($Configuration -ne "Both" -and $Configuration -ne $cfg) { continue }
+        $binDir = Join-Path $projectDir "bin\$cfg"
+        if (-not (Test-Path $binDir)) { continue }
+        $personalPath = Join-Path $binDir "hiatme_ai.json"
+        $personal = [ordered]@{
+            BaseUrl                        = $OfficePanelUrl.TrimEnd('/')
+            FallbackBaseUrls               = @($fallbacks)
+            ApiToken                       = $token
+            ClientId                       = ""
+            LastResolvedBaseUrl            = $(if ($resolved) { $resolved } else { $OfficePanelUrl.TrimEnd('/') })
+            RememberOnSave                 = $true
+            UseServerGeo                   = $true
+            UseServerSolve                 = $true
+            AllowLocalSolveFallback        = $false
+            UseWeekdayTemplates            = $true
+            FinishRemainingAfterTemplates  = $true
+        }
+        Set-Content -Path $personalPath -Value ($personal | ConvertTo-Json -Depth 5) -Encoding UTF8
+        Write-Host "Wrote $personalPath"
     }
-    if (-not (Test-Path $binDir)) { New-Item -ItemType Directory -Path $binDir -Force | Out-Null }
-    Set-Content -Path $personalPath -Value ($personal | ConvertTo-Json -Depth 5) -Encoding UTF8
-    Write-Host "Wrote $personalPath"
 }
 
 $resolvedLabel = if ($resolved) { $resolved } else { "none" }
-Write-Host "Panel probe: office=$OfficePanelUrl local=$LocalPanelUrl resolved=$resolvedLabel"
+Write-Host "Panel probe: office=$($OfficePanelUrl.TrimEnd('/')) remote=$RemotePanelUrl local=$LocalPanelUrl resolved=$resolvedLabel"

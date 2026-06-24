@@ -1,10 +1,14 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Configuration;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Threading;
+using System.Threading.Tasks;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
@@ -13,6 +17,7 @@ namespace Hiatme_Tool_Suite_v3
     internal sealed class HiatmeAiSettings
     {
         public const int DefaultPort = 8787;
+        private const int DefaultProbeTimeoutSeconds = 6;
 
         public string BaseUrl { get; set; } = "http://127.0.0.1:" + DefaultPort;
         public string ApiToken { get; set; } = "";
@@ -21,33 +26,14 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>Last panel URL that answered (speeds up next launch).</summary>
         public string LastResolvedBaseUrl { get; set; } = "";
 
-        /// <summary>Optional extra panel hosts to try (office LAN IP, etc.).</summary>
+        /// <summary>Extra panel hosts (optional). Office LAN is auto-discovered when not configured.</summary>
         public List<string> FallbackBaseUrls { get; set; }
 
-        /// <summary>After SAVE workbook, store a short approval note for memory.</summary>
         public bool RememberOnSave { get; set; } = true;
-
-        /// <summary>
-        /// When true (default), geocode and OSRM use only the office AI panel — no public/demo routing.
-        /// Set false only for local dev without the server.
-        /// </summary>
         public bool UseServerGeo { get; set; } = true;
-
-        /// <summary>
-        /// When true (default), Supey BUILD calls POST /api/hiatme/solve on the panel (VRP/greedy).
-        /// </summary>
         public bool UseServerSolve { get; set; } = true;
-
-        /// <summary>
-        /// When false (default), server solve failure stops BUILD — no silent desktop fallback.
-        /// Set true (or HIATME_ALLOW_LOCAL_SOLVE_FALLBACK=1) only for dev without the office panel.
-        /// </summary>
         public bool AllowLocalSolveFallback { get; set; } = false;
-
-        /// <summary>When true (default), Supey BUILD matches weekday template CSVs before assign.</summary>
         public bool UseWeekdayTemplates { get; set; } = true;
-
-        /// <summary>When true (default), run Supey/server assign on trips not locked by templates.</summary>
         public bool FinishRemainingAfterTemplates { get; set; } = true;
 
         private static string BaseDir => AppDomain.CurrentDomain.BaseDirectory;
@@ -56,19 +42,18 @@ namespace Hiatme_Tool_Suite_v3
 
         private static readonly object LoadLock = new object();
         private static HiatmeAiSettings _sessionCache;
-        private static readonly HttpClient ProbeHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(2.5) };
+        private static string _lastConnectionDetail = "";
+
+        /// <summary>Human-readable result from the last panel probe (for map overlay / status).</summary>
+        public static string LastConnectionDetail => _lastConnectionDetail ?? "";
 
         public static HiatmeAiSettings Load()
         {
             lock (LoadLock)
             {
                 if (_sessionCache != null) return _sessionCache;
-                var merged = LoadMerged();
-                if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("HIATME_AI_URL")))
-                    merged.BaseUrl = ResolvePanelBaseUrl(merged);
-                HiatmeGeoSettings.Configure(merged);
-                _sessionCache = merged;
-                return merged;
+                _sessionCache = LoadAndConfigureLocked();
+                return _sessionCache;
             }
         }
 
@@ -76,6 +61,36 @@ namespace Hiatme_Tool_Suite_v3
         {
             lock (LoadLock) { _sessionCache = null; }
             HiatmeGeoSettings.Invalidate();
+        }
+
+        /// <summary>Clear session settings only (keep LAN discovery cache).</summary>
+        internal static void InvalidateSessionCacheOnly()
+        {
+            lock (LoadLock) { _sessionCache = null; }
+        }
+
+        /// <summary>Re-probe the current panel URL without blocking LAN scan.</summary>
+        public static async Task<bool> RefreshPanelConnectionAsync(CancellationToken cancellationToken = default)
+        {
+            return await Task.Run(() =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                HiatmeAiSettings settings;
+                lock (LoadLock)
+                {
+                    settings = _sessionCache ?? LoadAndConfigureLocked(forceResolve: false);
+                }
+                return ProbePanelPublic(settings.BaseUrl, settings.ApiToken);
+            }, cancellationToken).ConfigureAwait(false);
+        }
+
+        private static HiatmeAiSettings LoadAndConfigureLocked(bool forceResolve = false)
+        {
+            var merged = LoadMerged();
+            if (forceResolve || string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("HIATME_AI_URL")))
+                merged.BaseUrl = ResolvePanelBaseUrl(merged, out _);
+            HiatmeGeoSettings.Configure(merged);
+            return merged;
         }
 
         private static HiatmeAiSettings LoadMerged()
@@ -88,8 +103,37 @@ namespace Hiatme_Tool_Suite_v3
             return merged;
         }
 
-        /// <summary>Try localhost, last-good, configured URL — no manual switching.</summary>
-        private static string ResolvePanelBaseUrl(HiatmeAiSettings merged)
+        internal static bool ProbePanelPublic(string baseUrl, string apiToken) =>
+            ProbePanelDetailed(baseUrl, apiToken).Ok;
+
+        /// <summary>Configured URLs first, localhost last — parallel probe, first win.</summary>
+        private static string ResolvePanelBaseUrl(HiatmeAiSettings merged, out string detail)
+        {
+            var candidates = CollectPanelCandidateUrls(merged);
+            if (candidates.Count == 0)
+            {
+                detail = "No office AI panel found on the network.";
+                _lastConnectionDetail = detail;
+                return "http://127.0.0.1:" + DefaultPort;
+            }
+
+            var probe = ProbeFirstReachable(candidates, merged.ApiToken);
+            if (probe.Winner.Ok)
+            {
+                detail = "Connected: " + probe.Winner.Url;
+                _lastConnectionDetail = detail;
+                if (!string.Equals(probe.Winner.Url, merged.LastResolvedBaseUrl, StringComparison.OrdinalIgnoreCase))
+                    PersistLastResolved(probe.Winner.Url);
+                return probe.Winner.Url;
+            }
+
+            detail = BuildProbeFailureMessage(candidates, probe.Errors, merged.ApiToken);
+            _lastConnectionDetail = detail;
+            HiatmePanelLanDiscovery.DiscoverInBackground();
+            return candidates[0];
+        }
+
+        internal static IReadOnlyList<string> CollectPanelCandidateUrls(HiatmeAiSettings merged)
         {
             var candidates = new List<string>();
             void add(string u)
@@ -100,7 +144,6 @@ namespace Hiatme_Tool_Suite_v3
                     candidates.Add(u);
             }
 
-            add("http://127.0.0.1:" + DefaultPort);
             add(merged.LastResolvedBaseUrl);
             add(merged.BaseUrl);
             if (merged.FallbackBaseUrls != null)
@@ -109,46 +152,177 @@ namespace Hiatme_Tool_Suite_v3
                     add(u);
             }
 
-            string winner = null;
-            foreach (var url in candidates)
+            var extra = Environment.GetEnvironmentVariable("HIATME_AI_URLS");
+            if (!string.IsNullOrWhiteSpace(extra))
             {
-                if (!ProbePanel(url, merged.ApiToken)) continue;
-                winner = url;
-                break;
+                foreach (var part in extra.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries))
+                    add(part);
             }
 
-            if (string.IsNullOrEmpty(winner))
-                winner = NormalizeBaseUrl(merged.BaseUrl) ?? ("http://127.0.0.1:" + DefaultPort);
+            foreach (var u in HiatmePanelLanDiscovery.GetCachedUrls())
+                add(u);
 
-            if (!string.Equals(winner, merged.LastResolvedBaseUrl, StringComparison.OrdinalIgnoreCase))
-                PersistLastResolved(winner);
-
-            return winner;
+            add("http://127.0.0.1:" + DefaultPort);
+            return candidates;
         }
 
-        internal static bool ProbePanelPublic(string baseUrl, string apiToken) =>
-            ProbePanel(baseUrl, apiToken);
-
-        private static bool ProbePanel(string baseUrl, string apiToken)
+        private sealed class PanelProbeResult
         {
-            if (string.IsNullOrWhiteSpace(baseUrl)) return false;
+            public bool Ok { get; private set; }
+            public string Url { get; private set; }
+            public string Message { get; private set; }
+
+            public static PanelProbeResult Success(string url) =>
+                new PanelProbeResult { Ok = true, Url = url, Message = "" };
+
+            public static PanelProbeResult Fail(string url, string message) =>
+                new PanelProbeResult { Ok = false, Url = url, Message = message ?? "" };
+        }
+
+        private sealed class ParallelProbeResult
+        {
+            public PanelProbeResult Winner { get; set; }
+            public List<string> Errors { get; set; } = new List<string>();
+        }
+
+        private static ParallelProbeResult ProbeFirstReachable(IReadOnlyList<string> urls, string apiToken)
+        {
+            var errors = new ConcurrentBag<string>();
+            PanelProbeResult winner = null;
+            var gate = new object();
+
+            Parallel.ForEach(
+                urls,
+                new ParallelOptions { MaxDegreeOfParallelism = Math.Min(6, urls.Count) },
+                url =>
+                {
+                    if (winner != null) return;
+                    var result = ProbePanelDetailed(url, apiToken);
+                    if (!result.Ok)
+                    {
+                        errors.Add(result.Message);
+                        return;
+                    }
+                    lock (gate)
+                    {
+                        if (winner == null)
+                            winner = result;
+                    }
+                });
+
+            return new ParallelProbeResult
+            {
+                Winner = winner ?? PanelProbeResult.Fail(urls[0], "All panel URLs failed."),
+                Errors = errors.ToList(),
+            };
+        }
+
+        private static PanelProbeResult ProbePanelDetailed(string baseUrl, string apiToken)
+        {
+            if (string.IsNullOrWhiteSpace(baseUrl))
+                return PanelProbeResult.Fail(baseUrl, "Empty panel URL.");
+
             string url = baseUrl.TrimEnd('/') + "/api/hiatme/geo/status";
+            int timeoutSec = DefaultProbeTimeoutSeconds;
+            var rawTimeout = Environment.GetEnvironmentVariable("HIATME_AI_PROBE_TIMEOUT_SEC");
+            if (!string.IsNullOrWhiteSpace(rawTimeout) && int.TryParse(rawTimeout.Trim(), out var t) && t >= 2 && t <= 30)
+                timeoutSec = t;
+
             try
             {
+                using (var http = new HttpClient { Timeout = TimeSpan.FromSeconds(timeoutSec) })
                 using (var req = new HttpRequestMessage(HttpMethod.Get, url))
                 {
-                    if (!string.IsNullOrWhiteSpace(apiToken))
+                    if (IsUsableApiToken(apiToken))
                         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiToken.Trim());
-                    using (var resp = ProbeHttp.SendAsync(req).GetAwaiter().GetResult())
+
+                    using (var resp = http.SendAsync(req).GetAwaiter().GetResult())
                     {
-                        return resp.IsSuccessStatusCode;
+                        if (resp.IsSuccessStatusCode)
+                            return PanelProbeResult.Success(NormalizeBaseUrl(baseUrl));
+
+                        if (resp.StatusCode == HttpStatusCode.Unauthorized || resp.StatusCode == HttpStatusCode.Forbidden)
+                        {
+                            return PanelProbeResult.Fail(
+                                baseUrl,
+                                baseUrl + ": invalid API token (HTTP " + (int)resp.StatusCode + "). "
+                                + "ApiToken in hiatme_ai.defaults.json must match HIATME_API_TOKEN on the server.");
+                        }
+
+                        return PanelProbeResult.Fail(
+                            baseUrl,
+                            baseUrl + ": HTTP " + (int)resp.StatusCode + " " + resp.ReasonPhrase);
                     }
                 }
             }
-            catch
+            catch (TaskCanceledException)
             {
-                return false;
+                return PanelProbeResult.Fail(baseUrl, baseUrl + ": timed out after " + timeoutSec + "s.");
             }
+            catch (OperationCanceledException)
+            {
+                return PanelProbeResult.Fail(baseUrl, baseUrl + ": cancelled.");
+            }
+            catch (HttpRequestException ex)
+            {
+                return PanelProbeResult.Fail(baseUrl, baseUrl + ": " + FlattenExceptionMessage(ex));
+            }
+            catch (Exception ex)
+            {
+                return PanelProbeResult.Fail(baseUrl, baseUrl + ": " + ex.Message);
+            }
+        }
+
+        private static string BuildProbeFailureMessage(
+            IReadOnlyList<string> candidates,
+            List<string> errors,
+            string apiToken)
+        {
+            var lines = new List<string>
+            {
+                "Could not find the office AI panel on your network.",
+                "",
+                "Checked:",
+            };
+            foreach (var c in candidates)
+                lines.Add("  • " + c);
+            lines.Add("");
+            if (errors.Count > 0)
+            {
+                lines.Add("Details:");
+                foreach (var e in errors.Distinct().Take(6))
+                    lines.Add("  • " + e);
+                lines.Add("");
+            }
+            lines.Add("On the server PC:");
+            lines.Add("  • Start the AI panel (scripts\\restart-panel.ps1 in AIagent)");
+            lines.Add("  • Docker OSRM running (tools\\osrm\\scripts\\start-osrm.ps1)");
+            lines.Add("  • Windows firewall allows inbound TCP 8787 on the office network");
+            lines.Add("");
+            lines.Add("Desks on the same Wi‑Fi/LAN should connect automatically — no VPN or tunnel.");
+            if (!IsUsableApiToken(apiToken))
+                lines.Add("Optional: set ApiToken in hiatme_ai.defaults.json if the server requires it.");
+            return string.Join("\r\n", lines);
+        }
+
+        private static string FlattenExceptionMessage(Exception ex)
+        {
+            if (ex == null) return "network error";
+            var inner = ex.InnerException;
+            if (inner != null && !string.IsNullOrWhiteSpace(inner.Message))
+                return inner.Message;
+            return ex.Message;
+        }
+
+        private static bool IsUsableApiToken(string token)
+        {
+            if (string.IsNullOrWhiteSpace(token)) return false;
+            var t = token.Trim();
+            if (t.Length < 8) return false;
+            if (t.IndexOf("copy-from", StringComparison.OrdinalIgnoreCase) >= 0) return false;
+            if (t.IndexOf("change-me", StringComparison.OrdinalIgnoreCase) >= 0) return false;
+            if (string.Equals(t, "YOUR_TOKEN", StringComparison.OrdinalIgnoreCase)) return false;
+            return true;
         }
 
         private static void PersistLastResolved(string url)
