@@ -30,6 +30,9 @@ namespace Hiatme_Tool_Suite_v3
         public DateTime? ServiceDate { get; set; }
 
         public string ServiceDateSource { get; set; } = "";
+
+        /// <summary>Tab order from the loaded workbook or CSV folder (includes Reserves when present).</summary>
+        public List<string> TabOrder { get; } = new List<string>();
     }
 
     /// <summary>Load a previously saved schedule (CSV folder or Excel workbook) into preview/map shape.</summary>
@@ -45,12 +48,13 @@ namespace Hiatme_Tool_Suite_v3
 
             var driverFiles = new List<(string Tab, string Path)>();
 
-            foreach (var path in Directory.GetFiles(folderPath, "*.csv", SearchOption.TopDirectoryOnly)
-                .OrderBy(p => p, StringComparer.OrdinalIgnoreCase))
+            foreach (var path in Directory.GetFiles(folderPath, "*.csv", SearchOption.TopDirectoryOnly))
             {
                 string tab = Path.GetFileNameWithoutExtension(path) ?? "";
                 if (ShouldSkipDriverFile(tab))
                     continue;
+
+                result.TabOrder.Add(tab);
 
                 if (tab.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
                 {
@@ -109,15 +113,17 @@ namespace Hiatme_Tool_Suite_v3
                 foreach (var pair in ScheduleBuilderXlsxReader.ExportSheetsToCsvFolder(workbookPath, tempDir))
                 {
                     string tab = pair.Tab;
+                    if (ShouldSkipDriverFile(tab))
+                        continue;
+
+                    result.TabOrder.Add(tab);
+
                     if (tab.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
                     {
                         CollectReroutedFromCsv(result, pair.CsvPath);
                         result.ReserveFileTrips.AddRange(LoadTripsFromTripCsv(pair.CsvPath));
                         continue;
                     }
-
-                    if (ShouldSkipDriverFile(tab))
-                        continue;
 
                     driverSheets.Add(pair);
                 }

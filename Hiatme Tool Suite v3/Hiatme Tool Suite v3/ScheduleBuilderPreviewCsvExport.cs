@@ -26,7 +26,7 @@ namespace Hiatme_Tool_Suite_v3
             public static Options TripsOnly => new Options();
         }
 
-        /// <summary>Reserves first, then driver tabs A–Z (matches Schedule Builder preview).</summary>
+        /// <summary>Reserves first, then driver tabs A–Z (legacy fallback when no explicit order).</summary>
         public static int CompareWorkbookTabNames(string a, string b)
         {
             a = a ?? "";
@@ -97,12 +97,36 @@ namespace Hiatme_Tool_Suite_v3
             IReadOnlyDictionary<string, List<ScheduleBuilderPreviewLine>> linesByTab,
             Options options)
         {
+            return BuildWorkbookTabs(linesByTab, options, tabOrder: null);
+        }
+
+        public static IReadOnlyList<WorkbookTab> BuildWorkbookTabs(
+            IReadOnlyDictionary<string, List<ScheduleBuilderPreviewLine>> linesByTab,
+            Options options,
+            IReadOnlyList<string> tabOrder)
+        {
             if (linesByTab == null || linesByTab.Count == 0)
                 return Array.Empty<WorkbookTab>();
 
             options = options ?? Options.TripsOnly;
             var tabs = new List<WorkbookTab>();
-            foreach (var kv in linesByTab.OrderBy(x => x.Key, Comparer<string>.Create(CompareWorkbookTabNames)))
+
+            IEnumerable<KeyValuePair<string, List<ScheduleBuilderPreviewLine>>> ordered;
+            if (tabOrder == null || tabOrder.Count == 0)
+            {
+                ordered = linesByTab.OrderBy(
+                    x => x.Key,
+                    Comparer<string>.Create(CompareWorkbookTabNames));
+            }
+            else
+            {
+                ordered = ScheduleBuilderTabOrder.OrderedKeys(linesByTab, tabOrder)
+                    .Select(key => new KeyValuePair<string, List<ScheduleBuilderPreviewLine>>(
+                        key,
+                        linesByTab[key] ?? new List<ScheduleBuilderPreviewLine>()));
+            }
+
+            foreach (var kv in ordered)
             {
                 if (string.IsNullOrWhiteSpace(kv.Key))
                     continue;

@@ -97,6 +97,9 @@ namespace Hiatme_Tool_Suite_v3
         public List<MCDriverTab> drivertablist { get; set; }
         public List<MCDownloadedTrip> loggedScheduleTrips { get; set; }
         private List<WRDownloadedTrip> wellrydeDownloadedTrips { get; set; }
+        public int LastModivcareDownloadCount { get; private set; }
+        public int LastModivcareRequestedIdCount { get; private set; }
+        public int LastWellRydeDownloadCount { get; private set; }
         /// <summary>Optional portal session for schedule analysis (hidden trips, escorts, assign UUIDs, reserves).</summary>
         private WellRydePortalSession _wellRydePortalSession;
 
@@ -158,8 +161,11 @@ namespace Hiatme_Tool_Suite_v3
             MCTripDownloader mctd = new MCTripDownloader();
             modivcareDownloadedTrips = new List<MCDownloadedTrip>();
             modivcareDownloadedTrips = await mctd.DownloadTripRecords(mcdate, modivcareloginHandler);
+            LastModivcareDownloadCount = modivcareDownloadedTrips?.Count ?? 0;
+            LastModivcareRequestedIdCount = mctd.LastRequestedTripIdCount;
 
             await TryLoadWellRydeTripsAndDriversAsync(mcdate);
+            LastWellRydeDownloadCount = wellrydeDownloadedTrips?.Count ?? 0;
 
             loggedScheduleTrips = new List<MCDownloadedTrip>();
 
@@ -294,6 +300,29 @@ namespace Hiatme_Tool_Suite_v3
             return string.Equals(a, b, StringComparison.Ordinal);
         }
 
+        private static bool ScheduleTripNumberMatches(string tripA, string tripB) =>
+            WellRydeTripNumberMatchesMc(tripA, tripB);
+
+        private WRDownloadedTrip FindWellRydeRowForScheduleTrip(MCDownloadedTrip scheduleTrip)
+        {
+            if (wellrydeDownloadedTrips == null)
+                return null;
+            foreach (WRDownloadedTrip wrdt in wellrydeDownloadedTrips)
+            {
+                if (WellRydeTripNumberMatchesMc(wrdt.TripNumber, scheduleTrip.TripNumber))
+                    return wrdt;
+            }
+            return null;
+        }
+
+        private static bool IsWellRydeCancelledStatus(string status)
+        {
+            if (string.IsNullOrWhiteSpace(status))
+                return false;
+            return status.Equals("Cancelled", StringComparison.OrdinalIgnoreCase)
+                || status.Equals("Suspended", StringComparison.OrdinalIgnoreCase);
+        }
+
         private void FindHiddenTrips()
         {
             if (wellrydeDownloadedTrips.Any() & modivcareDownloadedTrips.Any())
@@ -413,6 +442,31 @@ namespace Hiatme_Tool_Suite_v3
                 }
             }
         }
+        private static bool ScheduleTimesMatch(string mcDownloadTime, string scheduleTime)
+        {
+            string a = NormalizeScheduleCompareTime(mcDownloadTime);
+            string b = NormalizeScheduleCompareTime(scheduleTime);
+            return string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string NormalizeScheduleCompareTime(string raw)
+        {
+            string n = TripTemplateCsvValidator.NormalizeTimeField(raw ?? "");
+            if (string.IsNullOrWhiteSpace(n))
+                return "";
+
+            var span = SupeyTripTimes.TryParse(n);
+            if (span.HasValue)
+                return DateTime.Today.Add(span.Value).ToString("HH:mm");
+
+            if (DateTime.TryParse(n, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime parsedInvariant))
+                return parsedInvariant.ToString("HH:mm");
+            if (DateTime.TryParse(n, CultureInfo.CurrentCulture, DateTimeStyles.None, out DateTime parsedLocal))
+                return parsedLocal.ToString("HH:mm");
+
+            return n.Trim();
+        }
+
         private void CompareTimes()
         {
             foreach (MCDriverTab dt in drivertablist)
@@ -423,16 +477,16 @@ namespace Hiatme_Tool_Suite_v3
                     {
                         foreach (MCDownloadedTrip mcdt in modivcareDownloadedTrips)
                         {
-                            if (mcdt.TripNumber.Replace(" ","") == mcst.TripNumber.Replace(" ", ""))
+                            if (ScheduleTripNumberMatches(mcdt.TripNumber, mcst.TripNumber))
                             {
-                                if (mcdt.PUTime != mcst.PUTime)
+                                if (!ScheduleTimesMatch(mcdt.PUTime, mcst.PUTime))
                                 {
                                     CheckIfTripIsAlreadyLogged(mcst, "Time");
                                     mcst.Assignable = false;
                                     break;
                                 }
 
-                                if (mcdt.DOTime != mcst.DOTime)
+                                if (!ScheduleTimesMatch(mcdt.DOTime, mcst.DOTime))
                                 {
                                     CheckIfTripIsAlreadyLogged(mcst, "Time");
                                     mcst.Assignable = false;
@@ -456,7 +510,7 @@ namespace Hiatme_Tool_Suite_v3
                     {
                         foreach (MCDownloadedTrip mcdt in modivcareDownloadedTrips)
                         {
-                            if (mcdt.TripNumber.Replace(" ", "") == mcst.TripNumber.Replace(" ", ""))
+                            if (ScheduleTripNumberMatches(mcdt.TripNumber, mcst.TripNumber))
                             {
                                 // Older Schedule Builder versions pad address cells with trailing
                                 // spaces; normalize whitespace/case so only real address changes flag.
@@ -833,29 +887,54 @@ namespace Hiatme_Tool_Suite_v3
             }
             return false;
         }
+        /// <summary>
+        /// Schedule trips missing from the Modivcare download are cleanup candidates. When WellRyde still
+        /// shows the trip as active, skip the alert — MC often omits future-day rows while WR does not.
+        /// </summary>
         private void CheckForCancels()
         {
-            if (drivertablist.Any() & modivcareDownloadedTrips.Any())
+            if (!drivertablist.Any())
+                return;
+
+            bool mcHasRows = modivcareDownloadedTrips != null && modivcareDownloadedTrips.Any();
+            bool wrHasRows = wellrydeDownloadedTrips != null && wellrydeDownloadedTrips.Any();
+            if (!mcHasRows && !wrHasRows)
+                return;
+
+            foreach (MCDriverTab dt in drivertablist)
             {
-                foreach (MCDriverTab dt in drivertablist)
+                foreach (MCDownloadedTrip mcst in dt.scheduledTrips)
                 {
-                        foreach (MCDownloadedTrip mcst in dt.scheduledTrips)
+                    if (mcHasRows)
+                    {
+                        bool tripfound = false;
+                        foreach (MCDownloadedTrip mcdt in modivcareDownloadedTrips)
                         {
-                            bool tripfound = false;
-                            foreach (MCDownloadedTrip mcdt in modivcareDownloadedTrips)
+                            if (ScheduleTripNumberMatches(mcdt.TripNumber, mcst.TripNumber))
                             {
-                                if (mcdt.TripNumber.Replace(" ", "") == mcst.TripNumber.Replace(" ", ""))
-                                {
-                                    tripfound = true;
-                                }
+                                tripfound = true;
+                                break;
                             }
-                            if (!tripfound)
-                            {
-                            CheckIfTripIsAlreadyLogged(mcst, "Cancelled");
-                            mcst.Assignable = false;
-                            pregrade = false;
                         }
-                        }
+                        if (tripfound)
+                            continue;
+                    }
+
+                    WRDownloadedTrip wrRow = FindWellRydeRowForScheduleTrip(mcst);
+                    if (wrRow != null)
+                    {
+                        if (!IsWellRydeCancelledStatus(wrRow.Status))
+                            continue;
+                    }
+                    else if (!mcHasRows)
+                    {
+                        // MC download failed/empty and WR has no row — cannot confirm a cancel.
+                        continue;
+                    }
+
+                    CheckIfTripIsAlreadyLogged(mcst, "Cancelled");
+                    mcst.Assignable = false;
+                    pregrade = false;
                 }
             }
         }

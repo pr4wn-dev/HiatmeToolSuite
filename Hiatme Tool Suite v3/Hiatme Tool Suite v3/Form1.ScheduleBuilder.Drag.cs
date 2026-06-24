@@ -514,5 +514,356 @@ namespace Hiatme_Tool_Suite_v3
 
             SupeyListViewHelpers.DrawCellGridLines(g, cellBounds, _fsTripsLv);
         }
+
+        private void FsDriverTabButton_MouseDown_Reorder(object sender, MouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Left || !_fsHasPreview || _fsDriverTabFlow == null)
+                return;
+
+            if (!(sender is SupeyButton btn) || !(btn.Tag is string name))
+                return;
+
+            FsEndDriverTabReorder();
+
+            _fsTabReorderButton = btn;
+            _fsTabReorderSourceName = name;
+            _fsTabReorderStartScreen = Control.MousePosition;
+            _fsTabReorderFromIndex = _fsDriverTabOrder.FindIndex(t =>
+                t.Equals(name, StringComparison.OrdinalIgnoreCase));
+            _fsTabReorderInsertIndex = -1;
+            _fsTabReorderDragging = false;
+
+            btn.Capture = true;
+            btn.MouseMove += FsDriverTabButton_MouseMove_Reorder;
+            btn.MouseUp += FsDriverTabButton_MouseUp_Reorder;
+        }
+
+        private void FsDriverTabButton_MouseMove_Reorder(object sender, MouseEventArgs e)
+        {
+            if (_fsTabReorderButton == null || _fsTabReorderFromIndex < 0)
+                return;
+
+            if ((Control.MouseButtons & MouseButtons.Left) == 0)
+            {
+                FsEndDriverTabReorder();
+                return;
+            }
+
+            var screen = Control.MousePosition;
+            if (!_fsTabReorderDragging)
+            {
+                int dx = Math.Abs(screen.X - _fsTabReorderStartScreen.X);
+                int dy = Math.Abs(screen.Y - _fsTabReorderStartScreen.Y);
+                if (dx < 5 && dy < 5)
+                    return;
+
+                _fsTabReorderDragging = true;
+                _fsDriverTabSuppressClick = true;
+                _fsTabReorderButton.Cursor = Cursors.SizeAll;
+                BeginFsTabReorderVisual(_fsTabReorderButton);
+            }
+
+            _fsTabReorderInsertIndex = ComputeFsDriverTabInsertIndex(screen);
+            UpdateFsTabReorderVisual(screen, _fsTabReorderInsertIndex);
+        }
+
+        private void FsDriverTabButton_MouseUp_Reorder(object sender, MouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Left)
+                return;
+
+            try
+            {
+                if (_fsTabReorderDragging && _fsTabReorderFromIndex >= 0 && _fsTabReorderInsertIndex >= 0)
+                    CommitFsDriverTabReorder(_fsTabReorderFromIndex, _fsTabReorderInsertIndex);
+            }
+            finally
+            {
+                FsEndDriverTabReorder();
+            }
+        }
+
+        private void FsEndDriverTabReorder()
+        {
+            bool wasDragging = _fsTabReorderDragging;
+            string activeTab = _fsActiveDriverTab;
+
+            EndFsTabReorderVisual();
+
+            if (_fsTabReorderButton != null)
+            {
+                _fsTabReorderButton.Capture = false;
+                _fsTabReorderButton.Cursor = Cursors.Hand;
+                _fsTabReorderButton.MouseMove -= FsDriverTabButton_MouseMove_Reorder;
+                _fsTabReorderButton.MouseUp -= FsDriverTabButton_MouseUp_Reorder;
+            }
+
+            if (_fsDriverTabFlow != null)
+                _fsDriverTabFlow.Cursor = Cursors.Default;
+
+            _fsTabReorderButton = null;
+            _fsTabReorderSourceName = null;
+            _fsTabReorderFromIndex = -1;
+            _fsTabReorderInsertIndex = -1;
+            _fsTabReorderVisualGapIndex = -1;
+            _fsTabReorderDragging = false;
+
+            if (wasDragging)
+            {
+                RebuildFsDriverTabs();
+                if (!string.IsNullOrWhiteSpace(activeTab))
+                    SelectFsDriverTab(activeTab);
+            }
+        }
+
+        private void BeginFsTabReorderVisual(SupeyButton source)
+        {
+            if (source == null || _fsDriverTabFlow == null)
+                return;
+
+            EndFsTabReorderVisual();
+
+            var sourceScreen = source.PointToScreen(Point.Empty);
+            _fsTabReorderGhostOffset = new Point(
+                Control.MousePosition.X - sourceScreen.X,
+                0);
+            _fsTabReorderGhostAnchorScreenY = sourceScreen.Y;
+
+            if (_fsDriverTabStrip == null)
+                return;
+
+            _fsTabReorderGhost = new SupeyButton
+            {
+                Text = source.Text,
+                Tag = source.Tag,
+                Kind = source.Kind,
+                Size = source.Size,
+                BackColor = SupeyTheme.SurfaceHeader,
+                Enabled = false,
+            };
+            _fsDriverTabStrip.Controls.Add(_fsTabReorderGhost);
+            _fsTabReorderGhost.BringToFront();
+
+            _fsTabReorderSpacer = new Panel
+            {
+                Size = source.Size,
+                Margin = source.Margin,
+                BackColor = SupeyTheme.SurfaceHeader,
+            };
+            EnableFsTabReorderSpacerDoubleBuffer(_fsTabReorderSpacer);
+            _fsTabReorderSpacer.Paint += FsTabReorderSpacer_PaintGap;
+
+            if (source.Parent != null)
+                source.Parent.Controls.Remove(source);
+            source.Visible = false;
+            ApplyFsDriverTabStripDuringDrag(VisualInsertToOrderIndex(_fsTabReorderFromIndex));
+            UpdateFsTabReorderGhostPosition(Control.MousePosition);
+        }
+
+        private static void EnableFsTabReorderSpacerDoubleBuffer(Panel panel)
+        {
+            if (panel == null)
+                return;
+
+            typeof(Panel).InvokeMember(
+                "DoubleBuffered",
+                System.Reflection.BindingFlags.NonPublic
+                    | System.Reflection.BindingFlags.Instance
+                    | System.Reflection.BindingFlags.SetProperty,
+                null,
+                panel,
+                new object[] { true });
+        }
+
+        private static void FsTabReorderSpacer_PaintGap(object sender, PaintEventArgs e)
+        {
+            var panel = sender as Panel;
+            if (panel == null)
+                return;
+
+            e.Graphics.Clear(SupeyTheme.SurfaceHeader);
+            var rect = new Rectangle(1, 1, panel.Width - 3, panel.Height - 3);
+            using (var fill = new SolidBrush(Color.FromArgb(40, SupeyTheme.AccentPrimary)))
+                e.Graphics.FillRectangle(fill, rect);
+            using (var pen = new Pen(SupeyTheme.AccentPrimary) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dot })
+                e.Graphics.DrawRectangle(pen, rect);
+        }
+
+        private void UpdateFsTabReorderGhostPosition(Point screenPt)
+        {
+            if (_fsTabReorderGhost == null || _fsDriverTabStrip == null)
+                return;
+
+            var stripPt = _fsDriverTabStrip.PointToClient(screenPt);
+            var anchorStripPt = _fsDriverTabStrip.PointToClient(
+                new Point(screenPt.X, _fsTabReorderGhostAnchorScreenY));
+
+            _fsTabReorderGhost.Location = new Point(
+                stripPt.X - _fsTabReorderGhostOffset.X,
+                anchorStripPt.Y);
+            _fsTabReorderGhost.BringToFront();
+        }
+
+        private void UpdateFsTabReorderVisual(Point screenPt, int insertIndex)
+        {
+            UpdateFsTabReorderGhostPosition(screenPt);
+
+            int visualGap = OrderIndexToVisualInsert(insertIndex);
+            if (visualGap != _fsTabReorderVisualGapIndex)
+            {
+                _fsTabReorderVisualGapIndex = visualGap;
+                ApplyFsDriverTabStripDuringDrag(insertIndex);
+            }
+        }
+
+        private void ApplyFsDriverTabStripDuringDrag(int insertIndex)
+        {
+            if (_fsDriverTabFlow == null || _fsTabReorderSpacer == null
+                || string.IsNullOrWhiteSpace(_fsTabReorderSourceName))
+                return;
+
+            var visible = new List<string>();
+            foreach (string name in _fsDriverTabOrder)
+            {
+                if (name.Equals(_fsTabReorderSourceName, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                visible.Add(name);
+            }
+
+            int gapIndex = OrderIndexToVisualInsert(insertIndex);
+            gapIndex = Math.Max(0, Math.Min(gapIndex, visible.Count));
+
+            _fsDriverTabFlow.SuspendLayout();
+            _fsDriverTabFlow.Controls.Clear();
+
+            for (int i = 0; i < visible.Count; i++)
+            {
+                if (i == gapIndex)
+                    _fsDriverTabFlow.Controls.Add(_fsTabReorderSpacer);
+
+                if (_fsDriverTabButtons.TryGetValue(visible[i], out SupeyButton btn))
+                    _fsDriverTabFlow.Controls.Add(btn);
+            }
+
+            if (gapIndex >= visible.Count)
+                _fsDriverTabFlow.Controls.Add(_fsTabReorderSpacer);
+
+            _fsDriverTabFlow.ResumeLayout(true);
+        }
+
+        private int OrderIndexToVisualInsert(int orderInsertIndex)
+        {
+            if (_fsDriverTabOrder == null || string.IsNullOrWhiteSpace(_fsTabReorderSourceName))
+                return 0;
+
+            int visual = 0;
+            for (int i = 0; i < _fsDriverTabOrder.Count && i < orderInsertIndex; i++)
+            {
+                if (!_fsDriverTabOrder[i].Equals(_fsTabReorderSourceName, StringComparison.OrdinalIgnoreCase))
+                    visual++;
+            }
+
+            return visual;
+        }
+
+        private int VisualInsertToOrderIndex(int visualInsert)
+        {
+            if (_fsDriverTabOrder == null || string.IsNullOrWhiteSpace(_fsTabReorderSourceName))
+                return 0;
+
+            int seen = 0;
+            for (int i = 0; i < _fsDriverTabOrder.Count; i++)
+            {
+                if (_fsDriverTabOrder[i].Equals(_fsTabReorderSourceName, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (seen == visualInsert)
+                    return i;
+                seen++;
+            }
+
+            return _fsDriverTabOrder.Count;
+        }
+
+        private void EndFsTabReorderVisual()
+        {
+            if (_fsTabReorderGhost != null)
+            {
+                if (_fsTabReorderGhost.Parent != null)
+                    _fsTabReorderGhost.Parent.Controls.Remove(_fsTabReorderGhost);
+                _fsTabReorderGhost.Dispose();
+                _fsTabReorderGhost = null;
+            }
+
+            if (_fsTabReorderSpacer != null)
+            {
+                _fsTabReorderSpacer.Paint -= FsTabReorderSpacer_PaintGap;
+                if (_fsTabReorderSpacer.Parent != null)
+                    _fsTabReorderSpacer.Parent.Controls.Remove(_fsTabReorderSpacer);
+                _fsTabReorderSpacer.Dispose();
+                _fsTabReorderSpacer = null;
+            }
+
+            _fsTabReorderVisualGapIndex = -1;
+        }
+
+        private int ComputeFsDriverTabInsertIndex(Point screenPt)
+        {
+            if (_fsDriverTabFlow == null || _fsDriverTabOrder == null || _fsDriverTabOrder.Count == 0)
+                return 0;
+
+            var client = _fsDriverTabFlow.PointToClient(screenPt);
+            var layoutPt = new Point(
+                client.X - _fsDriverTabFlow.AutoScrollPosition.X,
+                client.Y - _fsDriverTabFlow.AutoScrollPosition.Y);
+
+            int visualInsert = 0;
+            foreach (Control c in _fsDriverTabFlow.Controls)
+            {
+                if (ReferenceEquals(c, _fsTabReorderSpacer))
+                {
+                    int spacerMidX = c.Left + c.Width / 2;
+                    if (layoutPt.X < spacerMidX)
+                        return VisualInsertToOrderIndex(visualInsert);
+                    visualInsert++;
+                    continue;
+                }
+
+                if (!(c is SupeyButton) || !(c.Tag is string name))
+                    continue;
+
+                if (name.Equals(_fsTabReorderSourceName, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                int midX = c.Left + c.Width / 2;
+                if (layoutPt.X < midX)
+                    return VisualInsertToOrderIndex(visualInsert);
+
+                visualInsert++;
+            }
+
+            return _fsDriverTabOrder.Count;
+        }
+
+        private bool CommitFsDriverTabReorder(int fromIndex, int insertIndex)
+        {
+            if (fromIndex < 0 || fromIndex >= _fsDriverTabOrder.Count)
+                return false;
+
+            insertIndex = Math.Max(0, Math.Min(insertIndex, _fsDriverTabOrder.Count));
+            if (insertIndex == fromIndex || insertIndex == fromIndex + 1)
+                return false;
+
+            string item = _fsDriverTabOrder[fromIndex];
+            _fsDriverTabOrder.RemoveAt(fromIndex);
+            if (fromIndex < insertIndex)
+                insertIndex--;
+
+            insertIndex = Math.Max(0, Math.Min(insertIndex, _fsDriverTabOrder.Count));
+            _fsDriverTabOrder.Insert(insertIndex, item);
+
+            fsbuilder?.SetTabOrder(_fsDriverTabOrder);
+            SetScheduleBuilderStatus("Tab order updated — click SAVE SCHEDULE to write the new order to the workbook.");
+            return true;
+        }
     }
 }

@@ -115,6 +115,11 @@ namespace Hiatme_Tool_Suite_v3
         private readonly Dictionary<string, List<SupeyTemplateSlot>> _driverTemplateSlots =
             new Dictionary<string, List<SupeyTemplateSlot>>(StringComparer.OrdinalIgnoreCase);
 
+        private readonly List<string> _driverTemplateSlotOrder = new List<string>();
+
+        /// <summary>Full preview/export tab order including Reserves when present.</summary>
+        public List<string> TabOrder { get; private set; } = new List<string>();
+
         /// <summary>How to write Template Temps CSV rows (gaps, group headers, reserve sections).</summary>
         public ScheduleBuilderPreviewCsvExport.Options PreviewCsvExportOptions { get; set; }
 
@@ -132,18 +137,21 @@ namespace Hiatme_Tool_Suite_v3
             _previewLinesByTab = linesByTab;
             var opt = PreviewCsvExportOptions ?? ScheduleBuilderPreviewCsvExport.Options.TripsOnly;
             string tempDir = TemplateBuilder.GetTemplateTempDirectory();
-            foreach (var kv in linesByTab)
+            foreach (var key in ScheduleBuilderTabOrder.OrderedKeys(linesByTab, TabOrder))
             {
-                if (string.IsNullOrWhiteSpace(kv.Key))
+                if (string.IsNullOrWhiteSpace(key))
                     continue;
 
-                string path = Path.Combine(tempDir, kv.Key + ".csv");
-                bool reserves = kv.Key.Equals("Reserves", StringComparison.OrdinalIgnoreCase);
+                if (!linesByTab.TryGetValue(key, out var lines))
+                    lines = new List<ScheduleBuilderPreviewLine>();
+
+                string path = Path.Combine(tempDir, key + ".csv");
+                bool reserves = key.Equals("Reserves", StringComparison.OrdinalIgnoreCase);
                 try
                 {
                     ScheduleBuilderPreviewCsvExport.WriteTabCsv(
                         path,
-                        kv.Value ?? new List<ScheduleBuilderPreviewLine>(),
+                        lines ?? new List<ScheduleBuilderPreviewLine>(),
                         opt,
                         reserves);
                 }
@@ -152,13 +160,21 @@ namespace Hiatme_Tool_Suite_v3
                     throw new ScheduleBuilderException(
                         "ExportPreviewCsvs",
                         path,
-                        kv.Key,
+                        key,
                         null,
                         0,
-                        new IOException("Could not write CSV for tab \"" + kv.Key + "\".\n\n" + ex.Message, ex),
+                        new IOException("Could not write CSV for tab \"" + key + "\".\n\n" + ex.Message, ex),
                         "Working folder: " + tempDir);
                 }
             }
+        }
+
+        /// <summary>Apply tab order from the Schedule Builder UI before export/save.</summary>
+        public void SetTabOrder(IReadOnlyList<string> tabOrder)
+        {
+            TabOrder = tabOrder != null && tabOrder.Count > 0
+                ? new List<string>(tabOrder)
+                : new List<string>();
         }
 
         private void WriteAllPreviewCsvsFromBuilder()
@@ -186,7 +202,7 @@ namespace Hiatme_Tool_Suite_v3
                 return null;
 
             var opt = PreviewCsvExportOptions ?? ScheduleBuilderPreviewCsvExport.Options.TripsOnly;
-            return ScheduleBuilderPreviewCsvExport.BuildWorkbookTabs(_previewLinesByTab, opt);
+            return ScheduleBuilderPreviewCsvExport.BuildWorkbookTabs(_previewLinesByTab, opt, TabOrder);
         }
 
         /// <summary>Per-driver preview rows in template order (gaps + matched trips).</summary>
@@ -388,6 +404,10 @@ namespace Hiatme_Tool_Suite_v3
 
             RemoveWillCallsFromDriverPreview();
             RemoveBannedTripsFromDriverPreview();
+
+            TabOrder = load.TabOrder != null && load.TabOrder.Count > 0
+                ? new List<string>(load.TabOrder)
+                : ScheduleBuilderTabOrder.DefaultBuildTabOrder(load.DriverLines.Keys);
         }
 
         /// <summary>Banned-client trips belong in Reserves → Reroutes, not on driver tabs.</summary>
@@ -975,6 +995,7 @@ namespace Hiatme_Tool_Suite_v3
                 }
 
                 _driverTemplateSlots.Clear();
+                _driverTemplateSlotOrder.Clear();
                 driverTripList = null;
                 var filePaths = Directory.GetFiles(dayDir, "*.csv");
                 if (filePaths.Length == 0)
@@ -1054,12 +1075,14 @@ namespace Hiatme_Tool_Suite_v3
 
             try
             {
-                foreach (var kv in _driverTemplateSlots.OrderBy(k => k.Key, StringComparer.OrdinalIgnoreCase))
+                foreach (string driverName in _driverTemplateSlotOrder)
                 {
-                    string driverName = kv.Key;
-                    var slots = PreserveMultiRowGaps
-                        ? kv.Value
-                        : ScheduleBuilderTemplateSlots.CollapseConsecutiveGaps(kv.Value);
+                    if (!_driverTemplateSlots.TryGetValue(driverName, out var slots))
+                        continue;
+
+                    if (!PreserveMultiRowGaps)
+                        slots = ScheduleBuilderTemplateSlots.CollapseConsecutiveGaps(slots);
+
                     List<ScheduleBuilderPreviewLine> previewLines;
                     try
                     {
@@ -1098,6 +1121,7 @@ namespace Hiatme_Tool_Suite_v3
 
                 RemoveRuleBlockedTripsFromDriverAssignments(previewByDriver, driverTripList);
                 PreviewDriverLines = previewByDriver;
+                TabOrder = ScheduleBuilderTabOrder.DefaultBuildTabOrder(_driverTemplateSlotOrder);
                 SplitReserveBuckets();
                 RemoveWillCallsFromDriverPreview();
                 WriteAllPreviewCsvsFromBuilder();
@@ -1161,7 +1185,7 @@ namespace Hiatme_Tool_Suite_v3
                     if (slots == null || slots.Count == 0)
                         return;
                     _driverTemplateSlots.Add(actualfilename, slots);
-                    //Console.WriteLine("List added: " + actualfilename);
+                    _driverTemplateSlotOrder.Add(actualfilename);
                 }
                 else
                 {
@@ -1364,7 +1388,12 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             var fileList = Directory.EnumerateFiles(tempDir)
-                .OrderBy(f => Path.GetFileNameWithoutExtension(f), Comparer<string>.Create(ScheduleBuilderPreviewCsvExport.CompareWorkbookTabNames))
+                .OrderBy(
+                    f => Path.GetFileNameWithoutExtension(f) ?? f,
+                    Comparer<string>.Create((a, b) =>
+                        TabOrder != null && TabOrder.Count > 0
+                            ? ScheduleBuilderTabOrder.CompareByTabOrder(TabOrder, a, b)
+                            : ScheduleBuilderPreviewCsvExport.CompareWorkbookTabNames(a, b)))
                 .ToList();
             if (fileList.Count == 0)
             {

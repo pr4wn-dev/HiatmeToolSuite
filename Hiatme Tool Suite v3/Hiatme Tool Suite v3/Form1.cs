@@ -8122,7 +8122,7 @@ namespace Hiatme_Tool_Suite_v3
                 UpdateAnalyzerStatus("Status: Analysis complete. Loading report card...");
                 aalv.Columns[2].Text = "Alerts: " + analyzer.ReturnAlertCount().ToString();
                 int assignPreview = analyzer.GetPlannedWellRydeAssignSlotCount();
-                StopAnalyzerStatusSpinner("Status: Analysis completed with " + analyzer.ReturnAlertCount().ToString() + " alerts. Assign preview: " + assignPreview.ToString() + " trip(s) matched WellRyde for ASSIGN. Re-analyze after schedule changes.");
+                StopAnalyzerStatusSpinner("Status: Analysis completed with " + analyzer.ReturnAlertCount().ToString() + " alerts. MC trips: " + analyzer.LastModivcareDownloadCount + " (requested " + analyzer.LastModivcareRequestedIdCount + "), WR trips: " + analyzer.LastWellRydeDownloadCount + ". Assign preview: " + assignPreview.ToString() + " trip(s) matched WellRyde for ASSIGN. Re-analyze after schedule changes.");
             }
             finally
             {

@@ -10,6 +10,7 @@ namespace Hiatme_Tool_Suite_v3
     {
         private static readonly Regex CsvSplit = new Regex(",(?=(?:[^\"]*\"[^\"]*\")*(?![^\"]*\"))");
 
+        /// <summary>Parse MC download using header-aware CSV (phones, SchedDOTime). May drop rows the legacy split kept.</summary>
         public static List<MCDownloadedTrip> ParseDownloadText(string data)
         {
             var list = new List<MCDownloadedTrip>();
@@ -45,6 +46,99 @@ namespace Hiatme_Tool_Suite_v3
             return list;
         }
 
+        /// <summary>
+        /// Original v3 split used for years in Analyzer / Schedule Builder. Kept as fallback because the
+        /// header-aware parser can skip rows when MC changes column layout or omits service-date cells.
+        /// </summary>
+        public static List<MCDownloadedTrip> ParseLegacyQuotedSplit(string data)
+        {
+            var list = new List<MCDownloadedTrip>();
+            if (string.IsNullOrWhiteSpace(data))
+                return list;
+
+            using (var reader = new StringReader(data))
+            {
+                string line;
+                while ((line = reader.ReadLine()) != null)
+                {
+                    if (string.IsNullOrWhiteSpace(line))
+                        continue;
+
+                    string[] tripsubitems = line.Split(new[] { "\",\"" }, StringSplitOptions.None);
+                    if (tripsubitems.Length < 10)
+                        continue;
+
+                    string tripNumber = tripsubitems[1].Replace("\"", "").Replace(" ", "");
+                    if (string.IsNullOrWhiteSpace(tripNumber) || !tripNumber.Contains("-"))
+                        continue;
+
+                    list.Add(new MCDownloadedTrip
+                    {
+                        TripNumber = tripNumber,
+                        Date = tripsubitems[2].Replace("\"", ""),
+                        ClientFullName = tripsubitems[4].Replace("\"", ""),
+                        PUStreet = tripsubitems[7].Replace("\"", ""),
+                        PUCity = tripsubitems[10].Replace("\"", ""),
+                        PUTelephone = tripsubitems[13].Replace("\"", ""),
+                        PUTime = TripTemplateCsvValidator.NormalizeTimeField(tripsubitems[14].Replace("\"", "")),
+                        DOStreet = tripsubitems[16].Replace("\"", ""),
+                        DOCITY = tripsubitems[19].Replace("\"", ""),
+                        DOTelephone = tripsubitems[22].Replace("\"", ""),
+                        SchedDOTime = TripTemplateCsvValidator.NormalizeTimeField(tripsubitems[23].Replace("\"", "")),
+                        DOTime = TripTemplateCsvValidator.NormalizeTimeField(tripsubitems[24].Replace("\"", "")),
+                        Age = tripsubitems[25].Replace("\"", ""),
+                        Miles = tripsubitems[33].Replace("\"", ""),
+                        Comments = tripsubitems[34].Replace("\"", ""),
+                    });
+                }
+            }
+
+            return list;
+        }
+
+        /// <summary>Union by normalized trip #; prefer header-aware row when both parsers yield the same trip.</summary>
+        public static List<MCDownloadedTrip> ParseDownloadTextMerged(string data)
+        {
+            var modern = ParseDownloadText(data);
+            var legacy = ParseLegacyQuotedSplit(data);
+            return MergeTripLists(modern, legacy);
+        }
+
+        internal static List<MCDownloadedTrip> MergeTripLists(
+            IReadOnlyList<MCDownloadedTrip> primary,
+            IReadOnlyList<MCDownloadedTrip> fallback)
+        {
+            var byTrip = new Dictionary<string, MCDownloadedTrip>(StringComparer.OrdinalIgnoreCase);
+            if (fallback != null)
+            {
+                foreach (MCDownloadedTrip trip in fallback)
+                {
+                    string key = NormalizeTripKey(trip?.TripNumber);
+                    if (key.Length == 0)
+                        continue;
+                    byTrip[key] = trip;
+                }
+            }
+
+            if (primary != null)
+            {
+                foreach (MCDownloadedTrip trip in primary)
+                {
+                    string key = NormalizeTripKey(trip?.TripNumber);
+                    if (key.Length == 0)
+                        continue;
+                    byTrip[key] = trip;
+                }
+            }
+
+            return new List<MCDownloadedTrip>(byTrip.Values);
+        }
+
+        internal static string NormalizeTripKey(string tripNumber)
+        {
+            return WellRydeFilterDataParser.FormatTripIdForScheduleMatch((tripNumber ?? "").Replace(" ", ""));
+        }
+
         private static bool TryParseTrip(
             IReadOnlyList<string> fields,
             Dictionary<string, int> headerMap,
@@ -60,12 +154,9 @@ namespace Hiatme_Tool_Suite_v3
             if (string.IsNullOrWhiteSpace(tripNumber))
                 return false;
 
-            // Header / junk rows sometimes match trip # pattern loosely — require a service date.
             string date = FirstNonEmpty(
                 FieldByHeader(headerMap, fields, "date of service", "service date", "trip date", "date"),
                 Get(fields, 2));
-            if (string.IsNullOrWhiteSpace(date))
-                return false;
 
             trip = new MCDownloadedTrip
             {
@@ -162,8 +253,15 @@ namespace Hiatme_Tool_Suite_v3
             foreach (var needle in headerNeedles)
             {
                 string key = NormalizeHeader(needle);
+                if (key.Length == 0)
+                    continue;
+
                 if (headerMap.TryGetValue(key, out int exact))
                     return Get(fields, exact);
+
+                // Avoid matching bare "date" to the wrong column; multi-word needles only.
+                if (!key.Contains(" ") || key.Length < 5)
+                    continue;
 
                 foreach (var kv in headerMap)
                 {

@@ -182,6 +182,7 @@
     <Compile Include="ScheduleBuilderGroupHeaderRestore.cs" />
     <Compile Include="ScheduleBuilderGroupHeaderReconcile.cs" />
     <Compile Include="ScheduleBuilderPreviewCsvExport.cs" />
+    <Compile Include="ScheduleBuilderTabOrder.cs" />
     <Compile Include="ScheduleBuilderPreviewStyle.cs" />
     <Compile Include="ScheduleBuilderExcelWorkbookColors.cs" />
     <Compile Include="ScheduleBuilderPreviewDrag.cs" />

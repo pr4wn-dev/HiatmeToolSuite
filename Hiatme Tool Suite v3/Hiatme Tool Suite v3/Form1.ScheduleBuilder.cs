@@ -50,6 +50,30 @@ namespace Hiatme_Tool_Suite_v3
 
         private List<string> _fsDriverTabOrder = new List<string>();
 
+        private SupeyButton _fsTabReorderButton;
+
+        private string _fsTabReorderSourceName;
+
+        private Point _fsTabReorderStartScreen;
+
+        private int _fsTabReorderFromIndex = -1;
+
+        private int _fsTabReorderInsertIndex = -1;
+
+        private bool _fsTabReorderDragging;
+
+        private bool _fsDriverTabSuppressClick;
+
+        private SupeyButton _fsTabReorderGhost;
+
+        private Panel _fsTabReorderSpacer;
+
+        private Point _fsTabReorderGhostOffset;
+
+        private int _fsTabReorderGhostAnchorScreenY;
+
+        private int _fsTabReorderVisualGapIndex = -1;
+
         private string _fsActiveDriverTab;
 
         private SupeyListView _fsTripsLv;
@@ -789,7 +813,7 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-        private void RebuildFsDriverTabs(IReadOnlyList<string> tabNames)
+        private void RebuildFsDriverTabs(IReadOnlyList<string> tabNames = null)
 
         {
 
@@ -801,7 +825,8 @@ namespace Hiatme_Tool_Suite_v3
 
             _fsDriverTabButtons.Clear();
 
-            _fsDriverTabOrder = tabNames?.ToList() ?? new List<string>();
+            if (tabNames != null)
+                _fsDriverTabOrder = tabNames.ToList();
 
 
 
@@ -830,6 +855,7 @@ namespace Hiatme_Tool_Suite_v3
                 };
 
                 btn.Click += FsDriverTabButton_Click;
+                btn.MouseDown += FsDriverTabButton_MouseDown_Reorder;
 
                 _fsDriverTabButtons[name] = btn;
 
@@ -848,6 +874,12 @@ namespace Hiatme_Tool_Suite_v3
         private void FsDriverTabButton_Click(object sender, EventArgs e)
 
         {
+
+            if (_fsDriverTabSuppressClick)
+            {
+                _fsDriverTabSuppressClick = false;
+                return;
+            }
 
             if (sender is SupeyButton btn && btn.Tag is string name)
 
@@ -1878,6 +1910,9 @@ namespace Hiatme_Tool_Suite_v3
             if (fsbuilder == null)
                 return;
 
+            if (_fsDriverTabOrder != null && _fsDriverTabOrder.Count > 0)
+                fsbuilder.SetTabOrder(_fsDriverTabOrder);
+
             fsbuilder.PreviewCsvExportOptions = MakeFsPreviewCsvExportOptions();
             fsbuilder.ExportPreviewCsvs(_fsLinesByTab);
         }
@@ -1904,7 +1939,9 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-            var driverNames = builder.PreviewDriverLines.Keys.OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
+            var driverNames = ScheduleBuilderTabOrder.OrderDriverNames(
+                builder.PreviewDriverLines.Keys,
+                builder.TabOrder);
 
             foreach (var name in driverNames)
 
@@ -1936,21 +1973,24 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-            var tabNames = new[] { "Reserves" }.Concat(driverNames).ToList();
+            var tabNames = ScheduleBuilderTabOrder.NormalizeFullTabOrder(
+                builder.TabOrder?.Count > 0 ? builder.TabOrder : null,
+                _fsLinesByTab.Keys);
 
             RebuildFsDriverTabs(tabNames);
 
             _fsFocusFirstGroupAfterPreviewBind = true;
             _fsCenterMaineAfterBuild = true;
 
-            // First driver tab (right of Reserves) so the map loads route groups, not an empty reserves view.
-            if (driverNames.Count > 0)
+            // First driver tab so the map loads route groups, not an empty reserves view.
+            var firstDriver = driverNames.FirstOrDefault();
+            if (!string.IsNullOrWhiteSpace(firstDriver))
 
-                SelectFsDriverTab(driverNames[0]);
+                SelectFsDriverTab(firstDriver);
 
             else if (tabNames.Count > 0)
 
-                SelectFsDriverTab("Reserves");
+                SelectFsDriverTab(tabNames[0]);
 
             else
 

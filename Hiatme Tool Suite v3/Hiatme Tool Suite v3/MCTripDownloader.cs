@@ -20,6 +20,9 @@ namespace Hiatme_Tool_Suite_v3
         public string Year { get; set; }
         public bool InvalidDate { get; set; }
 
+        /// <summary>Trip IDs sent in the last Full Delimited download POST (from MC calendar textarea).</summary>
+        public int LastRequestedTripIdCount { get; private set; }
+
         int calsearchfails = 0;
         bool previousdayschecked = false;
         // Set to true by inner methods if a deeper retry has already happened in this call chain so we don't loop forever.
@@ -267,6 +270,7 @@ namespace Hiatme_Tool_Suite_v3
         }
         private async Task SubmitTripDownloadRequest(string[] trips)
         {
+            LastRequestedTripIdCount = trips?.Length ?? 0;
             string separator = " ";
 
             string tripids = String.Join(separator, trips);
@@ -294,8 +298,14 @@ namespace Hiatme_Tool_Suite_v3
         }
         public void BuildTripObjects(string data)
         {
-            MCTripList = ModivcareDelimitedTripParser.ParseDownloadText(data);
-            Console.WriteLine("Modivcare Downloaded Trips: " + MCTripList.Count.ToString());
+            var modern = ModivcareDelimitedTripParser.ParseDownloadText(data);
+            var legacy = ModivcareDelimitedTripParser.ParseLegacyQuotedSplit(data);
+            MCTripList = ModivcareDelimitedTripParser.MergeTripLists(modern, legacy);
+            Console.WriteLine(
+                "Modivcare Downloaded Trips: " + MCTripList.Count
+                + " (requested IDs: " + LastRequestedTripIdCount
+                + ", header-parser: " + modern.Count
+                + ", legacy-parser: " + legacy.Count + ")");
         }
         private static List<string> ExtractFromBody(string body, string start, string end)
         {
