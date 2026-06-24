@@ -1882,7 +1882,7 @@ namespace Hiatme_Tool_Suite_v3
                 ApplyProductionVisualTheme();
                 ApplyCameraVisualTheme(layout: false);
                 ApplyLoadingOverlayTheme();
-                InvalidateToolTabListViews();
+                SupeyListViewHelpers.RefreshThemeColors(this);
                 Invalidate(true);
             }
             catch
@@ -9002,11 +9002,7 @@ namespace Hiatme_Tool_Suite_v3
 
         private void InvalidateToolTabListViews()
         {
-            foreach (var lv in new ListView[] { billinglistview, tctripcorrectlv, tcbatchelinkslv, templatelv, aalv, tslv, listView1 })
-            {
-                if (lv == null || lv.IsDisposed) continue;
-                lv.Invalidate(true);
-            }
+            SupeyListViewHelpers.RefreshThemeColors(this);
         }
 
         private void listView_DrawColumnHeader(object sender, DrawListViewColumnHeaderEventArgs e)

@@ -31,7 +31,7 @@ namespace Hiatme_Tool_Suite_v3
         private static readonly Color ListAlreadyAdded = Color.FromArgb(58, 70, 58); // muted green tint
         private static Color ListText => SupeyTheme.ListText;
         private static Color ListSelectedText => SupeyTheme.ListSelectedText;
-        private static Color ListTextDim => Color.FromArgb(170, 170, 170);
+        private static Color ListTextDim => SupeyTheme.TextMuted;
         // Owner-draw mode shortcuts the framework's GridLines rendering, so we paint cell
         // borders ourselves; pulled to the unified SupeyTheme.ListGrid so the
         // weight matches the Supey tab.

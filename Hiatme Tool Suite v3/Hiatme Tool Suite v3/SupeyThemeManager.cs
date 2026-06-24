@@ -20,6 +20,9 @@ namespace Hiatme_Tool_Suite_v3
         public const int ThemesPerLevel = SupeyThemeGenerator.ThemesPerLevel;
 
         private static SupeyThemePalette _current = BuildBlackLime();
+        private const int PaletteGeneratorVersion = 2;
+        private static int _cachedGeneratorVersion;
+
         private static readonly Dictionary<string, SupeyThemePalette> GeneratedCache =
             new Dictionary<string, SupeyThemePalette>(StringComparer.OrdinalIgnoreCase);
 
@@ -72,6 +75,12 @@ namespace Hiatme_Tool_Suite_v3
 
         public static SupeyThemePalette GetGenerated(int level, int index)
         {
+            if (_cachedGeneratorVersion != PaletteGeneratorVersion)
+            {
+                GeneratedCache.Clear();
+                _cachedGeneratorVersion = PaletteGeneratorVersion;
+            }
+
             string key = ThemeKey(level, index);
             if (!GeneratedCache.TryGetValue(key, out var palette))
             {
@@ -197,6 +206,12 @@ namespace Hiatme_Tool_Suite_v3
                 Name = "Black & Lime",
                 Level = 0,
                 LoginBackgroundKey = "classic-black-lime",
+                TextPrimary = Color.FromArgb(230, 235, 222),
+                TextSecondary = Color.FromArgb(176, 184, 162),
+                TextMuted = Color.FromArgb(128, 136, 114),
+                ListText = Color.FromArgb(216, 226, 200),
+                ListHeaderText = Color.FromArgb(188, 198, 168),
+                ListSelectedText = Color.FromArgb(248, 252, 238),
                 ListGridLine = Color.FromArgb(47, 47, 47),
             };
         }

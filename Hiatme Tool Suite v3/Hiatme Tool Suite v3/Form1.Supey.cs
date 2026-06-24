@@ -3359,7 +3359,7 @@ namespace Hiatme_Tool_Suite_v3
                 else if (e.ColumnIndex == 0 && e.SubItem.ForeColor != Color.Empty)
                     textColor = e.SubItem.ForeColor;
                 else if (routeHeader)
-                    textColor = Color.FromArgb(235, 235, 220);
+                    textColor = SupeyLvHeaderText;
             }
 
             Font drawFont = routeHeader && e.ColumnIndex == 2 && _supeyPreviewRouteFont != null

@@ -21,7 +21,7 @@ namespace Hiatme_Tool_Suite_v3
         private static Color ListSelected => SupeyTheme.ListSelected;
         private static Color ListText => SupeyTheme.ListText;
         private static Color ListSelectedText => SupeyTheme.ListSelectedText;
-        private static Color ListTextDim => Color.FromArgb(150, 150, 150);
+        private static Color ListTextDim => SupeyTheme.TextMuted;
 
         private readonly List<ScheduleEmailRecipientEntry> _allRecipients;
         private bool _suppressRecipientCheckEvents;

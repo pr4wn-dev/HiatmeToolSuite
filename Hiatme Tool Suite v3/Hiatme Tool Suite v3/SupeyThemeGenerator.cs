@@ -59,13 +59,34 @@ namespace Hiatme_Tool_Suite_v3
             bool lightSurfaces = surfaceBase.GetBrightness() > 0.42;
             Color textPrimary = lightSurfaces
                 ? FromHsl(hue, 0.25, 0.12)
-                : FromHsl(hue, 0.08, 0.88 + chaos * 0.08);
+                : FromHsl(hue, 0.18 + chaos * 0.32, 0.86 + chaos * 0.08);
             Color textSecondary = lightSurfaces
                 ? FromHsl(hue, 0.18, 0.22)
-                : FromHsl(hue, 0.1, 0.68);
+                : FromHsl(hue, 0.14 + chaos * 0.28, 0.66 + chaos * 0.04);
             Color textMuted = lightSurfaces
                 ? FromHsl(hue, 0.12, 0.32)
-                : FromHsl(hue, 0.08, 0.48);
+                : FromHsl(hue, 0.1 + chaos * 0.2, 0.48 + chaos * 0.06);
+
+            // List ink uses listHue + accent so row text visibly shifts per theme (not neutral gray).
+            double listTextSat = 0.32 + chaos * 0.48;
+            double listTextLit = lightSurfaces ? 0.14 : (0.68 + chaos * 0.12);
+            Color listText = FromHsl(listHue, listTextSat, listTextLit);
+            if (chaos > 0.35)
+            {
+                Color accentInk = FromHsl(accentHue, 0.55 + chaos * 0.35, listTextLit + 0.08);
+                listText = Blend(listText, accentInk, Math.Min(1d, (chaos - 0.35) * 1.2));
+            }
+
+            Color listHeaderText = lightSurfaces
+                ? FromHsl(accentHue, 0.38 + chaos * 0.2, 0.24)
+                : Blend(
+                    FromHsl(accentHue, 0.45 + chaos * 0.4, 0.58 + chaos * 0.18),
+                    FromHsl(listHue, 0.25, 0.72),
+                    0.35);
+            Color listSelectedText = ContrastOn(
+                listSelected,
+                FromHsl(accentHue, 0.08, 0.98),
+                FromHsl(accentHue, 0.35, 0.08));
 
             ApplyTypography(level, chaos, index, out Font headerFont, out Font subHeaderFont,
                 out Font bodyFont, out Font captionFont, out Font monoFont,
@@ -99,12 +120,12 @@ namespace Hiatme_Tool_Suite_v3
                 ListBody = listBody,
                 ListBodyAlt = listBodyAlt,
                 ListHeader = listHeader,
-                ListHeaderText = textSecondary,
+                ListHeaderText = listHeaderText,
                 ListGrid = listGrid,
                 ListGridLine = Color.Empty,
                 ListSelected = listSelected,
-                ListSelectedText = textPrimary,
-                ListText = textPrimary,
+                ListSelectedText = listSelectedText,
+                ListText = listText,
                 HeaderFont = headerFont,
                 SubHeaderFont = subHeaderFont,
                 BodyFont = bodyFont,
@@ -212,6 +233,18 @@ namespace Hiatme_Tool_Suite_v3
                 (int)(a.G * amountA + b.G * amountB),
                 (int)(a.B * amountA + b.B * amountB));
         }
+
+        /// <summary>Pick light or dark ink that reads best on <paramref name="background"/>.</summary>
+        private static Color ContrastOn(Color background, Color light, Color dark)
+        {
+            double bg = RelativeLuminance(background);
+            double dLight = Math.Abs(RelativeLuminance(light) - bg);
+            double dDark = Math.Abs(RelativeLuminance(dark) - bg);
+            return dLight >= dDark ? light : dark;
+        }
+
+        private static double RelativeLuminance(Color c)
+            => (0.2126 * c.R + 0.7152 * c.G + 0.0722 * c.B) / 255.0;
 
         private static double Clamp(double v, double min, double max)
             => v < min ? min : v > max ? max : v;

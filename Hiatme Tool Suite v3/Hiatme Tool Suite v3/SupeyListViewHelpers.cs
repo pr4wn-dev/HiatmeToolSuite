@@ -542,6 +542,25 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        /// <summary>
+        /// Re-assert list ink and repaint every ListView under <paramref name="root"/> after a theme switch.
+        /// Owner-draw handlers read live <see cref="SupeyTheme"/> at paint time; this sets ForeColor and
+        /// invalidates so non-owner-draw paths and headers refresh too.
+        /// </summary>
+        public static void RefreshThemeColors(Control root)
+        {
+            if (root == null || root.IsDisposed) return;
+
+            if (root is ListView lv)
+            {
+                lv.ForeColor = SupeyTheme.ListText;
+                lv.Invalidate(true);
+            }
+
+            foreach (Control child in root.Controls)
+                RefreshThemeColors(child);
+        }
+
         [DllImport("user32.dll", CharSet = CharSet.Auto)]
         private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
     }
