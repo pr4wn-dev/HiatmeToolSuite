@@ -283,9 +283,22 @@ namespace Hiatme_Tool_Suite_v3
                 e.Graphics.DrawLine(pen, e.Bounds.Right - 1, e.Bounds.Top, e.Bounds.Right - 1, e.Bounds.Bottom - 1);
             }
             var rect = new Rectangle(e.Bounds.Left + 6, e.Bounds.Top, e.Bounds.Width - 6, e.Bounds.Height);
+            TextFormatFlags align = TextFormatFlags.Left;
+            if (e.Header != null)
+            {
+                switch (e.Header.TextAlign)
+                {
+                    case HorizontalAlignment.Right:
+                        align = TextFormatFlags.Right;
+                        break;
+                    case HorizontalAlignment.Center:
+                        align = TextFormatFlags.HorizontalCenter;
+                        break;
+                }
+            }
             TextRenderer.DrawText(e.Graphics, e.Header?.Text ?? "", ListViewOwnerDrawFonts.Header, rect,
                 SupeyTheme.ListHeaderText,
-                TextFormatFlags.Left | TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter);
+                align | TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter);
         }
 
         /// <summary>

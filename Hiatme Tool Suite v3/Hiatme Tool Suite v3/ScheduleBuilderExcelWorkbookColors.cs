@@ -153,6 +153,45 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        /// <summary>Right-align PU time (G) and DO time (K) on every worksheet.</summary>
+        public static void ApplyTripGridTimeColumnAlignment(Workbook workbook)
+        {
+            if (workbook?.Worksheets == null)
+                return;
+
+            int count = workbook.Worksheets.Count;
+            for (int i = 1; i <= count; i++)
+            {
+                Worksheet worksheet = null;
+                try
+                {
+                    worksheet = (Worksheet)workbook.Worksheets[i];
+                    AlignWorksheetColumnRight(worksheet, 7);  // G PU time
+                    AlignWorksheetColumnRight(worksheet, 11); // K DO time
+                }
+                finally
+                {
+                    if (worksheet != null)
+                        Marshal.ReleaseComObject(worksheet);
+                }
+            }
+        }
+
+        private static void AlignWorksheetColumnRight(Worksheet worksheet, int columnIndex1Based)
+        {
+            Range column = null;
+            try
+            {
+                column = (Range)worksheet.Columns[columnIndex1Based];
+                column.HorizontalAlignment = XlHAlign.xlHAlignRight;
+            }
+            finally
+            {
+                if (column != null)
+                    Marshal.ReleaseComObject(column);
+            }
+        }
+
         private static void ApplyMergeBar(
             Worksheet worksheet,
             ScheduleBuilderPreviewCsvExport.WorkbookTab.RowMergeBar bar)

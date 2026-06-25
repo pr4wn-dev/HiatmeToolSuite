@@ -30,6 +30,14 @@ namespace Hiatme_Tool_Suite_v3
             new ColumnMap { ListViewIndex = 11, ExcelIndex = 13 }, // N Comments
         };
 
+        /// <summary>Trips ListView column indices for PU / DO time.</summary>
+        public static bool IsTripsListTimeColumn(int listViewColumnIndex)
+            => listViewColumnIndex == 4 || listViewColumnIndex == 7;
+
+        /// <summary>Workbook trip-grid column indices for PU (G) / DO (K) time.</summary>
+        public static bool IsWorkbookTimeColumn(int excelColumnIndex)
+            => excelColumnIndex == 6 || excelColumnIndex == 10;
+
         /// <summary>Excel A–N widths in character units from the trips ListView (null if list missing).</summary>
         public static double[] CaptureFromTripsListView(ListView lv)
         {

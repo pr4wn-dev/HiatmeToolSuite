@@ -1567,6 +1567,7 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     ScheduleBuilderExcelWorkbookColors.ApplyTabColors(newWorkbook, workbookTabs);
                     ScheduleBuilderExcelWorkbookColors.ApplyColumnWidthsFromTabs(newWorkbook, workbookTabs, WorkbookColumnWidths);
+                    ScheduleBuilderExcelWorkbookColors.ApplyTripGridTimeColumnAlignment(newWorkbook);
                 }
                 else
                     ScheduleBuilderExcelWorkbookColors.AutoFitAllWorksheets(newWorkbook);

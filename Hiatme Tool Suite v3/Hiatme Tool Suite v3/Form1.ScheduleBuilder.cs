@@ -1172,11 +1172,25 @@ namespace Hiatme_Tool_Suite_v3
 
                 : _fsTripsLv.Font;
 
+            TextFormatFlags align = TextFormatFlags.Left;
+            if (e.ColumnIndex >= 0 && e.ColumnIndex < _fsTripsLv.Columns.Count)
+            {
+                switch (_fsTripsLv.Columns[e.ColumnIndex].TextAlign)
+                {
+                    case HorizontalAlignment.Right:
+                        align = TextFormatFlags.Right;
+                        break;
+                    case HorizontalAlignment.Center:
+                        align = TextFormatFlags.HorizontalCenter;
+                        break;
+                }
+            }
+
             TextRenderer.DrawText(e.Graphics,
                 SupeyListViewHelpers.GetCellDisplayText(_fsTripsLv, e.ColumnIndex, e.SubItem?.Text ?? ""),
                 drawFont, bounds, textColor,
 
-                TextFormatFlags.Left | TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter
+                align | TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter
 
                 | TextFormatFlags.WordEllipsis | TextFormatFlags.GlyphOverhangPadding);
 
@@ -1404,6 +1418,9 @@ namespace Hiatme_Tool_Suite_v3
             _fsTripsLv.Columns.Add("Miles", 42);
 
             _fsTripsLv.Columns.Add("Comments", 130);
+
+            _fsTripsLv.Columns[4].TextAlign = HorizontalAlignment.Right;  // PU Time
+            _fsTripsLv.Columns[7].TextAlign = HorizontalAlignment.Right;  // DO Time
 
         }
 

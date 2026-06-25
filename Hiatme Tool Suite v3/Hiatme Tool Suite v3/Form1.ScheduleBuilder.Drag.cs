@@ -523,8 +523,21 @@ namespace Hiatme_Tool_Suite_v3
                 text = grp.GroupNumber.ToString();
 
             var textRect = new Rectangle(cellBounds.Left + 6, cellBounds.Top, cellBounds.Width - 8, cellBounds.Height);
+            TextFormatFlags align = TextFormatFlags.Left;
+            if (columnIndex >= 0 && columnIndex < _fsTripsLv.Columns.Count)
+            {
+                switch (_fsTripsLv.Columns[columnIndex].TextAlign)
+                {
+                    case HorizontalAlignment.Right:
+                        align = TextFormatFlags.Right;
+                        break;
+                    case HorizontalAlignment.Center:
+                        align = TextFormatFlags.HorizontalCenter;
+                        break;
+                }
+            }
             TextRenderer.DrawText(g, text, _fsTripsLv.Font, textRect, SupeyTheme.ListText,
-                TextFormatFlags.Left | TextFormatFlags.VerticalCenter
+                align | TextFormatFlags.VerticalCenter
                 | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine);
 
             SupeyListViewHelpers.DrawCellGridLines(g, cellBounds, _fsTripsLv);

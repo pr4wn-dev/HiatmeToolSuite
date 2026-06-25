@@ -462,12 +462,20 @@ namespace Hiatme_Tool_Suite_v3
             sb.Append("</fills>");
             sb.Append("<borders count=\"1\"><border/></borders>");
             sb.Append("<cellStyleXfs count=\"1\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\"/></cellStyleXfs>");
-            sb.Append("<cellXfs count=\"").Append(colors.Count).Append("\">");
+            sb.Append("<cellXfs count=\"").Append(colors.Count * 2).Append("\">");
             for (int i = 0; i < colors.Count; i++)
             {
                 sb.Append("<xf numFmtId=\"0\" fontId=\"0\" fillId=\"");
                 sb.Append(i);
                 sb.Append("\" borderId=\"0\" xfId=\"0\" applyFill=\"1\"/>");
+            }
+            for (int i = 0; i < colors.Count; i++)
+            {
+                sb.Append("<xf numFmtId=\"0\" fontId=\"0\" fillId=\"");
+                sb.Append(i);
+                sb.Append("\" borderId=\"0\" xfId=\"0\" applyFill=\"1\" applyAlignment=\"1\">");
+                sb.Append("<alignment horizontal=\"right\"/>");
+                sb.Append("</xf>");
             }
             sb.Append("</cellXfs>");
             sb.Append("</styleSheet>");
@@ -479,6 +487,15 @@ namespace Hiatme_Tool_Suite_v3
             return string.Format("{0:X2}{1:X2}{2:X2}", color.R, color.G, color.B);
         }
 
+        private static int StyleIndexForCell(int baseStyle, int columnIndex, int fillStyleCount)
+        {
+            if (fillStyleCount <= 0 || baseStyle < 0 || baseStyle >= fillStyleCount)
+                return baseStyle;
+            if (ScheduleBuilderListViewColumnWidths.IsWorkbookTimeColumn(columnIndex))
+                return baseStyle + fillStyleCount;
+            return baseStyle;
+        }
+
         private static string BuildWorksheetXml(
             IReadOnlyList<List<string>> rows,
             IReadOnlyDictionary<(int Row, int Col), Color> fills,
@@ -488,6 +505,8 @@ namespace Hiatme_Tool_Suite_v3
             int defaultStyle,
             double[] preferredColumnWidths = null)
         {
+            int fillStyleCount = colorToStyle?.Count ?? 0;
+
             var mergeByRow = new Dictionary<int, ScheduleBuilderPreviewCsvExport.WorkbookTab.RowMergeBar>();
             if (mergeBars != null)
             {
@@ -531,10 +550,11 @@ namespace Hiatme_Tool_Suite_v3
                             continue;
 
                         string metaRef = IndexToColumnLetters(c + 1) + (r + 1);
+                        int metaStyle = StyleIndexForCell(defaultStyle, c, fillStyleCount);
                         rowEl.Add(new XElement(Ns + "c",
                             new XAttribute("r", metaRef),
                             new XAttribute("t", "s"),
-                            new XAttribute("s", defaultStyle),
+                            new XAttribute("s", metaStyle),
                             new XElement(Ns + "v", sharedIndex[metaValue])));
                     }
                 }
@@ -554,6 +574,8 @@ namespace Hiatme_Tool_Suite_v3
                             && fills.TryGetValue((r, c), out Color fillColor)
                             && colorToStyle.TryGetValue(NormalizeColor(fillColor), out int styleIdx))
                             style = styleIdx;
+
+                        style = StyleIndexForCell(style, c, fillStyleCount);
 
                         rowEl.Add(new XElement(Ns + "c",
                             new XAttribute("r", cellRef),
