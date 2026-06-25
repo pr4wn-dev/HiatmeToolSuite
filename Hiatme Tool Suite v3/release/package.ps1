@@ -4,29 +4,31 @@
   https://hiatme.com/downloads/hiatme-tool-suite/
 
 .DESCRIPTION
-  1. Reads the current AssemblyVersion from
-     "Hiatme Tool Suite v3\Properties\AssemblyInfo.cs".
-  2. Builds the solution in Release.
+  1. Reads the current AssemblyVersion from Properties\AssemblyInfo.cs.
+  2. Builds the solution in Release (unless -SkipBuild).
   3. Bundles bin\Release of both projects (main app + Update.exe) into
      HiatmeToolSuite-<version>.zip in this folder.
 
-  After running, upload the produced HiatmeToolSuite-X.Y.Z.W.zip into the
-  /downloads/hiatme-tool-suite/ folder on hiatme.com along with this folder's
-  latest.php (once). Optionally drop a HiatmeToolSuite-X.Y.Z.W.md beside the
-  zip with release notes; latest.php will surface them in the desktop update
-  prompt.
+  AppOnly (default) omits Resources\login_backgrounds (~450 MB of PNGs). Existing
+  installs keep their backgrounds; the updater only overwrites files in the zip.
+  Use -PackageMode Full when login art changed or for a first-install bundle.
 
-  IMPORTANT: bump AssemblyVersion before running this script. The desktop
-  client compares the manifest version against the running build AssemblyVersion -
-  if they are equal the user will (correctly) be told they are already up to date.
+.PARAMETER PackageMode
+  AppOnly — exe, dlls, configs, Update.exe (~15 MB). Default for routine updates.
+  Full    — everything in bin\Release including login_backgrounds (~470 MB).
 
 .PARAMETER ReleaseNotes
-  Optional inline release notes string. If supplied, it is written to
-  HiatmeToolSuite-<version>.md next to the zip.
+  Optional inline release notes string. Written to HiatmeToolSuite-<version>.md.
+
+.PARAMETER SkipBuild
+  Skip MSBuild; stage from an existing Release output (must already be built).
 #>
 
 param(
-    [string]$ReleaseNotes
+    [ValidateSet('AppOnly', 'Full')]
+    [string]$PackageMode = 'AppOnly',
+    [string]$ReleaseNotes,
+    [switch]$SkipBuild
 )
 
 $ErrorActionPreference = 'Stop'
@@ -51,20 +53,79 @@ $ver = $m.Groups[1].Value
 if ($ver -notmatch '^\d+\.\d+\.\d+\.\d+$') {
     throw "AssemblyVersion is '$ver'. Use a fixed 4-part version like 1.0.1.0 - wildcards are not allowed for releases."
 }
-Write-Host "Packaging Hiatme Tool Suite v$ver"
+Write-Host "Packaging Hiatme Tool Suite v$ver ($PackageMode)"
 
-# -- locate MSBuild
-$vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-if (-not (Test-Path $vswhere)) { $vswhere = "${env:ProgramFiles}\Microsoft Visual Studio\Installer\vswhere.exe" }
-if (-not (Test-Path $vswhere)) { throw "vswhere.exe not found. Install Visual Studio 2019/2022 or pass -MSBuild path." }
-$msbuild = & $vswhere -latest -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
-if (-not $msbuild) { throw "MSBuild not found via vswhere." }
-Write-Host "Using MSBuild: $msbuild"
+# Dev/user folders that must never ship even in Full packages.
+$alwaysExcludeTopDirs = @(
+    'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday',
+    'Template Temps'
+)
 
-# -- build Release
-Write-Host "Building solution (Release)..."
-& $msbuild $solution /t:Restore,Build /p:Configuration=Release /v:minimal /nologo
-if ($LASTEXITCODE -ne 0) { throw "MSBuild failed with exit code $LASTEXITCODE" }
+function Get-RelativePath([string]$root, [string]$fullPath) {
+    $rel = $fullPath.Substring($root.Length).TrimStart('\', '/')
+    return $rel -replace '/', '\'
+}
+
+function Test-ExcludedFromPackage([string]$relativePath) {
+    if ([string]::IsNullOrWhiteSpace($relativePath)) { return $false }
+    $rel = $relativePath -replace '/', '\'
+    $top = ($rel -split '\\')[0]
+    if ($alwaysExcludeTopDirs -contains $top) { return $true }
+    if ($PackageMode -eq 'Full') { return $false }
+    if ($rel -match '^Resources\\login_backgrounds(\\|$)') { return $true }
+    return $false
+}
+
+function Copy-ReleaseTree([string]$srcRoot, [string]$dstRoot) {
+    $srcRoot = $srcRoot.TrimEnd('\')
+    foreach ($dir in [System.IO.Directory]::EnumerateDirectories($srcRoot, '*', [System.IO.SearchOption]::AllDirectories)) {
+        $rel = Get-RelativePath $srcRoot $dir
+        if (Test-ExcludedFromPackage $rel) { continue }
+        $target = Join-Path $dstRoot $rel
+        if (-not (Test-Path $target)) {
+            New-Item -ItemType Directory -Path $target -Force | Out-Null
+        }
+    }
+    foreach ($file in [System.IO.Directory]::EnumerateFiles($srcRoot, '*', [System.IO.SearchOption]::AllDirectories)) {
+        $rel = Get-RelativePath $srcRoot $file
+        if (Test-ExcludedFromPackage $rel) { continue }
+        $target = Join-Path $dstRoot $rel
+        $targetDir = Split-Path $target -Parent
+        if (-not (Test-Path $targetDir)) {
+            New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+        }
+        Copy-Item -Path $file -Destination $target -Force
+    }
+}
+
+function Find-MsBuild {
+    $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+    if (-not (Test-Path $vswhere)) { $vswhere = "${env:ProgramFiles}\Microsoft Visual Studio\Installer\vswhere.exe" }
+    if (Test-Path $vswhere) {
+        $found = & $vswhere -latest -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
+        if ($found) { return $found }
+    }
+    $candidates = @(
+        "${env:ProgramFiles}\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe",
+        "${env:ProgramFiles}\Microsoft Visual Studio\2022\Professional\MSBuild\Current\Bin\MSBuild.exe",
+        "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe"
+    )
+    foreach ($c in $candidates) {
+        if (Test-Path $c) { return $c }
+    }
+    return $null
+}
+
+if (-not $SkipBuild) {
+    $msbuild = Find-MsBuild
+    if (-not $msbuild) { throw "MSBuild not found. Install VS 2022 Build Tools or pass -SkipBuild." }
+    Write-Host "Using MSBuild: $msbuild"
+    Write-Host "Building solution (Release)..."
+    & $msbuild $solution /t:Restore,Build /p:Configuration=Release /v:minimal /nologo
+    if ($LASTEXITCODE -ne 0) { throw "MSBuild failed with exit code $LASTEXITCODE" }
+} else {
+    Write-Host "Skipped build (-SkipBuild)."
+}
 
 if (-not (Test-Path $mainRelease)) { throw "Main app Release output missing: $mainRelease" }
 if (-not (Test-Path $updRelease))  { throw "Update.exe Release output missing: $updRelease"  }
@@ -73,26 +134,19 @@ if (-not (Test-Path $updRelease))  { throw "Update.exe Release output missing: $
 $staging = Join-Path $env:TEMP "HiatmeToolSuitePkg_$(Get-Date -Format yyyyMMddHHmmss)"
 New-Item -ItemType Directory -Path $staging | Out-Null
 try {
-    Write-Host "Staging main app..."
-    # Copy everything from bin\Release EXCEPT user-data subfolders that may have leaked into a dev build.
-    # (Templates and login files are not put there by the app, but the safety net costs nothing.)
-    $excludeDirs = @(
-        'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday',
-        'Template Temps'
-    )
-    Get-ChildItem -Path $mainRelease -Force | ForEach-Object {
-        if ($_.PSIsContainer -and ($excludeDirs -contains $_.Name)) { return }
-        Copy-Item -Path $_.FullName -Destination $staging -Recurse -Force
+    Write-Host "Staging main app ($PackageMode)..."
+    if ($PackageMode -eq 'AppOnly') {
+        Write-Host "  (skipping Resources\login_backgrounds - existing installs keep their PNGs)"
     }
+    Copy-ReleaseTree $mainRelease $staging
 
     Write-Host "Staging Update.exe..."
-    Copy-Item -Path (Join-Path $updRelease 'Update.exe')        -Destination $staging -Force
+    Copy-Item -Path (Join-Path $updRelease 'Update.exe') -Destination $staging -Force
     $updPdb = Join-Path $updRelease 'Update.pdb'
     if (Test-Path $updPdb) { Copy-Item -Path $updPdb -Destination $staging -Force }
     $updCfg = Join-Path $updRelease 'Update.exe.config'
     if (Test-Path $updCfg) { Copy-Item -Path $updCfg -Destination $staging -Force }
 
-    # -- write zip
     $zipName = "HiatmeToolSuite-$ver.zip"
     $zipPath = Join-Path $scriptDir $zipName
     if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
@@ -100,9 +154,6 @@ try {
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     [System.IO.Compression.ZipFile]::CreateFromDirectory($staging, $zipPath, [System.IO.Compression.CompressionLevel]::Optimal, $false)
 
-    # -- write release notes sidecar
-    # Use explicit UTF8Encoding(false) so we don't emit a BOM. Set-Content -Encoding UTF8 in Windows
-    # PowerShell 5.1 writes a BOM which then shows up as a stray \ufeff at the top of the in-app dialog.
     if ($ReleaseNotes) {
         $mdPath = Join-Path $scriptDir "HiatmeToolSuite-$ver.md"
         $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
@@ -110,18 +161,24 @@ try {
         Write-Host "Wrote release notes: $mdPath"
     }
 
-    # -- show sha256 so the user can sanity-check post-upload
     $sha = (Get-FileHash $zipPath -Algorithm SHA256).Hash.ToLower()
+    $sizeMb = [math]::Round((Get-Item $zipPath).Length / 1MB, 1)
     Write-Host ""
     Write-Host "Done."
+    Write-Host "  Mode  : $PackageMode"
     Write-Host "  Zip   : $zipPath"
-    Write-Host "  Size  : $((Get-Item $zipPath).Length) bytes"
+    Write-Host "  Size  : $sizeMb MB"
     Write-Host "  SHA256: $sha"
     Write-Host ""
     Write-Host "Next steps:"
     Write-Host "  1) Upload $zipName to /downloads/hiatme-tool-suite/ on hiatme.com."
     Write-Host "  2) (Optional) Upload HiatmeToolSuite-$ver.md alongside it for release notes."
-    Write-Host "  3) Make sure latest.php is already deployed in that folder (only once)."
+    if ($PackageMode -eq 'AppOnly') {
+        Write-Host ""
+        Write-Host "AppOnly zip: desks that already have login backgrounds download ~15 MB."
+        Write-Host "New PCs or refreshed art: run .\package.ps1 -PackageMode Full once and upload that zip"
+        Write-Host "when backgrounds change (or hand them the last Full zip for first install)."
+    }
 }
 finally {
     if (Test-Path $staging) { Remove-Item -Path $staging -Recurse -Force -ErrorAction SilentlyContinue }

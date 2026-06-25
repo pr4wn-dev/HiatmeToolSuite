@@ -64,12 +64,27 @@ match what `latest.php` returned, so a man-in-the-middle can't ship arbitrary co
 
 2. **Package**. From a regular PowerShell prompt:
 
+   **Routine update** (exe + dlls only — ~15 MB; skips login background PNGs):
+
    ```powershell
    cd "Hiatme Tool Suite v3\release"
    .\package.ps1 -ReleaseNotes "What's new in 1.0.1.0:`n- Fixed X`n- Improved Y"
    ```
 
-   This will:
+   `AppOnly` is the default. Existing installs already have
+   `Resources\login_backgrounds\`; the updater only overwrites files *in* the zip,
+   so those ~450 MB of PNGs stay on disk.
+
+   **Full package** (includes all login backgrounds — ~470 MB). Use when:
+
+   * Login/theme background art changed, or
+   * You need a zip suitable for a **brand-new PC** that has never had the app.
+
+   ```powershell
+   .\package.ps1 -PackageMode Full -ReleaseNotes "What's new in 1.0.1.0:`n- New login backgrounds"
+   ```
+
+   The script will:
    * Locate MSBuild via `vswhere`.
    * Build the solution in `Release`.
    * Stage `bin\Release` of both `Hiatme Tool Suite v3` and `Update`.
@@ -103,6 +118,7 @@ install directory is left in place. That means:
 | Template Temps working folder       | `<installDir>\Template Temps\`                            |       No |
 | User-added fonts                    | `<installDir>\Fonts\`                                     |  Overwritten only if the new zip ships the same filename |
 | Saved Modivcare / Hiatme creds      | `%LOCALAPPDATA%\Hiatme_Tool_Suite_v3_…\user.config`       |       No |
+| Login background PNGs               | `<installDir>\Resources\login_backgrounds\`              |       No (AppOnly updates omit this folder; existing files remain) |
 | Anything you side-loaded            | Anywhere in `<installDir>` not in the zip                 |       No |
 
 If you ever need to **delete** a stale file in a future release, the cleanest
