@@ -275,7 +275,8 @@ namespace Hiatme_Tool_Suite_v3
 
                 SetScheduleBuilderStatus("Building schedule workbook…");
                 var tabs = ScheduleBuilderPreviewCsvExport.BuildWorkbookTabs(_fsLinesByTab, exportOptions);
-                ScheduleBuilderXlsxWriter.WriteWorkbookFromTabs(attachmentPath, tabs);
+                var colWidths = ScheduleBuilderListViewColumnWidths.CaptureFromTripsListView(_fsTripsLv);
+                ScheduleBuilderXlsxWriter.WriteWorkbookFromTabs(attachmentPath, tabs, colWidths);
 
                 foreach (var item in recipients)
                 {

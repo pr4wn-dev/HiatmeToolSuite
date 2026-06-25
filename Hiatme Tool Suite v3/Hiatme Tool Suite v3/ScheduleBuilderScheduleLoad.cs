@@ -33,6 +33,9 @@ namespace Hiatme_Tool_Suite_v3
 
         /// <summary>Tab order from the loaded workbook or CSV folder (includes Reserves when present).</summary>
         public List<string> TabOrder { get; } = new List<string>();
+
+        /// <summary>Excel A–N column widths from a loaded .xlsx (null for CSV loads).</summary>
+        public double[] WorkbookColumnWidths { get; set; }
     }
 
     /// <summary>Load a previously saved schedule (CSV folder or Excel workbook) into preview/map shape.</summary>
@@ -152,6 +155,7 @@ namespace Hiatme_Tool_Suite_v3
                 }
 
                 result.SourceDescription = workbookPath;
+                result.WorkbookColumnWidths = ScheduleBuilderXlsxReader.ReadTripGridColumnWidths(workbookPath);
                 FinalizeAllTrips(result);
             }
             finally

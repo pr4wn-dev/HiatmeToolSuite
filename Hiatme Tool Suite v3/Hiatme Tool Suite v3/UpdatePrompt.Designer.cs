@@ -54,7 +54,7 @@ namespace Hiatme_Tool_Suite_v3
             this._notesBox.Multiline = true;
             this._notesBox.ReadOnly = true;
             this._notesBox.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
-            this._notesBox.BackColor = System.Drawing.Color.FromArgb(33, 33, 33);
+            this._notesBox.BackColor = Hiatme_Tool_Suite_v3.SupeyTheme.SurfaceElevated;
             this._notesBox.ForeColor = Hiatme_Tool_Suite_v3.SupeyTheme.TextPrimary;
             this._notesBox.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
             this._notesBox.Font = new System.Drawing.Font("Segoe UI", 9F);
@@ -64,7 +64,7 @@ namespace Hiatme_Tool_Suite_v3
             // _progress
             //
             this._progress.Location = new System.Drawing.Point(20, 296);
-            this._progress.Size = new System.Drawing.Size(540, 14);
+            this._progress.Size = new System.Drawing.Size(540, 8);
             //
             // _progressLabel
             //

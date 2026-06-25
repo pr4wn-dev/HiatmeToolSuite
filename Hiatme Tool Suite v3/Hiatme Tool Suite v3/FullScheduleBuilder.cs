@@ -79,6 +79,9 @@ namespace Hiatme_Tool_Suite_v3
         public string Month { get; set; }
         public string Year { get; set; }
 
+        /// <summary>When set, SAVE/export uses these Excel A–N widths (from the trips ListView).</summary>
+        internal double[] WorkbookColumnWidths { get; set; }
+
         /// <summary>When set, SAVE uses this path instead of prompting (e.g. loaded .xlsx).</summary>
         internal string PreferredExportPath { get; set; }
 
@@ -1451,7 +1454,7 @@ namespace Hiatme_Tool_Suite_v3
             if (workbookTabs != null && workbookTabs.Count > 0)
             {
                 await RunWorkbookWriteAsync(path,
-                    () => ScheduleBuilderXlsxWriter.WriteWorkbookFromTabs(path, workbookTabs))
+                    () => ScheduleBuilderXlsxWriter.WriteWorkbookFromTabs(path, workbookTabs, WorkbookColumnWidths))
                     .ConfigureAwait(false);
                 await FinishWorkbookExportAsync(path, openAfterSave).ConfigureAwait(false);
                 return;
@@ -1563,7 +1566,7 @@ namespace Hiatme_Tool_Suite_v3
                 if (workbookTabs != null && workbookTabs.Count > 0)
                 {
                     ScheduleBuilderExcelWorkbookColors.ApplyTabColors(newWorkbook, workbookTabs);
-                    ScheduleBuilderExcelWorkbookColors.ApplyColumnWidthsFromTabs(newWorkbook, workbookTabs);
+                    ScheduleBuilderExcelWorkbookColors.ApplyColumnWidthsFromTabs(newWorkbook, workbookTabs, WorkbookColumnWidths);
                 }
                 else
                     ScheduleBuilderExcelWorkbookColors.AutoFitAllWorksheets(newWorkbook);
@@ -1591,7 +1594,7 @@ namespace Hiatme_Tool_Suite_v3
                 if (workbookTabs != null && workbookTabs.Count > 0)
                 {
                     await RunWorkbookWriteAsync(path,
-                        () => ScheduleBuilderXlsxWriter.WriteWorkbookFromTabs(path, workbookTabs))
+                        () => ScheduleBuilderXlsxWriter.WriteWorkbookFromTabs(path, workbookTabs, WorkbookColumnWidths))
                         .ConfigureAwait(false);
                 }
                 else

@@ -18,15 +18,37 @@ namespace Hiatme_Tool_Suite_v3
         private static readonly XNamespace RelNs = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
         private static readonly Regex CsvSplit = new Regex(",(?=(?:[^\"]*\"[^\"]*\")*(?![^\"]*\"))");
 
-        private const double DefaultColWidth = 8.43;
-        private const double MinColWidth = 6.5;
-        private const double MaxColWidth = 55.0;
+        private const double DefaultColWidth = 7.5;
+        private const double MinColWidth = 5.0;
+        private const double MaxColWidth = 28.0;
         /// <summary>Extra space beyond longest cell text (Excel character units).</summary>
-        private const double ColWidthPadding = 2.0;
+        private const double ColWidthPadding = 1.0;
+
+        /// <summary>
+        /// Per-column caps (A–N trip grid) so exported workbooks stay compact; long text wraps in Excel.
+        /// </summary>
+        private static readonly int[] MaxVisibleCharsByColumn =
+        {
+            10, // A Trip #
+            10, // B Date
+            11, // C Client
+            14, // D PU street
+            10, // E PU city
+            10, // F PU phone
+            9,  // G PU time  ("12:30 PM")
+            14, // H DO street
+            10, // I DO city
+            10, // J DO phone
+            9,  // K DO time
+            4,  // L Age
+            5,  // M Miles
+            22, // N Comments
+        };
 
         public static void WriteWorkbookFromTabs(
             string outputPath,
-            IReadOnlyList<ScheduleBuilderPreviewCsvExport.WorkbookTab> tabs)
+            IReadOnlyList<ScheduleBuilderPreviewCsvExport.WorkbookTab> tabs,
+            double[] preferredColumnWidths = null)
         {
             if (string.IsNullOrWhiteSpace(outputPath))
                 throw new ArgumentException("Output path is required.", nameof(outputPath));
@@ -52,7 +74,7 @@ namespace Hiatme_Tool_Suite_v3
             if (sheets.Count == 0)
                 throw new InvalidOperationException("No readable workbook tabs were found.");
 
-            WriteWorkbookInternal(outputPath, sheets);
+            WriteWorkbookInternal(outputPath, sheets, preferredColumnWidths);
         }
 
         public static void WriteWorkbookFromCsvFiles(string outputPath, IReadOnlyList<string> csvFilePaths)
@@ -85,7 +107,8 @@ namespace Hiatme_Tool_Suite_v3
 
         private static void WriteWorkbookInternal(
             string outputPath,
-            IReadOnlyList<(string Name, List<List<string>> Rows, Dictionary<(int Row, int Col), Color> Fills, List<ScheduleBuilderPreviewCsvExport.WorkbookTab.RowMergeBar> MergeBars)> sheets)
+            IReadOnlyList<(string Name, List<List<string>> Rows, Dictionary<(int Row, int Col), Color> Fills, List<ScheduleBuilderPreviewCsvExport.WorkbookTab.RowMergeBar> MergeBars)> sheets,
+            double[] preferredColumnWidths = null)
         {
             string dir = Path.GetDirectoryName(outputPath);
             if (!string.IsNullOrEmpty(dir))
@@ -139,7 +162,8 @@ namespace Hiatme_Tool_Suite_v3
                         sheets[i].MergeBars,
                         sharedIndex,
                         colorToStyle,
-                        defaultStyle));
+                        defaultStyle,
+                        preferredColumnWidths));
                 }
             }
         }
@@ -461,7 +485,8 @@ namespace Hiatme_Tool_Suite_v3
             IReadOnlyList<ScheduleBuilderPreviewCsvExport.WorkbookTab.RowMergeBar> mergeBars,
             IReadOnlyDictionary<string, int> sharedIndex,
             IReadOnlyDictionary<Color, int> colorToStyle,
-            int defaultStyle)
+            int defaultStyle,
+            double[] preferredColumnWidths = null)
         {
             var mergeByRow = new Dictionary<int, ScheduleBuilderPreviewCsvExport.WorkbookTab.RowMergeBar>();
             if (mergeBars != null)
@@ -554,10 +579,11 @@ namespace Hiatme_Tool_Suite_v3
                 new XAttribute("defaultRowHeight", "15"),
                 new XAttribute("defaultColWidth", DefaultColWidth.ToString("0.##", CultureInfo.InvariantCulture))));
 
-            var colWidths = ComputeColumnWidths(
+            var colWidths = ResolveColumnWidths(
                 rows,
                 ScheduleBuilderPreviewCsvExport.WorkbookExportColumnCount,
-                mergeByRow.Keys);
+                mergeByRow.Keys,
+                preferredColumnWidths);
             colWidths[ScheduleBuilderPreviewCsvExport.WorkbookMetaColumnIndex] = 0;
             worksheet.Add(BuildColsElement(colWidths));
             worksheet.Add(sheetData);
@@ -589,6 +615,57 @@ namespace Hiatme_Tool_Suite_v3
                 n /= 26;
             }
             return sb.Length == 0 ? "A" : sb.ToString();
+        }
+
+        /// <summary>
+        /// Prefer ListView / saved workbook widths where provided; fill phone/age columns from content.
+        /// </summary>
+        internal static double[] ResolveColumnWidths(
+            IReadOnlyList<List<string>> rows,
+            int columnCount,
+            IEnumerable<int> mergedBarRowIndices = null,
+            double[] preferredColumnWidths = null)
+        {
+            double[] computed = ComputeColumnWidths(rows, columnCount, mergedBarRowIndices);
+            if (preferredColumnWidths == null || preferredColumnWidths.Length == 0)
+                return computed;
+
+            var widths = new double[columnCount];
+            for (int c = 0; c < columnCount; c++)
+            {
+                if (c < preferredColumnWidths.Length && preferredColumnWidths[c] > 0)
+                    widths[c] = preferredColumnWidths[c];
+                else if (c < computed.Length)
+                    widths[c] = computed[c];
+                else
+                    widths[c] = DefaultColWidth;
+            }
+
+            return widths;
+        }
+
+        /// <summary>Approximate Excel column width (Calibri 11 character units) from ListView pixels.</summary>
+        internal static double PixelsToExcelColumnWidth(int pixels)
+        {
+            if (pixels <= 0)
+                return DefaultColWidth;
+
+            double width = (pixels - 5.0) / 7.0;
+            if (width < MinColWidth)
+                width = MinColWidth;
+            if (width > MaxColWidth)
+                width = MaxColWidth;
+            return Math.Round(width, 2);
+        }
+
+        /// <summary>Approximate ListView pixels from an Excel column width.</summary>
+        internal static int ExcelColumnWidthToPixels(double excelWidth)
+        {
+            if (excelWidth <= 0)
+                return 0;
+
+            int px = (int)Math.Round(excelWidth * 7.0 + 5.0);
+            return Math.Max(24, px);
         }
 
         /// <summary>
@@ -628,7 +705,7 @@ namespace Hiatme_Tool_Suite_v3
 
             var widths = new double[columnCount];
             for (int c = 0; c < columnCount; c++)
-                widths[c] = ColumnWidthFromMaxChars(maxChars[c]);
+                widths[c] = ColumnWidthFromMaxChars(maxChars[c], c);
 
             return widths;
         }
@@ -650,8 +727,11 @@ namespace Hiatme_Tool_Suite_v3
             return len;
         }
 
-        private static double ColumnWidthFromMaxChars(int maxChars)
+        private static double ColumnWidthFromMaxChars(int maxChars, int columnIndex = -1)
         {
+            if (columnIndex >= 0 && columnIndex < MaxVisibleCharsByColumn.Length)
+                maxChars = Math.Min(maxChars, MaxVisibleCharsByColumn[columnIndex]);
+
             if (maxChars <= 0)
                 return DefaultColWidth;
 

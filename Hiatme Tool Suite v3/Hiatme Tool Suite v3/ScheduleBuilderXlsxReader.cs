@@ -339,5 +339,74 @@ namespace Hiatme_Tool_Suite_v3
                 name = name.Replace(c, '_');
             return string.IsNullOrWhiteSpace(name) ? "Sheet" : name.Trim();
         }
+
+        /// <summary>Reads trip-grid column widths (A–N) from the first driver sheet in a saved workbook.</summary>
+        public static double[] ReadTripGridColumnWidths(string workbookPath)
+        {
+            if (string.IsNullOrWhiteSpace(workbookPath) || !File.Exists(workbookPath))
+                return null;
+
+            using (var zip = ZipFile.OpenRead(workbookPath))
+            {
+                foreach (var entry in LoadSheetEntries(zip))
+                {
+                    string tab = (entry.Name ?? "").Trim();
+                    if (string.IsNullOrEmpty(tab)
+                        || tab.Equals("Sheet1", StringComparison.OrdinalIgnoreCase)
+                        || tab.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    return ReadSheetColumnWidths(zip, entry.Path, ScheduleBuilderPreviewCsvExport.ColumnCount);
+                }
+            }
+
+            return null;
+        }
+
+        private static double[] ReadSheetColumnWidths(ZipArchive zip, string partPath, int columnCount)
+        {
+            var entry = zip.GetEntry(partPath) ?? zip.GetEntry(partPath.TrimStart('/'));
+            if (entry == null)
+                return null;
+
+            var widths = new double[columnCount];
+            bool any = false;
+
+            using (var stream = entry.Open())
+            {
+                var doc = XDocument.Load(stream);
+                var colsEl = doc.Element(Ns + "worksheet")?.Element(Ns + "cols");
+                if (colsEl == null)
+                    return null;
+
+                foreach (var col in colsEl.Elements(Ns + "col"))
+                {
+                    string w = col.Attribute("width")?.Value;
+                    if (string.IsNullOrEmpty(w))
+                        continue;
+                    if (!double.TryParse(w, NumberStyles.Float, CultureInfo.InvariantCulture, out double width))
+                        continue;
+
+                    int min = ParseIntAttr(col, "min", 0);
+                    int max = ParseIntAttr(col, "max", min);
+                    if (min < 1)
+                        continue;
+
+                    for (int c = min; c <= max && c <= columnCount; c++)
+                    {
+                        widths[c - 1] = width;
+                        any = true;
+                    }
+                }
+            }
+
+            return any ? widths : null;
+        }
+
+        private static int ParseIntAttr(XElement el, string name, int fallback)
+        {
+            string raw = el.Attribute(name)?.Value;
+            return int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int v) ? v : fallback;
+        }
     }
 }

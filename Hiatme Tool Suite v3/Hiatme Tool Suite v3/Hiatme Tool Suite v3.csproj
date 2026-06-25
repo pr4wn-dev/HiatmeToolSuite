@@ -156,6 +156,7 @@
     <Compile Include="ScheduleBuilderGroupInference.cs" />
     <Compile Include="ScheduleBuilderLoadDateResolver.cs" />
     <Compile Include="ScheduleBuilderXlsxReader.cs" />
+    <Compile Include="ScheduleBuilderListViewColumnWidths.cs" />
     <Compile Include="ScheduleBuilderXlsxWriter.cs" />
     <Compile Include="ScheduleBuilderGmailMailer.cs" />
     <Compile Include="ScheduleBuilderGmailDefaults.cs" />

@@ -802,6 +802,8 @@ namespace Hiatme_Tool_Suite_v3
 
             ListViewMinWidthEnforcer.Attach(_fsTripsLv);
 
+            ConfigureFsTripsColumnWidths();
+
             ListViewHeaderEmptyAreaPainter.Attach(_fsTripsLv);
 
             BuildFsTripsContextMenu();
@@ -1379,30 +1381,56 @@ namespace Hiatme_Tool_Suite_v3
 
             _fsTripsLv.Columns.Clear();
 
-            _fsTripsLv.Columns.Add("Grp", 40);
+            _fsTripsLv.Columns.Add("Grp", 34);
 
-            _fsTripsLv.Columns.Add("Trip #", 90);
+            _fsTripsLv.Columns.Add("Trip #", 72);
 
-            _fsTripsLv.Columns.Add("Date", 72);
+            _fsTripsLv.Columns.Add("Date", 68);
 
-            _fsTripsLv.Columns.Add("Client", 160);
+            _fsTripsLv.Columns.Add("Client", 82);
 
             _fsTripsLv.Columns.Add("PU Time", 72);
 
-            _fsTripsLv.Columns.Add("PU Street", 140);
+            _fsTripsLv.Columns.Add("PU Street", 92);
 
-            _fsTripsLv.Columns.Add("PU City", 100);
+            _fsTripsLv.Columns.Add("PU City", 58);
 
             _fsTripsLv.Columns.Add("DO Time", 72);
 
-            _fsTripsLv.Columns.Add("DO Street", 140);
+            _fsTripsLv.Columns.Add("DO Street", 92);
 
-            _fsTripsLv.Columns.Add("DO City", 100);
+            _fsTripsLv.Columns.Add("DO City", 58);
 
-            _fsTripsLv.Columns.Add("Miles", 48);
+            _fsTripsLv.Columns.Add("Miles", 42);
 
-            _fsTripsLv.Columns.Add("Comments", 200);
+            _fsTripsLv.Columns.Add("Comments", 130);
 
+        }
+
+
+
+        /// <summary>
+        /// Cap trip-list auto-fit so wide addresses/comments ellipsize instead of stretching the grid.
+        /// Matches the compact Trip Scout pattern in <see cref="ConfigureTripScoutColumnWidths"/>.
+        /// </summary>
+        private void ConfigureFsTripsColumnWidths()
+        {
+            if (_fsTripsLv == null) return;
+
+            ListViewMinWidthEnforcer.SetColumnCeiling(_fsTripsLv, 0, 34);   // Grp
+            ListViewMinWidthEnforcer.SetColumnCeiling(_fsTripsLv, 1, 72);   // Trip #
+            ListViewMinWidthEnforcer.SetColumnCeiling(_fsTripsLv, 2, 68);   // Date
+            ListViewMinWidthEnforcer.SetColumnCeiling(_fsTripsLv, 3, 82);   // Client
+            ListViewMinWidthEnforcer.SetColumnFloor(_fsTripsLv, 4, 68);    // PU Time — fit "12:30 PM"
+            ListViewMinWidthEnforcer.SetColumnCeiling(_fsTripsLv, 4, 72);
+            ListViewMinWidthEnforcer.SetColumnCeiling(_fsTripsLv, 5, 92);   // PU Street
+            ListViewMinWidthEnforcer.SetColumnCeiling(_fsTripsLv, 6, 58);   // PU City
+            ListViewMinWidthEnforcer.SetColumnFloor(_fsTripsLv, 7, 68);    // DO Time
+            ListViewMinWidthEnforcer.SetColumnCeiling(_fsTripsLv, 7, 72);
+            ListViewMinWidthEnforcer.SetColumnCeiling(_fsTripsLv, 8, 92);   // DO Street
+            ListViewMinWidthEnforcer.SetColumnCeiling(_fsTripsLv, 9, 58);   // DO City
+            ListViewMinWidthEnforcer.SetColumnCeiling(_fsTripsLv, 10, 42);  // Miles
+            ListViewMinWidthEnforcer.SetColumnCeiling(_fsTripsLv, 11, 130); // Comments
         }
 
 
@@ -1561,6 +1589,9 @@ namespace Hiatme_Tool_Suite_v3
 
                     _fsFocusFirstGroupAfterPreviewBind = true;
                     FsSyncMapToTripListSelectionAfterPreviewBind();
+
+                    if (load.WorkbookColumnWidths != null)
+                        ScheduleBuilderListViewColumnWidths.ApplyToTripsListView(_fsTripsLv, load.WorkbookColumnWidths);
 
                     int drivers = fsbuilder.PreviewDriverLines.Count;
 
@@ -1927,6 +1958,7 @@ namespace Hiatme_Tool_Suite_v3
                 fsbuilder.SetTabOrder(_fsDriverTabOrder);
 
             fsbuilder.PreviewCsvExportOptions = MakeFsPreviewCsvExportOptions();
+            fsbuilder.WorkbookColumnWidths = ScheduleBuilderListViewColumnWidths.CaptureFromTripsListView(_fsTripsLv);
             fsbuilder.ExportPreviewCsvs(_fsLinesByTab);
         }
 

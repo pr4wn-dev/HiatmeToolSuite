@@ -15,6 +15,8 @@ namespace Hiatme_Tool_Suite_v3
     {
         private readonly UpdateManifest _manifest;
         private CancellationTokenSource _cts;
+        private bool _installInProgress;
+        private const string InstallButtonLabel = "INSTALL NOW";
 
         /// <summary>Populated after the user clicks Install and the verified download completes.</summary>
         public string DownloadedZipPath { get; private set; }
@@ -23,6 +25,13 @@ namespace Hiatme_Tool_Suite_v3
         {
             _manifest = manifest ?? throw new ArgumentNullException(nameof(manifest));
             InitializeComponent();
+
+            SupeyDarkScrollBars.Apply(this);
+            ApplyNotesBoxTheme();
+            SupeyThemeManager.ThemeChanged += OnThemeChanged;
+
+            AcceptButton = _installButton;
+            CancelButton = _laterButton;
 
             try
             {
@@ -44,17 +53,67 @@ namespace Hiatme_Tool_Suite_v3
 
             _progress.Visible = false;
             _progressLabel.Visible = false;
+            _progress.HandleCreated += (_, __) => ThemeProgressBar();
+            ThemeProgressBar();
         }
 
-        private async void OnInstallClicked(object sender, EventArgs e)
+        private void OnThemeChanged(object sender, EventArgs e)
         {
-            // Lock the dialog so the user can't double-click / cancel mid-IO; X box still works via OnFormClosing.
+            if (IsDisposed) return;
+            ApplyNotesBoxTheme();
+            ThemeProgressBar();
+        }
+
+        private void ApplyNotesBoxTheme()
+        {
+            _notesBox.BackColor = SupeyTheme.SurfaceElevated;
+            _notesBox.ForeColor = SupeyTheme.TextPrimary;
+        }
+
+        private void ThemeProgressBar()
+        {
+            if (_progress == null || !_progress.IsHandleCreated) return;
+            try { _progress.SetState(1); } catch { }
+        }
+
+        protected override void OnFormClosed(FormClosedEventArgs e)
+        {
+            SupeyThemeManager.ThemeChanged -= OnThemeChanged;
+            base.OnFormClosed(e);
+        }
+
+        private void EnterInstallState()
+        {
+            if (_installInProgress) return;
+            _installInProgress = true;
+
             _installButton.Enabled = false;
+            _installButton.Text = "INSTALLING…";
             _laterButton.Enabled = false;
+            AcceptButton = null;
+            CancelButton = null;
+
             _progress.Visible = true;
             _progressLabel.Visible = true;
             _progress.Value = 0;
             _progressLabel.Text = "Starting download…";
+            ThemeProgressBar();
+        }
+
+        private void LeaveInstallState()
+        {
+            _installInProgress = false;
+            _installButton.Enabled = true;
+            _installButton.Text = InstallButtonLabel;
+            _laterButton.Enabled = true;
+            AcceptButton = _installButton;
+            CancelButton = _laterButton;
+        }
+
+        private async void OnInstallClicked(object sender, EventArgs e)
+        {
+            if (_installInProgress) return;
+            EnterInstallState();
 
             _cts = new CancellationTokenSource();
             var progress = new Progress<double>(p =>
@@ -78,8 +137,7 @@ namespace Hiatme_Tool_Suite_v3
             catch (OperationCanceledException)
             {
                 _progressLabel.Text = "Cancelled.";
-                _installButton.Enabled = true;
-                _laterButton.Enabled = true;
+                LeaveInstallState();
             }
             catch (Exception ex)
             {
@@ -87,8 +145,7 @@ namespace Hiatme_Tool_Suite_v3
                 MessageBox.Show(this,
                     "Update failed.\n\n" + ex.Message,
                     "Update", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                _installButton.Enabled = true;
-                _laterButton.Enabled = true;
+                LeaveInstallState();
             }
         }
 
@@ -100,8 +157,11 @@ namespace Hiatme_Tool_Suite_v3
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
-            try { _cts?.Cancel(); }
-            catch { }
+            if (_installInProgress)
+            {
+                try { _cts?.Cancel(); }
+                catch { }
+            }
             base.OnFormClosing(e);
         }
 

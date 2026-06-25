@@ -100,7 +100,8 @@ namespace Hiatme_Tool_Suite_v3
         /// </summary>
         public static void ApplyColumnWidthsFromTabs(
             Workbook workbook,
-            IReadOnlyList<ScheduleBuilderPreviewCsvExport.WorkbookTab> tabs)
+            IReadOnlyList<ScheduleBuilderPreviewCsvExport.WorkbookTab> tabs,
+            double[] preferredColumnWidths = null)
         {
             if (workbook == null || tabs == null || tabs.Count == 0)
                 return;
@@ -123,10 +124,11 @@ namespace Hiatme_Tool_Suite_v3
                         ? tab.MergeBars.ConvertAll(b => b.RowIndex)
                         : null;
 
-                    double[] widths = ScheduleBuilderXlsxWriter.ComputeColumnWidths(
+                    double[] widths = ScheduleBuilderXlsxWriter.ResolveColumnWidths(
                         tab.Rows,
                         columnCount,
-                        mergeRows);
+                        mergeRows,
+                        preferredColumnWidths);
 
                     for (int c = 0; c < widths.Length; c++)
                     {
