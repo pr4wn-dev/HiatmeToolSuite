@@ -19,6 +19,9 @@ namespace Hiatme_Tool_Suite_v3
 
         public List<MCDownloadedTrip> ReserveFileTrips { get; } = new List<MCDownloadedTrip>();
 
+        /// <summary>Reserves sheet rows in file order (section headers + trips) for bucket restore on load.</summary>
+        public List<SupeyTemplateSlot> ReserveSlots { get; } = new List<SupeyTemplateSlot>();
+
         public List<MCDownloadedTrip> AllTrips { get; } = new List<MCDownloadedTrip>();
 
         /// <summary>Trip numbers marked rerouted on Modivcare (__FSRR) anywhere in the loaded package.</summary>
@@ -61,6 +64,8 @@ namespace Hiatme_Tool_Suite_v3
 
                 if (tab.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
                 {
+                    var slots = SupeyTemplateCsvLoader.LoadSlotsFromFile(path);
+                    result.ReserveSlots.AddRange(slots);
                     CollectReroutedFromCsv(result, path);
                     result.ReserveFileTrips.AddRange(LoadTripsFromTripCsv(path));
                     continue;
@@ -84,7 +89,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 CollectReroutedFromCsv(result, pair.Path);
                 var lines = ScheduleBuilderGroupInference.BuildDriverLines(
-                    pair.Path, pair.Tab, weekdayName, out string note);
+                    pair.Path, pair.Tab, weekdayName, out string note, loadedSchedule: true);
                 AddDriver(result, pair.Tab, lines, note);
             }
 
@@ -123,6 +128,8 @@ namespace Hiatme_Tool_Suite_v3
 
                     if (tab.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
                     {
+                        var slots = SupeyTemplateCsvLoader.LoadSlotsFromFile(pair.CsvPath);
+                        result.ReserveSlots.AddRange(slots);
                         CollectReroutedFromCsv(result, pair.CsvPath);
                         result.ReserveFileTrips.AddRange(LoadTripsFromTripCsv(pair.CsvPath));
                         continue;
@@ -150,7 +157,7 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     CollectReroutedFromCsv(result, pair.CsvPath);
                     var lines = ScheduleBuilderGroupInference.BuildDriverLines(
-                        pair.CsvPath, pair.Tab, weekdayName, out string note);
+                        pair.CsvPath, pair.Tab, weekdayName, out string note, loadedSchedule: true);
                     AddDriver(result, pair.Tab, lines, note);
                 }
 
@@ -199,6 +206,83 @@ namespace Hiatme_Tool_Suite_v3
             reroutes = new List<MCDownloadedTrip>();
             banned = new List<MCDownloadedTrip>();
             willCalls = new List<MCDownloadedTrip>();
+
+            if (load?.ReserveSlots != null && load.ReserveSlots.Count > 0)
+            {
+                ApplyReserveBucketsFromSlots(load, load.ReserveSlots, ref reservers, ref reroutes, ref willCalls);
+                return;
+            }
+
+            ApplyReserveBucketsFromTrips(load, ref reservers, ref reroutes, ref banned, ref willCalls);
+        }
+
+        private static void ApplyReserveBucketsFromSlots(
+            ScheduleBuilderLoadResult load,
+            IList<SupeyTemplateSlot> slots,
+            ref List<MCDownloadedTrip> reservers,
+            ref List<MCDownloadedTrip> reroutes,
+            ref List<MCDownloadedTrip> willCalls)
+        {
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            ScheduleBuilderReserveBuckets.ReserveBucket? currentSection = null;
+
+            foreach (var slot in slots)
+            {
+                if (slot == null)
+                    continue;
+
+                if (slot.Kind == SupeyTemplateSlot.SlotKind.Gap)
+                {
+                    if (ScheduleBuilderReserveBuckets.TryParseSectionBucket(slot.NoteText, out var section))
+                        currentSection = section;
+                    continue;
+                }
+
+                if (slot.Kind != SupeyTemplateSlot.SlotKind.Trip || slot.TemplateTrip == null)
+                    continue;
+
+                var trip = slot.TemplateTrip;
+                string tn = (trip.TripNumber ?? "").Trim();
+                string key = ScheduleBuilderReroutedTrips.TripNumberKey(tn);
+                if (key.Length > 0 && !seen.Add(key))
+                    continue;
+
+                if (slot.ReroutedOnModivcare
+                    || ScheduleBuilderReroutedTrips.TripNumberKeySetContains(load.ReroutedTripNumbers, tn))
+                {
+                    reroutes.Add(trip);
+                    continue;
+                }
+
+                if (currentSection.HasValue)
+                {
+                    switch (currentSection.Value)
+                    {
+                        case ScheduleBuilderReserveBuckets.ReserveBucket.Reroute:
+                            reroutes.Add(trip);
+                            break;
+                        case ScheduleBuilderReserveBuckets.ReserveBucket.WillCall:
+                            willCalls.Add(trip);
+                            break;
+                        default:
+                            reservers.Add(trip);
+                            break;
+                    }
+
+                    continue;
+                }
+
+                AddTripByClassify(load, trip, ref reservers, ref reroutes, ref willCalls);
+            }
+        }
+
+        private static void ApplyReserveBucketsFromTrips(
+            ScheduleBuilderLoadResult load,
+            ref List<MCDownloadedTrip> reservers,
+            ref List<MCDownloadedTrip> reroutes,
+            ref List<MCDownloadedTrip> banned,
+            ref List<MCDownloadedTrip> willCalls)
+        {
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var trip in load?.ReserveFileTrips ?? Enumerable.Empty<MCDownloadedTrip>())
@@ -209,25 +293,37 @@ namespace Hiatme_Tool_Suite_v3
                 if (key.Length > 0 && !seen.Add(key))
                     continue;
 
-                if (ScheduleBuilderReroutedTrips.TripNumberKeySetContains(load.ReroutedTripNumbers, tn))
-                {
-                    reroutes.Add(trip);
-                    continue;
-                }
+                AddTripByClassify(load, trip, ref reservers, ref reroutes, ref willCalls);
+            }
+        }
 
-                switch (ScheduleBuilderReserveBuckets.Classify(trip))
-                {
-                    case ScheduleBuilderReserveBuckets.ReserveBucket.Banned:
-                    case ScheduleBuilderReserveBuckets.ReserveBucket.Reroute:
-                        reroutes.Add(trip);
-                        break;
-                    case ScheduleBuilderReserveBuckets.ReserveBucket.WillCall:
-                        willCalls.Add(trip);
-                        break;
-                    default:
-                        reservers.Add(trip);
-                        break;
-                }
+        private static void AddTripByClassify(
+            ScheduleBuilderLoadResult load,
+            MCDownloadedTrip trip,
+            ref List<MCDownloadedTrip> reservers,
+            ref List<MCDownloadedTrip> reroutes,
+            ref List<MCDownloadedTrip> willCalls)
+        {
+            string tn = (trip.TripNumber ?? "").Trim();
+
+            if (ScheduleBuilderReroutedTrips.TripNumberKeySetContains(load?.ReroutedTripNumbers, tn))
+            {
+                reroutes.Add(trip);
+                return;
+            }
+
+            switch (ScheduleBuilderReserveBuckets.Classify(trip))
+            {
+                case ScheduleBuilderReserveBuckets.ReserveBucket.Banned:
+                case ScheduleBuilderReserveBuckets.ReserveBucket.Reroute:
+                    reroutes.Add(trip);
+                    break;
+                case ScheduleBuilderReserveBuckets.ReserveBucket.WillCall:
+                    willCalls.Add(trip);
+                    break;
+                default:
+                    reservers.Add(trip);
+                    break;
             }
         }
 

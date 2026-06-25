@@ -371,6 +371,33 @@ namespace Hiatme_Tool_Suite_v3
             return ReserversBand;
         }
 
+        /// <summary>Parse a saved Reserves section header (e.g. "Reroutes (3)") into a bucket.</summary>
+        public static bool TryParseSectionBucket(string title, out ReserveBucket bucket)
+        {
+            title = (title ?? "").Trim();
+            if (title.StartsWith("Will calls", StringComparison.OrdinalIgnoreCase))
+            {
+                bucket = ReserveBucket.WillCall;
+                return true;
+            }
+
+            if (title.StartsWith("Reservers", StringComparison.OrdinalIgnoreCase))
+            {
+                bucket = ReserveBucket.Reserver;
+                return true;
+            }
+
+            if (title.StartsWith("Reroutes", StringComparison.OrdinalIgnoreCase)
+                || title.StartsWith("Banned", StringComparison.OrdinalIgnoreCase))
+            {
+                bucket = ReserveBucket.Reroute;
+                return true;
+            }
+
+            bucket = ReserveBucket.Reserver;
+            return false;
+        }
+
         public static List<ScheduleBuilderPreviewLine> BuildReservePreviewLines(
 
             IList<MCDownloadedTrip> reservers,

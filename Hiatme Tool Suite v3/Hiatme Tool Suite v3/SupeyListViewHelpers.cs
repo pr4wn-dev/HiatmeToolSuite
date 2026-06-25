@@ -67,7 +67,7 @@ namespace Hiatme_Tool_Suite_v3
                 case SuggestPreviewRowTag tag when tag.IsGroupBar || tag.IsGap:
                     return true;
                 case FsPreviewGapTag _:
-                    return true;
+                    return false;
                 case FsPreviewNoteTag note when note.Group != null:
                     return true;
                 case FsPreviewSectionHeaderTag _:

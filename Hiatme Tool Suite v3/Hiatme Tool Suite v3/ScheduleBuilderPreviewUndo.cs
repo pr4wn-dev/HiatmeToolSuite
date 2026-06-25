@@ -76,6 +76,26 @@ namespace Hiatme_Tool_Suite_v3
 
             return false;
         }
+
+        internal static bool LinesByTabContainsGroupHeader(
+            IDictionary<string, List<ScheduleBuilderPreviewLine>> linesByTab)
+        {
+            if (linesByTab == null)
+                return false;
+
+            foreach (var kv in linesByTab)
+            {
+                if (kv.Value == null)
+                    continue;
+                foreach (var line in kv.Value)
+                {
+                    if (line?.Kind == ScheduleBuilderPreviewLine.LineKind.GroupHeader)
+                        return true;
+                }
+            }
+
+            return false;
+        }
     }
 
     internal sealed class ScheduleBuilderPreviewUndoStack

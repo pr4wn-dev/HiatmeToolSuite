@@ -202,7 +202,14 @@ namespace Hiatme_Tool_Suite_v3
                 if (line.Kind == ScheduleBuilderPreviewLine.LineKind.GroupHeader)
                 {
                     if (!options.IncludeGroupHeaders)
+                    {
+                        if (options.IncludeGaps && sawTripRow)
+                        {
+                            lastHeaderGroup = null;
+                            tab.AddRow(BuildGapCells());
+                        }
                         continue;
+                    }
 
                     var headerGroup = FindGroupByNumber(groups, line.GroupNumber);
                     Color color = headerGroup?.DisplayColor ?? SupeyGroupPalette.For(line.GroupNumber);
@@ -293,7 +300,12 @@ namespace Hiatme_Tool_Suite_v3
             return cells;
         }
 
-        private static string[] BuildGapCells() => EmptyCells();
+        private static string[] BuildGapCells()
+        {
+            var cells = EmptyWorkbookRow();
+            cells[WorkbookMetaColumnIndex] = ScheduleBuilderGapMeta.Marker;
+            return cells;
+        }
 
         private static string[] EmptyWorkbookRow()
         {

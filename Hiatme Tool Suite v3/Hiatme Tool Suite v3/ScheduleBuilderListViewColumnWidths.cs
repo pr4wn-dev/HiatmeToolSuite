@@ -8,6 +8,12 @@ namespace Hiatme_Tool_Suite_v3
     /// </summary>
     internal static class ScheduleBuilderListViewColumnWidths
     {
+        /// <summary>Default trip-list column widths (Grp through Comments), matching <c>ConfigureFsTripsListViewColumns</c>.</summary>
+        public static readonly int[] DefaultTripsListViewColumnWidthsPx =
+        {
+            34, 72, 68, 82, 72, 92, 58, 72, 92, 58, 42, 130,
+        };
+
         private sealed class ColumnMap
         {
             public int ListViewIndex { get; set; }
@@ -67,29 +73,57 @@ namespace Hiatme_Tool_Suite_v3
             return any ? widths : null;
         }
 
-        /// <summary>Apply saved workbook column widths to the trips ListView and keep them through auto-fit.</summary>
-        public static void ApplyToTripsListView(ListView lv, double[] excelWidthsAtoN)
+        /// <summary>Current pixel width of every trips ListView column (null if list missing).</summary>
+        public static int[] CaptureListViewColumnPixels(ListView lv)
+        {
+            if (lv == null || lv.Columns.Count == 0)
+                return null;
+
+            var widths = new int[lv.Columns.Count];
+            for (int i = 0; i < widths.Length; i++)
+                widths[i] = lv.Columns[i].Width;
+            return widths;
+        }
+
+        /// <summary>Pin all trip-list columns to shared pixel widths (same on every driver tab).</summary>
+        public static void PinTripsListViewWidths(ListView lv, int[] widthsPx)
+        {
+            if (lv == null || widthsPx == null || widthsPx.Length == 0)
+                return;
+
+            ListViewMinWidthEnforcer.PinColumnWidths(lv, widthsPx);
+        }
+
+        /// <summary>Apply saved workbook column widths to the trips ListView and pin them globally.</summary>
+        public static int[] ApplyToTripsListView(ListView lv, double[] excelWidthsAtoN)
         {
             if (lv == null || excelWidthsAtoN == null || excelWidthsAtoN.Length == 0)
-                return;
+                return null;
+
+            int[] px = CaptureListViewColumnPixels(lv);
+            if (px == null)
+            {
+                px = (int[])DefaultTripsListViewColumnWidthsPx.Clone();
+            }
 
             foreach (var map in TripListToExcel)
             {
-                if (map.ListViewIndex >= lv.Columns.Count || map.ExcelIndex >= excelWidthsAtoN.Length)
+                if (map.ListViewIndex >= px.Length || map.ExcelIndex >= excelWidthsAtoN.Length)
                     continue;
 
                 double excel = excelWidthsAtoN[map.ExcelIndex];
                 if (excel <= 0)
                     continue;
 
-                int px = ScheduleBuilderXlsxWriter.ExcelColumnWidthToPixels(excel);
-                if (px <= 0)
+                int mappedPx = ScheduleBuilderXlsxWriter.ExcelColumnWidthToPixels(excel);
+                if (mappedPx <= 0)
                     continue;
 
-                lv.Columns[map.ListViewIndex].Width = px;
-                ListViewMinWidthEnforcer.SetColumnFloor(lv, map.ListViewIndex, px);
-                ListViewMinWidthEnforcer.SetColumnCeiling(lv, map.ListViewIndex, px);
+                px[map.ListViewIndex] = mappedPx;
             }
+
+            PinTripsListViewWidths(lv, px);
+            return px;
         }
     }
 }

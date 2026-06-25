@@ -86,6 +86,9 @@ namespace Hiatme_Tool_Suite_v3
 
         private SupeyListView _fsTripsLv;
 
+        /// <summary>Shared trip-list column widths (pixels); same on every driver tab and in saved workbooks.</summary>
+        private int[] _fsTripsColumnWidthsPx;
+
         private Label _fsToolbarStatusLbl;
 
         private SupeyButton _fsBuildBtn;
@@ -804,6 +807,8 @@ namespace Hiatme_Tool_Suite_v3
 
             ConfigureFsTripsColumnWidths();
 
+            _fsTripsLv.ColumnWidthChanged += FsTripsLv_ColumnWidthChanged;
+
             ListViewHeaderEmptyAreaPainter.Attach(_fsTripsLv);
 
             BuildFsTripsContextMenu();
@@ -1125,10 +1130,6 @@ namespace Hiatme_Tool_Suite_v3
                     ? sectionTag.SectionColor
                     : SupeyTheme.SurfaceHeader;
 
-            else if (!sel && isGap)
-
-                rowBg = SupeyTheme.ListBody;
-
             else if (!sel && isNote && noteTag?.Group != null && FsShowGroupColorsEnabled)
 
                 rowBg = FsRouteHeaderBackColor(noteTag.Group.DisplayColor);
@@ -1162,6 +1163,10 @@ namespace Hiatme_Tool_Suite_v3
 
                 textColor = Color.White;
 
+            var gapTag = e.Item?.Tag as FsPreviewGapTag;
+            if (!sel && isGap && gapTag != null && e.ColumnIndex == 3 && !string.IsNullOrWhiteSpace(gapTag.NoteText))
+                textColor = SupeyTheme.TextSecondary;
+
             if (!sel && isSection && !isReservesTab && e.ColumnIndex == 2)
 
                 textColor = SupeyTheme.TextPrimary;
@@ -1170,7 +1175,9 @@ namespace Hiatme_Tool_Suite_v3
 
                 ? new Font(_fsTripsLv.Font, FontStyle.Bold)
 
-                : _fsTripsLv.Font;
+                : (isGap && gapTag != null && !string.IsNullOrWhiteSpace(gapTag.NoteText) && e.ColumnIndex == 3)
+                    ? new Font(_fsTripsLv.Font, FontStyle.Italic)
+                    : _fsTripsLv.Font;
 
             TextFormatFlags align = TextFormatFlags.Left;
             if (e.ColumnIndex >= 0 && e.ColumnIndex < _fsTripsLv.Columns.Count)
@@ -1428,26 +1435,31 @@ namespace Hiatme_Tool_Suite_v3
 
         /// <summary>
         /// Cap trip-list auto-fit so wide addresses/comments ellipsize instead of stretching the grid.
-        /// Matches the compact Trip Scout pattern in <see cref="ConfigureTripScoutColumnWidths"/>.
+        /// Column widths are global across driver tabs (not recomputed per tab).
         /// </summary>
         private void ConfigureFsTripsColumnWidths()
         {
             if (_fsTripsLv == null) return;
 
-            ListViewMinWidthEnforcer.SetColumnCeiling(_fsTripsLv, 0, 34);   // Grp
-            ListViewMinWidthEnforcer.SetColumnCeiling(_fsTripsLv, 1, 72);   // Trip #
-            ListViewMinWidthEnforcer.SetColumnCeiling(_fsTripsLv, 2, 68);   // Date
-            ListViewMinWidthEnforcer.SetColumnCeiling(_fsTripsLv, 3, 82);   // Client
-            ListViewMinWidthEnforcer.SetColumnFloor(_fsTripsLv, 4, 68);    // PU Time — fit "12:30 PM"
-            ListViewMinWidthEnforcer.SetColumnCeiling(_fsTripsLv, 4, 72);
-            ListViewMinWidthEnforcer.SetColumnCeiling(_fsTripsLv, 5, 92);   // PU Street
-            ListViewMinWidthEnforcer.SetColumnCeiling(_fsTripsLv, 6, 58);   // PU City
-            ListViewMinWidthEnforcer.SetColumnFloor(_fsTripsLv, 7, 68);    // DO Time
-            ListViewMinWidthEnforcer.SetColumnCeiling(_fsTripsLv, 7, 72);
-            ListViewMinWidthEnforcer.SetColumnCeiling(_fsTripsLv, 8, 92);   // DO Street
-            ListViewMinWidthEnforcer.SetColumnCeiling(_fsTripsLv, 9, 58);   // DO City
-            ListViewMinWidthEnforcer.SetColumnCeiling(_fsTripsLv, 10, 42);  // Miles
-            ListViewMinWidthEnforcer.SetColumnCeiling(_fsTripsLv, 11, 130); // Comments
+            ListViewMinWidthEnforcer.SetContentAutoFit(_fsTripsLv, false);
+            ApplyFsTripsColumnWidths();
+        }
+
+        private void ApplyFsTripsColumnWidths()
+        {
+            if (_fsTripsLv == null) return;
+
+            int[] widths = _fsTripsColumnWidthsPx ?? ScheduleBuilderListViewColumnWidths.DefaultTripsListViewColumnWidthsPx;
+            ScheduleBuilderListViewColumnWidths.PinTripsListViewWidths(_fsTripsLv, widths);
+        }
+
+        private void FsTripsLv_ColumnWidthChanged(object sender, ColumnWidthChangedEventArgs e)
+        {
+            if (_fsTripsLv == null || ListViewMinWidthEnforcer.IsApplyingColumnWidths(_fsTripsLv))
+                return;
+
+            _fsTripsColumnWidthsPx = ScheduleBuilderListViewColumnWidths.CaptureListViewColumnPixels(_fsTripsLv);
+            ScheduleBuilderListViewColumnWidths.PinTripsListViewWidths(_fsTripsLv, _fsTripsColumnWidthsPx);
         }
 
 
@@ -1608,7 +1620,7 @@ namespace Hiatme_Tool_Suite_v3
                     FsSyncMapToTripListSelectionAfterPreviewBind();
 
                     if (load.WorkbookColumnWidths != null)
-                        ScheduleBuilderListViewColumnWidths.ApplyToTripsListView(_fsTripsLv, load.WorkbookColumnWidths);
+                        _fsTripsColumnWidthsPx = ScheduleBuilderListViewColumnWidths.ApplyToTripsListView(_fsTripsLv, load.WorkbookColumnWidths);
 
                     int drivers = fsbuilder.PreviewDriverLines.Count;
 
@@ -2045,6 +2057,9 @@ namespace Hiatme_Tool_Suite_v3
             _fsCenterMaineAfterBuild = true;
 
             // First driver tab so the map loads route groups, not an empty reserves view.
+            if (ScheduleBuilderPreviewUndo.LinesByTabContainsGap(_fsLinesByTab))
+                FsRevealGapsForManualInsert();
+
             var firstDriver = driverNames.FirstOrDefault();
             if (!string.IsNullOrWhiteSpace(firstDriver))
 
@@ -2920,7 +2935,7 @@ namespace Hiatme_Tool_Suite_v3
                     if (preserveScroll)
                         FsRestoreTripsListViewScroll(scrollAnchorLine, scrollAnchorItemIndex);
 
-                    ListViewMinWidthEnforcer.ScheduleRecompute(_fsTripsLv);
+                    ApplyFsTripsColumnWidths();
 
                     return;
 
@@ -2951,7 +2966,7 @@ namespace Hiatme_Tool_Suite_v3
 
                         // Skip leading gap rows — a separator before the first trip is just a blank top row.
                         if (FsShowGapsEnabled && sawTripRow)
-                            AddFsTemplateGapRow(li);
+                            AddFsTemplateGapRow(li, line.GapNoteText);
 
                         continue;
 
@@ -2977,6 +2992,10 @@ namespace Hiatme_Tool_Suite_v3
 
                             }
 
+                        }
+                        else if (FsShowGapsEnabled && sawTripRow)
+                        {
+                            AddFsTemplateGapRow(li, line.GroupNoteText);
                         }
 
                         continue;
@@ -3013,7 +3032,7 @@ namespace Hiatme_Tool_Suite_v3
             if (preserveScroll)
                 FsRestoreTripsListViewScroll(scrollAnchorLine, scrollAnchorItemIndex);
 
-            ListViewMinWidthEnforcer.ScheduleRecompute(_fsTripsLv);
+            ApplyFsTripsColumnWidths();
 
         }
 
@@ -3252,21 +3271,16 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-        private void AddFsTemplateGapRow(int previewLineIndex)
+        private void AddFsTemplateGapRow(int previewLineIndex, string noteText = null)
 
         {
 
-            var lvi = new ListViewItem(new[] { "", "", "", "", "", "", "", "", "", "", "", "" });
+            string note = (noteText ?? "").Trim();
+            var cells = new[] { "", "", "", note, "", "", "", "", "", "", "", "" };
+            var lvi = new ListViewItem(cells);
 
             lvi.UseItemStyleForSubItems = false;
-
-            lvi.BackColor = SupeyTheme.ListBody;
-
-            for (int c = 0; c < lvi.SubItems.Count; c++)
-
-                lvi.SubItems[c].BackColor = SupeyTheme.ListBody;
-
-            lvi.Tag = new FsPreviewGapTag { PreviewLineIndex = previewLineIndex };
+            lvi.Tag = new FsPreviewGapTag { PreviewLineIndex = previewLineIndex, NoteText = note };
 
             _fsTripsLv.Items.Add(lvi);
 

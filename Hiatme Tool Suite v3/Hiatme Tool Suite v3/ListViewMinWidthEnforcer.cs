@@ -347,6 +347,79 @@ namespace Hiatme_Tool_Suite_v3
                 enforcer._contentAutoFit = enabled;
         }
 
+        /// <summary>
+        /// Locks every column to exact pixel widths (floor = ceiling = width) so auto-fit and tab
+        /// switches cannot change them. Updates drag clamps to match.
+        /// </summary>
+        public static void PinColumnWidths(ListView lv, IReadOnlyList<int> widthsPixels)
+        {
+            if (lv == null || widthsPixels == null || widthsPixels.Count == 0)
+                return;
+            if (!_attached.TryGetValue(lv, out var enforcer))
+                return;
+
+            if (lv.InvokeRequired)
+            {
+                try { lv.BeginInvoke((MethodInvoker)(() => PinColumnWidths(lv, widthsPixels))); }
+                catch (InvalidOperationException) { }
+                return;
+            }
+
+            if (!lv.IsHandleCreated || lv.IsDisposed)
+                return;
+
+            if (!_columnFloors.TryGetValue(lv, out var floors))
+            {
+                floors = new Dictionary<int, int>();
+                _columnFloors[lv] = floors;
+            }
+
+            if (!_columnCeilings.TryGetValue(lv, out var ceilings))
+            {
+                ceilings = new Dictionary<int, int>();
+                _columnCeilings[lv] = ceilings;
+            }
+
+            int colCount = lv.Columns.Count;
+            if (colCount == 0)
+                return;
+
+            var minWidths = new int[colCount];
+
+            enforcer._isRecomputing = true;
+            _applyingColumnWidths.Add(lv);
+            SupeyListViewHelpers.SetRedraw(lv, false);
+            lv.BeginUpdate();
+            try
+            {
+                for (int i = 0; i < colCount; i++)
+                {
+                    int w = i < widthsPixels.Count ? widthsPixels[i] : lv.Columns[i].Width;
+                    if (w <= 0)
+                    {
+                        minWidths[i] = 0;
+                        continue;
+                    }
+
+                    floors[i] = w;
+                    ceilings[i] = w;
+                    minWidths[i] = w;
+                    if (lv.Columns[i].Width != w)
+                        lv.Columns[i].Width = w;
+                }
+
+                enforcer._minWidths = minWidths;
+                enforcer._contentSignature = enforcer.ComputeContentSignature();
+            }
+            finally
+            {
+                lv.EndUpdate();
+                _applyingColumnWidths.Remove(lv);
+                SupeyListViewHelpers.SetRedraw(lv, true, invalidate: true);
+                enforcer._isRecomputing = false;
+            }
+        }
+
         /// <summary>Debounced auto-fit; coalesces rapid updates (search filters, execute loop).</summary>
         public static void ScheduleRecompute(ListView lv)
         {

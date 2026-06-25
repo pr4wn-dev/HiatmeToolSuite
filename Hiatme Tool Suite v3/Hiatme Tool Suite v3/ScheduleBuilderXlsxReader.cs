@@ -163,8 +163,26 @@ namespace Hiatme_Tool_Suite_v3
             using (var stream = entry.Open())
             {
                 var doc = XDocument.Load(stream);
+                int previousRowNumber = 0;
                 foreach (var row in doc.Descendants(Ns + "sheetData").Elements(Ns + "row"))
                 {
+                    int rowNumber = previousRowNumber + 1;
+                    string rowRef = row.Attribute("r")?.Value;
+                    if (!string.IsNullOrEmpty(rowRef)
+                        && int.TryParse(rowRef, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed)
+                        && parsed > 0)
+                    {
+                        rowNumber = parsed;
+                    }
+
+                    // Excel often omits <row> elements for blank spacer lines — honor row-index jumps.
+                    if (previousRowNumber > 0 && rowNumber > previousRowNumber + 1)
+                    {
+                        int missing = rowNumber - previousRowNumber - 1;
+                        for (int i = 0; i < missing; i++)
+                            rows.Add(new List<string>());
+                    }
+
                     var cells = new Dictionary<int, string>();
                     int maxCol = 0;
                     int nextCol = 1;
@@ -201,6 +219,7 @@ namespace Hiatme_Tool_Suite_v3
                     for (int c = 1; c <= Math.Max(maxCol, ScheduleBuilderPreviewCsvExport.WorkbookExportColumnCount); c++)
                         line.Add(cells.TryGetValue(c, out string v) ? v ?? "" : "");
                     rows.Add(line);
+                    previousRowNumber = rowNumber;
                 }
             }
 

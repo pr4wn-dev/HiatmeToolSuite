@@ -289,19 +289,26 @@ namespace Hiatme_Tool_Suite_v3
         internal void FsRevealGapsForManualInsert()
         {
             if (_fsShowGaps)
+            {
+                if (_fsHasPreview && !string.IsNullOrWhiteSpace(_fsActiveDriverTab))
+                    ShowFsTripsForTab(_fsActiveDriverTab);
                 return;
+            }
+
             _fsShowGaps = true;
             Settings.Default.FsShowGaps = true;
             Settings.Default.Save();
             if (_fsSettingsShowGaps != null)
                 _fsSettingsShowGaps.Checked = true;
+            ApplyFsDisplaySettings();
         }
 
         internal ScheduleBuilderPreviewCsvExport.Options MakeFsPreviewCsvExportOptions()
         {
             return new ScheduleBuilderPreviewCsvExport.Options
             {
-                IncludeGaps = FsShowGapsEnabled,
+                // Always persist route-break spacer rows in saved workbooks.
+                IncludeGaps = true,
                 // Colored spacer row at top of each group — no group number text on the saved sheet.
                 IncludeGroupHeaders = FsShowGroupColorsEnabled,
                 IncludeReserveSections = true,

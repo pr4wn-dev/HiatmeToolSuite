@@ -15,7 +15,8 @@ namespace Hiatme_Tool_Suite_v3
             string csvPath,
             string driverTabName,
             string weekdayName,
-            out string groupingNote)
+            out string groupingNote,
+            bool loadedSchedule = false)
         {
             groupingNote = "single group";
             if (string.IsNullOrEmpty(csvPath) || !File.Exists(csvPath))
@@ -38,6 +39,12 @@ namespace Hiatme_Tool_Suite_v3
 
             if (trips.Count == 0)
                 return new List<ScheduleBuilderPreviewLine>();
+
+            if (loadedSchedule)
+            {
+                groupingNote = "trips from file";
+                return TripsToPreviewLines(trips);
+            }
 
             var templateLines = TryBuildFromWeekdayTemplate(trips, driverTabName, weekdayName);
             if (templateLines != null)
@@ -138,6 +145,24 @@ namespace Hiatme_Tool_Suite_v3
                     trips.Add(slot.TemplateTrip);
             }
             return trips;
+        }
+
+        private static List<ScheduleBuilderPreviewLine> TripsToPreviewLines(IList<MCDownloadedTrip> trips)
+        {
+            var lines = new List<ScheduleBuilderPreviewLine>();
+            if (trips == null) return lines;
+
+            foreach (var trip in trips)
+            {
+                if (trip == null) continue;
+                lines.Add(new ScheduleBuilderPreviewLine
+                {
+                    Kind = ScheduleBuilderPreviewLine.LineKind.Trip,
+                    Trip = trip,
+                });
+            }
+
+            return lines;
         }
 
         private static List<ScheduleBuilderPreviewLine> TryBuildFromWeekdayTemplate(

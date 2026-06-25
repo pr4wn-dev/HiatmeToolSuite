@@ -26,6 +26,8 @@ namespace Hiatme_Tool_Suite_v3
     {
         /// <summary>Index in <see cref="ScheduleBuilderPreviewLine"/> list for this row.</summary>
         public int PreviewLineIndex { get; set; } = -1;
+
+        public string NoteText { get; set; } = "";
     }
 
     internal sealed class FsPreviewSectionHeaderTag
