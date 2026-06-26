@@ -1513,6 +1513,7 @@ namespace Hiatme_Tool_Suite_v3
 
                 {
 
+                    FsCancelRerouteProbe();
                     SetScheduleBuilderStatus("Loading schedule…");
                     UpdateTabLoadingOverlayMessage(tabPage6, "Loading schedule…");
 
@@ -1600,21 +1601,24 @@ namespace Hiatme_Tool_Suite_v3
                         fsbuilder.PreviewDriverLines.Keys,
                         SetScheduleBuilderStatus).ConfigureAwait(true);
 
-                    BindScheduleBuilderPreview(fsbuilder);
+                    BindScheduleBuilderPreview(fsbuilder, showInitialTab: false);
                     ScheduleBuilderReroutedTripsRegistry.MarkReroutedOnPreview(
                         _fsLinesByTab, reroutedKeys);
-                    int rerAfterLoad = fsbuilder.PreviewReservesReroute?.Count ?? 0;
-                    if (rerAfterLoad > 0)
-                        ShowFsTripsForTab("Reserves");
-                    else if (!string.IsNullOrWhiteSpace(_fsActiveDriverTab))
-                        ShowFsTripsForTab(_fsActiveDriverTab);
+
+                    _fsHasPreview = true;
+                    SetFsPreviewExportButtonsEnabled(true);
+
+                    UpdateTabLoadingOverlayMessage(tabPage6, "Verifying reroutes on Modivcare…");
+
+                    string rerouteVerifyNote = await FsProbeReroutesAfterScheduleLoadAsync(
+                            serviceDate,
+                            refreshListView: false)
+                        .ConfigureAwait(true);
 
                     if (ScheduleBuilderPreviewUndo.LinesByTabContainsGap(_fsLinesByTab))
-                    {
                         FsRevealGapsForManualInsert();
-                        if (!string.IsNullOrWhiteSpace(_fsActiveDriverTab))
-                            ShowFsTripsForTab(_fsActiveDriverTab);
-                    }
+
+                    FsShowInitialTabAfterScheduleLoad();
 
                     _fsFocusFirstGroupAfterPreviewBind = true;
                     FsSyncMapToTripListSelectionAfterPreviewBind();
@@ -1627,12 +1631,6 @@ namespace Hiatme_Tool_Suite_v3
                     int trips = fsbuilder.PreviewDriverLines.Values.Sum(
 
                         l => l.Count(x => x?.Kind == ScheduleBuilderPreviewLine.LineKind.Trip));
-
-                    _fsHasPreview = true;
-
-                    SetFsPreviewExportButtonsEnabled(true);
-
-
 
                     string groupingSummary = SummarizeLoadGroupingNotes(load.DriverGroupingNotes);
 
@@ -1675,7 +1673,8 @@ namespace Hiatme_Tool_Suite_v3
 
                         + ". Groups: " + groupingSummary + "."
                         + FormatFsDriverSyncNote(driverSync)
-                        + " Undo history cleared.");
+                        + " Undo history cleared."
+                        + rerouteVerifyNote);
 
                 }
 
@@ -1763,6 +1762,7 @@ namespace Hiatme_Tool_Suite_v3
 
         {
 
+            FsCancelRerouteProbe();
             SetScheduleBuilderStatus("Checking connections…");
 
             _fsHasPreview = false;
@@ -1843,6 +1843,13 @@ namespace Hiatme_Tool_Suite_v3
                 ScheduleBuilderReroutedTripsRegistry.MarkReroutedOnPreview(
                     _fsLinesByTab, rerouteMerge.ReroutedTripNumbers);
 
+                int rer = fsbuilder.PreviewReservesReroute?.Count ?? 0;
+                if (rer > 0)
+                    ShowFsTripsForTab("Reserves");
+                else if (!string.IsNullOrWhiteSpace(_fsActiveDriverTab))
+                    ShowFsTripsForTab(_fsActiveDriverTab);
+                FsSyncReroutedHighlightsFromPreviewLines();
+
                 int drivers = fsbuilder.PreviewDriverLines.Count;
 
                 int trips = fsbuilder.PreviewDriverLines.Values.Sum(
@@ -1852,8 +1859,6 @@ namespace Hiatme_Tool_Suite_v3
                 _fsHasPreview = true;
 
                 SetFsPreviewExportButtonsEnabled(true);
-
-                int rer = fsbuilder.PreviewReservesReroute?.Count ?? 0;
 
                 int res = fsbuilder.PreviewReserves?.Count ?? 0;
 
@@ -1993,7 +1998,32 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-        private void BindScheduleBuilderPreview(FullScheduleBuilder builder)
+        private static List<ScheduleBuilderPreviewLine> BuildFsReservePreviewLines(FullScheduleBuilder builder)
+        {
+            if (builder == null)
+                return new List<ScheduleBuilderPreviewLine>();
+
+            if (builder.LoadedReserveSlots != null && builder.LoadedReserveSlots.Count > 0)
+            {
+                return ScheduleBuilderReserveBuckets.BuildReservePreviewLinesFromSlots(
+                    builder.LoadedReserveSlots,
+                    builder.PreviewReservesWillCalls,
+                    builder.PreviewReserves,
+                    builder.PreviewReservesReroute);
+            }
+
+            return ScheduleBuilderReserveBuckets.BuildReservePreviewLines(
+                builder.PreviewReserves,
+                builder.PreviewReservesReroute,
+                builder.PreviewReservesBanned,
+                builder.PreviewReservesWillCalls,
+                builder.WillCallsInDownloadCount,
+                preserveTripOrder: builder.PreserveReserveTripOrder);
+        }
+
+
+
+        private void BindScheduleBuilderPreview(FullScheduleBuilder builder, bool showInitialTab = true)
 
         {
 
@@ -2033,17 +2063,7 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-            var reserves = builder.PreviewReserves ?? new List<MCDownloadedTrip>();
-
-            var reroutes = builder.PreviewReservesReroute ?? new List<MCDownloadedTrip>();
-
-            var banned = builder.PreviewReservesBanned ?? new List<MCDownloadedTrip>();
-
-            var willCalls = builder.PreviewReservesWillCalls ?? new List<MCDownloadedTrip>();
-
-            _fsLinesByTab["Reserves"] = ScheduleBuilderReserveBuckets.BuildReservePreviewLines(
-
-                reserves, reroutes, banned, willCalls, builder.WillCallsInDownloadCount);
+            _fsLinesByTab["Reserves"] = BuildFsReservePreviewLines(builder);
 
 
 
@@ -2055,6 +2075,12 @@ namespace Hiatme_Tool_Suite_v3
 
             _fsFocusFirstGroupAfterPreviewBind = true;
             _fsCenterMaineAfterBuild = true;
+
+            if (!showInitialTab)
+            {
+                _fsActiveDriverTab = null;
+                return;
+            }
 
             // First driver tab so the map loads route groups, not an empty reserves view.
             if (ScheduleBuilderPreviewUndo.LinesByTabContainsGap(_fsLinesByTab))
@@ -2937,6 +2963,8 @@ namespace Hiatme_Tool_Suite_v3
 
                     ApplyFsTripsColumnWidths();
 
+                    FsSyncReroutedHighlightsFromPreviewLines();
+
                     return;
 
                 }
@@ -3033,6 +3061,8 @@ namespace Hiatme_Tool_Suite_v3
                 FsRestoreTripsListViewScroll(scrollAnchorLine, scrollAnchorItemIndex);
 
             ApplyFsTripsColumnWidths();
+
+            FsSyncReroutedHighlightsFromPreviewLines();
 
         }
 
@@ -3342,17 +3372,8 @@ namespace Hiatme_Tool_Suite_v3
                 }
                 : trip;
 
-            if (reroutedOnModivcare)
-
-                ApplyFsReroutedTripRowStyle(lvi);
-
-            else if (g != null && FsShowGroupColorsEnabled)
-
-            {
-
+            if (g != null && !reroutedOnModivcare && FsShowGroupColorsEnabled)
                 lvi.SubItems[0].BackColor = g.DisplayColor;
-
-            }
 
             lvi.SubItems.Add(trip.TripNumber ?? "");
 
@@ -3376,6 +3397,9 @@ namespace Hiatme_Tool_Suite_v3
 
             lvi.SubItems.Add(trip.Comments ?? "");
 
+            if (reroutedOnModivcare)
+                ApplyFsReroutedTripRowStyle(lvi);
+
             return lvi;
 
         }
@@ -3389,6 +3413,32 @@ namespace Hiatme_Tool_Suite_v3
             lvi.BackColor = c;
             for (int i = 0; i < lvi.SubItems.Count; i++)
                 lvi.SubItems[i].BackColor = c;
+        }
+
+        private static void ClearFsReroutedTripRowStyle(
+            ListViewItem lvi,
+            ScheduleBuilderPreviewLine line,
+            bool isReservesTab,
+            FsPreviewTripTag tag,
+            bool showGroupColors)
+        {
+            if (lvi == null)
+                return;
+
+            Color body = SupeyTheme.ListBody;
+            lvi.BackColor = body;
+            for (int i = 0; i < lvi.SubItems.Count; i++)
+                lvi.SubItems[i].BackColor = body;
+
+            if (isReservesTab && lvi.SubItems.Count > 0)
+            {
+                Color band = line?.ReserveBandColor ?? ScheduleBuilderReserveBuckets.RerouteBand;
+                lvi.SubItems[0].BackColor = band;
+                return;
+            }
+
+            if (tag?.Group != null && showGroupColors && lvi.SubItems.Count > 0)
+                lvi.SubItems[0].BackColor = tag.Group.DisplayColor;
         }
 
     }

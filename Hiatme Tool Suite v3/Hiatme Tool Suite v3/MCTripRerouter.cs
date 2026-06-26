@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Hiatme_Tool_Suite_v3
@@ -25,6 +26,22 @@ namespace Hiatme_Tool_Suite_v3
             public bool Success { get; set; }
             public string Message { get; set; }
         }
+
+        public enum RerouteProbeOutcome
+        {
+            StillOnCompany,
+            AlreadyRerouted,
+            LookupFailed,
+        }
+
+        public sealed class ProbeResult
+        {
+            public RerouteProbeOutcome Outcome { get; set; }
+            public string Message { get; set; }
+        }
+
+        /// <summary>Modivcare shows this on TripReroutes.aspx when the trip was already rerouted away.</summary>
+        internal const string NotAssignedToCompanyFragment = "not assigned to your company";
 
         /// <summary>
         /// TripReroutes.aspx → Reroutes.aspx → RerouteFinish.aspx (same flow as the website).
@@ -71,8 +88,7 @@ namespace Hiatme_Tool_Suite_v3
                 if (tripSelectResult.AuthRedirect)
                     throw new ModivcareSessionExpiredException();
 
-                if (tripSelectResult.FinalUri.IndexOf("TripReroutes.aspx", StringComparison.OrdinalIgnoreCase) >= 0
-                    && tripSelectResult.FinalUri.IndexOf("Reroutes.aspx", StringComparison.OrdinalIgnoreCase) < 0)
+                if (UriIsTripReroutesPage(tripSelectResult.FinalUri))
                 {
                     string err = TryExtractPageError(reroutesHtml);
                     return Fail(string.IsNullOrEmpty(err)
@@ -80,7 +96,7 @@ namespace Hiatme_Tool_Suite_v3
                         : err);
                 }
 
-                if (tripSelectResult.FinalUri.IndexOf("Reroutes.aspx", StringComparison.OrdinalIgnoreCase) < 0
+                if (!UriIsReroutesLandingPage(tripSelectResult.FinalUri)
                     && reroutesHtml.IndexOf("Reroute Trip", StringComparison.OrdinalIgnoreCase) < 0)
                 {
                     string err = TryExtractPageError(reroutesHtml);
@@ -123,6 +139,138 @@ namespace Hiatme_Tool_Suite_v3
             {
                 return Fail(ModivcareRequestErrors.DescribeOrDefault(ex, "Reroute request failed."));
             }
+        }
+
+        /// <summary>
+        /// Trip lookup only (TripReroutes.aspx step 1) — never submits the reroute form.
+        /// </summary>
+        public static async Task<ProbeResult> ProbeRerouteStatusAsync(
+            MCLoginHandler login,
+            MCDownloadedTrip trip,
+            DateTime? serviceDateFallback = null,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (login == null)
+                throw new ArgumentNullException(nameof(login));
+
+            if (!login.Connected)
+                throw new ModivcareSessionExpiredException();
+
+            if (trip == null || string.IsNullOrWhiteSpace(trip.TripNumber))
+            {
+                return new ProbeResult
+                {
+                    Outcome = RerouteProbeOutcome.LookupFailed,
+                    Message = "Trip number is missing.",
+                };
+            }
+
+            if (!TryParseTripFields(trip, serviceDateFallback, out string tripNumber, out string tripLeg, out string tripDate, out string parseError))
+            {
+                return new ProbeResult
+                {
+                    Outcome = RerouteProbeOutcome.LookupFailed,
+                    Message = parseError,
+                };
+            }
+
+            try
+            {
+                string tripReroutesHtml = await GetPageHtmlAsync(login, TripReroutesUrl, TripReroutesUrl)
+                    .ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+                login.GrabTokens(tripReroutesHtml);
+
+                var tripSelectResult = await PostFormAsync(
+                    login,
+                    TripReroutesUrl,
+                    TripReroutesUrl,
+                    () => BuildTripReroutesSelectForm(login, tripNumber, tripLeg, tripDate))
+                    .ConfigureAwait(false);
+                if (tripSelectResult.AuthRedirect)
+                    throw new ModivcareSessionExpiredException();
+
+                string html = tripSelectResult.Body;
+                string finalUri = tripSelectResult.FinalUri ?? TripReroutesUrl;
+
+                if (LooksLikeAlreadyRerouted(finalUri, html))
+                {
+                    return new ProbeResult
+                    {
+                        Outcome = RerouteProbeOutcome.AlreadyRerouted,
+                        Message = TryExtractPageError(html),
+                    };
+                }
+
+                if (LooksLikeStillOnCompany(finalUri, html))
+                {
+                    return new ProbeResult
+                    {
+                        Outcome = RerouteProbeOutcome.StillOnCompany,
+                    };
+                }
+
+                return new ProbeResult
+                {
+                    Outcome = RerouteProbeOutcome.LookupFailed,
+                    Message = TryExtractPageError(html)
+                        ?? "Modivcare did not return a clear reroute status for trip " + trip.TripNumber + ".",
+                };
+            }
+            catch (ModivcareSessionExpiredException)
+            {
+                throw;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                return new ProbeResult
+                {
+                    Outcome = RerouteProbeOutcome.LookupFailed,
+                    Message = ModivcareRequestErrors.DescribeOrDefault(ex, "Reroute status check failed."),
+                };
+            }
+        }
+
+        /// <summary>Trip lookup page — not the same as <see cref="UriIsReroutesLandingPage"/> (TripReroutes contains "Reroutes.aspx").</summary>
+        internal static bool UriIsTripReroutesPage(string uri) =>
+            !string.IsNullOrEmpty(uri)
+            && uri.IndexOf("TripReroutes.aspx", StringComparison.OrdinalIgnoreCase) >= 0;
+
+        /// <summary>Reroute form landing page after a successful trip lookup.</summary>
+        internal static bool UriIsReroutesLandingPage(string uri)
+        {
+            if (string.IsNullOrEmpty(uri))
+                return false;
+            return uri.IndexOf("Reroutes.aspx", StringComparison.OrdinalIgnoreCase) >= 0
+                && uri.IndexOf("TripReroutes.aspx", StringComparison.OrdinalIgnoreCase) < 0;
+        }
+
+        internal static bool LooksLikeAlreadyRerouted(string finalUri, string html)
+        {
+            if (string.IsNullOrEmpty(html) || !UriIsTripReroutesPage(finalUri))
+                return false;
+
+            string err = TryExtractPageError(html);
+            if (!string.IsNullOrEmpty(err)
+                && err.IndexOf(NotAssignedToCompanyFragment, StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+
+            return html.IndexOf(NotAssignedToCompanyFragment, StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        internal static bool LooksLikeStillOnCompany(string finalUri, string html)
+        {
+            if (UriIsReroutesLandingPage(finalUri))
+                return true;
+
+            return !string.IsNullOrEmpty(html)
+                && html.IndexOf("Reroute Trip", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private static bool TryParseTripFields(

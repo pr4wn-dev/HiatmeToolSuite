@@ -1077,7 +1077,9 @@ namespace Hiatme_Tool_Suite_v3
 
                 fsbuilder.PreviewReservesWillCalls,
 
-                fsbuilder.WillCallsInDownloadCount);
+                fsbuilder.WillCallsInDownloadCount,
+
+                preserveTripOrder: true);
 
             ShowFsTripsForTab(string.IsNullOrWhiteSpace(_fsActiveDriverTab) ? "Reserves" : _fsActiveDriverTab);
 

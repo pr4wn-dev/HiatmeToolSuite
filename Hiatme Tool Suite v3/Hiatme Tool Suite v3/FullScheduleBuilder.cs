@@ -235,6 +235,18 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>00:00 PU will calls — top of Reserves; not kept on driver tabs after BUILD.</summary>
         public List<MCDownloadedTrip> PreviewReservesWillCalls { get; private set; } = new List<MCDownloadedTrip>();
 
+        /// <summary>When set, Reserves tab bind uses saved sheet order instead of PU-time sort.</summary>
+        public IList<SupeyTemplateSlot> LoadedReserveSlots { get; private set; }
+
+        /// <summary>True after loading a saved schedule — keep reserve trip order unless user runs BUILD again.</summary>
+        public bool PreserveReserveTripOrder { get; private set; }
+
+        internal void ClearLoadedReserveLayout()
+        {
+            LoadedReserveSlots = null;
+            PreserveReserveTripOrder = false;
+        }
+
         /// <summary>Downloaded will-call trips (00:00 PU and/or WILL CALL in comments).</summary>
         public int WillCallsInDownloadCount { get; private set; }
 
@@ -407,6 +419,12 @@ namespace Hiatme_Tool_Suite_v3
 
             RemoveWillCallsFromDriverPreview();
             RemoveBannedTripsFromDriverPreview();
+
+            if (load.ReserveSlots != null && load.ReserveSlots.Count > 0)
+                LoadedReserveSlots = new List<SupeyTemplateSlot>(load.ReserveSlots);
+            else
+                LoadedReserveSlots = null;
+            PreserveReserveTripOrder = true;
 
             TabOrder = load.TabOrder != null && load.TabOrder.Count > 0
                 ? new List<string>(load.TabOrder)
@@ -1066,6 +1084,8 @@ namespace Hiatme_Tool_Suite_v3
         }
         private void BuildTempCsvFiles()
         {
+            ClearLoadedReserveLayout();
+
             TripsFound = new List<MCDownloadedTrip>();
             if (_driverTemplateSlots == null || _driverTemplateSlots.Count == 0)
             {

@@ -398,6 +398,10 @@ namespace Hiatme_Tool_Suite_v3
             return false;
         }
 
+        /// <summary>
+        /// Reserves tab rows from bucket lists. When <paramref name="preserveTripOrder"/> is false (fresh BUILD),
+        /// trips are sorted by PU time / client name. When true (load or after user ordering), list order is kept.
+        /// </summary>
         public static List<ScheduleBuilderPreviewLine> BuildReservePreviewLines(
 
             IList<MCDownloadedTrip> reservers,
@@ -408,7 +412,9 @@ namespace Hiatme_Tool_Suite_v3
 
             IList<MCDownloadedTrip> willCalls = null,
 
-            int willCallsInDownloadCount = 0)
+            int willCallsInDownloadCount = 0,
+
+            bool preserveTripOrder = false)
 
         {
 
@@ -417,6 +423,22 @@ namespace Hiatme_Tool_Suite_v3
             int wc = willCalls?.Count ?? 0;
 
             var allReroutes = MergeTripLists(reroutes, banned);
+
+            IEnumerable<MCDownloadedTrip> OrderWillCalls(IList<MCDownloadedTrip> list)
+            {
+                var source = list ?? Array.Empty<MCDownloadedTrip>();
+                if (preserveTripOrder)
+                    return source;
+                return source.OrderBy(x => x?.ClientFullName ?? "");
+            }
+
+            IEnumerable<MCDownloadedTrip> OrderByPu(IList<MCDownloadedTrip> list)
+            {
+                var source = list ?? Array.Empty<MCDownloadedTrip>();
+                if (preserveTripOrder)
+                    return source;
+                return source.OrderBy(x => x?.PUTime ?? "");
+            }
 
             if (wc > 0 || willCallsInDownloadCount > 0)
 
@@ -445,7 +467,7 @@ namespace Hiatme_Tool_Suite_v3
                 if (wc > 0)
 
                 {
-                    foreach (var t in willCalls.OrderBy(x => x?.ClientFullName ?? ""))
+                    foreach (var t in OrderWillCalls(willCalls))
 
                         lines.Add(TripLine(t, WillCallBand));
                 }
@@ -468,7 +490,7 @@ namespace Hiatme_Tool_Suite_v3
 
                 });
 
-                foreach (var t in reservers.OrderBy(x => x?.PUTime ?? ""))
+                foreach (var t in OrderByPu(reservers))
 
                     lines.Add(TripLine(t, ReserversBand));
 
@@ -490,13 +512,101 @@ namespace Hiatme_Tool_Suite_v3
 
                 });
 
-                foreach (var t in allReroutes.OrderBy(x => x?.PUTime ?? ""))
+                foreach (var t in OrderByPu(allReroutes))
 
                     lines.Add(TripLine(t, RerouteBand));
 
             }
 
             return lines;
+        }
+
+        /// <summary>Rebuild Reserves preview rows in saved file order (section headers + trips as they appear on the sheet).</summary>
+        public static List<ScheduleBuilderPreviewLine> BuildReservePreviewLinesFromSlots(
+            IList<SupeyTemplateSlot> slots,
+            IList<MCDownloadedTrip> willCallsAfterLoad = null,
+            IList<MCDownloadedTrip> reserversAfterLoad = null,
+            IList<MCDownloadedTrip> reroutesAfterLoad = null)
+        {
+            var lines = new List<ScheduleBuilderPreviewLine>();
+            var tripKeysInLines = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (slots == null || slots.Count == 0)
+                return lines;
+
+            Color currentBand = ReserversBand;
+
+            foreach (var slot in slots)
+            {
+                if (slot == null)
+                    continue;
+
+                if (slot.Kind == SupeyTemplateSlot.SlotKind.Gap)
+                {
+                    string note = (slot.NoteText ?? "").Trim();
+                    if (TryParseSectionBucket(note, out _))
+                    {
+                        currentBand = SectionColorForTitle(note);
+                        lines.Add(new ScheduleBuilderPreviewLine
+                        {
+                            Kind = ScheduleBuilderPreviewLine.LineKind.SectionHeader,
+                            SectionTitle = note,
+                            ReserveBandColor = currentBand,
+                        });
+                    }
+
+                    continue;
+                }
+
+                if (slot.Kind != SupeyTemplateSlot.SlotKind.Trip || slot.TemplateTrip == null)
+                    continue;
+
+                var trip = slot.TemplateTrip;
+                TrackTripKey(tripKeysInLines, trip);
+                lines.Add(new ScheduleBuilderPreviewLine
+                {
+                    Kind = ScheduleBuilderPreviewLine.LineKind.Trip,
+                    Trip = trip,
+                    ReserveBandColor = currentBand,
+                    ReroutedOnModivcare = slot.ReroutedOnModivcare,
+                });
+            }
+
+            AppendMissingReserveTrips(lines, tripKeysInLines, willCallsAfterLoad, WillCallBand);
+            AppendMissingReserveTrips(lines, tripKeysInLines, reserversAfterLoad, ReserversBand);
+            AppendMissingReserveTrips(lines, tripKeysInLines, reroutesAfterLoad, RerouteBand);
+
+            return lines;
+        }
+
+        private static void TrackTripKey(HashSet<string> seen, MCDownloadedTrip trip)
+        {
+            if (trip == null || seen == null)
+                return;
+            string key = ScheduleBuilderReroutedTrips.TripNumberKey(trip.TripNumber);
+            if (key.Length > 0)
+                seen.Add(key);
+        }
+
+        /// <summary>Trips added after load (registry reroutes, banned pull) append at the end in bucket-list order.</summary>
+        private static void AppendMissingReserveTrips(
+            List<ScheduleBuilderPreviewLine> lines,
+            HashSet<string> tripKeysInLines,
+            IList<MCDownloadedTrip> trips,
+            Color band)
+        {
+            if (lines == null || trips == null || trips.Count == 0)
+                return;
+
+            foreach (var trip in trips)
+            {
+                if (trip == null)
+                    continue;
+                string key = ScheduleBuilderReroutedTrips.TripNumberKey(trip.TripNumber);
+                if (key.Length > 0 && !tripKeysInLines.Add(key))
+                    continue;
+
+                lines.Add(TripLine(trip, band));
+            }
         }
 
 

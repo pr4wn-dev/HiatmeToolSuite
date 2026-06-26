@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
@@ -8,6 +10,271 @@ namespace Hiatme_Tool_Suite_v3
     public partial class Form1
     {
         private bool _fsCutTripRerouted;
+
+        private CancellationTokenSource _fsRerouteProbeCts;
+
+        private void FsCancelRerouteProbe()
+        {
+            try { _fsRerouteProbeCts?.Cancel(); }
+            catch { /* ignore */ }
+            _fsRerouteProbeCts = null;
+        }
+
+        private void FsShowInitialTabAfterScheduleLoad()
+        {
+            if (_fsTripsLv == null || _fsLinesByTab == null || _fsLinesByTab.Count == 0)
+                return;
+
+            _fsLinesByTab.TryGetValue("Reserves", out var reserveLines);
+            IList<MCDownloadedTrip> bucket = fsbuilder?.PreviewReservesReroute;
+            bool showReserves = reserveLines != null
+                && (ScheduleBuilderReroutedTrips.CountTripsInReroutesSection(reserveLines, bucket) > 0
+                    || ScheduleBuilderReroutedTrips.AnyMarked(reserveLines));
+
+            if (showReserves)
+            {
+                SelectFsDriverTab("Reserves");
+                FsSyncReroutedHighlightsFromPreviewLines();
+                return;
+            }
+
+            var driverNames = ScheduleBuilderTabOrder.OrderDriverNames(
+                _fsLinesByTab.Keys,
+                fsbuilder?.TabOrder);
+            string firstDriver = driverNames.FirstOrDefault();
+            if (!string.IsNullOrWhiteSpace(firstDriver))
+                SelectFsDriverTab(firstDriver);
+            else
+            {
+                var tabNames = ScheduleBuilderTabOrder.NormalizeFullTabOrder(
+                    fsbuilder?.TabOrder?.Count > 0 ? fsbuilder.TabOrder : null,
+                    _fsLinesByTab.Keys);
+                if (tabNames.Count > 0)
+                    SelectFsDriverTab(tabNames[0]);
+            }
+
+            FsSyncReroutedHighlightsFromPreviewLines();
+        }
+
+        /// <summary>
+        /// After load, check Reserves → Reroutes trips against Modivcare (lookup only — no reroute submit).
+        /// Uses the same sign-in, cookie, and TripReroutes.aspx flow as manual reroute.
+        /// </summary>
+        /// <param name="refreshListView">False during load — caller shows the list after flags are final.</param>
+        /// <returns>Status suffix for the load message, or empty when nothing to verify.</returns>
+        private async Task<string> FsProbeReroutesAfterScheduleLoadAsync(
+            DateTime serviceDate,
+            bool refreshListView = true)
+        {
+            FsCancelRerouteProbe();
+            _fsRerouteProbeCts = new CancellationTokenSource();
+            CancellationToken token = _fsRerouteProbeCts.Token;
+
+            if (fsbuilder == null)
+                return "";
+
+            if (!_fsLinesByTab.TryGetValue("Reserves", out var reserveLines) || reserveLines == null)
+                return "";
+
+            IList<MCDownloadedTrip> rerouteBucket = fsbuilder.PreviewReservesReroute;
+            List<MCDownloadedTrip> toCheck = ScheduleBuilderReroutedTrips.EnumerateTripsInReroutesSection(
+                reserveLines,
+                skipAlreadyMarked: false,
+                bucketFallback: rerouteBucket);
+
+            if (toCheck.Count == 0)
+                return "";
+
+            void ProbeStatus(string text)
+            {
+                SetScheduleBuilderStatus(text);
+                UpdateTabLoadingOverlayMessage(tabPage6, text);
+            }
+
+            ProbeStatus("Connecting to Modivcare…");
+            if (!await EnsureModivcareSessionAsync().ConfigureAwait(true))
+                return " Reroute verify skipped — Modivcare not available.";
+
+            int marked = 0;
+            int unmarked = 0;
+            int checkedCount = 0;
+            for (int i = 0; i < toCheck.Count; i++)
+            {
+                if (token.IsCancellationRequested || fsbuilder == null)
+                    break;
+
+                MCDownloadedTrip trip = toCheck[i];
+                string num = (trip.TripNumber ?? "").Trim();
+                ProbeStatus("Checking reroutes on Modivcare (" + (i + 1) + "/" + toCheck.Count
+                    + (string.IsNullOrEmpty(num) ? ")…" : ") · " + num + "…"));
+
+                MCTripRerouter.ProbeResult probe;
+                try
+                {
+                    probe = await FsProbeTripOnModivcareAsync(trip, serviceDate, token).ConfigureAwait(true);
+                }
+                catch (ModivcareSessionExpiredException)
+                {
+                    return " Reroute verify stopped — Modivcare session expired.";
+                }
+                catch (OperationCanceledException)
+                {
+                    return "";
+                }
+                catch
+                {
+                    continue;
+                }
+
+                checkedCount++;
+
+                if (probe.Outcome == MCTripRerouter.RerouteProbeOutcome.AlreadyRerouted)
+                {
+                    bool wasMarked = ScheduleBuilderReroutedTrips.IsMarkedAnyTab(_fsLinesByTab, trip);
+                    ScheduleBuilderReroutedTrips.MarkReroutedAnyTab(_fsLinesByTab, trip);
+                    if (refreshListView)
+                        FsRefreshReroutedHighlightForTrip(trip);
+                    if (!wasMarked)
+                        marked++;
+                    continue;
+                }
+
+                if (probe.Outcome == MCTripRerouter.RerouteProbeOutcome.StillOnCompany)
+                {
+                    if (ScheduleBuilderReroutedTrips.ClearReroutedAnyTab(_fsLinesByTab, trip))
+                        unmarked++;
+                    if (refreshListView)
+                        FsRefreshReroutedHighlightForTrip(trip);
+                }
+            }
+
+            if (token.IsCancellationRequested || fsbuilder == null)
+                return "";
+
+            if (refreshListView)
+                FsSyncReroutedHighlightsFromPreviewLines();
+
+            if (marked > 0 || unmarked > 0
+                || ScheduleBuilderReroutedTrips.AnyMarked(reserveLines))
+            {
+                SyncFsPreviewCsvsForExport();
+                if (refreshListView)
+                    FsShowInitialTabAfterScheduleLoad();
+            }
+
+            if (checkedCount == 0)
+                return " Reroute verify skipped — Modivcare unreachable.";
+
+            if (marked > 0 && unmarked > 0)
+            {
+                return " Reroute verify — " + marked + " marked red, " + unmarked
+                    + " cleared (still on company).";
+            }
+
+            if (marked > 0)
+            {
+                return " Reroute verify — " + marked + " trip" + (marked == 1 ? "" : "s")
+                    + " already rerouted on Modivcare (marked red).";
+            }
+
+            if (unmarked > 0)
+            {
+                return " Reroute verify — " + unmarked + " trip" + (unmarked == 1 ? "" : "s")
+                    + " cleared red highlight (still on company).";
+            }
+
+            return " Reroute verify — " + checkedCount + " trip" + (checkedCount == 1 ? "" : "s")
+                + " checked; all still on company.";
+        }
+
+        /// <summary>One trip lookup with the same session-expiry reconnect pattern as manual reroute.</summary>
+        private async Task<MCTripRerouter.ProbeResult> FsProbeTripOnModivcareAsync(
+            MCDownloadedTrip trip,
+            DateTime serviceDate,
+            CancellationToken token)
+        {
+            for (int attempt = 0; attempt < 2; attempt++)
+            {
+                try
+                {
+                    return await MCTripRerouter.ProbeRerouteStatusAsync(
+                            mcLoginHandler,
+                            trip,
+                            serviceDate,
+                            token)
+                        .ConfigureAwait(true);
+                }
+                catch (ModivcareSessionExpiredException)
+                {
+                    if (attempt > 0)
+                        throw;
+
+                    await HandleModivcareSessionExpiredAsync().ConfigureAwait(true);
+                    if (!await EnsureModivcareSessionAsync().ConfigureAwait(true))
+                        throw new ModivcareSessionExpiredException();
+                }
+            }
+
+            throw new ModivcareSessionExpiredException();
+        }
+
+        private void FsRefreshReroutedHighlightForTrip(MCDownloadedTrip trip)
+        {
+            if (_fsTripsLv == null || trip == null)
+                return;
+
+            bool rerouted = ScheduleBuilderReroutedTrips.IsMarkedAnyTab(_fsLinesByTab, trip);
+            bool isReservesTab = string.Equals(_fsActiveDriverTab, "Reserves", StringComparison.OrdinalIgnoreCase);
+            _fsLinesByTab.TryGetValue(_fsActiveDriverTab ?? "", out var activeLines);
+
+            foreach (ListViewItem lvi in _fsTripsLv.Items)
+            {
+                if (!(lvi.Tag is FsPreviewTripTag tag) || tag.Trip == null)
+                    continue;
+                if (!ScheduleBuilderPreviewDrag.TripEquals(tag.Trip, trip))
+                    continue;
+
+                tag.ReroutedOnModivcare = rerouted;
+                var line = ScheduleBuilderReroutedTrips.FindLine(activeLines, tag.Trip);
+                if (rerouted)
+                    ApplyFsReroutedTripRowStyle(lvi);
+                else
+                    ClearFsReroutedTripRowStyle(lvi, line, isReservesTab, tag, FsShowGroupColorsEnabled);
+            }
+        }
+
+        /// <summary>Align list-view tags and back colors with preview-line rerouted flags.</summary>
+        private void FsSyncReroutedHighlightsFromPreviewLines()
+        {
+            if (_fsTripsLv == null || string.IsNullOrWhiteSpace(_fsActiveDriverTab))
+                return;
+            if (!_fsLinesByTab.TryGetValue(_fsActiveDriverTab, out var lines) || lines == null)
+                return;
+
+            bool isReservesTab = _fsActiveDriverTab.Equals("Reserves", StringComparison.OrdinalIgnoreCase);
+
+            foreach (ListViewItem lvi in _fsTripsLv.Items)
+            {
+                if (!(lvi.Tag is FsPreviewTripTag tag) || tag.Trip == null)
+                    continue;
+
+                var line = ScheduleBuilderReroutedTrips.FindLine(lines, tag.Trip);
+                if (line == null)
+                    continue;
+
+                if (line.ReroutedOnModivcare)
+                {
+                    tag.ReroutedOnModivcare = true;
+                    ApplyFsReroutedTripRowStyle(lvi);
+                    continue;
+                }
+
+                tag.ReroutedOnModivcare = false;
+                ClearFsReroutedTripRowStyle(lvi, line, isReservesTab, tag, FsShowGroupColorsEnabled);
+            }
+
+            _fsTripsLv.Invalidate(true);
+        }
 
         private async void FsRerouteTripOnModivcareFromContext()
         {
@@ -194,7 +461,8 @@ namespace Hiatme_Tool_Suite_v3
                 fsbuilder.PreviewReservesReroute,
                 banned: null,
                 fsbuilder.PreviewReservesWillCalls,
-                fsbuilder.WillCallsInDownloadCount);
+                fsbuilder.WillCallsInDownloadCount,
+                preserveTripOrder: true);
             // Restore prior red marks but do NOT mark the newly added trip.
             ScheduleBuilderReroutedTrips.RestoreAndMarkRerouted(reserveLines, priorReserves, justRerouted: null);
             FsCommitPreviewLinesForTab("Reserves", reserveLines);
@@ -260,7 +528,8 @@ namespace Hiatme_Tool_Suite_v3
                     fsbuilder.PreviewReservesReroute,
                     banned: null,
                     fsbuilder.PreviewReservesWillCalls,
-                    fsbuilder.WillCallsInDownloadCount);
+                    fsbuilder.WillCallsInDownloadCount,
+                    preserveTripOrder: true);
                 ScheduleBuilderReroutedTrips.RestoreAndMarkRerouted(reserveLines, priorReserves, trip);
                 marked = ScheduleBuilderReroutedTrips.IsMarked(reserveLines, trip);
                 FsCommitPreviewLinesForTab("Reserves", reserveLines);
