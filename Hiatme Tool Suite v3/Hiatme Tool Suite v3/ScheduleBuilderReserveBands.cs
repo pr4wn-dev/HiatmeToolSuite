@@ -29,6 +29,8 @@ namespace Hiatme_Tool_Suite_v3
 
             Banned,
 
+            Cancel,
+
         }
 
 
@@ -178,17 +180,25 @@ namespace Hiatme_Tool_Suite_v3
             if (list == null || trip == null)
                 return false;
 
-            bool removed = false;
-            for (int i = list.Count - 1; i >= 0; i--)
+            for (int i = 0; i < list.Count; i++)
+            {
+                if (ReferenceEquals(list[i], trip))
+                {
+                    list.RemoveAt(i);
+                    return true;
+                }
+            }
+
+            for (int i = 0; i < list.Count; i++)
             {
                 if (ScheduleBuilderPreviewDrag.TripEquals(list[i], trip))
                 {
                     list.RemoveAt(i);
-                    removed = true;
+                    return true;
                 }
             }
 
-            return removed;
+            return false;
         }
 
         /// <summary>Move a trip into the Reserves → Reroutes bucket lists (deduped).</summary>
@@ -196,13 +206,16 @@ namespace Hiatme_Tool_Suite_v3
             MCDownloadedTrip trip,
             IList<MCDownloadedTrip> reservers,
             IList<MCDownloadedTrip> reroutes,
-            IList<MCDownloadedTrip> willCalls)
+            IList<MCDownloadedTrip> willCalls,
+            IList<MCDownloadedTrip> cancels = null)
         {
             if (trip == null || reroutes == null)
                 return false;
 
             bool changed = RemoveTripFromList(reservers, trip);
             changed |= RemoveTripFromList(willCalls, trip);
+            if (cancels != null)
+                changed |= RemoveTripFromList(cancels, trip);
 
             var seen = BuildTripNumberSet(reroutes);
             if (TryMergeTripIntoList(reroutes, trip))
@@ -211,6 +224,42 @@ namespace Hiatme_Tool_Suite_v3
                 changed = true;
 
             return changed;
+        }
+
+        /// <summary>Move a trip into the Reserves → Cancels bucket lists (deduped).</summary>
+        public static bool MoveTripToCancelsBucket(
+            MCDownloadedTrip trip,
+            IList<MCDownloadedTrip> reservers,
+            IList<MCDownloadedTrip> reroutes,
+            IList<MCDownloadedTrip> willCalls,
+            IList<MCDownloadedTrip> cancels)
+        {
+            if (trip == null || cancels == null)
+                return false;
+
+            bool changed = RemoveTripFromList(reservers, trip);
+            changed |= RemoveTripFromList(willCalls, trip);
+            changed |= RemoveTripFromList(reroutes, trip);
+
+            var seen = BuildTripNumberSet(cancels);
+            if (TryMergeTripIntoList(cancels, trip))
+                changed = true;
+            else if (TryAddTripUnique(cancels, seen, trip))
+                changed = true;
+
+            return changed;
+        }
+
+        public static bool IsInCancelBucket(IList<MCDownloadedTrip> cancels, MCDownloadedTrip trip)
+        {
+            if (cancels == null || trip == null)
+                return false;
+            foreach (var t in cancels)
+            {
+                if (ScheduleBuilderPreviewDrag.TripEquals(t, trip))
+                    return true;
+            }
+            return false;
         }
 
         /// <summary>If the trip number is already in the list, merge missing fields (e.g. phones onto registry ghosts).</summary>
@@ -357,8 +406,9 @@ namespace Hiatme_Tool_Suite_v3
         public static readonly Color ReserversBand = Color.FromArgb(52, 128, 124);  // teal — need driver
         public static readonly Color RerouteBand = Color.FromArgb(196, 118, 48);  // amber — reroute to MC
         public static readonly Color BannedBand = Color.FromArgb(168, 72, 88);    // rose — banned (legacy)
+        public static readonly Color CancelBand = Color.FromArgb(108, 92, 148); // violet — manual cancels
 
-        /// <summary>Section header bar color from title (Will calls / Reservers / Reroutes).</summary>
+        /// <summary>Section header bar color from title (Will calls / Reservers / Cancels / Reroutes).</summary>
         public static Color SectionColorForTitle(string title)
         {
             title = title ?? "";
@@ -368,6 +418,8 @@ namespace Hiatme_Tool_Suite_v3
                 return ReserversBand;
             if (title.StartsWith("Reroutes", StringComparison.OrdinalIgnoreCase))
                 return RerouteBand;
+            if (title.StartsWith("Cancels", StringComparison.OrdinalIgnoreCase))
+                return CancelBand;
             return ReserversBand;
         }
 
@@ -394,6 +446,12 @@ namespace Hiatme_Tool_Suite_v3
                 return true;
             }
 
+            if (title.StartsWith("Cancels", StringComparison.OrdinalIgnoreCase))
+            {
+                bucket = ReserveBucket.Cancel;
+                return true;
+            }
+
             bucket = ReserveBucket.Reserver;
             return false;
         }
@@ -414,7 +472,9 @@ namespace Hiatme_Tool_Suite_v3
 
             int willCallsInDownloadCount = 0,
 
-            bool preserveTripOrder = false)
+            bool preserveTripOrder = false,
+
+            IList<MCDownloadedTrip> cancels = null)
 
         {
 
@@ -496,6 +556,28 @@ namespace Hiatme_Tool_Suite_v3
 
             }
 
+            if (cancels != null && cancels.Count > 0)
+
+            {
+
+                lines.Add(new ScheduleBuilderPreviewLine
+
+                {
+
+                    Kind = ScheduleBuilderPreviewLine.LineKind.SectionHeader,
+
+                    SectionTitle = "Cancels (" + cancels.Count + ")",
+
+                    ReserveBandColor = CancelBand,
+
+                });
+
+                foreach (var t in OrderByPu(cancels))
+
+                    lines.Add(TripLine(t, CancelBand));
+
+            }
+
             if (allReroutes.Count > 0)
 
             {
@@ -526,7 +608,8 @@ namespace Hiatme_Tool_Suite_v3
             IList<SupeyTemplateSlot> slots,
             IList<MCDownloadedTrip> willCallsAfterLoad = null,
             IList<MCDownloadedTrip> reserversAfterLoad = null,
-            IList<MCDownloadedTrip> reroutesAfterLoad = null)
+            IList<MCDownloadedTrip> reroutesAfterLoad = null,
+            IList<MCDownloadedTrip> cancelsAfterLoad = null)
         {
             var lines = new List<ScheduleBuilderPreviewLine>();
             var tripKeysInLines = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -573,9 +656,72 @@ namespace Hiatme_Tool_Suite_v3
 
             AppendMissingReserveTrips(lines, tripKeysInLines, willCallsAfterLoad, WillCallBand);
             AppendMissingReserveTrips(lines, tripKeysInLines, reserversAfterLoad, ReserversBand);
+            AppendMissingReserveTrips(lines, tripKeysInLines, cancelsAfterLoad, CancelBand);
             AppendMissingReserveTrips(lines, tripKeysInLines, reroutesAfterLoad, RerouteBand);
 
+            ReorderCancelsAboveReroutes(lines);
+
             return lines;
+        }
+
+        /// <summary>Move Cancels section block above Reroutes when a saved workbook had the old order.</summary>
+        private static void ReorderCancelsAboveReroutes(List<ScheduleBuilderPreviewLine> lines)
+        {
+            if (lines == null || lines.Count < 2)
+                return;
+
+            int cancelsStart = -1;
+            int reroutesStart = -1;
+            for (int i = 0; i < lines.Count; i++)
+            {
+                var line = lines[i];
+                if (line?.Kind != ScheduleBuilderPreviewLine.LineKind.SectionHeader)
+                    continue;
+                if (!TryParseSectionBucket(line.SectionTitle, out var bucket))
+                    continue;
+                if (bucket == ReserveBucket.Cancel && cancelsStart < 0)
+                    cancelsStart = i;
+                else if (bucket == ReserveBucket.Reroute && reroutesStart < 0)
+                    reroutesStart = i;
+            }
+
+            if (cancelsStart < 0 || reroutesStart < 0 || cancelsStart < reroutesStart)
+                return;
+
+            int cancelsEnd = NextSectionStart(lines, cancelsStart + 1);
+            var cancelsBlock = lines.GetRange(cancelsStart, cancelsEnd - cancelsStart);
+            lines.RemoveRange(cancelsStart, cancelsEnd - cancelsStart);
+
+            reroutesStart = -1;
+            for (int i = 0; i < lines.Count; i++)
+            {
+                var line = lines[i];
+                if (line?.Kind != ScheduleBuilderPreviewLine.LineKind.SectionHeader)
+                    continue;
+                if (TryParseSectionBucket(line.SectionTitle, out var bucket) && bucket == ReserveBucket.Reroute)
+                {
+                    reroutesStart = i;
+                    break;
+                }
+            }
+
+            if (reroutesStart < 0)
+                lines.AddRange(cancelsBlock);
+            else
+                lines.InsertRange(reroutesStart, cancelsBlock);
+        }
+
+        private static int NextSectionStart(IList<ScheduleBuilderPreviewLine> lines, int fromIndex)
+        {
+            for (int i = fromIndex; i < lines.Count; i++)
+            {
+                var line = lines[i];
+                if (line?.Kind == ScheduleBuilderPreviewLine.LineKind.SectionHeader
+                    && TryParseSectionBucket(line.SectionTitle, out _))
+                    return i;
+            }
+
+            return lines.Count;
         }
 
         private static void TrackTripKey(HashSet<string> seen, MCDownloadedTrip trip)
@@ -619,7 +765,9 @@ namespace Hiatme_Tool_Suite_v3
 
             IList<MCDownloadedTrip> banned = null,
 
-            IList<MCDownloadedTrip> willCalls = null)
+            IList<MCDownloadedTrip> willCalls = null,
+
+            IList<MCDownloadedTrip> cancels = null)
 
         {
 
@@ -654,6 +802,22 @@ namespace Hiatme_Tool_Suite_v3
                 var g = new SupeyTripCluster { GroupNumber = n, GroupColor = ReserversBand };
 
                 foreach (var t in reservers)
+
+                    if (t != null) g.Trips.Add(t);
+
+                groups.Add(g);
+
+            }
+
+            if (cancels != null && cancels.Count > 0)
+
+            {
+
+                n++;
+
+                var g = new SupeyTripCluster { GroupNumber = n, GroupColor = CancelBand };
+
+                foreach (var t in cancels)
 
                     if (t != null) g.Trips.Add(t);
 
@@ -700,6 +864,295 @@ namespace Hiatme_Tool_Suite_v3
                 ReserveBandColor = band,
 
             };
+
+        /// <summary>
+        /// Move trips between reserve sections in-place so bucket rebuilds do not reshuffle neighbors.
+        /// Also strips unconfirmed partner legs out of Reroutes (ghost rows that never hit the bucket).
+        /// </summary>
+        public static List<ScheduleBuilderPreviewLine> PatchPriorReserveLinesForCancelMove(
+            IList<ScheduleBuilderPreviewLine> priorLines,
+            MCDownloadedTrip movedToCancel,
+            IEnumerable<MCDownloadedTrip> demotedFromReroutes,
+            ISet<string> confirmedReroutedLegKeys = null,
+            Func<MCDownloadedTrip, bool> isOnDriverTab = null)
+        {
+            if (priorLines == null || priorLines.Count == 0)
+                return null;
+
+            var lines = new List<ScheduleBuilderPreviewLine>(priorLines.Count);
+            foreach (var line in priorLines)
+            {
+                if (line == null)
+                    continue;
+                lines.Add(CopyReservePreviewLine(line));
+            }
+
+            if (movedToCancel != null)
+                StripUnconfirmedPartnerLegsFromReroutesSection(
+                    lines, movedToCancel, confirmedReroutedLegKeys, isOnDriverTab);
+
+            if (demotedFromReroutes != null)
+            {
+                foreach (var partner in demotedFromReroutes)
+                {
+                    if (partner == null)
+                        continue;
+                    RemoveTripFromReserveLines(lines, partner);
+                    if (isOnDriverTab != null && isOnDriverTab(partner))
+                        continue;
+                    InsertTripAtSectionEnd(lines, partner, ReserveBucket.Reserver, ReserversBand);
+                }
+            }
+
+            if (movedToCancel != null)
+            {
+                RemoveTripFromReserveLines(lines, movedToCancel);
+                InsertTripAtSectionEnd(lines, movedToCancel, ReserveBucket.Cancel, CancelBand);
+            }
+
+            RefreshReserveSectionHeaderCounts(lines);
+            return lines;
+        }
+
+        /// <summary>
+        /// Partner B-leg ghosts in the Reroutes band must disappear when A-leg goes to Cancels.
+        /// </summary>
+        private static void StripUnconfirmedPartnerLegsFromReroutesSection(
+            List<ScheduleBuilderPreviewLine> lines,
+            MCDownloadedTrip anchor,
+            ISet<string> confirmedReroutedLegKeys,
+            Func<MCDownloadedTrip, bool> isOnDriverTab)
+        {
+            if (lines == null || anchor == null)
+                return;
+
+            var partners = CollectPartnerTripsInReroutesSection(lines, anchor, confirmedReroutedLegKeys);
+            foreach (var partner in partners)
+            {
+                RemoveTripFromReserveLines(lines, partner);
+                if (isOnDriverTab != null && isOnDriverTab(partner))
+                    continue;
+                InsertTripAtSectionEnd(lines, partner, ReserveBucket.Reserver, ReserversBand);
+            }
+        }
+
+        private static List<MCDownloadedTrip> CollectPartnerTripsInReroutesSection(
+            IList<ScheduleBuilderPreviewLine> lines,
+            MCDownloadedTrip anchor,
+            ISet<string> confirmedReroutedLegKeys)
+        {
+            var partners = new List<MCDownloadedTrip>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (lines == null || anchor == null)
+                return partners;
+
+            bool inReroutes = false;
+            foreach (var line in lines)
+            {
+                if (line?.Kind == ScheduleBuilderPreviewLine.LineKind.SectionHeader)
+                {
+                    if (TryParseSectionBucket(line.SectionTitle, out var bucket))
+                        inReroutes = bucket == ReserveBucket.Reroute;
+                    else
+                        inReroutes = (line.SectionTitle ?? "").StartsWith("Reroutes", StringComparison.OrdinalIgnoreCase);
+                    continue;
+                }
+
+                if (!inReroutes
+                    || line?.Kind != ScheduleBuilderPreviewLine.LineKind.Trip
+                    || line.Trip == null)
+                {
+                    continue;
+                }
+
+                if (!ScheduleBuilderPreviewDrag.IsPartnerLeg(anchor.TripNumber, line.Trip.TripNumber))
+                    continue;
+                if (confirmedReroutedLegKeys != null
+                    && ScheduleBuilderReroutedTrips.TripNumberKeySetContains(
+                        confirmedReroutedLegKeys, line.Trip.TripNumber))
+                {
+                    continue;
+                }
+
+                string key = ScheduleBuilderReroutedTrips.TripNumberKey(line.Trip.TripNumber);
+                if (key.Length == 0 || !seen.Add(key))
+                    continue;
+                partners.Add(line.Trip);
+            }
+
+            return partners;
+        }
+
+        /// <summary>
+        /// Move ONE trip into the Reserves → Cancels section in an existing line list.
+        /// Only the given trip moves; every other row keeps its exact position.
+        /// </summary>
+        public static void MoveTripIntoCancelsSectionInPlace(
+            List<ScheduleBuilderPreviewLine> reserveLines,
+            MCDownloadedTrip trip)
+        {
+            if (reserveLines == null || trip == null)
+                return;
+
+            RemoveTripFromReserveLines(reserveLines, trip);
+            InsertTripAtSectionEnd(reserveLines, trip, ReserveBucket.Cancel, CancelBand);
+            RefreshReserveSectionHeaderCounts(reserveLines);
+        }
+
+        private static ScheduleBuilderPreviewLine CopyReservePreviewLine(ScheduleBuilderPreviewLine line)
+        {
+            if (line == null)
+                return null;
+
+            return new ScheduleBuilderPreviewLine
+            {
+                Kind = line.Kind,
+                Trip = line.Trip,
+                SectionTitle = line.SectionTitle,
+                ReserveBandColor = line.ReserveBandColor,
+                ReroutedOnModivcare = line.ReroutedOnModivcare,
+                CancelledOnWellRyde = line.CancelledOnWellRyde,
+                GroupNumber = line.GroupNumber,
+                GroupNoteText = line.GroupNoteText,
+                GroupColorOverride = line.GroupColorOverride,
+                GapNoteText = line.GapNoteText,
+            };
+        }
+
+        private static void RemoveTripFromReserveLines(
+            IList<ScheduleBuilderPreviewLine> lines,
+            MCDownloadedTrip trip)
+        {
+            if (lines == null || trip == null)
+                return;
+
+            for (int i = lines.Count - 1; i >= 0; i--)
+            {
+                var line = lines[i];
+                if (line?.Kind == ScheduleBuilderPreviewLine.LineKind.Trip
+                    && ScheduleBuilderPreviewDrag.TripEquals(line.Trip, trip))
+                {
+                    lines.RemoveAt(i);
+                }
+            }
+        }
+
+        private static void InsertTripAtSectionEnd(
+            List<ScheduleBuilderPreviewLine> lines,
+            MCDownloadedTrip trip,
+            ReserveBucket bucket,
+            Color band)
+        {
+            if (lines == null || trip == null)
+                return;
+
+            int headerIdx = FindSectionHeaderIndex(lines, bucket);
+            if (headerIdx < 0)
+                headerIdx = CreateSectionHeader(lines, bucket, band);
+
+            int insertAt = NextSectionStart(lines, headerIdx + 1);
+            lines.Insert(insertAt, TripLine(trip, band));
+        }
+
+        private static int FindSectionHeaderIndex(IList<ScheduleBuilderPreviewLine> lines, ReserveBucket bucket)
+        {
+            if (lines == null)
+                return -1;
+
+            for (int i = 0; i < lines.Count; i++)
+            {
+                var line = lines[i];
+                if (line?.Kind != ScheduleBuilderPreviewLine.LineKind.SectionHeader)
+                    continue;
+                if (TryParseSectionBucket(line.SectionTitle, out var parsed) && parsed == bucket)
+                    return i;
+            }
+
+            return -1;
+        }
+
+        private static int CreateSectionHeader(
+            List<ScheduleBuilderPreviewLine> lines,
+            ReserveBucket bucket,
+            Color band)
+        {
+            int insertAt = lines.Count;
+            if (bucket == ReserveBucket.Cancel)
+            {
+                for (int i = 0; i < lines.Count; i++)
+                {
+                    var line = lines[i];
+                    if (line?.Kind != ScheduleBuilderPreviewLine.LineKind.SectionHeader)
+                        continue;
+                    if (TryParseSectionBucket(line.SectionTitle, out var parsed)
+                        && parsed == ReserveBucket.Reroute)
+                    {
+                        insertAt = i;
+                        break;
+                    }
+                }
+            }
+
+            string title = SectionTitleForBucket(bucket, 0);
+            lines.Insert(insertAt, new ScheduleBuilderPreviewLine
+            {
+                Kind = ScheduleBuilderPreviewLine.LineKind.SectionHeader,
+                SectionTitle = title,
+                ReserveBandColor = band,
+            });
+            return insertAt;
+        }
+
+        private static string SectionTitleForBucket(ReserveBucket bucket, int count)
+        {
+            switch (bucket)
+            {
+                case ReserveBucket.WillCall:
+                    return "Will calls (" + count + ")";
+                case ReserveBucket.Reroute:
+                    return "Reroutes (" + count + ")";
+                case ReserveBucket.Cancel:
+                    return "Cancels (" + count + ")";
+                default:
+                    return "Reservers (" + count + ")";
+            }
+        }
+
+        private static void RefreshReserveSectionHeaderCounts(List<ScheduleBuilderPreviewLine> lines)
+        {
+            if (lines == null)
+                return;
+
+            ReserveBucket? current = null;
+            int headerIdx = -1;
+            int tripCount = 0;
+
+            void Flush()
+            {
+                if (headerIdx < 0 || !current.HasValue)
+                    return;
+                lines[headerIdx].SectionTitle = SectionTitleForBucket(current.Value, tripCount);
+            }
+
+            for (int i = 0; i < lines.Count; i++)
+            {
+                var line = lines[i];
+                if (line?.Kind == ScheduleBuilderPreviewLine.LineKind.SectionHeader
+                    && TryParseSectionBucket(line.SectionTitle, out var bucket))
+                {
+                    Flush();
+                    current = bucket;
+                    headerIdx = i;
+                    tripCount = 0;
+                    continue;
+                }
+
+                if (line?.Kind == ScheduleBuilderPreviewLine.LineKind.Trip && current.HasValue)
+                    tripCount++;
+            }
+
+            Flush();
+        }
 
     }
 

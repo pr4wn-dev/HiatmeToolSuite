@@ -196,7 +196,8 @@ namespace Hiatme_Tool_Suite_v3
             out List<MCDownloadedTrip> reservers,
             out List<MCDownloadedTrip> reroutes,
             out List<MCDownloadedTrip> banned,
-            out List<MCDownloadedTrip> willCalls)
+            out List<MCDownloadedTrip> willCalls,
+            out List<MCDownloadedTrip> cancels)
         {
             ScheduleBuilderBannedClients.ReloadCache();
             if (SupeyOutOfArea.CachedAreas == null || SupeyOutOfArea.CachedAreas.Count == 0)
@@ -206,10 +207,11 @@ namespace Hiatme_Tool_Suite_v3
             reroutes = new List<MCDownloadedTrip>();
             banned = new List<MCDownloadedTrip>();
             willCalls = new List<MCDownloadedTrip>();
+            cancels = new List<MCDownloadedTrip>();
 
             if (load?.ReserveSlots != null && load.ReserveSlots.Count > 0)
             {
-                ApplyReserveBucketsFromSlots(load, load.ReserveSlots, ref reservers, ref reroutes, ref willCalls);
+                ApplyReserveBucketsFromSlots(load, load.ReserveSlots, ref reservers, ref reroutes, ref willCalls, ref cancels);
                 return;
             }
 
@@ -221,7 +223,8 @@ namespace Hiatme_Tool_Suite_v3
             IList<SupeyTemplateSlot> slots,
             ref List<MCDownloadedTrip> reservers,
             ref List<MCDownloadedTrip> reroutes,
-            ref List<MCDownloadedTrip> willCalls)
+            ref List<MCDownloadedTrip> willCalls,
+            ref List<MCDownloadedTrip> cancels)
         {
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             ScheduleBuilderReserveBuckets.ReserveBucket? currentSection = null;
@@ -260,6 +263,9 @@ namespace Hiatme_Tool_Suite_v3
                     {
                         case ScheduleBuilderReserveBuckets.ReserveBucket.Reroute:
                             reroutes.Add(trip);
+                            break;
+                        case ScheduleBuilderReserveBuckets.ReserveBucket.Cancel:
+                            cancels.Add(trip);
                             break;
                         case ScheduleBuilderReserveBuckets.ReserveBucket.WillCall:
                             willCalls.Add(trip);

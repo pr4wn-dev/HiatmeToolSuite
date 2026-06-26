@@ -24,6 +24,8 @@ namespace Hiatme_Tool_Suite_v3
         public MCDownloadedTrip Trip { get; set; }
         /// <summary>Trip was submitted for reroute on Modivcare; shown with a red row in the list.</summary>
         public bool ReroutedOnModivcare { get; set; }
+        /// <summary>WellRyde trip list shows Cancelled/Suspended for this trip.</summary>
+        public bool CancelledOnWellRyde { get; set; }
         /// <summary>Grp swatch on Reserves tab (reservers / reroute sections).</summary>
         public Color? ReserveBandColor { get; set; }
     }

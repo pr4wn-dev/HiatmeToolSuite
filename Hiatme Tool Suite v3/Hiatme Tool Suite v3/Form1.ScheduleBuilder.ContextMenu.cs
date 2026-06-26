@@ -33,6 +33,7 @@ namespace Hiatme_Tool_Suite_v3
         private ToolStripMenuItem _fsTripsCtxResetGroupColor;
         private ToolStripMenuItem _fsTripsCtxRerouteModivcare;
         private ToolStripMenuItem _fsTripsCtxAddToReroutes;
+        private ToolStripMenuItem _fsTripsCtxAddToCancels;
         private MCDownloadedTrip _fsTripsCtxTrip;
         private SupeyTripCluster _fsTripsCtxGroup;
         private FsPreviewNoteTag _fsTripsCtxNoteTag;
@@ -242,10 +243,18 @@ namespace Hiatme_Tool_Suite_v3
             };
             _fsTripsCtxAddToReroutes.Click += (s, e) => FsAddTripToReroutesSectionFromContext();
 
+            _fsTripsCtxAddToCancels = new ToolStripMenuItem("Add to Cancels section (no Modivcare)")
+            {
+                BackColor = DarkContextMenuRenderer.Background,
+                ForeColor = DarkContextMenuRenderer.ForeColor,
+            };
+            _fsTripsCtxAddToCancels.Click += (s, e) => FsAddTripToCancelsSectionFromContext();
+
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxBanClient);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxUnbanClient);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxRerouteModivcare);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxAddToReroutes);
+            _fsTripsCtxMenu.Items.Add(_fsTripsCtxAddToCancels);
             // Suggest driver hidden for now — kept in the menu so it can be re-enabled later.
             _fsTripsCtxSuggestDriver.Visible = false;
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxSuggestDriver);
@@ -384,6 +393,13 @@ namespace Hiatme_Tool_Suite_v3
             _fsTripsCtxAddToReroutes.Text = alreadyInReroutes
                 ? "Add to Reroutes section (already there)"
                 : "Add to Reroutes section (no Modivcare)";
+
+            bool alreadyInCancels = hasTrip && hasBuild
+                && !FsNeedsMoveToReservesCancels(_fsTripsCtxTrip, _fsActiveDriverTab ?? "", fsbuilder);
+            _fsTripsCtxAddToCancels.Enabled = hasTrip && hasBuild && !alreadyInCancels;
+            _fsTripsCtxAddToCancels.Text = alreadyInCancels
+                ? "Add to Cancels section (already there)"
+                : "Add to Cancels section (no Modivcare)";
 
             bool canSuggestDriver = hasTrip && hasBuild && ScheduleOsrmGate.PreviewRoutingOk;
             _fsTripsCtxSuggestDriver.Enabled = canSuggestDriver;
@@ -895,6 +911,8 @@ namespace Hiatme_Tool_Suite_v3
 
         private void FsCommitPreviewLinesForTab(string tab, List<ScheduleBuilderPreviewLine> lines)
         {
+            FsTrackReroutedKeysFromLines(lines);
+
             if (lines != null
                 && !tab.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
             {
@@ -922,6 +940,15 @@ namespace Hiatme_Tool_Suite_v3
                         trips.Add(line.Trip);
                 }
                 fsbuilder.driverTripList[tab] = trips;
+            }
+
+            FsReapplyReroutedHighlights();
+            FsReapplyWellRydeCancelledHighlights();
+            if (_fsHasPreview
+                && !string.IsNullOrWhiteSpace(_fsActiveDriverTab)
+                && tab.Equals(_fsActiveDriverTab, StringComparison.OrdinalIgnoreCase))
+            {
+                FsSyncReroutedHighlightsFromPreviewLines();
             }
         }
     }

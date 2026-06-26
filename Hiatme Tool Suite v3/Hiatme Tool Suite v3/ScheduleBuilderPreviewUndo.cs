@@ -37,6 +37,7 @@ namespace Hiatme_Tool_Suite_v3
                     GroupColorOverride = line.GroupColorOverride,
                     Trip = line.Trip,
                     ReroutedOnModivcare = line.ReroutedOnModivcare,
+                    CancelledOnWellRyde = line.CancelledOnWellRyde,
                     ReserveBandColor = line.ReserveBandColor,
                 });
             }

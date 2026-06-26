@@ -1067,7 +1067,9 @@ namespace Hiatme_Tool_Suite_v3
 
             }
 
-            _fsLinesByTab["Reserves"] = ScheduleBuilderReserveBuckets.BuildReservePreviewLines(
+            _fsLinesByTab.TryGetValue("Reserves", out var priorReserves);
+
+            var reserveLines = ScheduleBuilderReserveBuckets.BuildReservePreviewLines(
 
                 fsbuilder.PreviewReserves,
 
@@ -1079,7 +1081,15 @@ namespace Hiatme_Tool_Suite_v3
 
                 fsbuilder.WillCallsInDownloadCount,
 
-                preserveTripOrder: true);
+                preserveTripOrder: true,
+
+                cancels: fsbuilder.PreviewReservesCancel);
+
+            ScheduleBuilderReroutedTrips.RestoreAndMarkRerouted(reserveLines, priorReserves, justRerouted: null);
+            _fsLinesByTab["Reserves"] = reserveLines;
+            FsTrackReroutedKeysFromLines(reserveLines);
+            FsReapplyReroutedHighlights();
+            FsReapplyWellRydeCancelledHighlights();
 
             ShowFsTripsForTab(string.IsNullOrWhiteSpace(_fsActiveDriverTab) ? "Reserves" : _fsActiveDriverTab);
 

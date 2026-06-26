@@ -85,6 +85,8 @@ namespace Hiatme_Tool_Suite_v3
             return new ScheduleBuilderReroutedTripRecord
             {
                 TripNumber = (trip.TripNumber ?? "").Trim(),
+                Leg = char.ToLowerInvariant(
+                    SupeyScheduleAlgorithm.DetectLegPublic(trip.TripNumber)).ToString(),
                 Date = (trip.Date ?? "").Trim(),
                 ClientFirstName = (trip.ClientFirstName ?? "").Trim(),
                 ClientLastName = (trip.ClientLastName ?? "").Trim(),
@@ -112,9 +114,13 @@ namespace Hiatme_Tool_Suite_v3
             if (comments.Length == 0)
                 comments = "(Rerouted on Modivcare — not in download)";
 
+            char leg = ParseRecordLegChar();
+            string tripNumber = ScheduleBuilderPreviewDrag.ApplyLegSuffix(
+                (TripNumber ?? "").Trim(), leg);
+
             return new MCDownloadedTrip
             {
-                TripNumber = (TripNumber ?? "").Trim(),
+                TripNumber = tripNumber,
                 Date = (Date ?? "").Trim(),
                 ClientFirstName = (ClientFirstName ?? "").Trim(),
                 ClientLastName = (ClientLastName ?? "").Trim(),
@@ -134,6 +140,16 @@ namespace Hiatme_Tool_Suite_v3
                 Comments = comments,
                 Assignable = false,
             };
+        }
+
+        internal char ParseRecordLegChar()
+        {
+            char leg = ScheduleBuilderPreviewDrag.ParseLegChar(Leg);
+            if (leg != '\0')
+                return leg;
+            if (ScheduleBuilderPreviewDrag.HasLegSuffix(TripNumber))
+                return SupeyScheduleAlgorithm.DetectLegPublic(TripNumber);
+            return '\0';
         }
     }
 
@@ -257,17 +273,22 @@ namespace Hiatme_Tool_Suite_v3
                 if (tn.Length == 0)
                     continue;
 
-                merge.ReroutedTripNumbers.Add(tn);
+                char recordLeg = record.ParseRecordLegChar();
+                if (recordLeg != '\0')
+                    merge.ReroutedTripNumbers.Add(
+                        ScheduleBuilderPreviewDrag.TripLegKey(
+                            ScheduleBuilderPreviewDrag.ApplyLegSuffix(record.TripNumber, recordLeg)));
+                else
+                    merge.ReroutedTripNumbers.Add(tn);
 
                 var ghost = record.ToTrip();
-                var existing = builder.FindTripInPreviewByNumber(record.TripNumber);
+                var existing = builder.FindTripInPreviewForRerouteRecord(record);
                 if (existing != null)
                     existing.MergeMissingScheduleFieldsFrom(ghost);
 
-                if (builder.TripExistsInPreview(tn))
+                if (existing != null && builder.TripExistsInPreview(existing.TripNumber))
                 {
-                    if (existing != null)
-                        builder.MoveTripToPreviewReservesReroute(existing);
+                    builder.MoveTripToPreviewReservesReroute(existing);
                     continue;
                 }
 
@@ -301,7 +322,10 @@ namespace Hiatme_Tool_Suite_v3
                     if (line?.Kind != ScheduleBuilderPreviewLine.LineKind.Trip || line.Trip == null)
                         continue;
                     if (ScheduleBuilderReroutedTrips.TripNumberKeySetContains(keys, line.Trip.TripNumber))
+                    {
                         line.ReroutedOnModivcare = true;
+                        line.CancelledOnWellRyde = false;
+                    }
                 }
             }
         }

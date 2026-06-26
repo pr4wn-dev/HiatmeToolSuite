@@ -26,5 +26,10 @@ namespace Hiatme_Tool_Suite_v3
         public static Color ReroutedTripBackColor => Color.FromArgb(140, 48, 48);
 
         public static Color ReroutedTripSelectedBackColor => Color.FromArgb(170, 58, 58);
+
+        /// <summary>WellRyde Cancelled / Suspended — rose (distinct from reroute red and amber band).</summary>
+        public static Color CancelledTripBackColor => Color.FromArgb(168, 72, 98);
+
+        public static Color CancelledTripSelectedBackColor => Color.FromArgb(190, 88, 115);
     }
 }

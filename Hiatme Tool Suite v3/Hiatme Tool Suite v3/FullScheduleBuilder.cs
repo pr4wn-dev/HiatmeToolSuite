@@ -194,7 +194,8 @@ namespace Hiatme_Tool_Suite_v3
                 PreviewReservesReroute,
                 PreviewReservesBanned,
                 PreviewReservesWillCalls,
-                WillCallsInDownloadCount);
+                WillCallsInDownloadCount,
+                cancels: PreviewReservesCancel);
 
             ExportPreviewCsvs(linesByTab);
         }
@@ -234,6 +235,9 @@ namespace Hiatme_Tool_Suite_v3
 
         /// <summary>00:00 PU will calls — top of Reserves; not kept on driver tabs after BUILD.</summary>
         public List<MCDownloadedTrip> PreviewReservesWillCalls { get; private set; } = new List<MCDownloadedTrip>();
+
+        /// <summary>Manual cancel list — Reserves → Cancels (no Modivcare submit from context menu).</summary>
+        public List<MCDownloadedTrip> PreviewReservesCancel { get; private set; } = new List<MCDownloadedTrip>();
 
         /// <summary>When set, Reserves tab bind uses saved sheet order instead of PU-time sort.</summary>
         public IList<SupeyTemplateSlot> LoadedReserveSlots { get; private set; }
@@ -393,7 +397,8 @@ namespace Hiatme_Tool_Suite_v3
                 out var reservers,
                 out var reroutes,
                 out var banned,
-                out var willCalls);
+                out var willCalls,
+                out var cancels);
 
             ScheduleBuilderReserveBuckets.RebucketBannedTripsIntoReroutes(
                 reservers, reroutes, willCalls, banned);
@@ -401,6 +406,7 @@ namespace Hiatme_Tool_Suite_v3
             PreviewReserves = reservers;
             PreviewReservesReroute = reroutes;
             PreviewReservesWillCalls = willCalls;
+            PreviewReservesCancel = cancels;
             PreviewReservesBanned = new List<MCDownloadedTrip>();
 
             if (MCTripList != null)
@@ -474,20 +480,15 @@ namespace Hiatme_Tool_Suite_v3
             if (trip == null)
                 return false;
 
-            MCDownloadedTrip best = FindTripInPreviewByNumber(trip.TripNumber);
-            if (best != null)
-            {
-                if (!ReferenceEquals(best, trip))
-                    best.MergeMissingScheduleFieldsFrom(trip);
-                trip = best;
-            }
+            MergePreviewTripFieldsFromCanonicalCopy(trip);
 
             var reservers = PreviewReserves ?? new List<MCDownloadedTrip>();
             var reroutes = PreviewReservesReroute ?? new List<MCDownloadedTrip>();
             var willCalls = PreviewReservesWillCalls ?? new List<MCDownloadedTrip>();
+            var cancels = PreviewReservesCancel ?? new List<MCDownloadedTrip>();
 
             bool changed = ScheduleBuilderReserveBuckets.MoveTripToReroutesBucket(
-                trip, reservers, reroutes, willCalls);
+                trip, reservers, reroutes, willCalls, cancels);
 
             var dict = PreviewDriverLines as Dictionary<string, List<ScheduleBuilderPreviewLine>>;
             if (dict != null)
@@ -515,8 +516,287 @@ namespace Hiatme_Tool_Suite_v3
             PreviewReserves = reservers;
             PreviewReservesReroute = reroutes;
             PreviewReservesWillCalls = willCalls;
+            PreviewReservesCancel = cancels;
 
             return changed;
+        }
+
+        /// <summary>Move trip into Reserves → Cancels and pull off driver tabs.</summary>
+        internal bool MoveTripToPreviewReservesCancel(MCDownloadedTrip trip)
+        {
+            if (trip == null)
+                return false;
+
+            MergePreviewTripFieldsFromCanonicalCopy(trip);
+
+            var reservers = PreviewReserves ?? new List<MCDownloadedTrip>();
+            var reroutes = PreviewReservesReroute ?? new List<MCDownloadedTrip>();
+            var willCalls = PreviewReservesWillCalls ?? new List<MCDownloadedTrip>();
+            var cancels = PreviewReservesCancel ?? new List<MCDownloadedTrip>();
+
+            bool changed = ScheduleBuilderReserveBuckets.MoveTripToCancelsBucket(
+                trip, reservers, reroutes, willCalls, cancels);
+
+            var dict = PreviewDriverLines as Dictionary<string, List<ScheduleBuilderPreviewLine>>;
+            if (dict != null)
+            {
+                int pulled = ScheduleBuilderReserveBuckets.PullTripFromDriverLines(dict, trip);
+                if (pulled > 0)
+                {
+                    changed = true;
+                    if (driverTripList != null)
+                    {
+                        foreach (var kv in dict)
+                        {
+                            var trips = new List<MCDownloadedTrip>();
+                            foreach (var line in kv.Value ?? Enumerable.Empty<ScheduleBuilderPreviewLine>())
+                            {
+                                if (line?.Kind == ScheduleBuilderPreviewLine.LineKind.Trip && line.Trip != null)
+                                    trips.Add(line.Trip);
+                            }
+                            driverTripList[kv.Key] = trips;
+                        }
+                    }
+                }
+            }
+
+            PreviewReserves = reservers;
+            PreviewReservesReroute = reroutes;
+            PreviewReservesWillCalls = willCalls;
+            PreviewReservesCancel = cancels;
+
+            return changed;
+        }
+
+        /// <summary>
+        /// Partner leg wrongly sitting in Reroutes (registry/reconcile bleed) — return to Reservers
+        /// when that leg is not a confirmed Modivcare reroute.
+        /// </summary>
+        internal List<MCDownloadedTrip> DemoteUnconfirmedPartnerLegsFromReroutes(
+            MCDownloadedTrip anchor,
+            ISet<string> confirmedReroutedLegKeys)
+        {
+            var demotedTrips = new List<MCDownloadedTrip>();
+            if (anchor == null)
+                return demotedTrips;
+
+            var reroutes = PreviewReservesReroute;
+            if (reroutes == null || reroutes.Count == 0)
+                return demotedTrips;
+
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (int i = reroutes.Count - 1; i >= 0; i--)
+            {
+                var partner = reroutes[i];
+                if (partner == null || ScheduleBuilderPreviewDrag.TripEquals(partner, anchor))
+                    continue;
+                if (!ScheduleBuilderPreviewDrag.IsPartnerLeg(anchor.TripNumber, partner.TripNumber))
+                    continue;
+                if (confirmedReroutedLegKeys != null
+                    && ScheduleBuilderReroutedTrips.TripNumberKeySetContains(
+                        confirmedReroutedLegKeys, partner.TripNumber))
+                {
+                    continue;
+                }
+
+                string key = ScheduleBuilderReroutedTrips.TripNumberKey(partner.TripNumber);
+                if (key.Length > 0 && !seen.Add(key))
+                    continue;
+
+                reroutes.RemoveAt(i);
+                demotedTrips.Add(partner);
+                ReturnTripToReserversBucket(partner, anchor);
+                RelocateLoadedReserveSlot(partner, ScheduleBuilderReserveBuckets.ReserveBucket.Reserver);
+                if (PreviewDriverLines is Dictionary<string, List<ScheduleBuilderPreviewLine>> driverDict)
+                    ScheduleBuilderReroutedTrips.ClearReroutedAnyTab(driverDict, partner);
+            }
+
+            PreviewReservesReroute = reroutes;
+            return demotedTrips;
+        }
+
+        internal void SyncPreviewDriverLinesFromUi(
+            IDictionary<string, List<ScheduleBuilderPreviewLine>> linesByTab)
+        {
+            if (linesByTab == null)
+                return;
+            var dict = PreviewDriverLines as Dictionary<string, List<ScheduleBuilderPreviewLine>>;
+            if (dict == null)
+                return;
+
+            foreach (var kv in linesByTab)
+            {
+                if (kv.Key.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (kv.Value != null)
+                    dict[kv.Key] = kv.Value;
+            }
+        }
+
+        internal int DemoteUnconfirmedPartnerLegsForAllCancels(IEnumerable<string> confirmedReroutedLegKeys)
+        {
+            ISet<string> keys = confirmedReroutedLegKeys as ISet<string>;
+            if (keys == null && confirmedReroutedLegKeys != null)
+            {
+                keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (string raw in confirmedReroutedLegKeys)
+                    ScheduleBuilderReroutedTrips.AddTripNumberKey(keys, raw);
+            }
+
+            int demoted = 0;
+            foreach (var cancelTrip in PreviewReservesCancel ?? Enumerable.Empty<MCDownloadedTrip>())
+            {
+                if (cancelTrip == null)
+                    continue;
+                demoted += DemoteUnconfirmedPartnerLegsFromReroutes(cancelTrip, keys).Count;
+            }
+
+            return demoted;
+        }
+
+        internal void ReturnTripToReserversBucket(MCDownloadedTrip trip, MCDownloadedTrip nearAnchor = null)
+        {
+            if (trip == null || IsTripOnDriverTab(trip))
+                return;
+
+            foreach (var list in new[]
+                     {
+                         PreviewReserves, PreviewReservesWillCalls, PreviewReservesCancel,
+                     })
+            {
+                if (list == null)
+                    continue;
+                foreach (var t in list)
+                {
+                    if (ScheduleBuilderPreviewDrag.TripEquals(t, trip))
+                        return;
+                }
+            }
+
+            var reservers = PreviewReserves ?? new List<MCDownloadedTrip>();
+            foreach (var t in reservers)
+            {
+                if (ScheduleBuilderPreviewDrag.TripEquals(t, trip))
+                    return;
+            }
+
+            int insertAt = ComputeReserversBucketInsertIndex(trip, nearAnchor);
+            insertAt = Math.Max(0, Math.Min(insertAt, reservers.Count));
+            reservers.Insert(insertAt, trip);
+            PreviewReserves = reservers;
+        }
+
+        private int ComputeReserversBucketInsertIndex(MCDownloadedTrip trip, MCDownloadedTrip nearAnchor)
+        {
+            if (LoadedReserveSlots == null || LoadedReserveSlots.Count == 0)
+                return PreviewReserves?.Count ?? 0;
+
+            int reserverCount = 0;
+            ScheduleBuilderReserveBuckets.ReserveBucket? current = null;
+            foreach (var slot in LoadedReserveSlots)
+            {
+                if (slot == null)
+                    continue;
+                if (slot.Kind == SupeyTemplateSlot.SlotKind.Gap
+                    && ScheduleBuilderReserveBuckets.TryParseSectionBucket(slot.NoteText, out var bucket))
+                {
+                    current = bucket;
+                    continue;
+                }
+
+                if (slot.Kind == SupeyTemplateSlot.SlotKind.Trip
+                    && current == ScheduleBuilderReserveBuckets.ReserveBucket.Reserver
+                    && slot.TemplateTrip != null
+                    && !ScheduleBuilderPreviewDrag.TripEquals(slot.TemplateTrip, trip))
+                {
+                    reserverCount++;
+                }
+            }
+
+            return reserverCount;
+        }
+
+        /// <summary>Keep saved Reserves sheet row order aligned when a trip moves between sections.</summary>
+        internal void RelocateLoadedReserveSlot(
+            MCDownloadedTrip trip,
+            ScheduleBuilderReserveBuckets.ReserveBucket targetBucket)
+        {
+            var slots = LoadedReserveSlots as List<SupeyTemplateSlot>;
+            if (slots == null || slots.Count == 0 || trip == null)
+                return;
+
+            int slotIdx = -1;
+            for (int i = 0; i < slots.Count; i++)
+            {
+                var slot = slots[i];
+                if (slot?.Kind == SupeyTemplateSlot.SlotKind.Trip
+                    && ScheduleBuilderPreviewDrag.TripEquals(slot.TemplateTrip, trip))
+                {
+                    slotIdx = i;
+                    break;
+                }
+            }
+
+            if (slotIdx < 0)
+                return;
+
+            var moving = slots[slotIdx];
+            slots.RemoveAt(slotIdx);
+
+            int sectionStart = -1;
+            for (int i = 0; i < slots.Count; i++)
+            {
+                var slot = slots[i];
+                if (slot?.Kind == SupeyTemplateSlot.SlotKind.Gap
+                    && ScheduleBuilderReserveBuckets.TryParseSectionBucket(slot.NoteText, out var bucket)
+                    && bucket == targetBucket)
+                {
+                    sectionStart = i;
+                    break;
+                }
+            }
+
+            int insertAt = slots.Count;
+            if (sectionStart >= 0)
+            {
+                insertAt = sectionStart + 1;
+                for (int i = sectionStart + 1; i < slots.Count; i++)
+                {
+                    var slot = slots[i];
+                    if (slot?.Kind == SupeyTemplateSlot.SlotKind.Gap
+                        && ScheduleBuilderReserveBuckets.TryParseSectionBucket(slot.NoteText, out _))
+                    {
+                        insertAt = i;
+                        break;
+                    }
+
+                    insertAt = i + 1;
+                }
+            }
+
+            slots.Insert(insertAt, moving);
+        }
+
+        internal bool IsTripOnDriverTab(MCDownloadedTrip trip)
+        {
+            if (trip == null || PreviewDriverLines == null)
+                return false;
+
+            foreach (var kv in PreviewDriverLines)
+            {
+                if (kv.Key.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                foreach (var line in kv.Value ?? Enumerable.Empty<ScheduleBuilderPreviewLine>())
+                {
+                    if (line?.Kind == ScheduleBuilderPreviewLine.LineKind.Trip
+                        && ScheduleBuilderPreviewDrag.TripEquals(line.Trip, trip))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
         }
 
         internal bool TripExistsInPreview(string tripNumber)
@@ -533,7 +813,7 @@ namespace Hiatme_Tool_Suite_v3
             if (TripsFound?.Any(Match) == true)
                 return true;
 
-            var reserveLists = new[] { PreviewReserves, PreviewReservesReroute, PreviewReservesWillCalls };
+            var reserveLists = new[] { PreviewReserves, PreviewReservesReroute, PreviewReservesWillCalls, PreviewReservesCancel };
             foreach (var list in reserveLists)
             {
                 if (list?.Any(Match) == true)
@@ -561,7 +841,9 @@ namespace Hiatme_Tool_Suite_v3
             if (ghost == null || string.IsNullOrWhiteSpace(ghost.TripNumber))
                 return false;
 
-            MCDownloadedTrip richer = FindTripInPreviewByNumber(ghost.TripNumber);
+            MCDownloadedTrip richer = FindTripByExactTripNumber(ghost.TripNumber);
+            if (richer == null)
+                richer = FindTripInPreviewByLegKey(ScheduleBuilderPreviewDrag.TripLegKey(ghost.TripNumber));
             if (richer != null)
                 ghost.MergeMissingScheduleFieldsFrom(richer);
 
@@ -591,7 +873,9 @@ namespace Hiatme_Tool_Suite_v3
             int moved = 0;
             foreach (string key in keys)
             {
-                var trip = FindTripInPreviewByNumber(key);
+                MCDownloadedTrip trip = ScheduleBuilderPreviewDrag.HasLegSuffix(key)
+                    ? FindTripInPreviewByLegKey(key)
+                    : FindTripByExactTripNumber(key);
                 if (trip == null)
                     continue;
                 if (MoveTripToPreviewReservesReroute(trip))
@@ -601,21 +885,129 @@ namespace Hiatme_Tool_Suite_v3
             return moved;
         }
 
+        internal MCDownloadedTrip FindTripByExactTripNumber(string tripNumber)
+        {
+            string sought = (tripNumber ?? "").Trim();
+            if (sought.Length == 0)
+                return null;
+
+            MCDownloadedTrip found = null;
+
+            void Consider(MCDownloadedTrip candidate)
+            {
+                if (candidate == null)
+                    return;
+                if (!string.Equals(
+                        (candidate.TripNumber ?? "").Trim(),
+                        sought,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
+                if (found == null || TripHasRicherScheduleFields(candidate, found))
+                    found = candidate;
+            }
+
+            EnumeratePreviewTrips(Consider);
+            return found;
+        }
+
+        internal MCDownloadedTrip FindTripInPreviewByLegKey(string legKey)
+        {
+            string soughtKey = (legKey ?? "").Trim();
+            if (soughtKey.Length == 0)
+                return null;
+
+            MCDownloadedTrip found = null;
+
+            void Consider(MCDownloadedTrip candidate)
+            {
+                if (candidate == null)
+                    return;
+                if (!string.Equals(
+                        ScheduleBuilderPreviewDrag.TripLegKey(candidate.TripNumber),
+                        soughtKey,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
+                if (found == null || TripHasRicherScheduleFields(candidate, found))
+                    found = candidate;
+            }
+
+            EnumeratePreviewTrips(Consider);
+            return found;
+        }
+
+        private void EnumeratePreviewTrips(Action<MCDownloadedTrip> consider)
+        {
+            if (consider == null)
+                return;
+
+            if (PreviewDriverLines != null)
+            {
+                foreach (var kv in PreviewDriverLines)
+                {
+                    foreach (var line in kv.Value ?? Enumerable.Empty<ScheduleBuilderPreviewLine>())
+                    {
+                        if (line?.Kind == ScheduleBuilderPreviewLine.LineKind.Trip)
+                            consider(line.Trip);
+                    }
+                }
+            }
+
+            foreach (var list in new[]
+                     {
+                         MCTripList, TripsFound, PreviewReserves, PreviewReservesWillCalls,
+                         PreviewReservesCancel, PreviewReservesReroute,
+                     })
+            {
+                if (list == null)
+                    continue;
+                foreach (var t in list)
+                    consider(t);
+            }
+        }
+
         internal MCDownloadedTrip FindTripInPreviewByNumber(string tripNumber)
         {
+            string sought = (tripNumber ?? "").Trim();
             string key = ScheduleBuilderReroutedTrips.TripNumberKey(tripNumber);
             if (key.Length == 0)
                 return null;
 
-            bool Match(MCDownloadedTrip t) =>
-                ScheduleBuilderReroutedTrips.TripNumberKeysMatch(t?.TripNumber, key);
-
+            MCDownloadedTrip exact = null;
             MCDownloadedTrip best = null;
+
+            bool soughtHasLeg = ScheduleBuilderPreviewDrag.HasLegSuffix(sought);
+            char soughtLeg = SupeyScheduleAlgorithm.DetectLegPublic(sought);
 
             void Consider(MCDownloadedTrip candidate)
             {
-                if (candidate == null || !Match(candidate))
+                if (candidate == null)
                     return;
+
+                string candidateNumber = (candidate.TripNumber ?? "").Trim();
+                if (soughtHasLeg)
+                {
+                    char candidateLeg = SupeyScheduleAlgorithm.DetectLegPublic(candidateNumber);
+                    if (candidateLeg != soughtLeg)
+                        return;
+                }
+
+                if (sought.Length > 0
+                    && candidateNumber.Equals(sought, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (exact == null || TripHasRicherScheduleFields(candidate, exact))
+                        exact = candidate;
+                    return;
+                }
+
+                if (!ScheduleBuilderReroutedTrips.TripNumberKeysMatch(candidateNumber, sought.Length > 0 ? sought : key))
+                    return;
+
                 if (best == null || TripHasRicherScheduleFields(candidate, best))
                     best = candidate;
             }
@@ -632,7 +1024,7 @@ namespace Hiatme_Tool_Suite_v3
                 }
             }
 
-            foreach (var list in new[] { MCTripList, TripsFound, PreviewReserves, PreviewReservesWillCalls })
+            foreach (var list in new[] { MCTripList, TripsFound, PreviewReserves, PreviewReservesWillCalls, PreviewReservesCancel })
             {
                 if (list == null)
                     continue;
@@ -643,7 +1035,54 @@ namespace Hiatme_Tool_Suite_v3
             foreach (var t in PreviewReservesReroute ?? Enumerable.Empty<MCDownloadedTrip>())
                 Consider(t);
 
-            return best;
+            if (!soughtHasLeg)
+                return exact;
+
+            return exact ?? best;
+        }
+
+        /// <summary>
+        /// Enrich the user-selected trip row with phones/addresses from another preview copy
+        /// without replacing the object (avoids moving the wrong A/B leg).
+        /// </summary>
+        private void MergePreviewTripFieldsFromCanonicalCopy(MCDownloadedTrip trip)
+        {
+            if (trip == null)
+                return;
+
+            var canonical = FindTripByExactTripNumber(trip.TripNumber);
+            if (canonical != null
+                && !ReferenceEquals(canonical, trip)
+                && ScheduleBuilderPreviewDrag.TripEquals(canonical, trip))
+            {
+                trip.MergeMissingScheduleFieldsFrom(canonical);
+            }
+        }
+
+        internal MCDownloadedTrip FindTripInPreviewForRerouteRecord(ScheduleBuilderReroutedTripRecord record)
+        {
+            if (record == null)
+                return null;
+
+            string sought = (record.TripNumber ?? "").Trim();
+            if (sought.Length == 0)
+                return null;
+
+            var exact = FindTripByExactTripNumber(sought);
+            if (exact != null)
+                return exact;
+
+            char recordLeg = record.ParseRecordLegChar();
+            if (recordLeg == '\0')
+                return null;
+
+            string withLeg = ScheduleBuilderPreviewDrag.ApplyLegSuffix(sought, recordLeg);
+            exact = FindTripByExactTripNumber(withLeg);
+            if (exact != null)
+                return exact;
+
+            return FindTripInPreviewByLegKey(
+                ScheduleBuilderPreviewDrag.TripLegKey(withLeg));
         }
 
         private static bool TripHasRicherScheduleFields(MCDownloadedTrip candidate, MCDownloadedTrip current)
@@ -678,10 +1117,12 @@ namespace Hiatme_Tool_Suite_v3
             var reservers = PreviewReserves ?? new List<MCDownloadedTrip>();
             var reroutes = PreviewReservesReroute ?? new List<MCDownloadedTrip>();
             var willCalls = PreviewReservesWillCalls ?? new List<MCDownloadedTrip>();
+            var cancels = PreviewReservesCancel ?? new List<MCDownloadedTrip>();
             ScheduleBuilderReserveBuckets.ReclassifyReserveBuckets(reservers, reroutes, willCalls);
             PreviewReserves = reservers;
             PreviewReservesReroute = reroutes;
             PreviewReservesWillCalls = willCalls;
+            PreviewReservesCancel = cancels;
             PreviewReservesBanned = new List<MCDownloadedTrip>();
         }
 
@@ -820,6 +1261,7 @@ namespace Hiatme_Tool_Suite_v3
             PreviewReservesBanned = new List<MCDownloadedTrip>();
             PreviewReservesWillCalls = willCalls;
             PreviewReserves = reserves;
+            PreviewReservesCancel = new List<MCDownloadedTrip>();
         }
 
         /// <summary>Sync reserve bucket lists after manual cut/insert on the Reserves preview tab.</summary>
@@ -828,6 +1270,7 @@ namespace Hiatme_Tool_Suite_v3
             var reservers = new List<MCDownloadedTrip>();
             var reroutes = new List<MCDownloadedTrip>();
             var willCalls = new List<MCDownloadedTrip>();
+            var cancels = new List<MCDownloadedTrip>();
             var legacyBanned = new List<MCDownloadedTrip>();
 
             if (lines != null)
@@ -840,6 +1283,8 @@ namespace Hiatme_Tool_Suite_v3
                     if (band == ScheduleBuilderReserveBuckets.BannedBand
                         || band == ScheduleBuilderReserveBuckets.RerouteBand)
                         reroutes.Add(line.Trip);
+                    else if (band == ScheduleBuilderReserveBuckets.CancelBand)
+                        cancels.Add(line.Trip);
                     else if (band == ScheduleBuilderReserveBuckets.WillCallBand)
                         willCalls.Add(line.Trip);
                     else
@@ -853,6 +1298,7 @@ namespace Hiatme_Tool_Suite_v3
             PreviewReserves = reservers;
             PreviewReservesReroute = reroutes;
             PreviewReservesWillCalls = willCalls;
+            PreviewReservesCancel = cancels;
             PreviewReservesBanned = new List<MCDownloadedTrip>();
         }
 

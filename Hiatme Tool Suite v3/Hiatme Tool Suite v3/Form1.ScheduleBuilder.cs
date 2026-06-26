@@ -145,6 +145,12 @@ namespace Hiatme_Tool_Suite_v3
 
             new Dictionary<string, List<ScheduleBuilderPreviewLine>>(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>Cached WellRyde cancelled trip keys — re-applied after preview rebuilds.</summary>
+        private HashSet<string> _fsWellRydeCancelledKeys;
+
+        /// <summary>Cached Modivcare-rerouted trip keys — re-applied after preview rebuilds.</summary>
+        private HashSet<string> _fsReroutedTripKeys;
+
 
 
         private readonly Dictionary<string, List<SupeyTripCluster>> _fsGroupsByTab =
@@ -1117,12 +1123,17 @@ namespace Hiatme_Tool_Suite_v3
 
             bool isNote = noteTag != null;
             bool rerouted = tripTag?.ReroutedOnModivcare == true;
+            bool cancelled = !rerouted && tripTag?.CancelledOnWellRyde == true;
 
             Color rowBg = sel ? SupeyTheme.ListSelected : SupeyTheme.ListBody;
 
             if (!sel && rerouted)
 
                 rowBg = ScheduleBuilderPreviewStyle.ReroutedTripBackColor;
+
+            else if (!sel && cancelled)
+
+                rowBg = ScheduleBuilderPreviewStyle.CancelledTripBackColor;
 
             else if (!sel && isSection)
 
@@ -1140,7 +1151,11 @@ namespace Hiatme_Tool_Suite_v3
 
                 fill = ScheduleBuilderPreviewStyle.ReroutedTripSelectedBackColor;
 
-            else if (!sel && !isGap && !isNote && !rerouted && e.ColumnIndex == 0 && FsShowGroupColorsEnabled
+            else if (sel && cancelled)
+
+                fill = ScheduleBuilderPreviewStyle.CancelledTripSelectedBackColor;
+
+            else if (!sel && !isGap && !isNote && !rerouted && !cancelled && e.ColumnIndex == 0 && FsShowGroupColorsEnabled
                 && !isReservesTab
 
                 && e.SubItem != null && e.SubItem.BackColor != Color.Empty
@@ -1160,6 +1175,10 @@ namespace Hiatme_Tool_Suite_v3
             Color textColor = sel ? SupeyTheme.ListSelectedText : SupeyTheme.ListText;
 
             if (!sel && rerouted)
+
+                textColor = Color.White;
+
+            else if (!sel && cancelled)
 
                 textColor = Color.White;
 
@@ -1596,6 +1615,7 @@ namespace Hiatme_Tool_Suite_v3
                         load.ReroutedTripNumbers,
                         rerouteMerge.ReroutedTripNumbers);
                     fsbuilder.ReconcileReroutedTripsForPreview(reroutedKeys);
+                    fsbuilder.DemoteUnconfirmedPartnerLegsForAllCancels(reroutedKeys);
 
                     var driverSync = await SyncFsDriversDuringBuildAsync(
                         fsbuilder.PreviewDriverLines.Keys,
@@ -1604,6 +1624,7 @@ namespace Hiatme_Tool_Suite_v3
                     BindScheduleBuilderPreview(fsbuilder, showInitialTab: false);
                     ScheduleBuilderReroutedTripsRegistry.MarkReroutedOnPreview(
                         _fsLinesByTab, reroutedKeys);
+                    FsSetReroutedTripKeyCache(reroutedKeys);
 
                     _fsHasPreview = true;
                     SetFsPreviewExportButtonsEnabled(true);
@@ -1611,6 +1632,13 @@ namespace Hiatme_Tool_Suite_v3
                     UpdateTabLoadingOverlayMessage(tabPage6, "Verifying reroutes on Modivcare…");
 
                     string rerouteVerifyNote = await FsProbeReroutesAfterScheduleLoadAsync(
+                            serviceDate,
+                            refreshListView: false)
+                        .ConfigureAwait(true);
+
+                    UpdateTabLoadingOverlayMessage(tabPage6, "Checking cancelled trips on WellRyde…");
+
+                    string cancelVerifyNote = await FsSyncCancelledTripsFromWellRydeAsync(
                             serviceDate,
                             refreshListView: false)
                         .ConfigureAwait(true);
@@ -1674,7 +1702,8 @@ namespace Hiatme_Tool_Suite_v3
                         + ". Groups: " + groupingSummary + "."
                         + FormatFsDriverSyncNote(driverSync)
                         + " Undo history cleared."
-                        + rerouteVerifyNote);
+                        + rerouteVerifyNote
+                        + cancelVerifyNote);
 
                 }
 
@@ -1834,6 +1863,7 @@ namespace Hiatme_Tool_Suite_v3
                     fsbuilder, fsbdatepicker.Value.Date, HiatmeAiSettings.Load()).ConfigureAwait(true);
 
                 fsbuilder.ReconcileReroutedTripsForPreview(rerouteMerge.ReroutedTripNumbers);
+                fsbuilder.DemoteUnconfirmedPartnerLegsForAllCancels(rerouteMerge.ReroutedTripNumbers);
 
                 var driverSync = await SyncFsDriversDuringBuildAsync(
                     fsbuilder.PreviewDriverLines.Keys,
@@ -1842,6 +1872,12 @@ namespace Hiatme_Tool_Suite_v3
                 BindScheduleBuilderPreview(fsbuilder);
                 ScheduleBuilderReroutedTripsRegistry.MarkReroutedOnPreview(
                     _fsLinesByTab, rerouteMerge.ReroutedTripNumbers);
+                FsSetReroutedTripKeyCache(rerouteMerge.ReroutedTripNumbers);
+
+                string cancelVerifyNote = await FsSyncCancelledTripsFromWellRydeAsync(
+                        fsbdatepicker.Value.Date,
+                        refreshListView: false)
+                    .ConfigureAwait(true);
 
                 int rer = fsbuilder.PreviewReservesReroute?.Count ?? 0;
                 if (rer > 0)
@@ -1897,7 +1933,8 @@ namespace Hiatme_Tool_Suite_v3
                     + trips + " trip(s), " + resMsg
 
                     + "." + FormatFsDriverSyncNote(driverSync)
-                    + " Undo history cleared.";
+                    + " Undo history cleared."
+                    + cancelVerifyNote;
 
                 SetScheduleBuilderStatus(buildSummary + " Saving workbook…");
 
@@ -2009,7 +2046,8 @@ namespace Hiatme_Tool_Suite_v3
                     builder.LoadedReserveSlots,
                     builder.PreviewReservesWillCalls,
                     builder.PreviewReserves,
-                    builder.PreviewReservesReroute);
+                    builder.PreviewReservesReroute,
+                    builder.PreviewReservesCancel);
             }
 
             return ScheduleBuilderReserveBuckets.BuildReservePreviewLines(
@@ -2018,7 +2056,8 @@ namespace Hiatme_Tool_Suite_v3
                 builder.PreviewReservesBanned,
                 builder.PreviewReservesWillCalls,
                 builder.WillCallsInDownloadCount,
-                preserveTripOrder: builder.PreserveReserveTripOrder);
+                preserveTripOrder: builder.PreserveReserveTripOrder,
+                cancels: builder.PreviewReservesCancel);
         }
 
 
@@ -2034,6 +2073,10 @@ namespace Hiatme_Tool_Suite_v3
 
 
             _fsLinesByTab.Clear();
+
+            _fsWellRydeCancelledKeys = null;
+
+            _fsReroutedTripKeys = null;
 
             _fsGroupsByTab.Clear();
 
@@ -2058,6 +2101,9 @@ namespace Hiatme_Tool_Suite_v3
                     lines = ScheduleBuilderGroupHeaderReconcile.Reconcile(lines);
 
                 _fsLinesByTab[name] = lines;
+
+                if (builder.PreviewDriverLines is Dictionary<string, List<ScheduleBuilderPreviewLine>> driverDict)
+                    driverDict[name] = lines;
 
             }
 
@@ -3048,7 +3094,8 @@ namespace Hiatme_Tool_Suite_v3
 
                     lastHeaderGroup = g;
 
-                    _fsTripsLv.Items.Add(CreateFsTripListItem(g, line.Trip, li, line.ReroutedOnModivcare));
+                    _fsTripsLv.Items.Add(CreateFsTripListItem(
+                        g, line.Trip, li, line.ReroutedOnModivcare, line.CancelledOnWellRyde));
                     sawTripRow = true;
 
                 }
@@ -3142,7 +3189,13 @@ namespace Hiatme_Tool_Suite_v3
 
                     var g = FindFsGroupForTrip(groups, line.Trip);
 
-                    AddFsReserveTripListItem(line.Trip, line.ReserveBandColor, g, li, line.ReroutedOnModivcare);
+                    AddFsReserveTripListItem(
+                        line.Trip,
+                        line.ReserveBandColor,
+                        g,
+                        li,
+                        line.ReroutedOnModivcare,
+                        line.CancelledOnWellRyde);
 
                 }
 
@@ -3185,7 +3238,8 @@ namespace Hiatme_Tool_Suite_v3
             Color? bandColor,
             SupeyTripCluster group,
             int previewLineIndex,
-            bool reroutedOnModivcare = false)
+            bool reroutedOnModivcare = false,
+            bool cancelledOnWellRyde = false)
 
         {
 
@@ -3225,10 +3279,13 @@ namespace Hiatme_Tool_Suite_v3
             {
                 PreviewLineIndex = previewLineIndex,
                 ReroutedOnModivcare = reroutedOnModivcare,
+                CancelledOnWellRyde = cancelledOnWellRyde,
             };
 
             if (reroutedOnModivcare)
                 ApplyFsReroutedTripRowStyle(lvi);
+            else if (cancelledOnWellRyde)
+                ApplyFsCancelledTripRowStyle(lvi);
 
             _fsTripsLv.Items.Add(lvi);
 
@@ -3354,7 +3411,8 @@ namespace Hiatme_Tool_Suite_v3
             SupeyTripCluster g,
             MCDownloadedTrip trip,
             int previewLineIndex,
-            bool reroutedOnModivcare = false)
+            bool reroutedOnModivcare = false,
+            bool cancelledOnWellRyde = false)
 
         {
 
@@ -3369,10 +3427,11 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     PreviewLineIndex = previewLineIndex,
                     ReroutedOnModivcare = reroutedOnModivcare,
+                    CancelledOnWellRyde = cancelledOnWellRyde,
                 }
                 : trip;
 
-            if (g != null && !reroutedOnModivcare && FsShowGroupColorsEnabled)
+            if (g != null && !reroutedOnModivcare && !cancelledOnWellRyde && FsShowGroupColorsEnabled)
                 lvi.SubItems[0].BackColor = g.DisplayColor;
 
             lvi.SubItems.Add(trip.TripNumber ?? "");
@@ -3399,9 +3458,22 @@ namespace Hiatme_Tool_Suite_v3
 
             if (reroutedOnModivcare)
                 ApplyFsReroutedTripRowStyle(lvi);
+            else if (cancelledOnWellRyde)
+                ApplyFsCancelledTripRowStyle(lvi);
 
             return lvi;
 
+        }
+
+        private static void ApplyFsCancelledTripRowStyle(ListViewItem lvi)
+        {
+            if (lvi == null)
+                return;
+
+            Color c = ScheduleBuilderPreviewStyle.CancelledTripBackColor;
+            lvi.BackColor = c;
+            for (int i = 0; i < lvi.SubItems.Count; i++)
+                lvi.SubItems[i].BackColor = c;
         }
 
         private static void ApplyFsReroutedTripRowStyle(ListViewItem lvi)

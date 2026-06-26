@@ -267,6 +267,7 @@ namespace Hiatme_Tool_Suite_v3
             if (!band.HasValue) return "";
             if (band.Value == ScheduleBuilderReserveBuckets.WillCallBand) return "will call";
             if (band.Value == ScheduleBuilderReserveBuckets.RerouteBand) return "reroute";
+            if (band.Value == ScheduleBuilderReserveBuckets.CancelBand) return "cancel";
             if (band.Value == ScheduleBuilderReserveBuckets.BannedBand) return "banned";
             if (band.Value == ScheduleBuilderReserveBuckets.ReserversBand) return "reserver";
             return "";

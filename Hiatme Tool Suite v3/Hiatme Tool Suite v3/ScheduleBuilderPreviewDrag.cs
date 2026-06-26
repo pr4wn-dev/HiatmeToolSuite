@@ -267,6 +267,16 @@ namespace Hiatme_Tool_Suite_v3
             for (int i = 0; i < lines.Count; i++)
             {
                 if (lines[i]?.Kind == ScheduleBuilderPreviewLine.LineKind.Trip
+                    && ReferenceEquals(lines[i].Trip, trip))
+                {
+                    lines.RemoveAt(i);
+                    return true;
+                }
+            }
+
+            for (int i = 0; i < lines.Count; i++)
+            {
+                if (lines[i]?.Kind == ScheduleBuilderPreviewLine.LineKind.Trip
                     && TripEquals(lines[i].Trip, trip))
                 {
                     lines.RemoveAt(i);
@@ -422,6 +432,8 @@ namespace Hiatme_Tool_Suite_v3
                 return ScheduleBuilderReserveBuckets.ReserversBand;
             if (title.StartsWith("Reroutes", StringComparison.OrdinalIgnoreCase))
                 return ScheduleBuilderReserveBuckets.RerouteBand;
+            if (title.StartsWith("Cancels", StringComparison.OrdinalIgnoreCase))
+                return ScheduleBuilderReserveBuckets.CancelBand;
             if (title.StartsWith("Banned", StringComparison.OrdinalIgnoreCase))
                 return ScheduleBuilderReserveBuckets.RerouteBand;
             return null;
@@ -491,15 +503,84 @@ namespace Hiatme_Tool_Suite_v3
             return tn;
         }
 
+        internal static bool HasLegSuffix(string tripNumber)
+        {
+            if (string.IsNullOrWhiteSpace(tripNumber))
+                return false;
+            string t = tripNumber.Trim();
+            int len = t.Length;
+            if (len < 2 || t[len - 2] != '-')
+                return false;
+            char c = char.ToUpperInvariant(t[len - 1]);
+            return c == 'A' || c == 'B' || c == 'C';
+        }
+
+        internal static char ParseLegChar(string legText)
+        {
+            if (string.IsNullOrWhiteSpace(legText))
+                return '\0';
+            char c = char.ToUpperInvariant(legText.Trim()[0]);
+            return c == 'A' || c == 'B' || c == 'C' ? c : '\0';
+        }
+
+        /// <summary>Same Modivcare trip id, different A/B/C leg (not the same leg twice).</summary>
+        internal static bool IsPartnerLeg(string tripNumberA, string tripNumberB)
+        {
+            if (string.IsNullOrWhiteSpace(tripNumberA) || string.IsNullOrWhiteSpace(tripNumberB))
+                return false;
+            if (TripLegKeysMatch(tripNumberA, tripNumberB))
+                return false;
+
+            string baseA = SupeyScheduleAlgorithm.TripPartnerBase(
+                NormalizeTripNumberKey(tripNumberA));
+            string baseB = SupeyScheduleAlgorithm.TripPartnerBase(
+                NormalizeTripNumberKey(tripNumberB));
+            return baseA.Length > 0
+                && string.Equals(baseA, baseB, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>Append -A/-B/-C when the trip number has no leg suffix yet.</summary>
+        internal static string ApplyLegSuffix(string tripNumber, char leg)
+        {
+            if (leg != 'A' && leg != 'B' && leg != 'C')
+                return (tripNumber ?? "").Trim();
+            string tn = (tripNumber ?? "").Trim();
+            if (tn.Length == 0 || HasLegSuffix(tn))
+                return tn;
+            return tn + "-" + char.ToUpperInvariant(leg);
+        }
+
+        /// <summary>Identity for matching — includes A/B/C leg so partner legs never collide.</summary>
+        internal static string TripLegKey(string tripNumber)
+        {
+            string tn = NormalizeTripNumberKey(tripNumber);
+            if (tn.Length == 0)
+                return "";
+
+            if (!HasLegSuffix(tripNumber))
+                return tn;
+
+            string baseId = SupeyScheduleAlgorithm.TripPartnerBase(tn);
+            if (string.IsNullOrWhiteSpace(baseId))
+                baseId = tn;
+
+            char leg = SupeyScheduleAlgorithm.DetectLegPublic(tripNumber);
+            return baseId + "-" + char.ToUpperInvariant(leg);
+        }
+
+        internal static bool TripLegKeysMatch(string a, string b)
+        {
+            string ka = TripLegKey(a);
+            string kb = TripLegKey(b);
+            return ka.Length > 0
+                && string.Equals(ka, kb, StringComparison.OrdinalIgnoreCase);
+        }
+
         internal static bool TripEquals(MCDownloadedTrip a, MCDownloadedTrip b)
         {
             if (a == null || b == null) return false;
             if (ReferenceEquals(a, b)) return true;
-            string ka = NormalizeTripNumberKey(a.TripNumber);
-            string kb = NormalizeTripNumberKey(b.TripNumber);
-            if (ka.Length == 0 || kb.Length == 0)
-                return false;
-            return string.Equals(ka, kb, StringComparison.OrdinalIgnoreCase);
+            return TripLegKeysMatch(a.TripNumber, b.TripNumber);
         }
 
         /// <summary>Reorder trip lines inside one gap-delimited group (1-based group number).</summary>

@@ -40,6 +40,17 @@ namespace Hiatme_Tool_Suite_v3
             public string Message { get; set; }
         }
 
+        /// <summary>Reuse TripReroutes.aspx tokens across batch probes when still on that page.</summary>
+        public sealed class RerouteProbeSession
+        {
+            internal bool NeedsTripReroutesPage { get; set; } = true;
+
+            public void ResetAfterReconnect() => NeedsTripReroutesPage = true;
+        }
+
+        /// <summary>Pause between batch reroute lookups so Modivcare sees human-paced traffic.</summary>
+        public const int ProbeDelayMilliseconds = 400;
+
         /// <summary>Modivcare shows this on TripReroutes.aspx when the trip was already rerouted away.</summary>
         internal const string NotAssignedToCompanyFragment = "not assigned to your company";
 
@@ -148,7 +159,8 @@ namespace Hiatme_Tool_Suite_v3
             MCLoginHandler login,
             MCDownloadedTrip trip,
             DateTime? serviceDateFallback = null,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            RerouteProbeSession session = null)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -178,10 +190,15 @@ namespace Hiatme_Tool_Suite_v3
 
             try
             {
-                string tripReroutesHtml = await GetPageHtmlAsync(login, TripReroutesUrl, TripReroutesUrl)
-                    .ConfigureAwait(false);
-                cancellationToken.ThrowIfCancellationRequested();
-                login.GrabTokens(tripReroutesHtml);
+                if (session == null || session.NeedsTripReroutesPage)
+                {
+                    string tripReroutesHtml = await GetPageHtmlAsync(login, TripReroutesUrl, TripReroutesUrl)
+                        .ConfigureAwait(false);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    login.GrabTokens(tripReroutesHtml);
+                    if (session != null)
+                        session.NeedsTripReroutesPage = false;
+                }
 
                 var tripSelectResult = await PostFormAsync(
                     login,
@@ -194,6 +211,9 @@ namespace Hiatme_Tool_Suite_v3
 
                 string html = tripSelectResult.Body;
                 string finalUri = tripSelectResult.FinalUri ?? TripReroutesUrl;
+                login.GrabTokens(html);
+                if (session != null)
+                    session.NeedsTripReroutesPage = ProbeNeedsFreshTripReroutesPage(finalUri);
 
                 if (LooksLikeAlreadyRerouted(finalUri, html))
                 {
@@ -272,6 +292,10 @@ namespace Hiatme_Tool_Suite_v3
             return !string.IsNullOrEmpty(html)
                 && html.IndexOf("Reroute Trip", StringComparison.OrdinalIgnoreCase) >= 0;
         }
+
+        /// <summary>After Reroutes.aspx the next lookup needs a fresh TripReroutes GET; error pages can reuse POST tokens.</summary>
+        internal static bool ProbeNeedsFreshTripReroutesPage(string finalUri) =>
+            UriIsReroutesLandingPage(finalUri) || !UriIsTripReroutesPage(finalUri);
 
         private static bool TryParseTripFields(
             MCDownloadedTrip trip,

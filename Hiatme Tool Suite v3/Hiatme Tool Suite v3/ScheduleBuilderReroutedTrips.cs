@@ -149,7 +149,7 @@ namespace Hiatme_Tool_Suite_v3
             ForceMarkRerouted(lines, trip);
 
         public static string TripNumberKey(string tripNumber) =>
-            ScheduleBuilderPreviewDrag.NormalizeTripNumberKey(tripNumber);
+            ScheduleBuilderPreviewDrag.TripLegKey(tripNumber);
 
         public static void AddTripNumberKey(ISet<string> keys, string tripNumber)
         {
@@ -165,12 +165,22 @@ namespace Hiatme_Tool_Suite_v3
             if (keys == null)
                 return false;
             string key = TripNumberKey(tripNumber);
-            return key.Length > 0 && keys.Contains(key);
+            if (key.Length == 0)
+                return false;
+            if (keys.Contains(key))
+                return true;
+            // Legacy reroute registry keys without leg suffix — only match trips without -A/-B/-C.
+            if (!ScheduleBuilderPreviewDrag.HasLegSuffix(tripNumber))
+            {
+                string bare = ScheduleBuilderPreviewDrag.NormalizeTripNumberKey(tripNumber);
+                if (bare.Length > 0 && keys.Contains(bare))
+                    return true;
+            }
+            return false;
         }
 
         public static bool TripNumberKeysMatch(string a, string b) =>
-            string.Equals(TripNumberKey(a), TripNumberKey(b), StringComparison.OrdinalIgnoreCase)
-            && TripNumberKey(a).Length > 0;
+            ScheduleBuilderPreviewDrag.TripLegKeysMatch(a, b);
 
         public static bool IsInReservesRerouteBucket(IList<MCDownloadedTrip> reroutes, MCDownloadedTrip trip)
         {
@@ -271,6 +281,31 @@ namespace Hiatme_Tool_Suite_v3
                     return true;
             }
             return false;
+        }
+
+        /// <summary>After cancel moves, partner legs must not keep a stale reroute red from prior Reserves lines.</summary>
+        public static void ClearUnconfirmedPartnerRerouteFlags(
+            IList<ScheduleBuilderPreviewLine> lines,
+            MCDownloadedTrip anchor,
+            ISet<string> confirmedReroutedLegKeys)
+        {
+            if (lines == null || anchor == null)
+                return;
+
+            foreach (var line in lines)
+            {
+                if (line?.Kind != ScheduleBuilderPreviewLine.LineKind.Trip || line.Trip == null)
+                    continue;
+                if (!ScheduleBuilderPreviewDrag.IsPartnerLeg(anchor.TripNumber, line.Trip.TripNumber))
+                    continue;
+                if (confirmedReroutedLegKeys != null
+                    && TripNumberKeySetContains(confirmedReroutedLegKeys, line.Trip.TripNumber))
+                {
+                    continue;
+                }
+
+                line.ReroutedOnModivcare = false;
+            }
         }
     }
 }

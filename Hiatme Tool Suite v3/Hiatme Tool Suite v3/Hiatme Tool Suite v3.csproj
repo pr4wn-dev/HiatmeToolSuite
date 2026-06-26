@@ -223,6 +223,15 @@
       <DependentUpon>Form1.cs</DependentUpon>
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="Form1.ScheduleBuilder.Cancel.cs">
+      <DependentUpon>Form1.cs</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Form1.ScheduleBuilder.WellRydeCancel.cs">
+      <DependentUpon>Form1.cs</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="ScheduleBuilderWellRydeCancelled.cs" />
     <Compile Include="Form1.ScheduleBuilder.Drag.cs">
       <DependentUpon>Form1.cs</DependentUpon>
       <SubType>Form</SubType>
