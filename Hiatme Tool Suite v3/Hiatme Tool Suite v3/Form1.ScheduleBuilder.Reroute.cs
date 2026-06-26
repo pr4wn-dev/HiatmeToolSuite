@@ -99,6 +99,29 @@ namespace Hiatme_Tool_Suite_v3
             int unmarked = 0;
             int checkedCount = 0;
             var probeSession = new MCTripRerouter.RerouteProbeSession();
+
+            // Trips confirmed rerouted on Modivcare this load — persist to the reroute registry so
+            // future loads pre-mark them and skip re-checking.
+            var verifiedReroutes = new List<MCDownloadedTrip>();
+
+            async Task PersistVerifiedReroutesAsync()
+            {
+                if (verifiedReroutes.Count == 0)
+                    return;
+                try
+                {
+                    var aiSettings = HiatmeAiSettings.Load();
+                    await ScheduleBuilderReroutedTripsRegistry.RecordVerifiedReroutesAsync(
+                            aiSettings,
+                            serviceDate,
+                            verifiedReroutes,
+                            aiSettings.ResolvedClientId())
+                        .ConfigureAwait(true);
+                }
+                catch { /* local cache is best-effort */ }
+                verifiedReroutes.Clear();
+            }
+
             for (int i = 0; i < toCheck.Count; i++)
             {
                 if (token.IsCancellationRequested || fsbuilder == null)
@@ -117,10 +140,12 @@ namespace Hiatme_Tool_Suite_v3
                 }
                 catch (ModivcareSessionExpiredException)
                 {
+                    await PersistVerifiedReroutesAsync().ConfigureAwait(true);
                     return " Reroute verify stopped — Modivcare session expired.";
                 }
                 catch (OperationCanceledException)
                 {
+                    await PersistVerifiedReroutesAsync().ConfigureAwait(true);
                     return "";
                 }
                 catch
@@ -135,6 +160,7 @@ namespace Hiatme_Tool_Suite_v3
                     bool wasMarked = ScheduleBuilderReroutedTrips.IsMarkedAnyTab(_fsLinesByTab, trip);
                     ScheduleBuilderReroutedTrips.MarkReroutedAnyTab(_fsLinesByTab, trip);
                     FsTrackReroutedTripKey(trip.TripNumber);
+                    verifiedReroutes.Add(trip);
                     if (refreshListView)
                         FsRefreshReroutedHighlightForTrip(trip);
                     if (!wasMarked)
@@ -157,10 +183,13 @@ namespace Hiatme_Tool_Suite_v3
                     }
                     catch (OperationCanceledException)
                     {
+                        await PersistVerifiedReroutesAsync().ConfigureAwait(true);
                         return "";
                     }
                 }
             }
+
+            await PersistVerifiedReroutesAsync().ConfigureAwait(true);
 
             if (token.IsCancellationRequested || fsbuilder == null)
                 return "";

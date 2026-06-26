@@ -232,6 +232,61 @@ namespace Hiatme_Tool_Suite_v3
             return result;
         }
 
+        /// <summary>
+        /// Persist trips confirmed rerouted by a load-time Modivcare probe so future loads pre-mark
+        /// and skip them. Saves locally for sure; pushes new records to the office server best-effort.
+        /// </summary>
+        public static async Task<int> RecordVerifiedReroutesAsync(
+            HiatmeAiSettings settings,
+            DateTime serviceDate,
+            IEnumerable<MCDownloadedTrip> trips,
+            string reroutedBy,
+            CancellationToken cancellationToken = default)
+        {
+            if (trips == null)
+                return 0;
+
+            var records = LoadLocal(serviceDate);
+            var newRecords = new List<ScheduleBuilderReroutedTripRecord>();
+
+            foreach (var trip in trips)
+            {
+                var record = ScheduleBuilderReroutedTripRecord.FromTrip(trip, reroutedBy);
+                if (record == null || string.IsNullOrWhiteSpace(record.TripNumber))
+                    continue;
+
+                bool existed = records.Any(r =>
+                    ScheduleBuilderReroutedTrips.TripNumberKeysMatch(r?.TripNumber, record.TripNumber));
+                UpsertRecord(records, record);
+                if (!existed)
+                    newRecords.Add(record);
+            }
+
+            if (newRecords.Count == 0)
+                return 0;
+
+            TrySaveLocal(serviceDate, records);
+
+            if (HiatmeGeoSettings.UseServer && settings != null
+                && !string.IsNullOrWhiteSpace(settings.BaseUrl))
+            {
+                foreach (var record in newRecords)
+                {
+                    try
+                    {
+                        await HiatmeAiClient.AddReroutedTripAsync(
+                            settings, serviceDate, record, reroutedBy, cancellationToken).ConfigureAwait(false);
+                    }
+                    catch
+                    {
+                        // local registry already saved; server sync can catch up later
+                    }
+                }
+            }
+
+            return newRecords.Count;
+        }
+
         public static async Task<RerouteRegistryMergeResult> MergeIntoBuilderAsync(
             FullScheduleBuilder builder,
             DateTime serviceDate,
