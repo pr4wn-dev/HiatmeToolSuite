@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Globalization;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
@@ -19,6 +20,7 @@ namespace Hiatme_Tool_Suite_v3
             _fsCutTrip = null;
             _fsCutTripReserveBand = null;
             _fsCutTripRerouted = false;
+            FsUpdateCutTripBar();
         }
 
         private void FsCutSelectedTrip()
@@ -37,6 +39,7 @@ namespace Hiatme_Tool_Suite_v3
                 return;
 
             _fsCutTrip = _fsTripsCtxTrip;
+            FsUpdateCutTripBar();
             FsCommitPreviewLinesForTab(tab, lines);
             ShowFsTripsForTab(tab);
             _ = RefreshFsMapForCurrentTabAsync();
@@ -210,6 +213,179 @@ namespace Hiatme_Tool_Suite_v3
                     return line.ReserveBandColor;
             }
             return null;
+        }
+
+        private void BuildFsCutTripBar(Panel host)
+        {
+            _fsCutTripBar = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 0,
+                Visible = false,
+                BackColor = SupeyTheme.SurfaceElevated,
+                Padding = new Padding(0),
+            };
+
+            _fsCutTripBarAccent = new Panel
+            {
+                Dock = DockStyle.Left,
+                Width = 3,
+                BackColor = SupeyTheme.AccentPrimary,
+            };
+
+            var textHost = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = SupeyTheme.SurfaceElevated,
+                Padding = new Padding(10, 6, 10, 6),
+            };
+
+            _fsCutTripBarLine1 = new Label
+            {
+                Dock = DockStyle.Top,
+                Height = 20,
+                AutoEllipsis = true,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Font = new Font("Segoe UI Semibold", 9.75f),
+                ForeColor = SupeyTheme.TextPrimary,
+                BackColor = SupeyTheme.SurfaceElevated,
+            };
+
+            _fsCutTripBarLine2 = new Label
+            {
+                Dock = DockStyle.Fill,
+                AutoEllipsis = true,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Font = new Font("Segoe UI", 9f),
+                ForeColor = SupeyTheme.TextSecondary,
+                BackColor = SupeyTheme.SurfaceElevated,
+            };
+
+            textHost.Controls.Add(_fsCutTripBarLine2);
+            textHost.Controls.Add(_fsCutTripBarLine1);
+
+            _fsCutTripBar.Controls.Add(textHost);
+            _fsCutTripBar.Controls.Add(_fsCutTripBarAccent);
+
+            var bottomRule = new Panel
+            {
+                Dock = DockStyle.Bottom,
+                Height = 1,
+                BackColor = SupeyTheme.Divider,
+            };
+            _fsCutTripBar.Controls.Add(bottomRule);
+
+            host.Controls.Add(_fsCutTripBar);
+            SupeyDarkScrollBars.Apply(_fsCutTripBar);
+            FsUpdateCutTripBar();
+        }
+
+        private void FsUpdateCutTripBar()
+        {
+            if (_fsCutTripBar == null)
+                return;
+
+            if (_fsCutTrip == null)
+            {
+                _fsCutTripBar.Visible = false;
+                _fsCutTripBar.Height = 0;
+                _fsCutTripBarLine1.Text = string.Empty;
+                _fsCutTripBarLine2.Text = string.Empty;
+                return;
+            }
+
+            _fsCutTripBarLine1.Text = FsFormatCutTripSummaryLine(_fsCutTrip);
+            _fsCutTripBarLine2.Text = FsFormatCutTripAddressLine(_fsCutTrip);
+            _fsCutTripBar.Visible = true;
+            _fsCutTripBar.Height = FsCutTripBarHeight;
+        }
+
+        private static string FsFormatCutTripSummaryLine(MCDownloadedTrip trip)
+        {
+            if (trip == null)
+                return "CUT · (trip)";
+
+            var parts = new List<string> { "CUT" };
+
+            string num = (trip.TripNumber ?? "").Trim();
+            if (num.Length > 0)
+                parts.Add(num);
+            else
+                parts.Add("(no trip #)");
+
+            string leg = FsFormatCutTripLeg(trip);
+            if (leg.Length > 0)
+                parts.Add("Leg " + leg);
+
+            string client = (trip.ClientFullName ?? "").Trim();
+            if (client.Length == 0)
+            {
+                client = ((trip.ClientFirstName ?? "") + " " + (trip.ClientLastName ?? "")).Trim();
+            }
+            if (client.Length > 0)
+                parts.Add(client);
+
+            string pu = FormatTimeOnly(trip.PUTime);
+            if (!string.IsNullOrWhiteSpace(pu))
+                parts.Add("PU " + pu.Trim());
+
+            string dot = FsFormatCutTripDoTime(trip);
+            if (!string.IsNullOrWhiteSpace(dot))
+                parts.Add("DO " + dot.Trim());
+
+            return string.Join("  ·  ", parts);
+        }
+
+        private static string FsFormatCutTripAddressLine(MCDownloadedTrip trip)
+        {
+            if (trip == null)
+                return string.Empty;
+
+            string pu = FsJoinStreetCity(trip.PUStreet, trip.PUCity);
+            string dot = FsJoinStreetCity(trip.DOStreet, trip.DOCITY);
+            if (pu.Length == 0 && dot.Length == 0)
+                return string.Empty;
+
+            if (pu.Length > 0 && dot.Length > 0)
+                return "PU: " + pu + "    →    DO: " + dot;
+            if (pu.Length > 0)
+                return "PU: " + pu;
+            return "DO: " + dot;
+        }
+
+        private static string FsFormatCutTripLeg(MCDownloadedTrip trip)
+        {
+            string num = (trip?.TripNumber ?? "").Trim();
+            if (num.Length == 0)
+                return string.Empty;
+
+            char leg = SupeyScheduleAlgorithm.DetectLegPublic(num);
+            if (leg == '\0' || leg == '?')
+                return string.Empty;
+
+            return leg.ToString(CultureInfo.InvariantCulture).ToUpperInvariant();
+        }
+
+        private static string FsFormatCutTripDoTime(MCDownloadedTrip trip)
+        {
+            if (trip == null)
+                return string.Empty;
+
+            string t = FormatTimeOnly(trip.DOTime);
+            if (string.IsNullOrWhiteSpace(t))
+                t = FormatTimeOnly(trip.SchedDOTime);
+            return t ?? string.Empty;
+        }
+
+        private static string FsJoinStreetCity(string street, string city)
+        {
+            string s = (street ?? "").Trim();
+            string c = (city ?? "").Trim();
+            if (s.Length > 0 && c.Length > 0)
+                return s + ", " + c;
+            if (s.Length > 0)
+                return s;
+            return c;
         }
     }
 }

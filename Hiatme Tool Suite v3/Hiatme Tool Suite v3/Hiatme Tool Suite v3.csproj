@@ -160,6 +160,12 @@
     <Compile Include="ScheduleBuilderXlsxWriter.cs" />
     <Compile Include="ScheduleBuilderGmailMailer.cs" />
     <Compile Include="ScheduleBuilderGmailDefaults.cs" />
+    <Compile Include="SupeyMessageForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="ScheduleRerouteReasonForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="ScheduleEmailSendConfirmForm.cs">
       <SubType>Form</SubType>
     </Compile>

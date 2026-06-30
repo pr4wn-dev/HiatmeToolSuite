@@ -21,10 +21,31 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>Default reroute reason: 1 = Not in Service Area.</summary>
         public const string DefaultRerouteReasonCode = "1";
 
+        public sealed class RerouteReasonOption
+        {
+            public RerouteReasonOption(string code, string label)
+            {
+                Code = (code ?? "").Trim();
+                Label = (label ?? "").Trim();
+            }
+
+            public string Code { get; }
+            public string Label { get; }
+
+            public override string ToString() => Label;
+        }
+
         public sealed class Result
         {
             public bool Success { get; set; }
             public string Message { get; set; }
+        }
+
+        public sealed class PrepareResult
+        {
+            public bool Success { get; set; }
+            public string Message { get; set; }
+            public IReadOnlyList<RerouteReasonOption> Reasons { get; set; } = Array.Empty<RerouteReasonOption>();
         }
 
         public enum RerouteProbeOutcome
@@ -63,6 +84,120 @@ namespace Hiatme_Tool_Suite_v3
             string rerouteReasonCode = DefaultRerouteReasonCode,
             DateTime? serviceDateFallback = null)
         {
+            PrepareResult prepared = await PrepareRerouteFormAsync(login, trip, serviceDateFallback)
+                .ConfigureAwait(false);
+            if (!prepared.Success)
+            {
+                return Fail(prepared.Message ?? "Could not open the Modivcare reroute form.");
+            }
+
+            rerouteReasonCode = NormalizeReasonCode(rerouteReasonCode, prepared.Reasons);
+            return await SubmitPreparedRerouteAsync(login, trip, rerouteReasonCode).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Opens the Modivcare reroute form for a trip and parses reason options from the portal dropdown.
+        /// Leaves <paramref name="login"/> view-state tokens on the reroute form for a follow-up submit.
+        /// </summary>
+        public static async Task<PrepareResult> PrepareRerouteFormAsync(
+            MCLoginHandler login,
+            MCDownloadedTrip trip,
+            DateTime? serviceDateFallback = null)
+        {
+            if (login == null || !login.Connected)
+            {
+                return new PrepareResult { Success = false, Message = "Modivcare is not signed in." };
+            }
+
+            if (trip == null || string.IsNullOrWhiteSpace(trip.TripNumber))
+            {
+                return new PrepareResult { Success = false, Message = "Trip number is missing." };
+            }
+
+            if (!TryParseTripFields(trip, serviceDateFallback, out string tripNumber, out string tripLeg, out string tripDate, out string parseError))
+            {
+                return new PrepareResult { Success = false, Message = parseError };
+            }
+
+            try
+            {
+                string tripReroutesHtml = await GetPageHtmlAsync(login, TripReroutesUrl, TripReroutesUrl)
+                    .ConfigureAwait(false);
+                login.GrabTokens(tripReroutesHtml);
+
+                var tripSelectResult = await PostFormAsync(
+                    login,
+                    TripReroutesUrl,
+                    TripReroutesUrl,
+                    () => BuildTripReroutesSelectForm(login, tripNumber, tripLeg, tripDate))
+                    .ConfigureAwait(false);
+                string reroutesHtml = tripSelectResult.Body;
+                if (tripSelectResult.AuthRedirect)
+                    throw new ModivcareSessionExpiredException();
+
+                if (UriIsTripReroutesPage(tripSelectResult.FinalUri))
+                {
+                    string err = TryExtractPageError(reroutesHtml);
+                    return new PrepareResult
+                    {
+                        Success = false,
+                        Message = string.IsNullOrEmpty(err)
+                            ? "Modivcare rejected the trip lookup for " + (trip.TripNumber ?? "trip") + "."
+                            : err,
+                    };
+                }
+
+                if (!UriIsReroutesLandingPage(tripSelectResult.FinalUri)
+                    && reroutesHtml.IndexOf("Reroute Trip", StringComparison.OrdinalIgnoreCase) < 0)
+                {
+                    string err = TryExtractPageError(reroutesHtml);
+                    return new PrepareResult
+                    {
+                        Success = false,
+                        Message = string.IsNullOrEmpty(err)
+                            ? "Modivcare did not open the reroute form for trip " + trip.TripNumber + "."
+                            : err,
+                    };
+                }
+
+                login.GrabTokens(reroutesHtml);
+                var reasons = ParseRerouteReasonsFromHtml(reroutesHtml);
+                if (reasons.Count == 0)
+                {
+                    reasons = new[]
+                    {
+                        new RerouteReasonOption(DefaultRerouteReasonCode, "Not in Service Area"),
+                    };
+                }
+
+                return new PrepareResult
+                {
+                    Success = true,
+                    Reasons = reasons,
+                };
+            }
+            catch (ModivcareSessionExpiredException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                return new PrepareResult
+                {
+                    Success = false,
+                    Message = ModivcareRequestErrors.DescribeOrDefault(ex, "Could not load reroute reasons from Modivcare."),
+                };
+            }
+        }
+
+        /// <summary>
+        /// Submits the reroute after <see cref="PrepareRerouteFormAsync"/> — login tokens must still be on Reroutes.aspx.
+        /// </summary>
+        public static async Task<Result> SubmitPreparedRerouteAsync(
+            MCLoginHandler login,
+            MCDownloadedTrip trip,
+            string rerouteReasonCode)
+        {
             if (login == null || !login.Connected)
             {
                 return Fail("Modivcare is not signed in.");
@@ -73,51 +208,12 @@ namespace Hiatme_Tool_Suite_v3
                 return Fail("Trip number is missing.");
             }
 
-            if (!TryParseTripFields(trip, serviceDateFallback, out string tripNumber, out string tripLeg, out string tripDate, out string parseError))
-            {
-                return Fail(parseError);
-            }
-
             rerouteReasonCode = (rerouteReasonCode ?? DefaultRerouteReasonCode).Trim();
             if (rerouteReasonCode.Length == 0)
                 rerouteReasonCode = DefaultRerouteReasonCode;
 
             try
             {
-                string tripReroutesHtml = await GetPageHtmlAsync(login, TripReroutesUrl, TripReroutesUrl)
-                    .ConfigureAwait(false);
-                login.GrabTokens(tripReroutesHtml);
-
-                string reroutesHtml;
-                var tripSelectResult = await PostFormAsync(
-                    login,
-                    TripReroutesUrl,
-                    TripReroutesUrl,
-                    () => BuildTripReroutesSelectForm(login, tripNumber, tripLeg, tripDate))
-                    .ConfigureAwait(false);
-                reroutesHtml = tripSelectResult.Body;
-                if (tripSelectResult.AuthRedirect)
-                    throw new ModivcareSessionExpiredException();
-
-                if (UriIsTripReroutesPage(tripSelectResult.FinalUri))
-                {
-                    string err = TryExtractPageError(reroutesHtml);
-                    return Fail(string.IsNullOrEmpty(err)
-                        ? "Modivcare rejected the trip lookup for " + (trip.TripNumber ?? "trip") + "."
-                        : err);
-                }
-
-                if (!UriIsReroutesLandingPage(tripSelectResult.FinalUri)
-                    && reroutesHtml.IndexOf("Reroute Trip", StringComparison.OrdinalIgnoreCase) < 0)
-                {
-                    string err = TryExtractPageError(reroutesHtml);
-                    return Fail(string.IsNullOrEmpty(err)
-                        ? "Modivcare did not open the reroute form for trip " + trip.TripNumber + "."
-                        : err);
-                }
-
-                login.GrabTokens(reroutesHtml);
-
                 var rerouteResult = await PostFormAsync(
                     login,
                     ReroutesUrl,
@@ -150,6 +246,65 @@ namespace Hiatme_Tool_Suite_v3
             {
                 return Fail(ModivcareRequestErrors.DescribeOrDefault(ex, "Reroute request failed."));
             }
+        }
+
+        internal static IReadOnlyList<RerouteReasonOption> ParseRerouteReasonsFromHtml(string html)
+        {
+            var list = new List<RerouteReasonOption>();
+            if (string.IsNullOrEmpty(html))
+                return list;
+
+            var selectMatch = Regex.Match(
+                html,
+                @"id=""ctl00_cphMainContent_ddlRerouteReasons""[^>]*>(?<body>.*?)</select>",
+                RegexOptions.IgnoreCase | RegexOptions.Singleline);
+            if (!selectMatch.Success)
+                return list;
+
+            string body = selectMatch.Groups["body"].Value ?? string.Empty;
+            foreach (Match optionMatch in Regex.Matches(
+                body,
+                @"<option\b(?<attrs>[^>]*)>(?<text>[^<]*)</option>",
+                RegexOptions.IgnoreCase | RegexOptions.Singleline))
+            {
+                string attrs = optionMatch.Groups["attrs"].Value ?? string.Empty;
+                var valueMatch = Regex.Match(attrs, @"\bvalue=""([^""]*)""", RegexOptions.IgnoreCase);
+                if (!valueMatch.Success)
+                    continue;
+
+                string code = System.Web.HttpUtility.HtmlDecode(valueMatch.Groups[1].Value ?? "").Trim();
+                string label = System.Web.HttpUtility.HtmlDecode(optionMatch.Groups["text"].Value ?? "").Trim();
+                if (code.Length == 0 || label.Length == 0)
+                    continue;
+
+                list.Add(new RerouteReasonOption(code, label));
+            }
+
+            return list;
+        }
+
+        internal static string NormalizeReasonCode(string rerouteReasonCode, IReadOnlyList<RerouteReasonOption> reasons)
+        {
+            rerouteReasonCode = (rerouteReasonCode ?? DefaultRerouteReasonCode).Trim();
+            if (rerouteReasonCode.Length == 0)
+                rerouteReasonCode = DefaultRerouteReasonCode;
+
+            if (reasons == null || reasons.Count == 0)
+                return rerouteReasonCode;
+
+            foreach (RerouteReasonOption reason in reasons)
+            {
+                if (string.Equals(reason.Code, rerouteReasonCode, StringComparison.Ordinal))
+                    return reason.Code;
+            }
+
+            foreach (RerouteReasonOption reason in reasons)
+            {
+                if (string.Equals(reason.Code, DefaultRerouteReasonCode, StringComparison.Ordinal))
+                    return reason.Code;
+            }
+
+            return reasons[0].Code;
         }
 
         /// <summary>

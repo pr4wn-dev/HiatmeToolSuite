@@ -74,6 +74,7 @@ namespace Hiatme_Tool_Suite_v3
 
             _fsCutTrip = entry.CutTrip;
             _fsCutTripReserveBand = entry.CutTripReserveBand;
+            FsUpdateCutTripBar();
 
             string tab = string.IsNullOrWhiteSpace(_fsActiveDriverTab)
                 ? _fsDriverTabOrder?.FirstOrDefault(t => !t.Equals("Reserves", StringComparison.OrdinalIgnoreCase))

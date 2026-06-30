@@ -86,6 +86,13 @@ namespace Hiatme_Tool_Suite_v3
 
         private SupeyListView _fsTripsLv;
 
+        private Panel _fsCutTripBar;
+        private Label _fsCutTripBarLine1;
+        private Label _fsCutTripBarLine2;
+        private Panel _fsCutTripBarAccent;
+
+        private const int FsCutTripBarHeight = 54;
+
         /// <summary>Shared trip-list column widths (pixels); same on every driver tab and in saved workbooks.</summary>
         private int[] _fsTripsColumnWidthsPx;
 
@@ -804,6 +811,8 @@ namespace Hiatme_Tool_Suite_v3
 
 
             host.Controls.Add(_fsTripsLv);
+
+            BuildFsCutTripBar(host);
 
             BuildFsMapModeToolbar(host);
 

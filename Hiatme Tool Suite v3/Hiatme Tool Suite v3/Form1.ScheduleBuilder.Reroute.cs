@@ -362,20 +362,59 @@ namespace Hiatme_Tool_Suite_v3
                 return;
             }
 
-            string prompt = string.IsNullOrEmpty(num)
-                ? "Submit this trip for reroute on Modivcare?\n\n"
-                    + "On success it moves to Reserves → Reroutes (if not already there) and is marked red."
-                : "Submit trip " + num + " for reroute on Modivcare?\n\n"
-                    + "On success it moves to Reserves → Reroutes (if not already there) and is marked red.";
-
-            if (MessageBox.Show(this, prompt, "Reroute on Modivcare",
-                    MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2)
-                != DialogResult.Yes)
-                return;
-
             if (!await EnsureModivcareSessionAsync())
             {
                 SetScheduleBuilderStatus("Modivcare sign-in required.");
+                return;
+            }
+
+            SetScheduleBuilderStatus(string.IsNullOrEmpty(num)
+                ? "Loading reroute reasons from Modivcare…"
+                : "Loading reroute reasons for " + num + "…");
+
+            MCTripRerouter.PrepareResult prepared;
+            try
+            {
+                prepared = await MCTripRerouter.PrepareRerouteFormAsync(
+                        mcLoginHandler,
+                        trip,
+                        fsbdatepicker?.Value.Date)
+                    .ConfigureAwait(true);
+            }
+            catch (ModivcareSessionExpiredException)
+            {
+                SetScheduleBuilderStatus("Modivcare session expired — sign in again.");
+                return;
+            }
+
+            if (!prepared.Success)
+            {
+                SupeyMessageForm.Show(this,
+                    "Reroute on Modivcare",
+                    prepared.Message ?? "Modivcare did not open the reroute form.",
+                    SupeyMessageKind.Warning,
+                    "Could not load reroute form");
+                SetScheduleBuilderStatus("Reroute cancelled — could not load reasons.");
+                return;
+            }
+
+            string selectedReasonCode;
+            string selectedReasonLabel;
+            using (var picker = new ScheduleRerouteReasonForm(num, prepared.Reasons))
+            {
+                if (picker.ShowDialog(this) != DialogResult.OK)
+                {
+                    SetScheduleBuilderStatus("Reroute cancelled.");
+                    return;
+                }
+
+                selectedReasonCode = picker.SelectedReasonCode;
+                selectedReasonLabel = picker.SelectedReasonLabel;
+            }
+
+            if (string.IsNullOrWhiteSpace(selectedReasonCode))
+            {
+                SetScheduleBuilderStatus("Reroute cancelled — no reason selected.");
                 return;
             }
 
@@ -385,20 +424,19 @@ namespace Hiatme_Tool_Suite_v3
 
             try
             {
-                MCTripRerouter.Result result = await MCTripRerouter.SubmitRerouteAsync(
+                MCTripRerouter.Result result = await MCTripRerouter.SubmitPreparedRerouteAsync(
                         mcLoginHandler,
                         trip,
-                        MCTripRerouter.DefaultRerouteReasonCode,
-                        fsbdatepicker?.Value.Date)
+                        selectedReasonCode)
                     .ConfigureAwait(true);
 
                 if (!result.Success)
                 {
-                    MessageBox.Show(this,
-                        result.Message ?? "Modivcare did not accept the reroute.",
+                    SupeyMessageForm.Show(this,
                         "Reroute on Modivcare",
-                        MessageBoxButtons.OK,
-                        MessageBoxIcon.Warning);
+                        result.Message ?? "Modivcare did not accept the reroute.",
+                        SupeyMessageKind.Warning,
+                        "Reroute failed");
                     SetScheduleBuilderStatus("Reroute failed — see message.");
                     return;
                 }
@@ -414,6 +452,8 @@ namespace Hiatme_Tool_Suite_v3
                 _ = RefreshFsMapForCurrentTabAsync();
 
                 string successMsg = result.Message ?? ("Trip " + num + " rerouted on Modivcare.");
+                if (!string.IsNullOrWhiteSpace(selectedReasonLabel))
+                    successMsg += "\n\nReason: " + selectedReasonLabel.Trim();
                 if (!marked)
                 {
                     successMsg += "\n\nModivcare accepted the reroute, but the schedule row could not be marked red — try reloading the preview.";
@@ -458,8 +498,11 @@ namespace Hiatme_Tool_Suite_v3
                     successMsg += "\n\nShared with office server — other desks will see this on BUILD.";
                 }
 
-                MessageBox.Show(this, successMsg, "Reroute on Modivcare",
-                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                SupeyMessageForm.Show(this,
+                    "Reroute on Modivcare",
+                    successMsg,
+                    SupeyMessageKind.Information,
+                    string.IsNullOrEmpty(num) ? "Trip rerouted" : "Trip " + num + " rerouted");
 
                 SetScheduleBuilderStatus(string.IsNullOrEmpty(num)
                     ? "Trip rerouted on Modivcare."
@@ -473,8 +516,11 @@ namespace Hiatme_Tool_Suite_v3
             catch (Exception ex)
             {
                 string msg = ModivcareRequestErrors.DescribeOrDefault(ex, "Could not submit reroute.");
-                MessageBox.Show(this, msg, "Reroute on Modivcare",
-                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                SupeyMessageForm.Show(this,
+                    "Reroute on Modivcare",
+                    msg,
+                    SupeyMessageKind.Warning,
+                    "Reroute failed");
                 SetScheduleBuilderStatus(ModivcareRequestErrors.IsUnreachable(ex)
                     ? "Modivcare unreachable."
                     : "Reroute failed.");
