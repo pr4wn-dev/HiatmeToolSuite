@@ -144,8 +144,8 @@ namespace Hiatme_Tool_Suite_v3
                     candidates.Add(u);
             }
 
-            add(merged.LastResolvedBaseUrl);
             add(merged.BaseUrl);
+            add(merged.LastResolvedBaseUrl);
             if (merged.FallbackBaseUrls != null)
             {
                 foreach (var u in merged.FallbackBaseUrls)
@@ -297,9 +297,10 @@ namespace Hiatme_Tool_Suite_v3
             lines.Add("On the server PC:");
             lines.Add("  • Start the AI panel (scripts\\restart-panel.ps1 in AIagent)");
             lines.Add("  • Docker OSRM running (tools\\osrm\\scripts\\start-osrm.ps1)");
-            lines.Add("  • Windows firewall allows inbound TCP 8787 on the office network");
+            lines.Add("  • Port forward TCP 8787 if connecting from outside the LAN (see docs\\DEPLOYMENT.md)");
+            lines.Add("  • Windows firewall allows inbound TCP 8787 on the server");
             lines.Add("");
-            lines.Add("Desks on the same Wi‑Fi/LAN should connect automatically — no VPN or tunnel.");
+            lines.Add("Desks: set PublicPanelUrl (DDNS/public IP) in setup-desk.ps1, plus office/home LAN fallbacks.");
             if (!IsUsableApiToken(apiToken))
                 lines.Add("Optional: set ApiToken in hiatme_ai.defaults.json if the server requires it.");
             return string.Join("\r\n", lines);

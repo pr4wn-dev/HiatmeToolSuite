@@ -19,9 +19,12 @@ namespace Hiatme_Tool_Suite_v3
         private const int HintSmallY = 4;
         private const int HintSmallH = 18;
         private const int FontHeight = 20;
+        private const int BottomPad = 3;
         private const int ActivationH = 2;
         private const int TallHeight = 58;
         private const int ShortHeight = 36;
+        /// <summary>Matches Billing / Trip Scout toolbar row height (30px).</summary>
+        private const int ToolbarHeight = 30;
         private const int EM_SETCUEBANNER = 0x1501;
 
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
@@ -36,6 +39,7 @@ namespace Hiatme_Tool_Suite_v3
         private Bitmap _trailingIconTinted;
         private Color _lastIconTintColor = Color.Empty;
         private bool _useTallSize = true;
+        private bool _useToolbarSize;
         private bool _focused;
         private float _focusAnim;
         private int _lineY;
@@ -136,7 +140,31 @@ namespace Hiatme_Tool_Suite_v3
         public bool UseTallSize
         {
             get => _useTallSize;
-            set { _useTallSize = value; UpdateHeight(); UpdateRects(); Invalidate(); }
+            set
+            {
+                _useTallSize = value;
+                if (value) _useToolbarSize = false;
+                UpdateHeight();
+                UpdateRects();
+                Invalidate();
+            }
+        }
+
+        /// <summary>Compact 30px height for toolbars (Trip Scout search, etc.).</summary>
+        public bool UseToolbarSize
+        {
+            get => _useToolbarSize;
+            set
+            {
+                _useToolbarSize = value;
+                if (value)
+                {
+                    _useTallSize = false;
+                }
+                UpdateHeight();
+                UpdateRects();
+                Invalidate();
+            }
         }
 
         public bool Password
@@ -339,10 +367,10 @@ namespace Hiatme_Tool_Suite_v3
 
         private void UpdateHeight()
         {
-            int h = _useTallSize ? TallHeight : ShortHeight;
+            int h = _useTallSize ? TallHeight : (_useToolbarSize ? ToolbarHeight : ShortHeight);
             if (Height != h)
                 Height = h;
-            _lineY = Height - ActivationH;
+            _lineY = _useToolbarSize ? h - BottomPad : h - ActivationH;
         }
 
         private void UpdateRects()

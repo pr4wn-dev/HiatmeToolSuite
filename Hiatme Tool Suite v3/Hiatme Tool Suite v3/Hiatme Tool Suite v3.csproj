@@ -160,6 +160,7 @@
     <Compile Include="ScheduleBuilderXlsxWriter.cs" />
     <Compile Include="ScheduleBuilderGmailMailer.cs" />
     <Compile Include="ScheduleBuilderGmailDefaults.cs" />
+    <Compile Include="ScheduleBuilderGmailSync.cs" />
     <Compile Include="SupeyMessageForm.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -205,6 +206,25 @@
     <Compile Include="Form1.Designer.cs">
       <DependentUpon>Form1.cs</DependentUpon>
     </Compile>
+    <Compile Include="Form1.TripScoutLiveHud.cs">
+      <DependentUpon>Form1.cs</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Form1.TripScoutActivity.cs">
+      <DependentUpon>Form1.cs</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Form1.TripScoutExpand.cs">
+      <DependentUpon>Form1.cs</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Form1.TripScoutBellHud.cs">
+      <DependentUpon>Form1.cs</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="TripScoutListRow.cs" />
+    <Compile Include="TripScoutLiveBellControl.cs" />
+    <Compile Include="TripScoutActivityForm.cs" />
     <Compile Include="Form1.ScheduleBuilder.cs">
       <DependentUpon>Form1.cs</DependentUpon>
       <SubType>Form</SubType>
@@ -615,7 +635,7 @@
     <None Include="hiatme_config\gmail_default.example.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <None Include="hiatme_config\gmail_default.json" Condition="Exists('hiatme_config\gmail_default.json')">
+    <None Include="hiatme_config\gmail_default.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Include="dispatch_rules\accepted.json">

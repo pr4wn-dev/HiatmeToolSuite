@@ -535,6 +535,13 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             EnsureTripScoutToolbarChrome();
+            StyleTripScoutLivePanelSwitch();
+            if (tssearchbox != null)
+            {
+                tssearchbox.Anchor = AnchorStyles.Top | AnchorStyles.Left;
+                tssearchbox.UseTallSize = false;
+                tssearchbox.UseToolbarSize = true;
+            }
             if (tsmaterialCard != null)
             {
                 tsmaterialCard.Resize -= TsmaterialCard_LayoutTripScoutContent;
@@ -2494,8 +2501,10 @@ namespace Hiatme_Tool_Suite_v3
                 };
 
                 tssearchbox.Margin = new Padding(0, 0, 0, 0);
-                tssearchbox.Size = new Size(560, 30);
+                tssearchbox.Anchor = AnchorStyles.Top | AnchorStyles.Left;
+                tssearchbox.Size = new Size(560, BillingControlH);
                 tssearchbox.UseTallSize = false;
+                tssearchbox.UseToolbarSize = true;
                 tssearchbox.Hint = "Search trips by ID, client, driver, address, phone...";
 
                 tsdatepicker.Margin = new Padding(0, 0, 6, 0);
@@ -2535,8 +2544,38 @@ namespace Hiatme_Tool_Suite_v3
 
             if (!ReferenceEquals(_tripScoutToolbarPanel.Parent, tsmaterialCard))
                 tsmaterialCard.Controls.Add(_tripScoutToolbarPanel);
+            WireTripScoutLivePanelSwitch();
+            EnsureTripScoutActivityToolbar();
+            EnsureTripScoutLiveBell();
+            StyleTripScoutLiveToolbar(TripScoutLivePanelEnabled);
+            TripScoutSyncLiveBellVisibility();
             _tripScoutToolbarPanel.BringToFront();
             LayoutTripScoutToolbarBounds();
+        }
+
+        private void StyleTripScoutLivePanelSwitch()
+        {
+            if (tsLivePanelSwitch == null || tsLivePanelSwitch.IsDisposed)
+                return;
+            tsLivePanelSwitch.AutoSize = true;
+            tsLivePanelSwitch.Text = "Live panel";
+            tsLivePanelSwitch.Margin = Padding.Empty;
+            tsLivePanelSwitch.BackColor = SupeyTheme.SurfaceHeader;
+            tsLivePanelSwitch.Font = SupeyTheme.BodyFont;
+            tsLivePanelSwitch.ForeColor = SupeyTheme.TextPrimary;
+        }
+
+        private void WireTripScoutLivePanelSwitch()
+        {
+            if (tsLivePanelSwitch == null || _tripScoutToolbarPanel == null)
+                return;
+            StyleTripScoutLivePanelSwitch();
+            if (tsLivePanelSwitch.Parent != _tripScoutToolbarPanel)
+            {
+                _tripScoutToolbarRightFlow?.Controls.Remove(tsLivePanelSwitch);
+                _tripScoutToolbarPanel.Controls.Add(tsLivePanelSwitch);
+                tsLivePanelSwitch.BringToFront();
+            }
         }
 
         private void LayoutTripScoutToolbarBounds()
@@ -2562,6 +2601,15 @@ namespace Hiatme_Tool_Suite_v3
             int padR = _tripScoutToolbarPanel.Padding.Right;
             int clientW = _tripScoutToolbarPanel.ClientSize.Width;
             int titleW = 170;
+            int liveSwitchW = 0;
+            int bellReserve = TripScoutLivePanelEnabled ? 38 : 0;
+            if (tsLivePanelSwitch != null && !tsLivePanelSwitch.IsDisposed)
+            {
+                StyleTripScoutLivePanelSwitch();
+                liveSwitchW = tsLivePanelSwitch.GetPreferredSize(Size.Empty).Width;
+                int liveSwitchH = Math.Max(24, tsLivePanelSwitch.GetPreferredSize(Size.Empty).Height);
+                tsLivePanelSwitch.SetBounds(clientW - padR - liveSwitchW, 9, liveSwitchW, liveSwitchH);
+            }
             if (_tripScoutToolbarTitle != null)
             {
                 _tripScoutToolbarTitle.Font = SupeyTheme.SubHeaderFont;
@@ -2575,8 +2623,10 @@ namespace Hiatme_Tool_Suite_v3
                 _tripScoutToolbarSubtitle.ForeColor = SupeyTheme.TextSecondary;
                 _tripScoutToolbarSubtitle.BackColor = SupeyTheme.SurfaceHeader;
                 _tripScoutToolbarSubtitle.SetBounds(padL + titleW + 12, 12,
-                    Math.Max(220, clientW - padL - padR - titleW - 12), 18);
+                    Math.Max(120, clientW - padL - padR - titleW - 12 - liveSwitchW - bellReserve - 8), 18);
             }
+
+            LayoutTripScoutLiveBell();
 
             int rowY = 56;
             _tripScoutToolbarRightFlow.SetBounds(
@@ -2590,7 +2640,11 @@ namespace Hiatme_Tool_Suite_v3
             int searchWidth = Math.Max(280, Math.Min(920, available));
             tssearchbox.Width = searchWidth;
             if (_tripScoutToolbarLeftFlow != null)
-                _tripScoutToolbarLeftFlow.SetBounds(padL, rowY, searchWidth + 80, BillingControlH);
+            {
+                _tripScoutToolbarLeftFlow.PerformLayout();
+                int flowW = _tripScoutToolbarLeftFlow.PreferredSize.Width;
+                _tripScoutToolbarLeftFlow.SetBounds(padL, rowY, flowW, BillingControlH);
+            }
         }
 
         private void LayoutTripScoutListBounds()
@@ -5368,6 +5422,8 @@ namespace Hiatme_Tool_Suite_v3
 
             loginCB.SelectedIndex = 3;
             ApplyGmailOfficeDefaultUi(address);
+            if (ScheduleBuilderGmailDefaults.TryGet(out string addr, out string pass))
+                ScheduleBuilderGmailSync.TryPushToServerFireAndForget(null, addr, pass);
         }
 
         private void BeginGmailPersonalEntryIfOfficeMode()
@@ -6642,6 +6698,9 @@ namespace Hiatme_Tool_Suite_v3
                     StopTripScoutStatusSpinner("Status: " + loadedCount + " trips loaded for " +
                         tsdatepicker.Value.ToLongDateString() + ".");
                 }
+
+                TripScoutNotifyTripsLoadedFromWellRyde();
+                TripScoutKickActivityRefreshAfterLoad();
             }
             finally
             {
@@ -7398,7 +7457,11 @@ namespace Hiatme_Tool_Suite_v3
             var result = new List<WRDownloadedTrip>();
             foreach (ListViewItem item in tslv.SelectedItems)
             {
-                if (item?.Tag is WRDownloadedTrip trip) result.Add(trip);
+                if (TripScoutIsDetailRow(item))
+                    continue;
+                var trip = TripScoutListRow.TryGetTrip(item?.Tag);
+                if (trip != null)
+                    result.Add(trip);
             }
             return result;
         }
@@ -7407,48 +7470,16 @@ namespace Hiatme_Tool_Suite_v3
         private void RefreshTripScoutListViewKeepingFilter()
         {
             ApplyTripScoutFilter(tssearchbox.Text);
+            TripScoutApplyRowHighlights();
         }
 
         /// <summary>
-        /// Fills <see cref="tslv"/> from a Trip Scout-owned trip list. Each row's <see cref="ListViewItem.Tag"/>
-        /// holds the originating <see cref="WRDownloadedTrip"/> so future actions can act on the underlying record.
+        /// Fills <see cref="tslv"/> from a Trip Scout-owned trip list. Click a trip row to expand/collapse
+        /// its change history inline (▶ / ▼ in the Status column).
         /// </summary>
         private void BindTripScoutListView(List<WRDownloadedTrip> trips, bool fitColumns = false)
         {
-            try
-            {
-                tslv.BeginUpdate();
-                tslv.Items.Clear();
-                if (trips == null || trips.Count == 0)
-                    return;
-
-                foreach (WRDownloadedTrip trip in trips)
-                {
-                    ListViewItem item = new ListViewItem();
-                    item.Tag = trip;
-                    item.Text = trip.Status ?? "";
-                    item.SubItems.Add(trip.TripNumber ?? "");
-                    item.SubItems.Add(""); // alerts column hidden; keep index alignment
-                    item.SubItems.Add(trip.ClientName ?? "");
-                    item.SubItems.Add(trip.DriverName ?? "");
-                    item.SubItems.Add(FormatTimeOnly(trip.PUTime ?? ""));
-                    item.SubItems.Add(trip.PUStreet ?? "");
-                    item.SubItems.Add(trip.PUCity ?? "");
-                    item.SubItems.Add(FormatTimeOnly(trip.DOTime ?? ""));
-                    item.SubItems.Add(trip.DOStreet ?? "");
-                    item.SubItems.Add(trip.DOCITY ?? "");
-                    item.SubItems.Add(trip.Miles ?? "");
-                    item.SubItems.Add("$" + (trip.Price ?? ""));
-                    item.SubItems.Add(trip.References ?? "");
-                    tslv.Items.Add(item);
-                }
-            }
-            finally
-            {
-                tslv.EndUpdate();
-            }
-            if (fitColumns)
-                ScheduleTripScoutColumnFit();
+            TripScoutBindListView(trips, fitColumns);
         }
 
         /// <summary>Runs after the Trip Scout list handle is ready and layout has settled.</summary>

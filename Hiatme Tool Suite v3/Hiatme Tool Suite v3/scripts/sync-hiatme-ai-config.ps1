@@ -1,12 +1,21 @@
 # Writes hiatme_ai.defaults.json (+ optional hiatme_ai.json) from AIagent .env token.
 # Run after pull or when HIATME_API_TOKEN changes. Safe to re-run.
+#
+# Connect-from-anywhere (port forward + DDNS):
+#   -PublicPanelUrl "http://hiatme.yourdomain.com:8787" `
+#   -OfficePanelUrl "http://192.168.1.23:8787" `
+#   -HomePanelUrl "http://192.168.0.50:8787"
+# Public URL is BaseUrl (works off-LAN). Office/home LAN IPs are fallbacks when on those Wi‑Fi networks.
 param(
+    [string]$PublicPanelUrl = $(if ($env:HIATME_PUBLIC_PANEL_URL) { $env:HIATME_PUBLIC_PANEL_URL } else { "" }),
     [string]$OfficePanelUrl = $(if ($env:HIATME_OFFICE_PANEL_URL) { $env:HIATME_OFFICE_PANEL_URL } else { "http://192.168.1.23:8787" }),
+    [string]$HomePanelUrl = $(if ($env:HIATME_HOME_PANEL_URL) { $env:HIATME_HOME_PANEL_URL } else { "" }),
     [string]$RemotePanelUrl = $(if ($env:HIATME_REMOTE_PANEL_URL) { $env:HIATME_REMOTE_PANEL_URL } else { "" }),
     [string]$LocalPanelUrl = "http://127.0.0.1:8787",
     [ValidateSet("Debug", "Release", "Both")]
     [string]$Configuration = "Both",
-    [switch]$SkipPersonal
+    [switch]$SkipPersonal,
+    [switch]$IncludeLocalFallback
 )
 
 $ErrorActionPreference = "Stop"
@@ -52,21 +61,30 @@ if (-not $token) {
     Write-Warning "HIATME_API_TOKEN not found in AIagent .env; ApiToken left empty."
 }
 
-$fallbacks = New-Object System.Collections.Generic.List[string]
-foreach ($u in @($RemotePanelUrl, $LocalPanelUrl)) {
-    if (-not $u) { $u = "" }
-    $u = $u.Trim().TrimEnd('/')
-    if ($u -and -not $fallbacks.Contains($u)) { [void]$fallbacks.Add($u) }
+function Add-UniqueUrl($list, $url) {
+    if (-not $url) { return }
+    $u = $url.Trim().TrimEnd('/')
+    if (-not $u) { return }
+    if (-not $list.Contains($u)) { [void]$list.Add($u) }
 }
 
-$probeUrls = @($OfficePanelUrl.TrimEnd('/')) + $fallbacks
+$primary = if ($PublicPanelUrl) { $PublicPanelUrl.TrimEnd('/') } else { $OfficePanelUrl.TrimEnd('/') }
+
+$fallbacks = New-Object System.Collections.Generic.List[string]
+foreach ($u in @($OfficePanelUrl, $HomePanelUrl, $RemotePanelUrl)) { Add-UniqueUrl $fallbacks $u }
+if ($IncludeLocalFallback) { Add-UniqueUrl $fallbacks $LocalPanelUrl }
+# Drop primary from fallbacks so we do not duplicate BaseUrl.
+$fallbacks = @($fallbacks | Where-Object { $_ -ne $primary })
+
+$probeUrls = @($primary) + @($fallbacks)
+if ($IncludeLocalFallback) { $probeUrls += $LocalPanelUrl.TrimEnd('/') }
 $resolved = $null
-foreach ($u in $probeUrls) {
+foreach ($u in ($probeUrls | Select-Object -Unique)) {
     if (Test-Panel $u $token) { $resolved = $u; break }
 }
 
 $defaults = [ordered]@{
-    BaseUrl                        = $OfficePanelUrl.TrimEnd('/')
+    BaseUrl                        = $primary
     FallbackBaseUrls               = @($fallbacks)
     ApiToken                       = $token
     UseServerGeo                   = $true
@@ -103,11 +121,11 @@ if (-not $SkipPersonal) {
         if (-not (Test-Path $binDir)) { continue }
         $personalPath = Join-Path $binDir "hiatme_ai.json"
         $personal = [ordered]@{
-            BaseUrl                        = $OfficePanelUrl.TrimEnd('/')
+            BaseUrl                        = $primary
             FallbackBaseUrls               = @($fallbacks)
             ApiToken                       = $token
             ClientId                       = ""
-            LastResolvedBaseUrl            = $(if ($resolved) { $resolved } else { $OfficePanelUrl.TrimEnd('/') })
+            LastResolvedBaseUrl            = $(if ($resolved) { $resolved } else { $primary })
             RememberOnSave                 = $true
             UseServerGeo                   = $true
             UseServerSolve                 = $true
@@ -121,4 +139,4 @@ if (-not $SkipPersonal) {
 }
 
 $resolvedLabel = if ($resolved) { $resolved } else { "none" }
-Write-Host "Panel probe: office=$($OfficePanelUrl.TrimEnd('/')) remote=$RemotePanelUrl local=$LocalPanelUrl resolved=$resolvedLabel"
+Write-Host "Panel probe: primary=$primary office=$($OfficePanelUrl.TrimEnd('/')) home=$HomePanelUrl public=$PublicPanelUrl resolved=$resolvedLabel"

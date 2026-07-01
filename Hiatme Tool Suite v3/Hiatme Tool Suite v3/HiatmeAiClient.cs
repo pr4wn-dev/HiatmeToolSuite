@@ -250,6 +250,13 @@ namespace Hiatme_Tool_Suite_v3
 
     internal static class HiatmeAiClient
     {
+        internal sealed class GmailDefaultsDocument
+        {
+            public string Address { get; set; }
+            public string AppPassword { get; set; }
+            public bool Configured { get; set; }
+        }
+
         private static readonly HttpClient SharedHttp = new HttpClient
         {
             Timeout = TimeSpan.FromSeconds(130),
@@ -284,6 +291,180 @@ namespace Hiatme_Tool_Suite_v3
 
             [JsonProperty("log_lines")]
             public List<string> LogLines { get; set; }
+        }
+
+        /// <summary>GET /api/hiatme/trips/status — Trip Scout live panel change token.</summary>
+        public sealed class TripScoutServerStatus
+        {
+            public bool Ok { get; set; }
+            public bool Available { get; set; }
+
+            [JsonProperty("service_date")]
+            public string ServiceDate { get; set; }
+
+            [JsonProperty("trip_count")]
+            public int TripCount { get; set; }
+
+            [JsonProperty("content_hash")]
+            public string ContentHash { get; set; }
+
+            [JsonProperty("pulled_at")]
+            public double? PulledAt { get; set; }
+
+            public string Error { get; set; }
+        }
+
+        /// <summary>GET /api/hiatme/trips — cached WellRyde rows for Trip Scout merge.</summary>
+        public sealed class TripScoutServerTrips
+        {
+            public bool Ok { get; set; }
+            public bool Available { get; set; }
+
+            [JsonProperty("service_date")]
+            public string ServiceDate { get; set; }
+
+            [JsonProperty("trip_count")]
+            public int TripCount { get; set; }
+
+            [JsonProperty("content_hash")]
+            public string ContentHash { get; set; }
+
+            [JsonProperty("trips")]
+            public List<TripScoutServerTripRow> Trips { get; set; }
+            public string Error { get; set; }
+        }
+
+        public sealed class TripScoutServerTripRow
+        {
+            [JsonProperty("trip_no")]
+            public string TripNo { get; set; }
+
+            [JsonProperty("trip_uuid")]
+            public string TripUuid { get; set; }
+
+            public string Driver { get; set; }
+            public string Client { get; set; }
+            public string Status { get; set; }
+
+            [JsonProperty("sched_pu_iso")]
+            public string SchedPuIso { get; set; }
+
+            [JsonProperty("sched_do_iso")]
+            public string SchedDoIso { get; set; }
+
+            [JsonProperty("actual_pu_iso")]
+            public string ActualPuIso { get; set; }
+
+            [JsonProperty("actual_do_iso")]
+            public string ActualDoIso { get; set; }
+
+            [JsonProperty("pu_street")]
+            public string PuStreet { get; set; }
+
+            [JsonProperty("pu_city")]
+            public string PuCity { get; set; }
+
+            [JsonProperty("do_street")]
+            public string DoStreet { get; set; }
+
+            [JsonProperty("do_city")]
+            public string DoCity { get; set; }
+
+            public double? Miles { get; set; }
+            public List<string> Alerts { get; set; }
+        }
+
+        /// <summary>GET /api/hiatme/wellryde/bell/status — WR bell will-call ready alerts.</summary>
+        public sealed class WellRydeBellStatus
+        {
+            public bool Ok { get; set; }
+            public bool Available { get; set; }
+
+            [JsonProperty("polled_at")]
+            public double? PolledAt { get; set; }
+
+            [JsonProperty("willcall_count")]
+            public int WillcallCount { get; set; }
+
+            [JsonProperty("total_count")]
+            public int TotalCount { get; set; }
+
+            [JsonProperty("content_hash")]
+            public string ContentHash { get; set; }
+
+            [JsonProperty("has_new")]
+            public bool HasNew { get; set; }
+
+            [JsonProperty("willcalls")]
+            public List<WellRydeBellWillCall> Willcalls { get; set; }
+
+            [JsonProperty("poll_error")]
+            public string PollError { get; set; }
+
+            public string Error { get; set; }
+        }
+
+        public sealed class WellRydeBellWillCall
+        {
+            [JsonProperty("message_id")]
+            public int MessageId { get; set; }
+
+            [JsonProperty("trip_no")]
+            public string TripNo { get; set; }
+
+            public string Rider { get; set; }
+
+            [JsonProperty("pu_addr")]
+            public string PuAddr { get; set; }
+
+            [JsonProperty("do_addr")]
+            public string DoAddr { get; set; }
+
+            [JsonProperty("pu_schedule")]
+            public string PuSchedule { get; set; }
+
+            [JsonProperty("created_at")]
+            public string CreatedAt { get; set; }
+
+            public string Title { get; set; }
+        }
+
+        /// <summary>GET /api/hiatme/trips/changes/scout — filtered day changes for Trip Scout.</summary>
+        public sealed class TripScoutDayChanges
+        {
+            public bool Ok { get; set; }
+            public bool Available { get; set; }
+
+            [JsonProperty("service_date")]
+            public string ServiceDate { get; set; }
+
+            public int Count { get; set; }
+
+            [JsonProperty("content_hash")]
+            public string ContentHash { get; set; }
+
+            [JsonProperty("last_ts")]
+            public double? LastTs { get; set; }
+
+            public List<TripScoutChangeRow> Changes { get; set; }
+            public string Error { get; set; }
+        }
+
+        public sealed class TripScoutChangeRow
+        {
+            public double? Ts { get; set; }
+
+            [JsonProperty("service_date")]
+            public string ServiceDate { get; set; }
+
+            [JsonProperty("trip_no")]
+            public string TripNo { get; set; }
+
+            public string Client { get; set; }
+            public string Driver { get; set; }
+            public string Kind { get; set; }
+            public List<string> Tags { get; set; }
+            public string Summary { get; set; }
         }
 
         public static async Task<BuildProgressStatus> GetBuildProgressAsync(
@@ -702,6 +883,87 @@ namespace Hiatme_Tool_Suite_v3
                     ["drivers"] = JArray.FromObject(drivers),
                 };
                 using (var req = new HttpRequestMessage(HttpMethod.Post, baseUrl + "/api/hiatme/driver-emails"))
+                {
+                    req.Content = new StringContent(
+                        payload.ToString(Formatting.None),
+                        Encoding.UTF8,
+                        "application/json");
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
+                        return resp.IsSuccessStatusCode;
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        public static async Task<GmailDefaultsDocument> GetGmailDefaultsAsync(
+            HiatmeAiSettings settings,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null)
+                return null;
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl))
+                return null;
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Get, baseUrl + "/api/hiatme/gmail"))
+                {
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
+                    {
+                        if (!resp.IsSuccessStatusCode)
+                            return null;
+                        var root = JObject.Parse(await resp.Content.ReadAsStringAsync().ConfigureAwait(false));
+                        return new GmailDefaultsDocument
+                        {
+                            Address = (root["address"] ?? "").ToString(),
+                            AppPassword = (root["appPassword"] ?? root["app_password"] ?? "").ToString(),
+                            Configured = root["configured"] != null
+                                && root["configured"].Type == JTokenType.Boolean
+                                && root["configured"].Value<bool>(),
+                        };
+                    }
+                }
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        public static async Task<bool> PutGmailDefaultsAsync(
+            HiatmeAiSettings settings,
+            string address,
+            string appPassword,
+            string updatedBy = "",
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null)
+                return false;
+            address = (address ?? "").Trim();
+            appPassword = appPassword ?? "";
+            if (string.IsNullOrEmpty(address) || string.IsNullOrEmpty(appPassword))
+                return false;
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl))
+                return false;
+            try
+            {
+                var payload = new JObject
+                {
+                    ["address"] = address,
+                    ["appPassword"] = appPassword,
+                    ["updated_by"] = updatedBy ?? "",
+                };
+                using (var req = new HttpRequestMessage(HttpMethod.Put, baseUrl + "/api/hiatme/gmail"))
                 {
                     req.Content = new StringContent(
                         payload.ToString(Formatting.None),
@@ -1684,6 +1946,186 @@ namespace Hiatme_Tool_Suite_v3
                 var v = dispatcherContext[key]?.ToString();
                 if (!string.IsNullOrWhiteSpace(v))
                     body[key] = v.Trim();
+            }
+        }
+
+        public static async Task<TripScoutServerStatus> GetTripScoutServerStatusAsync(
+            HiatmeAiSettings settings,
+            string serviceDateIso,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null || string.IsNullOrWhiteSpace(serviceDateIso))
+                return new TripScoutServerStatus { Ok = false, Error = "settings or date missing" };
+
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl))
+                return new TripScoutServerStatus { Ok = false, Error = "AI server URL not configured" };
+
+            string url = baseUrl + "/api/hiatme/trips/status?service_date="
+                + Uri.EscapeDataString(serviceDateIso.Trim());
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Get, url))
+                {
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken)
+                        .ConfigureAwait(false))
+                    {
+                        var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        if (!resp.IsSuccessStatusCode)
+                            return new TripScoutServerStatus
+                            {
+                                Ok = false,
+                                Error = "HTTP " + (int)resp.StatusCode + ": " + body,
+                            };
+                        var root = JObject.Parse(body);
+                        return new TripScoutServerStatus
+                        {
+                            Ok = root["ok"]?.Value<bool>() != false,
+                            Available = root["available"]?.Value<bool>() == true,
+                            ServiceDate = root["service_date"]?.ToString(),
+                            TripCount = root["trip_count"]?.Value<int>() ?? 0,
+                            ContentHash = root["content_hash"]?.ToString() ?? "",
+                            PulledAt = root["pulled_at"]?.Type == JTokenType.Null
+                                ? (double?)null
+                                : root["pulled_at"]?.Value<double>(),
+                        };
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                return new TripScoutServerStatus { Ok = false, Error = ex.Message };
+            }
+        }
+
+        public static async Task<TripScoutServerTrips> GetTripScoutServerTripsAsync(
+            HiatmeAiSettings settings,
+            string serviceDateIso,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null || string.IsNullOrWhiteSpace(serviceDateIso))
+                return new TripScoutServerTrips { Ok = false, Error = "settings or date missing" };
+
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl))
+                return new TripScoutServerTrips { Ok = false, Error = "AI server URL not configured" };
+
+            string url = baseUrl + "/api/hiatme/trips?service_date="
+                + Uri.EscapeDataString(serviceDateIso.Trim());
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Get, url))
+                {
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken)
+                        .ConfigureAwait(false))
+                    {
+                        var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        if (!resp.IsSuccessStatusCode)
+                            return new TripScoutServerTrips
+                            {
+                                Ok = false,
+                                Error = "HTTP " + (int)resp.StatusCode + ": " + body,
+                            };
+                        return JsonConvert.DeserializeObject<TripScoutServerTrips>(body)
+                            ?? new TripScoutServerTrips { Ok = false, Error = "empty response" };
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                return new TripScoutServerTrips { Ok = false, Error = ex.Message };
+            }
+        }
+
+        public static async Task<WellRydeBellStatus> GetWellRydeBellStatusAsync(
+            HiatmeAiSettings settings,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null)
+                return new WellRydeBellStatus { Ok = false, Error = "settings missing" };
+
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl))
+                return new WellRydeBellStatus { Ok = false, Error = "AI server URL not configured" };
+
+            string url = baseUrl + "/api/hiatme/wellryde/bell/status";
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Get, url))
+                {
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken)
+                        .ConfigureAwait(false))
+                    {
+                        var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        if (!resp.IsSuccessStatusCode)
+                            return new WellRydeBellStatus
+                            {
+                                Ok = false,
+                                Error = "HTTP " + (int)resp.StatusCode + ": " + body,
+                            };
+                        return JsonConvert.DeserializeObject<WellRydeBellStatus>(body)
+                            ?? new WellRydeBellStatus { Ok = false, Error = "empty response" };
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                return new WellRydeBellStatus { Ok = false, Error = ex.Message };
+            }
+        }
+
+        public static async Task<TripScoutDayChanges> GetTripScoutDayChangesAsync(
+            HiatmeAiSettings settings,
+            string serviceDateIso,
+            string tripNo = null,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null || string.IsNullOrWhiteSpace(serviceDateIso))
+                return new TripScoutDayChanges { Ok = false, Error = "settings or date missing" };
+
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl))
+                return new TripScoutDayChanges { Ok = false, Error = "AI server URL not configured" };
+
+            string url = baseUrl + "/api/hiatme/trips/changes/scout?service_date="
+                + Uri.EscapeDataString(serviceDateIso.Trim());
+            if (!string.IsNullOrWhiteSpace(tripNo))
+                url += "&trip_no=" + Uri.EscapeDataString(tripNo.Trim());
+
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Get, url))
+                {
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken)
+                        .ConfigureAwait(false))
+                    {
+                        var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        if (!resp.IsSuccessStatusCode)
+                            return new TripScoutDayChanges
+                            {
+                                Ok = false,
+                                Error = "HTTP " + (int)resp.StatusCode + ": " + body,
+                            };
+                        return JsonConvert.DeserializeObject<TripScoutDayChanges>(body)
+                            ?? new TripScoutDayChanges { Ok = false, Error = "empty response" };
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                return new TripScoutDayChanges { Ok = false, Error = ex.Message };
             }
         }
     }

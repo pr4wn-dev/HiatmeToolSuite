@@ -449,6 +449,22 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        /// <summary>Client Y where trip rows begin (below the native column-header child window).</summary>
+        public static int GetDetailsHeaderHeight(ListView listView)
+        {
+            if (listView == null || listView.IsDisposed || listView.View != View.Details)
+                return 0;
+
+            if (listView.Items.Count > 0)
+            {
+                int top = listView.Items[0].Bounds.Top;
+                if (top > 0)
+                    return top;
+            }
+
+            return Math.Max(24, TextRenderer.MeasureText("Status", ListViewOwnerDrawFonts.Header).Height + 8);
+        }
+
         /// <summary>
         /// Extends column + row grid lines through the empty client area below the last item,
         /// matching the billing list workbook look.
@@ -461,11 +477,7 @@ namespace Hiatme_Tool_Suite_v3
                 || listView.Columns.Count == 0)
                 return;
 
-            int headerH = listView.Items.Count > 0
-                ? Math.Max(0, listView.Items[0].Bounds.Top)
-                : Math.Max(20, TextRenderer.MeasureText("Status", ListViewOwnerDrawFonts.Header).Height + 8);
-            if (headerH <= 0)
-                headerH = Math.Max(20, TextRenderer.MeasureText("Status", ListViewOwnerDrawFonts.Header).Height + 8);
+            int headerH = GetDetailsHeaderHeight(listView);
 
             int rowH = listView.Items.Count > 0
                 ? Math.Max(16, listView.Items[0].Bounds.Height)

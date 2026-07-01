@@ -4,7 +4,7 @@ AIagent/
 # Local AI connection (contains API token) — never commit
 **/hiatme_ai.defaults.json
 **/hiatme_ai.json
-**/hiatme_config/gmail_default.json
+# Office Gmail (gmail_default.json) is tracked — private repo; syncs to AI server too
 
 # Visual Studio
 .vs/

@@ -1,10 +1,16 @@
 # Configure and build Hiatme Tool Suite on a dispatch desk.
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File scripts\setup-desk.ps1 -OfficePanelUrl "http://192.168.1.23:8787"
-#   powershell -ExecutionPolicy Bypass -File scripts\setup-desk.ps1 -OfficePanelUrl "http://192.168.1.23:8787" -RemotePanelUrl "http://100.64.0.5:8787"
+# Connect from anywhere (port forward + DDNS on the server router):
+#   powershell -ExecutionPolicy Bypass -File scripts\setup-desk.ps1 `
+#     -PublicPanelUrl "http://hiatme.yourdomain.com:8787" `
+#     -OfficePanelUrl "http://192.168.1.23:8787" `
+#     -HomePanelUrl "http://192.168.0.50:8787"
 param(
+    [string]$PublicPanelUrl = "",
     [Parameter(Mandatory = $true)]
     [string]$OfficePanelUrl,
+    [string]$HomePanelUrl = "",
     [string]$RemotePanelUrl = "",
     [string]$LocalPanelUrl = "http://127.0.0.1:8787",
     [ValidateSet("Debug", "Release")]
@@ -58,9 +64,13 @@ if (-not (Test-Path $syncScript)) {
 }
 
 $env:HIATME_OFFICE_PANEL_URL = $OfficePanelUrl.TrimEnd('/')
+if ($PublicPanelUrl) { $env:HIATME_PUBLIC_PANEL_URL = $PublicPanelUrl.TrimEnd('/') }
+if ($HomePanelUrl) { $env:HIATME_HOME_PANEL_URL = $HomePanelUrl.TrimEnd('/') }
 if ($RemotePanelUrl) { $env:HIATME_REMOTE_PANEL_URL = $RemotePanelUrl.TrimEnd('/') }
 & powershell -ExecutionPolicy Bypass -File $syncScript `
+    -PublicPanelUrl $PublicPanelUrl `
     -OfficePanelUrl $env:HIATME_OFFICE_PANEL_URL `
+    -HomePanelUrl $HomePanelUrl `
     -RemotePanelUrl $RemotePanelUrl `
     -LocalPanelUrl $LocalPanelUrl `
     -Configuration $Configuration

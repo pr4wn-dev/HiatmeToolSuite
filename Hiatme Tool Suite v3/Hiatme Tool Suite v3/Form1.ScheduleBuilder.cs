@@ -216,6 +216,8 @@ namespace Hiatme_Tool_Suite_v3
             {
                 try { await SyncFsDriverEmailsAsync(reportOffline: false).ConfigureAwait(true); }
                 catch { /* offline */ }
+                try { await SyncFsGmailDefaultsAsync(reportOffline: false).ConfigureAwait(true); }
+                catch { /* offline */ }
                 try { await FsRefreshArchiveStatusAsync(reportOffline: false).ConfigureAwait(true); }
                 catch { /* optional */ }
             });

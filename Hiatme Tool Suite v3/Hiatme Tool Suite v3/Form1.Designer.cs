@@ -1,4 +1,4 @@
-﻿namespace Hiatme_Tool_Suite_v3
+namespace Hiatme_Tool_Suite_v3
 {
     partial class Form1
     {
@@ -196,6 +196,7 @@
             this.tsloadbtn = new SupeyMaterialButton();
             this.tsdatepicker = new Hiatme_Tool_Suite_v3.RJDatePicker();
             this.tssearchbox = new SupeyTextBox();
+            this.tsLivePanelSwitch = new SupeySwitch();
             this.tsstatuspanel = new SupeyCard();
             this.tsstatuslbl = new SupeyLabel();
             this.tsTripContextMenu = new System.Windows.Forms.ContextMenuStrip(this.components);
@@ -1958,6 +1959,7 @@
             this.tsmaterialCard.Controls.Add(this.tssearchbox);
             this.tsmaterialCard.Controls.Add(this.tsloadbtn);
             this.tsmaterialCard.Controls.Add(this.tsdatepicker);
+            this.tsmaterialCard.Controls.Add(this.tsLivePanelSwitch);
             this.tsmaterialCard.Depth = 0;
             this.tsmaterialCard.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(222)))), ((int)(((byte)(0)))), ((int)(((byte)(0)))), ((int)(((byte)(0)))));
             this.tsmaterialCard.Location = new System.Drawing.Point(13, 15);
@@ -2114,8 +2116,7 @@
             // 
             // tssearchbox
             // 
-            this.tssearchbox.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left)
-            | System.Windows.Forms.AnchorStyles.Right)));
+            this.tssearchbox.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left)));
             this.tssearchbox.AnimateReadOnly = false;
             this.tssearchbox.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(255)))), ((int)(((byte)(255)))), ((int)(((byte)(255)))));
             this.tssearchbox.Depth = 0;
@@ -2135,6 +2136,22 @@
             this.tssearchbox.UseAccent = false;
             this.tssearchbox.UseTallSize = false;
             this.tssearchbox.TextChanged += new System.EventHandler(this.tssearchbox_TextChanged);
+            // 
+            // tsLivePanelSwitch
+            // 
+            this.tsLivePanelSwitch.AutoSize = true;
+            this.tsLivePanelSwitch.Depth = 0;
+            this.tsLivePanelSwitch.Location = new System.Drawing.Point(17, 60);
+            this.tsLivePanelSwitch.Margin = new System.Windows.Forms.Padding(0);
+            this.tsLivePanelSwitch.MouseLocation = new System.Drawing.Point(-1, -1);
+            this.tsLivePanelSwitch.MouseState = SupeyMouseState.HOVER;
+            this.tsLivePanelSwitch.Name = "tsLivePanelSwitch";
+            this.tsLivePanelSwitch.Ripple = true;
+            this.tsLivePanelSwitch.Size = new System.Drawing.Size(108, 37);
+            this.tsLivePanelSwitch.TabIndex = 6;
+            this.tsLivePanelSwitch.Text = "Live panel";
+            this.tsLivePanelSwitch.UseVisualStyleBackColor = true;
+            this.tsLivePanelSwitch.CheckedChanged += new System.EventHandler(this.tsLivePanelSwitch_CheckedChanged);
             // 
             // tsTripContextMenu
             // 
@@ -2721,6 +2738,7 @@
         private SupeyMaterialButton tsloadbtn;
         private Hiatme_Tool_Suite_v3.RJDatePicker tsdatepicker;
         private SupeyTextBox tssearchbox;
+        private SupeySwitch tsLivePanelSwitch;
         private System.Windows.Forms.ContextMenuStrip tsTripContextMenu;
         private System.Windows.Forms.ToolStripMenuItem tsTripCtxAssign;
         private System.Windows.Forms.ToolStripMenuItem tsTripCtxUnassign;

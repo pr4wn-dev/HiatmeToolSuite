@@ -155,7 +155,51 @@ Rebuild the desk `.exe` when C# changed. Restart the panel when Python/API chang
 
 ---
 
-## E. Optional components
+## E. Remote access (port forward — laptop desk, fixed server)
+
+The **AI server stays at one place** (boss’s office or home). **Dispatch laptops** move — home, her house, coffee shop, etc. Laptops always reach the server through **one public URL** (port forward on the server’s router).
+
+You do **not** need VPN + Tailscale + port forward. You need **port forward once** on the router where the server lives, plus that public hostname on each laptop.
+
+### On the server (boss’s PC + router) — one-time
+
+1. **Panel listens on all interfaces** — in AIagent `.env`:
+   ```
+   WEB_HOST=0.0.0.0
+   WEB_PORT=8787
+   ```
+2. **Strong API token** — `HIATME_API_TOKEN` in `.env` (port 8787 will be reachable from the internet).
+3. **Windows firewall** — allow inbound **TCP 8787**.
+4. **Router port forward** — external `8787` → server PC LAN IP `:8787` (e.g. `192.168.x.x:8787`).
+5. **DDNS or static public IP** — e.g. DuckDNS → `http://hiatme.yourname.duckdns.org:8787`.
+6. **Verify from cellular** (not Wi‑Fi):
+   ```
+   http://YOUR-PUBLIC-HOST:8787/api/hiatme/geo/status
+   ```
+
+OSRM runs on the server only; laptops talk to the **panel on 8787**, not to OSRM directly.
+
+### On your laptop (Tool Suite)
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\setup-desk.ps1 `
+  -PublicPanelUrl "http://hiatme.yourname.duckdns.org:8787" `
+  -OfficePanelUrl "http://192.168.1.23:8787" `
+  -SkipBuild
+```
+
+| Setting | Purpose |
+|---------|---------|
+| **PublicPanelUrl** | Works **everywhere** — your house, her house, travel (this is what you use most) |
+| **OfficePanelUrl** / LAN IP | Optional — faster when you’re on the **same Wi‑Fi** as the server |
+
+Same config on the laptop works whether you’re at her place or not. When you’re on her Wi‑Fi, the app may pick the LAN IP if it responds first; otherwise the public URL still works.
+
+Restart Tool Suite after running setup.
+
+---
+
+## F. Optional components
 
 | Component | Location |
 |-----------|----------|
@@ -174,7 +218,7 @@ Rebuild the desk `.exe` when C# changed. Restart the panel when Python/API chang
 | BUILD timeout | Server `data/hiatme/last-build-log.txt` |
 | LOAD wrong groups | Date picker weekday vs template folders |
 | PU/DO times as decimals | Reload after pull (xlsx time fix); or re-LOAD |
-| No Excel for LOAD | Use `.xlsx` (built-in reader) or CSV export folder |
+| Connect from home / remote | Port forward + `PublicPanelUrl` in `setup-desk.ps1`; verify `/api/hiatme/geo/status` on cellular |
 
 ---
 

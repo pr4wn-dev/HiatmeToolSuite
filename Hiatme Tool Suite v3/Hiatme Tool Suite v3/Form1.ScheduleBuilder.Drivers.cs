@@ -63,6 +63,17 @@ namespace Hiatme_Tool_Suite_v3
                 SetScheduleBuilderStatus("Driver emails — using local copy (server unavailable).");
         }
 
+        private async Task SyncFsGmailDefaultsAsync(bool reportOffline = false)
+        {
+            var settings = HiatmeAiSettings.Load();
+            var result = await ScheduleBuilderGmailSync.SyncWithServerAsync(settings).ConfigureAwait(true);
+
+            if (reportOffline && result.ServerUsed && result.ServerUnreachable)
+                SetScheduleBuilderStatus("Office Gmail — using local copy (server unavailable).");
+            else if (result.PulledFromServer)
+                UpdateGmailDefaultButtonVisibility();
+        }
+
         private void PersistFsDriverEmailsLocally()
         {
             try
