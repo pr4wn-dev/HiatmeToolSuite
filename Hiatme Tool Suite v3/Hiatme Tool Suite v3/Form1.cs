@@ -2602,7 +2602,7 @@ namespace Hiatme_Tool_Suite_v3
             int clientW = _tripScoutToolbarPanel.ClientSize.Width;
             int titleW = 170;
             int liveSwitchW = 0;
-            int bellReserve = TripScoutLivePanelEnabled ? 38 : 0;
+            int bellReserve = TripScoutLivePanelEnabled ? 76 : 0;
             if (tsLivePanelSwitch != null && !tsLivePanelSwitch.IsDisposed)
             {
                 StyleTripScoutLivePanelSwitch();
@@ -2627,6 +2627,13 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             LayoutTripScoutLiveBell();
+
+            if (TripScoutLivePanelEnabled)
+            {
+                _tripScoutLiveBell?.BringToFront();
+                _tripScoutLiveScan?.BringToFront();
+                tsLivePanelSwitch?.BringToFront();
+            }
 
             int rowY = 56;
             _tripScoutToolbarRightFlow.SetBounds(

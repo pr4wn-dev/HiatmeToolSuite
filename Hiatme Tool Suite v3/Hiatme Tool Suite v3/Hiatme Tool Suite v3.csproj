@@ -224,6 +224,7 @@
     </Compile>
     <Compile Include="TripScoutListRow.cs" />
     <Compile Include="TripScoutLiveBellControl.cs" />
+    <Compile Include="TripScoutLiveScanIndicator.cs" />
     <Compile Include="TripScoutActivityForm.cs" />
     <Compile Include="Form1.ScheduleBuilder.cs">
       <DependentUpon>Form1.cs</DependentUpon>

@@ -49,6 +49,10 @@ namespace Hiatme_Tool_Suite_v3
         {
             _tripScoutLivePollTimer?.Stop();
             _tripScoutLivePollInFlight = false;
+            if (InvokeRequired)
+                BeginInvoke(new Action(StopTripScoutLiveScan));
+            else
+                StopTripScoutLiveScan();
         }
 
         private void EnsureTripScoutLivePollTimer()
@@ -105,26 +109,25 @@ namespace Hiatme_Tool_Suite_v3
 
             _tripScoutLivePollInFlight = true;
             string checkedAt = DateTime.Now.ToString("h:mm:ss tt", CultureInfo.CurrentCulture);
-            string checkingMsg = "Live panel: checking server for trip updates (" + serviceDate + ")…";
 
             try
             {
                 if (InvokeRequired)
-                    BeginInvoke(new Action(() => StartTripScoutStatusSpinner(checkingMsg)));
+                    Invoke(new Action(StartTripScoutLiveScan));
                 else
-                    StartTripScoutStatusSpinner(checkingMsg);
+                    StartTripScoutLiveScan();
 
                 var settings = TripScoutAiSettings();
                 if (settings == null || string.IsNullOrWhiteSpace(settings.BaseUrl))
                 {
-                    FinishTripScoutLivePoll(
+                    await FinishTripScoutLivePollAsync(
                         "Live panel: AI server not configured — set URL in AI Assistant (" + checkedAt + ").");
                     return;
                 }
 
                 if (_tripScoutAllTrips == null || _tripScoutAllTrips.Count == 0)
                 {
-                    FinishTripScoutLivePoll(
+                    await FinishTripScoutLivePollAsync(
                         "Live panel: load trips first, then server updates will apply (" + checkedAt + ").");
                     return;
                 }
@@ -134,14 +137,14 @@ namespace Hiatme_Tool_Suite_v3
 
                 if (!status.Ok)
                 {
-                    FinishTripScoutLivePoll(
+                    await FinishTripScoutLivePollAsync(
                         "Live panel: server check failed — " + (status.Error ?? "unknown error") + " (" + checkedAt + ").");
                     return;
                 }
 
                 if (!status.Available)
                 {
-                    FinishTripScoutLivePoll(
+                    await FinishTripScoutLivePollAsync(
                         "Live panel: server has no WellRyde data for " + serviceDate + " yet (" + checkedAt + ").");
                     return;
                 }
@@ -160,23 +163,22 @@ namespace Hiatme_Tool_Suite_v3
                     string extras = JoinTripScoutStatusNotes(changeNote, bellNote);
                     if (!string.IsNullOrWhiteSpace(extras))
                     {
-                        FinishTripScoutLivePoll(
+                        await FinishTripScoutLivePollAsync(
                             "Live panel: no trip changes on server (" + status.TripCount
                             + " trips, checked " + checkedAt + "). " + extras);
                         return;
                     }
-                    FinishTripScoutLivePoll(
+                    await FinishTripScoutLivePollAsync(
                         "Live panel: no trip changes on server (" + status.TripCount + " trips, checked " + checkedAt + ").");
                     return;
                 }
 
-                UpdateTripScoutStatus("Live panel: server changes detected — downloading trip updates…");
                 var payload = await HiatmeAiClient.GetTripScoutServerTripsAsync(
                     settings, serviceDate, CancellationToken.None).ConfigureAwait(true);
 
                 if (!payload.Ok || !payload.Available)
                 {
-                    FinishTripScoutLivePoll(
+                    await FinishTripScoutLivePollAsync(
                         "Live panel: could not download server trips — " + (payload.Error ?? "unavailable") + " (" + checkedAt + ").");
                     return;
                 }
@@ -196,11 +198,11 @@ namespace Hiatme_Tool_Suite_v3
                     TripScoutPeekBellStatusNote());
                 if (!string.IsNullOrWhiteSpace(notes))
                     finish += " " + notes;
-                FinishTripScoutLivePoll(finish);
+                await FinishTripScoutLivePollAsync(finish);
             }
             catch (Exception ex)
             {
-                FinishTripScoutLivePoll("Live panel: server check error — " + ex.Message + " (" + checkedAt + ").");
+                await FinishTripScoutLivePollAsync("Live panel: server check error — " + ex.Message + " (" + checkedAt + ").");
             }
             finally
             {
@@ -214,14 +216,30 @@ namespace Hiatme_Tool_Suite_v3
             return kept.Count == 0 ? "" : string.Join(" ", kept);
         }
 
-        private void FinishTripScoutLivePoll(string finalStatus)
+        private async Task FinishTripScoutLivePollAsync(string finalStatus)
         {
             if (InvokeRequired)
             {
-                BeginInvoke(new Action(() => StopTripScoutStatusSpinner(finalStatus)));
+                var tcs = new TaskCompletionSource<bool>();
+                BeginInvoke(new Action(async () =>
+                {
+                    try
+                    {
+                        await FinishTripScoutLivePollAsync(finalStatus).ConfigureAwait(false);
+                        tcs.TrySetResult(true);
+                    }
+                    catch (Exception ex)
+                    {
+                        tcs.TrySetException(ex);
+                    }
+                }));
+                await tcs.Task.ConfigureAwait(true);
                 return;
             }
-            StopTripScoutStatusSpinner(finalStatus);
+
+            await StopTripScoutLiveScanAfterMinimumAsync().ConfigureAwait(true);
+            if (tsstatuslbl != null && !string.IsNullOrWhiteSpace(finalStatus))
+                tsstatuslbl.Text = finalStatus;
         }
 
         private int TripScoutMergeServerTrips(IList<HiatmeAiClient.TripScoutServerTripRow> rows)

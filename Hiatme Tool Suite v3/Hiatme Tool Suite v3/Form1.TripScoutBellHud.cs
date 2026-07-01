@@ -1,5 +1,6 @@
 using System;
 using System.Drawing;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace Hiatme_Tool_Suite_v3
@@ -7,11 +8,24 @@ namespace Hiatme_Tool_Suite_v3
     partial class Form1
     {
         private TripScoutLiveBellControl _tripScoutLiveBell;
+        private TripScoutLiveScanIndicator _tripScoutLiveScan;
+        private DateTime _tripScoutLiveScanStartedUtc;
+        private const int TripScoutLiveScanMinVisibleMs = 1200;
 
         private void EnsureTripScoutLiveBell()
         {
             if (_tripScoutToolbarPanel == null || _tripScoutToolbarPanel.IsDisposed)
                 return;
+
+            if (_tripScoutLiveScan == null || _tripScoutLiveScan.IsDisposed)
+            {
+                _tripScoutLiveScan = new TripScoutLiveScanIndicator
+                {
+                    Name = "tripScoutLiveScan",
+                    Visible = false,
+                };
+                _tripScoutToolbarPanel.Controls.Add(_tripScoutLiveScan);
+            }
 
             if (_tripScoutLiveBell != null && !_tripScoutLiveBell.IsDisposed)
                 return;
@@ -24,6 +38,7 @@ namespace Hiatme_Tool_Suite_v3
             _tripScoutLiveBell.BellClicked += (_, __) => TripScoutLiveBell_Click();
             _tripScoutToolbarPanel.Controls.Add(_tripScoutLiveBell);
             _tripScoutLiveBell.BringToFront();
+            _tripScoutLiveScan.BringToFront();
         }
 
         private void LayoutTripScoutLiveBell()
@@ -33,9 +48,13 @@ namespace Hiatme_Tool_Suite_v3
 
             bool live = TripScoutLivePanelEnabled;
             _tripScoutLiveBell.Visible = live;
+            if (_tripScoutLiveScan != null && !_tripScoutLiveScan.IsDisposed && !_tripScoutLiveScan.Scanning)
+                _tripScoutLiveScan.Visible = false;
+
             if (!live)
             {
                 _tripScoutLiveBell.SetNotificationState(0, false);
+                StopTripScoutLiveScan();
                 return;
             }
 
@@ -46,9 +65,59 @@ namespace Hiatme_Tool_Suite_v3
                 liveSwitchW = tsLivePanelSwitch.Width;
 
             const int bellSize = 32;
-            int x = clientW - padR - liveSwitchW - bellSize - 6;
-            _tripScoutLiveBell.SetBounds(x, 4, bellSize, bellSize);
+            const int scanSize = 22;
+            const int gap = 6;
+            int xBell = clientW - padR - liveSwitchW - gap - bellSize;
+            _tripScoutLiveBell.SetBounds(xBell, 4, bellSize, bellSize);
+
+            if (_tripScoutLiveScan != null && !_tripScoutLiveScan.IsDisposed)
+            {
+                int xScan = xBell - gap - scanSize;
+                _tripScoutLiveScan.SetBounds(xScan, 10, scanSize, scanSize);
+            }
+
             _tripScoutLiveBell.BringToFront();
+            _tripScoutLiveScan?.BringToFront();
+        }
+
+        private void StartTripScoutLiveScan()
+        {
+            EnsureTripScoutLiveBell();
+            if (_tripScoutLiveScan == null || _tripScoutLiveScan.IsDisposed)
+                return;
+            _tripScoutLiveScanStartedUtc = DateTime.UtcNow;
+            LayoutTripScoutLiveBell();
+            _tripScoutLiveScan.Scanning = true;
+            _tripScoutLiveScan.BringToFront();
+            _tripScoutLiveBell?.BringToFront();
+            tsLivePanelSwitch?.BringToFront();
+        }
+
+        private async Task StopTripScoutLiveScanAfterMinimumAsync()
+        {
+            double elapsed = (DateTime.UtcNow - _tripScoutLiveScanStartedUtc).TotalMilliseconds;
+            if (elapsed < TripScoutLiveScanMinVisibleMs)
+            {
+                try
+                {
+                    await Task.Delay((int)(TripScoutLiveScanMinVisibleMs - elapsed)).ConfigureAwait(true);
+                }
+                catch
+                {
+                    // tab closed mid-poll
+                }
+            }
+
+            if (_tripScoutLiveScan == null || _tripScoutLiveScan.IsDisposed)
+                return;
+            _tripScoutLiveScan.Scanning = false;
+        }
+
+        private void StopTripScoutLiveScan()
+        {
+            if (_tripScoutLiveScan == null || _tripScoutLiveScan.IsDisposed)
+                return;
+            _tripScoutLiveScan.Scanning = false;
         }
 
         internal void TripScoutSyncLiveBellVisibility()
