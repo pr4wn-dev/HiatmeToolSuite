@@ -124,6 +124,7 @@ namespace Hiatme_Tool_Suite_v3
             // doesn't 403 us with the "Access blocked" warning tiles.
             GMapInitializer.EnsureInitialized();
             UserSettingsMigration.ApplyAfterVersionChange();
+            ScheduleBuilderGmailDefaults.ApplyBundledOfficePreferenceIfAvailable();
             try
             {
                 Application.Run(new Form1());

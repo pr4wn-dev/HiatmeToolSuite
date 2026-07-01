@@ -15,12 +15,14 @@ namespace Hiatme_Tool_Suite_v3
 
             foreach (ListViewItem item in lv.Items)
             {
-                if (item.Tag is FsPreviewGapTag)
+                if (item.Tag is FsPreviewGapTag gapTag)
                 {
                     lines.Add(new ScheduleBuilderPreviewLine
                     {
                         Kind = ScheduleBuilderPreviewLine.LineKind.Gap,
-                        GapNoteText = "",
+                        GapNoteText = gapTag.NoteText ?? "",
+                        GapNoteRowColor = gapTag.NoteRowColor,
+                        TrailingPad = gapTag.TrailingPad,
                     });
                     continue;
                 }
@@ -32,6 +34,7 @@ namespace Hiatme_Tool_Suite_v3
                         Kind = ScheduleBuilderPreviewLine.LineKind.GroupHeader,
                         GroupNumber = noteTag.Group?.GroupNumber ?? 0,
                         GroupNoteText = noteTag.NoteText ?? "",
+                        GroupNoteRowColor = noteTag.NoteRowColor,
                     });
                     continue;
                 }

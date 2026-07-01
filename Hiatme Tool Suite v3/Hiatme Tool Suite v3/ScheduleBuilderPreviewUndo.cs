@@ -31,10 +31,13 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     Kind = line.Kind,
                     GapNoteText = line.GapNoteText,
+                    GapNoteRowColor = line.GapNoteRowColor,
+                    TrailingPad = line.TrailingPad,
                     SectionTitle = line.SectionTitle,
                     GroupNoteText = line.GroupNoteText,
                     GroupNumber = line.GroupNumber,
                     GroupColorOverride = line.GroupColorOverride,
+                    GroupNoteRowColor = line.GroupNoteRowColor,
                     Trip = line.Trip,
                     ReroutedOnModivcare = line.ReroutedOnModivcare,
                     CancelledOnWellRyde = line.CancelledOnWellRyde,

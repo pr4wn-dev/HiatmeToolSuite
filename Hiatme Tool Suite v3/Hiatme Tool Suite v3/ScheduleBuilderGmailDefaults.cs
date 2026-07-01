@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using Hiatme_Tool_Suite_v3.Properties;
 using Newtonsoft.Json.Linq;
 namespace Hiatme_Tool_Suite_v3
 {
@@ -50,6 +51,28 @@ namespace Hiatme_Tool_Suite_v3
                 return "Not configured — edit hiatme_config\\gmail_default.json";
 
             return address;
+        }
+
+        /// <summary>
+        /// When the deploy bundle includes hiatme_config/gmail_default.json, prefer office Gmail
+        /// unless the user already saved personal Gmail credentials.
+        /// </summary>
+        public static void ApplyBundledOfficePreferenceIfAvailable()
+        {
+            if (!IsConfigured())
+                return;
+
+            var settings = Settings.Default;
+            bool hasPersonal = !string.IsNullOrWhiteSpace(settings.gmailUserName)
+                && !string.IsNullOrWhiteSpace(settings.gmailUserPass);
+            if (hasPersonal && !settings.gmailUseOfficeDefault)
+                return;
+
+            if (!settings.gmailUseOfficeDefault)
+            {
+                settings.gmailUseOfficeDefault = true;
+                settings.Save();
+            }
         }
     }
 }

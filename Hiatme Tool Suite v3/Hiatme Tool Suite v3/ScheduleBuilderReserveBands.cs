@@ -1015,7 +1015,9 @@ namespace Hiatme_Tool_Suite_v3
                 GroupNumber = line.GroupNumber,
                 GroupNoteText = line.GroupNoteText,
                 GroupColorOverride = line.GroupColorOverride,
+                GroupNoteRowColor = line.GroupNoteRowColor,
                 GapNoteText = line.GapNoteText,
+                GapNoteRowColor = line.GapNoteRowColor,
             };
         }
 

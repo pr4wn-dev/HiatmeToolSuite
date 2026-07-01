@@ -50,6 +50,43 @@ namespace Hiatme_Tool_Suite_v3
                 : "Trip " + num + " cut — right-click a row · Insert above or Insert below.");
         }
 
+        private void FsDeleteSelectedTrip()
+        {
+            if (_fsTripsCtxTrip == null || string.IsNullOrWhiteSpace(_fsActiveDriverTab) || !_fsHasPreview)
+                return;
+
+            string tab = _fsActiveDriverTab;
+            if (!_fsLinesByTab.TryGetValue(tab, out var lines) || lines == null)
+                return;
+
+            MCDownloadedTrip trip = _fsTripsCtxTrip;
+            string num = (trip.TripNumber ?? "").Trim();
+
+            FsPushUndoSnapshot("delete trip");
+            if (!ScheduleBuilderPreviewDrag.TryRemoveTrip(lines, trip))
+            {
+                SetScheduleBuilderStatus("Could not delete trip.");
+                return;
+            }
+
+            if (FsHasCutTrip
+                && (_fsCutTrip != null)
+                && (ReferenceEquals(_fsCutTrip, trip)
+                    || ScheduleBuilderPreviewDrag.TripEquals(_fsCutTrip, trip)))
+            {
+                FsClearCutTrip();
+            }
+
+            FsCommitPreviewLinesForTab(tab, lines);
+            ShowFsTripsForTab(tab);
+            SyncFsPreviewCsvsForExport();
+            _ = RefreshFsMapForCurrentTabAsync();
+
+            SetScheduleBuilderStatus(string.IsNullOrEmpty(num)
+                ? "Trip deleted from schedule."
+                : "Trip " + num + " deleted from schedule.");
+        }
+
         private void FsInsertFromContextMenu(bool below)
         {
             if (FsHasCutTrip)
@@ -146,6 +183,12 @@ namespace Hiatme_Tool_Suite_v3
                 return;
             }
 
+            if (gapTag.TrailingPad)
+            {
+                SetScheduleBuilderStatus("Extra rows at the bottom stay — pick one to paste or insert a trip.");
+                return;
+            }
+
             string tab = _fsActiveDriverTab;
             if (!_fsLinesByTab.TryGetValue(tab, out var lines) || lines == null)
                 return;
@@ -165,6 +208,126 @@ namespace Hiatme_Tool_Suite_v3
             SyncFsPreviewCsvsForExport();
             _ = RefreshFsMapForCurrentTabAsync();
             SetScheduleBuilderStatus("Blank row deleted.");
+        }
+
+        private void FsDeleteGapNoteRow()
+        {
+            if (string.IsNullOrWhiteSpace(_fsActiveDriverTab) || !_fsHasPreview)
+                return;
+
+            if (_fsActiveDriverTab.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
+                return;
+
+            var item = _fsTripsCtxHitItem;
+            if (item == null && _fsTripsLv?.SelectedItems.Count > 0)
+                item = _fsTripsLv.SelectedItems[0];
+
+            if (!(item?.Tag is FsPreviewGapTag gapTag) || gapTag.PreviewLineIndex < 0)
+            {
+                SetScheduleBuilderStatus("Select a note row to delete it.");
+                return;
+            }
+
+            if (!ScheduleBuilderGapNotes.GapTagHasNoteBar(gapTag))
+            {
+                FsDeleteBlankRow();
+                return;
+            }
+
+            string tab = _fsActiveDriverTab;
+            if (!_fsLinesByTab.TryGetValue(tab, out var lines) || lines == null)
+                return;
+
+            int idx = gapTag.PreviewLineIndex;
+            if (idx < 0 || idx >= lines.Count
+                || lines[idx]?.Kind != ScheduleBuilderPreviewLine.LineKind.Gap)
+            {
+                SetScheduleBuilderStatus("Could not delete this note row.");
+                return;
+            }
+
+            FsPushUndoSnapshot("delete note row");
+            lines.RemoveAt(idx);
+            FsCommitPreviewLinesForTab(tab, lines);
+            ShowFsTripsForTab(tab);
+            SyncFsPreviewCsvsForExport();
+            _ = RefreshFsMapForCurrentTabAsync();
+            SetScheduleBuilderStatus("Note row deleted.");
+        }
+
+        private void FsDeleteNoteRow()
+        {
+            if (string.IsNullOrWhiteSpace(_fsActiveDriverTab) || !_fsHasPreview)
+                return;
+
+            if (_fsActiveDriverTab.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
+                return;
+
+            var item = _fsTripsCtxHitItem;
+            if (item == null && _fsTripsLv?.SelectedItems.Count > 0)
+                item = _fsTripsLv.SelectedItems[0];
+
+            if (!(item?.Tag is FsPreviewNoteTag noteTag) || noteTag.PreviewLineIndex < 0)
+            {
+                SetScheduleBuilderStatus("Select a note row to delete it.");
+                return;
+            }
+
+            string tab = _fsActiveDriverTab;
+            if (!_fsLinesByTab.TryGetValue(tab, out var lines) || lines == null)
+                return;
+
+            if (!ScheduleBuilderGroupNotes.IsDeletableNoteRow(item, lines))
+            {
+                SetScheduleBuilderStatus("Only saved group notes can be deleted (not automatic group color bars).");
+                return;
+            }
+
+            int idx = noteTag.PreviewLineIndex;
+            FsPushUndoSnapshot("delete note row");
+            if (!ScheduleBuilderGroupNotes.TryRemoveNoteRow(lines, idx))
+            {
+                SetScheduleBuilderStatus("Could not delete this note row.");
+                return;
+            }
+
+            FsCommitPreviewLinesForTab(tab, lines);
+            ShowFsTripsForTab(tab);
+            SyncFsPreviewCsvsForExport();
+            _ = RefreshFsMapForCurrentTabAsync();
+            SetScheduleBuilderStatus("Note row deleted.");
+        }
+
+        private void FsDeleteSelection()
+        {
+            var item = FsResolveContextListItem();
+            if (item != null)
+                _fsTripsCtxHitItem = item;
+
+            if (_fsTripsCtxTrip != null
+                && _fsHasPreview
+                && !string.IsNullOrWhiteSpace(_fsActiveDriverTab))
+            {
+                FsDeleteSelectedTrip();
+                return;
+            }
+
+            if (_fsTripsCtxHitItem?.Tag is FsPreviewNoteTag)
+            {
+                FsDeleteNoteRow();
+                return;
+            }
+
+            if (_fsTripsCtxHitItem?.Tag is FsPreviewGapTag gapDelete)
+            {
+                if (ScheduleBuilderGapNotes.GapTagHasNoteBar(gapDelete))
+                    FsDeleteGapNoteRow();
+                else
+                    FsDeleteBlankRow();
+                return;
+            }
+
+            SetScheduleBuilderStatus("Nothing selected to delete.");
         }
 
         private async Task FsRefreshAfterTripMoveAsync()

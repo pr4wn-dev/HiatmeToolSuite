@@ -188,20 +188,33 @@ namespace Hiatme_Tool_Suite_v3
                 if (line == null)
                     continue;
 
-                if (line.Kind == ScheduleBuilderPreviewLine.LineKind.Gap)
-                {
-                    lastHeaderGroup = null;
-                    // Skip leading gap rows — a separator before the first trip is just a blank top row.
-                    if (!options.IncludeGaps || !sawTripRow)
-                        continue;
+                    if (line.Kind == ScheduleBuilderPreviewLine.LineKind.Gap)
+                    {
+                        lastHeaderGroup = null;
+                        if (ScheduleBuilderTrailingRows.IsTrailingPad(line))
+                            continue;
+                        if (ScheduleBuilderGapNotes.HasNoteContent(line))
+                        {
+                            int noteRow = tab.AddRow(BuildNoteCells(line.GapNoteText ?? ""));
+                            if (line.GapNoteRowColor.HasValue)
+                                tab.AddMergeBar(noteRow, line.GapNoteRowColor.Value, endCol: MergeBarLastCol);
+                            sawTripRow = true;
+                        }
+                        else if (options.IncludeGaps && sawTripRow)
+                        {
+                            tab.AddRow(BuildGapCells());
+                        }
 
-                    tab.AddRow(BuildGapCells());
-                    continue;
-                }
+                        continue;
+                    }
 
                 if (line.Kind == ScheduleBuilderPreviewLine.LineKind.GroupHeader)
                 {
-                    if (!options.IncludeGroupHeaders)
+                    bool exportNoteRow = options.IncludeGroupHeaders
+                        || !string.IsNullOrWhiteSpace(line.GroupNoteText)
+                        || line.GroupNoteRowColor.HasValue;
+
+                    if (!exportNoteRow)
                     {
                         if (options.IncludeGaps && sawTripRow)
                         {
@@ -211,10 +224,16 @@ namespace Hiatme_Tool_Suite_v3
                         continue;
                     }
 
-                    var headerGroup = FindGroupByNumber(groups, line.GroupNumber);
-                    Color color = headerGroup?.DisplayColor ?? SupeyGroupPalette.For(line.GroupNumber);
+                    var headerGroup = options.IncludeGroupHeaders
+                        ? FindGroupByNumber(groups, line.GroupNumber)
+                        : null;
+                    Color? barColor = line.GroupNoteRowColor;
+                    if (!barColor.HasValue && options.IncludeGroupHeaders)
+                        barColor = headerGroup?.DisplayColor ?? SupeyGroupPalette.For(line.GroupNumber);
+
                     int noteRow = tab.AddRow(BuildGroupHeaderCells(line.GroupNumber, line.GroupNoteText ?? ""));
-                    tab.AddMergeBar(noteRow, color, endCol: MergeBarLastCol);
+                    if (barColor.HasValue)
+                        tab.AddMergeBar(noteRow, barColor.Value, endCol: MergeBarLastCol);
                     lastHeaderGroup = headerGroup;
                     continue;
                 }

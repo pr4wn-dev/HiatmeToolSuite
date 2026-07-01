@@ -19,6 +19,7 @@ namespace Hiatme_Tool_Suite_v3
             var segmentTrips = new List<ScheduleBuilderPreviewLine>();
             string pendingNote = null;
             Color? pendingColorOverride = null;
+            Color? pendingNoteRowColor = null;
             int groupNumber = 0;
 
             void FlushSegment()
@@ -27,12 +28,13 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     pendingNote = null;
                     pendingColorOverride = null;
+                    pendingNoteRowColor = null;
                     return;
                 }
 
                 groupNumber++;
                 string note = (pendingNote ?? "").Trim();
-                if (note.Length > 0 || pendingColorOverride.HasValue)
+                if (note.Length > 0 || pendingColorOverride.HasValue || pendingNoteRowColor.HasValue)
                 {
                     result.Add(new ScheduleBuilderPreviewLine
                     {
@@ -40,6 +42,7 @@ namespace Hiatme_Tool_Suite_v3
                         GroupNumber = groupNumber,
                         GroupNoteText = note,
                         GroupColorOverride = pendingColorOverride,
+                        GroupNoteRowColor = pendingNoteRowColor,
                     });
                 }
 
@@ -47,6 +50,7 @@ namespace Hiatme_Tool_Suite_v3
                 segmentTrips.Clear();
                 pendingNote = null;
                 pendingColorOverride = null;
+                pendingNoteRowColor = null;
             }
 
             foreach (var line in lines)
@@ -60,6 +64,7 @@ namespace Hiatme_Tool_Suite_v3
                         FlushSegment();
                         pendingNote = line.GroupNoteText;
                         pendingColorOverride = line.GroupColorOverride;
+                        pendingNoteRowColor = line.GroupNoteRowColor;
                         break;
 
                     case ScheduleBuilderPreviewLine.LineKind.Gap:

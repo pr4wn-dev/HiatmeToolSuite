@@ -28,6 +28,11 @@ namespace Hiatme_Tool_Suite_v3
         public int PreviewLineIndex { get; set; } = -1;
 
         public string NoteText { get; set; } = "";
+        /// <summary>Optional color bar for this note gap row.</summary>
+        public Color? NoteRowColor { get; set; }
+
+        /// <summary>Bottom padding row — always shown; not deletable.</summary>
+        public bool TrailingPad { get; set; }
     }
 
     internal sealed class FsPreviewSectionHeaderTag
@@ -47,6 +52,8 @@ namespace Hiatme_Tool_Suite_v3
     {
         public SupeyTripCluster Group { get; }
         public string NoteText { get; set; }
+        /// <summary>User-chosen color for this note row only; null uses group color when group colors are on.</summary>
+        public Color? NoteRowColor { get; set; }
         /// <summary>GroupHeader line index, or first trip line when the bar is auto-injected.</summary>
         public int PreviewLineIndex { get; set; } = -1;
 

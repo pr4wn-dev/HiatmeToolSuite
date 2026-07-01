@@ -138,6 +138,18 @@ namespace Hiatme_Tool_Suite_v3
 
         private void FsTripsLv_KeyDown_ScheduleShortcuts(object sender, KeyEventArgs e)
         {
+            if (e.KeyCode == Keys.Delete && !e.Control)
+            {
+                if (FsTryPrepareKeyboardDeleteAction())
+                {
+                    e.Handled = true;
+                    e.SuppressKeyPress = true;
+                    FsDeleteSelection();
+                }
+
+                return;
+            }
+
             if (!e.Control)
                 return;
 
@@ -178,6 +190,17 @@ namespace Hiatme_Tool_Suite_v3
                     FsInsertFromContextMenu(below: false);
                 }
             }
+        }
+
+        private bool FsTryPrepareKeyboardDeleteAction()
+        {
+            if (_fsTripsLv == null || _fsTripsLv.SelectedItems.Count == 0)
+                return false;
+
+            var item = _fsTripsLv.SelectedItems[0];
+            _fsTripsCtxHitItem = item;
+            FsBindContextTagsFromHitItem(item);
+            return true;
         }
 
         private bool FsTryPrepareKeyboardTripAction(out MCDownloadedTrip trip)

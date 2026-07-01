@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Drawing;
+using System.Windows.Forms;
 
 namespace Hiatme_Tool_Suite_v3
 {
@@ -10,7 +12,8 @@ namespace Hiatme_Tool_Suite_v3
             IList<ScheduleBuilderPreviewLine> lines,
             IList<SupeyTripCluster> groups,
             SupeyTripCluster group,
-            string noteText)
+            string noteText,
+            Color? noteRowColor)
         {
             if (lines == null || group == null)
                 return;
@@ -26,16 +29,19 @@ namespace Hiatme_Tool_Suite_v3
                 && lines[headerIdx].Kind == ScheduleBuilderPreviewLine.LineKind.GroupHeader
                 && lines[headerIdx].GroupNumber == groupNumber;
 
-            if (string.IsNullOrEmpty(noteText))
+            if (!hasHeader
+                && string.IsNullOrEmpty(noteText)
+                && !noteRowColor.HasValue)
             {
-                if (hasHeader)
-                    lines.RemoveAt(headerIdx);
                 return;
             }
 
             if (hasHeader)
             {
                 lines[headerIdx].GroupNoteText = noteText;
+                lines[headerIdx].GroupNoteRowColor = noteRowColor;
+                if (ShouldRemoveEmptyHeader(lines[headerIdx]))
+                    lines.RemoveAt(headerIdx);
                 return;
             }
 
@@ -44,6 +50,7 @@ namespace Hiatme_Tool_Suite_v3
                 Kind = ScheduleBuilderPreviewLine.LineKind.GroupHeader,
                 GroupNumber = groupNumber,
                 GroupNoteText = noteText,
+                GroupNoteRowColor = noteRowColor,
             });
         }
 
@@ -63,6 +70,110 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             return "";
+        }
+
+        public static Color? GetNoteRowColor(
+            IList<ScheduleBuilderPreviewLine> lines,
+            int groupNumber)
+        {
+            if (lines == null)
+                return null;
+
+            foreach (var line in lines)
+            {
+                if (line?.Kind != ScheduleBuilderPreviewLine.LineKind.GroupHeader)
+                    continue;
+                if (line.GroupNumber == groupNumber)
+                    return line.GroupNoteRowColor;
+            }
+
+            return null;
+        }
+
+        public static bool HasStoredNoteContent(
+            IList<ScheduleBuilderPreviewLine> lines,
+            int groupNumber)
+        {
+            if (lines == null || groupNumber <= 0)
+                return false;
+
+            foreach (var line in lines)
+            {
+                if (line?.Kind != ScheduleBuilderPreviewLine.LineKind.GroupHeader)
+                    continue;
+                if (line.GroupNumber != groupNumber)
+                    continue;
+
+                return !string.IsNullOrWhiteSpace(line.GroupNoteText)
+                    || line.GroupNoteRowColor.HasValue;
+            }
+
+            return false;
+        }
+
+        internal static bool ShouldShowNoteRow(
+            ScheduleBuilderPreviewLine line,
+            bool showGroupColors)
+        {
+            if (line?.Kind != ScheduleBuilderPreviewLine.LineKind.GroupHeader)
+                return false;
+
+            return showGroupColors
+                || !string.IsNullOrWhiteSpace(line.GroupNoteText)
+                || line.GroupNoteRowColor.HasValue;
+        }
+
+        internal static Color? ResolveNoteRowDisplayColor(
+            Color? noteRowColor,
+            SupeyTripCluster group,
+            bool showGroupColors)
+        {
+            if (noteRowColor.HasValue)
+                return noteRowColor;
+            if (showGroupColors && group != null)
+                return group.DisplayColor;
+            return null;
+        }
+
+        public static bool TryRemoveNoteRow(
+            IList<ScheduleBuilderPreviewLine> lines,
+            int previewLineIndex)
+        {
+            if (lines == null || previewLineIndex < 0 || previewLineIndex >= lines.Count)
+                return false;
+
+            var line = lines[previewLineIndex];
+            if (line?.Kind != ScheduleBuilderPreviewLine.LineKind.GroupHeader)
+                return false;
+
+            line.GroupNoteText = "";
+            line.GroupNoteRowColor = null;
+            if (ShouldRemoveEmptyHeader(line))
+                lines.RemoveAt(previewLineIndex);
+            return true;
+        }
+
+        internal static bool IsDeletableNoteRow(
+            ListViewItem item,
+            IList<ScheduleBuilderPreviewLine> lines)
+        {
+            if (!(item?.Tag is FsPreviewNoteTag noteTag) || noteTag.PreviewLineIndex < 0)
+                return false;
+            if (lines == null || noteTag.PreviewLineIndex >= lines.Count)
+                return false;
+
+            return lines[noteTag.PreviewLineIndex]?.Kind
+                == ScheduleBuilderPreviewLine.LineKind.GroupHeader;
+        }
+
+        private static bool ShouldRemoveEmptyHeader(ScheduleBuilderPreviewLine header)
+        {
+            if (header == null)
+                return true;
+
+            return string.IsNullOrWhiteSpace(header.GroupNoteText)
+                && !header.GroupNoteRowColor.HasValue
+                && !header.GroupColorOverride.HasValue;
         }
 
         private static int FindFirstTripLineIndex(

@@ -178,6 +178,8 @@
     </Compile>
     <Compile Include="ScheduleBuilderPreviewGroups.cs" />
     <Compile Include="ScheduleBuilderGroupNotes.cs" />
+    <Compile Include="ScheduleBuilderTrailingRows.cs" />
+    <Compile Include="ScheduleBuilderGapNotes.cs" />
     <Compile Include="ScheduleBuilderGroupColors.cs" />
     <Compile Include="ScheduleBuilderRerouteMeta.cs" />
     <Compile Include="ScheduleBuilderDriverEmailsRegistry.cs" />
@@ -232,9 +234,15 @@
     </Compile>
     <Compile Include="TripScoutListRow.cs" />
     <Compile Include="TripScoutChangeFormat.cs" />
-    <Compile Include="TripScoutLiveBellControl.cs" />
-    <Compile Include="TripScoutLiveScanIndicator.cs" />
-    <Compile Include="TripScoutActivityForm.cs" />
+    <Compile Include="TripScoutLiveBellControl.cs">
+      <SubType>Component</SubType>
+    </Compile>
+    <Compile Include="TripScoutLiveScanIndicator.cs">
+      <SubType>Component</SubType>
+    </Compile>
+    <Compile Include="TripScoutActivityForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="Form1.ScheduleBuilder.cs">
       <DependentUpon>Form1.cs</DependentUpon>
       <SubType>Form</SubType>

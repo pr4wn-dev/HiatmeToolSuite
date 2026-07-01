@@ -70,7 +70,8 @@ namespace Hiatme_Tool_Suite_v3
                 if (hasHeader)
                 {
                     lines[headerIdx].GroupColorOverride = null;
-                    if (string.IsNullOrWhiteSpace(lines[headerIdx].GroupNoteText))
+                    if (string.IsNullOrWhiteSpace(lines[headerIdx].GroupNoteText)
+                        && !lines[headerIdx].GroupNoteRowColor.HasValue)
                         lines.RemoveAt(headerIdx);
                 }
                 return;

@@ -21,14 +21,18 @@ namespace Hiatme_Tool_Suite_v3
         private ToolStripMenuItem _fsTripsCtxEmailDriver;
         private ToolStripMenuItem _fsTripsCtxSuggestDriver;
         private ToolStripMenuItem _fsTripsCtxCutTrip;
+        private ToolStripMenuItem _fsTripsCtxDelete;
         private ToolStripMenuItem _fsTripsCtxUndo;
         private ToolStripMenuItem _fsTripsCtxRedo;
         private ToolStripMenuItem _fsTripsCtxPasteTrip;
         private ToolStripMenuItem _fsTripsCtxInsertAbove;
         private ToolStripMenuItem _fsTripsCtxInsertBelow;
-        private ToolStripMenuItem _fsTripsCtxDeleteRow;
         private ToolStripMenuItem _fsTripsCtxClearCut;
-        private ToolStripMenuItem _fsTripsCtxEditGroupNote;
+        private ToolStripMenuItem _fsTripsCtxAddNoteMenu;
+        private ToolStripMenuItem _fsTripsCtxAddNoteToRow;
+        private ToolStripMenuItem _fsTripsCtxAddNoteAbove;
+        private ToolStripMenuItem _fsTripsCtxAddNoteBelow;
+        private ToolStripMenuItem _fsTripsCtxEditNote;
         private ToolStripMenuItem _fsTripsCtxChangeGroupColor;
         private ToolStripMenuItem _fsTripsCtxResetGroupColor;
         private ToolStripMenuItem _fsTripsCtxRerouteModivcare;
@@ -37,6 +41,22 @@ namespace Hiatme_Tool_Suite_v3
         private MCDownloadedTrip _fsTripsCtxTrip;
         private SupeyTripCluster _fsTripsCtxGroup;
         private FsPreviewNoteTag _fsTripsCtxNoteTag;
+
+        private enum FsNotePlacement
+        {
+            ToRow,
+            Above,
+            Below,
+        }
+
+        private static ToolStripMenuItem CreateFsTripsCtxItem(string text)
+        {
+            return new ToolStripMenuItem(text)
+            {
+                BackColor = DarkContextMenuRenderer.Background,
+                ForeColor = DarkContextMenuRenderer.ForeColor,
+            };
+        }
 
         private void BuildFsTripsContextMenu()
         {
@@ -149,6 +169,15 @@ namespace Hiatme_Tool_Suite_v3
             };
             _fsTripsCtxCutTrip.Click += (s, e) => FsCutSelectedTrip();
 
+            _fsTripsCtxDelete = new ToolStripMenuItem("Delete")
+            {
+                BackColor = DarkContextMenuRenderer.Background,
+                ForeColor = DarkContextMenuRenderer.ForeColor,
+                ShortcutKeys = Keys.Delete,
+                ShowShortcutKeys = true,
+            };
+            _fsTripsCtxDelete.Click += (s, e) => FsDeleteSelection();
+
             _fsTripsCtxUndo = new ToolStripMenuItem("Undo")
             {
                 BackColor = DarkContextMenuRenderer.Background,
@@ -190,13 +219,6 @@ namespace Hiatme_Tool_Suite_v3
             };
             _fsTripsCtxInsertBelow.Click += (s, e) => FsInsertFromContextMenu(below: true);
 
-            _fsTripsCtxDeleteRow = new ToolStripMenuItem("Delete blank row")
-            {
-                BackColor = DarkContextMenuRenderer.Background,
-                ForeColor = DarkContextMenuRenderer.ForeColor,
-            };
-            _fsTripsCtxDeleteRow.Click += (s, e) => FsDeleteBlankRow();
-
             _fsTripsCtxClearCut = new ToolStripMenuItem("Clear cut trip")
             {
                 BackColor = DarkContextMenuRenderer.Background,
@@ -208,12 +230,22 @@ namespace Hiatme_Tool_Suite_v3
                 SetScheduleBuilderStatus("Cut trip cleared.");
             };
 
-            _fsTripsCtxEditGroupNote = new ToolStripMenuItem("Edit group note")
-            {
-                BackColor = DarkContextMenuRenderer.Background,
-                ForeColor = DarkContextMenuRenderer.ForeColor,
-            };
-            _fsTripsCtxEditGroupNote.Click += (s, e) => FsEditGroupNoteFromContext();
+            _fsTripsCtxEditNote = CreateFsTripsCtxItem("Edit note…");
+            _fsTripsCtxEditNote.Click += (s, e) => FsEditNoteFromContext();
+
+            _fsTripsCtxAddNoteToRow = CreateFsTripsCtxItem("Add note to row…");
+            _fsTripsCtxAddNoteToRow.Click += (s, e) => FsAddNoteFromContext(FsNotePlacement.ToRow);
+
+            _fsTripsCtxAddNoteAbove = CreateFsTripsCtxItem("Add note above…");
+            _fsTripsCtxAddNoteAbove.Click += (s, e) => FsAddNoteFromContext(FsNotePlacement.Above);
+
+            _fsTripsCtxAddNoteBelow = CreateFsTripsCtxItem("Add note below…");
+            _fsTripsCtxAddNoteBelow.Click += (s, e) => FsAddNoteFromContext(FsNotePlacement.Below);
+
+            _fsTripsCtxAddNoteMenu = CreateFsTripsCtxItem("Add note");
+            _fsTripsCtxAddNoteMenu.DropDownItems.Add(_fsTripsCtxAddNoteToRow);
+            _fsTripsCtxAddNoteMenu.DropDownItems.Add(_fsTripsCtxAddNoteAbove);
+            _fsTripsCtxAddNoteMenu.DropDownItems.Add(_fsTripsCtxAddNoteBelow);
 
             _fsTripsCtxChangeGroupColor = new ToolStripMenuItem("Change group color")
             {
@@ -260,15 +292,16 @@ namespace Hiatme_Tool_Suite_v3
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxSuggestDriver);
             _fsTripsCtxMenu.Items.Add(new ToolStripSeparator());
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxCutTrip);
+            _fsTripsCtxMenu.Items.Add(_fsTripsCtxDelete);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxPasteTrip);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxUndo);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxRedo);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxInsertAbove);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxInsertBelow);
-            _fsTripsCtxMenu.Items.Add(_fsTripsCtxDeleteRow);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxClearCut);
             _fsTripsCtxMenu.Items.Add(new ToolStripSeparator());
-            _fsTripsCtxMenu.Items.Add(_fsTripsCtxEditGroupNote);
+            _fsTripsCtxMenu.Items.Add(_fsTripsCtxAddNoteMenu);
+            _fsTripsCtxMenu.Items.Add(_fsTripsCtxEditNote);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxChangeGroupColor);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxResetGroupColor);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxAutoSortGroup);
@@ -300,35 +333,15 @@ namespace Hiatme_Tool_Suite_v3
             catch { }
 
             var hit = _fsTripsLv.HitTest(e.Location);
-            _fsTripsCtxTrip = null;
-            _fsTripsCtxGroup = null;
-            _fsTripsCtxNoteTag = null;
             _fsTripsCtxHitItem = hit.Item;
-            if (hit.Item != null)
-            {
-                if (hit.Item.Tag is FsPreviewNoteTag noteTag)
-                {
-                    _fsTripsCtxNoteTag = noteTag;
-                    _fsTripsCtxGroup = noteTag.Group;
-                }
-                else if (hit.Item.Tag is FsPreviewTripTag tripTag)
-                {
-                    _fsTripsCtxTrip = tripTag.Trip;
-                    _fsTripsCtxGroup = tripTag.Group;
-                }
-                else if (hit.Item.Tag is FsPreviewGapTag)
-                {
-                    hit.Item.Selected = true;
-                    hit.Item.Focused = true;
-                }
-                else
-                    _fsTripsCtxTrip = GetFsTripFromListItem(hit.Item);
+            if (_fsTripsCtxHitItem == null && _fsTripsLv.SelectedItems.Count > 0)
+                _fsTripsCtxHitItem = _fsTripsLv.SelectedItems[0];
 
-                if (_fsTripsCtxTrip != null)
-                {
-                    hit.Item.Selected = true;
-                    hit.Item.Focused = true;
-                }
+            FsBindContextTagsFromHitItem(_fsTripsCtxHitItem);
+            if (_fsTripsCtxHitItem != null)
+            {
+                _fsTripsCtxHitItem.Selected = true;
+                _fsTripsCtxHitItem.Focused = true;
             }
 
             bool hasTrip = _fsTripsCtxTrip != null;
@@ -356,6 +369,28 @@ namespace Hiatme_Tool_Suite_v3
             bool canInsertCut = canInsertAt && FsHasCutTrip;
 
             _fsTripsCtxCutTrip.Enabled = hasTrip && canMoveTrips && !FsHasCutTrip;
+            bool canDeleteTrip = hasTrip && canMoveTrips;
+            bool canDeleteGap = canMoveTrips && !isReserves
+                && _fsTripsCtxHitItem?.Tag is FsPreviewGapTag gapCtx
+                && !gapCtx.TrailingPad
+                && !ScheduleBuilderGapNotes.GapTagHasNoteBar(gapCtx);
+            _fsLinesByTab.TryGetValue(_fsActiveDriverTab ?? "", out var deleteLines);
+            bool canDeleteNote = canMoveTrips && !isReserves
+                && (ScheduleBuilderGroupNotes.IsDeletableNoteRow(_fsTripsCtxHitItem, deleteLines)
+                    || (_fsTripsCtxHitItem?.Tag is FsPreviewGapTag gapDel
+                        && ScheduleBuilderGapNotes.GapTagHasNoteBar(gapDel)));
+            _fsTripsCtxDelete.Enabled = canDeleteTrip || canDeleteGap || canDeleteNote;
+            if (canDeleteTrip)
+            {
+                string num = (_fsTripsCtxTrip.TripNumber ?? "").Trim();
+                _fsTripsCtxDelete.Text = string.IsNullOrEmpty(num) ? "Delete trip" : "Delete trip " + num;
+            }
+            else if (canDeleteNote)
+                _fsTripsCtxDelete.Text = "Delete note";
+            else if (canDeleteGap)
+                _fsTripsCtxDelete.Text = "Delete blank row";
+            else
+                _fsTripsCtxDelete.Text = "Delete";
             _fsTripsCtxPasteTrip.Enabled = canInsertCut;
             _fsTripsCtxPasteTrip.Text = "Paste trip" + FsCutTripMenuSuffix();
             _fsTripsCtxUndo.Enabled = _fsUndoStack.CanUndo;
@@ -364,9 +399,6 @@ namespace Hiatme_Tool_Suite_v3
             _fsTripsCtxRedo.Text = FsRedoMenuText();
             _fsTripsCtxInsertAbove.Enabled = FsHasCutTrip ? canInsertCut : canInsertBlank;
             _fsTripsCtxInsertBelow.Enabled = FsHasCutTrip ? canInsertCut : canInsertBlank;
-            bool canDeleteGap = canMoveTrips && !isReserves
-                && _fsTripsCtxHitItem?.Tag is FsPreviewGapTag;
-            _fsTripsCtxDeleteRow.Enabled = canDeleteGap;
             _fsTripsCtxClearCut.Enabled = FsHasCutTrip;
             _fsTripsCtxInsertAbove.Text = FsHasCutTrip
                 ? "Insert above" + FsCutTripMenuSuffix()
@@ -419,9 +451,18 @@ namespace Hiatme_Tool_Suite_v3
             _fsTripsCtxCopyForAi.Enabled = hasBuild;
             _fsTripsCtxCopyCurrentTab.Enabled = hasBuild;
             _fsTripsCtxCopySelectedTrip.Enabled = hasTrip;
-            _fsTripsCtxEditGroupNote.Enabled = _fsTripsCtxNoteTag?.Group != null
-                && !isReserves
-                && FsShowGroupColorsEnabled;
+            bool canAddNoteToRow = FsCanAddNoteToRowContext();
+            bool canAddNoteAbove = canMoveTrips && !isReserves && canInsertAt;
+            bool canAddNoteBelow = canAddNoteAbove;
+            _fsTripsCtxAddNoteToRow.Enabled = canAddNoteToRow;
+            _fsTripsCtxAddNoteAbove.Enabled = canAddNoteAbove;
+            _fsTripsCtxAddNoteBelow.Enabled = canAddNoteBelow;
+            _fsTripsCtxAddNoteMenu.Enabled = canAddNoteToRow || canAddNoteAbove;
+            var contextItem = FsResolveContextListItem();
+            bool canEditNote = canMoveTrips && !isReserves
+                && ScheduleBuilderGapNotes.IsEditableNoteRow(
+                    contextItem, deleteLines, out _);
+            _fsTripsCtxEditNote.Enabled = canEditNote;
 
             bool canChangeGroupColor = _fsTripsCtxGroup != null
                 && !isReserves
@@ -444,17 +485,6 @@ namespace Hiatme_Tool_Suite_v3
             {
                 _fsTripsCtxChangeGroupColor.Text = "Change group color";
                 _fsTripsCtxResetGroupColor.Text = "Reset group color to default";
-            }
-
-            if (_fsTripsCtxNoteTag?.Group != null)
-            {
-                _fsTripsCtxEditGroupNote.Text = string.IsNullOrWhiteSpace(_fsTripsCtxNoteTag.NoteText)
-                    ? "Edit group note — group " + _fsTripsCtxNoteTag.Group.GroupNumber
-                    : "Edit group note — group " + _fsTripsCtxNoteTag.Group.GroupNumber;
-            }
-            else
-            {
-                _fsTripsCtxEditGroupNote.Text = "Edit group note";
             }
 
             if (canSortGroup)
@@ -590,48 +620,205 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
-        private void FsEditGroupNoteFromContext()
+        private ListViewItem FsResolveContextListItem()
         {
-            if (_fsTripsCtxNoteTag?.Group == null
-                || string.IsNullOrWhiteSpace(_fsActiveDriverTab)
-                || !_fsHasPreview)
+            if (_fsTripsCtxHitItem != null)
+                return _fsTripsCtxHitItem;
+            if (_fsTripsLv?.SelectedItems.Count > 0)
+                return _fsTripsLv.SelectedItems[0];
+            return null;
+        }
+
+        private void FsBindContextTagsFromHitItem(ListViewItem item)
+        {
+            _fsTripsCtxTrip = null;
+            _fsTripsCtxGroup = null;
+            _fsTripsCtxNoteTag = null;
+            if (item == null)
                 return;
 
-            int groupNumber = _fsTripsCtxNoteTag.Group.GroupNumber;
-            string current = _fsTripsCtxNoteTag.NoteText ?? "";
-            if (_fsLinesByTab.TryGetValue(_fsActiveDriverTab, out var existing) && existing != null)
+            if (item.Tag is FsPreviewNoteTag noteTag)
             {
-                string fromLine = ScheduleBuilderGroupNotes.GetNote(existing, groupNumber);
-                if (!string.IsNullOrWhiteSpace(fromLine))
-                    current = fromLine;
+                _fsTripsCtxNoteTag = noteTag;
+                _fsTripsCtxGroup = noteTag.Group;
             }
+            else if (item.Tag is FsPreviewTripTag tripTag)
+            {
+                _fsTripsCtxTrip = tripTag.Trip;
+                _fsTripsCtxGroup = tripTag.Group;
+            }
+            else if (item.Tag is FsPreviewGapTag)
+            {
+            }
+            else
+                _fsTripsCtxTrip = GetFsTripFromListItem(item);
+        }
 
-            string edited = FsPromptGroupNoteText(
-                "Group " + groupNumber + " note",
-                "Note shown on the colored header row and in the saved workbook:",
-                current);
-            if (edited == null)
+        private bool FsCanAddNoteToRowContext()
+        {
+            if (!_fsHasPreview || fsbuilder == null || string.IsNullOrWhiteSpace(_fsActiveDriverTab))
+                return false;
+
+            if (_fsActiveDriverTab.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            var item = FsResolveContextListItem();
+            if (item?.Tag is FsPreviewGapTag gap && !ScheduleBuilderGapNotes.GapTagHasNoteBar(gap))
+                return FsPreviewLineRef.GetLineIndex(item.Tag) >= 0;
+
+            return false;
+        }
+
+        private void FsAddNoteFromContext(FsNotePlacement placement)
+        {
+            if (string.IsNullOrWhiteSpace(_fsActiveDriverTab) || !_fsHasPreview)
                 return;
+
+            if (_fsActiveDriverTab.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
+                return;
+
+            var item = FsResolveContextListItem();
+            if (item == null)
+            {
+                SetScheduleBuilderStatus("Select a row first, then add a note.");
+                return;
+            }
 
             if (!_fsLinesByTab.TryGetValue(_fsActiveDriverTab, out var lines) || lines == null)
                 return;
 
-            ScheduleBuilderGroupHeaderReconcile.ReconcileInPlace(lines);
-            var groups = ScheduleBuilderPreviewGroups.BuildFromPreviewLines(lines);
-            var group = FindFsGroupByNumber(groups, groupNumber) ?? _fsTripsCtxNoteTag.Group;
-            if (group == null)
+            string dialogTitle;
+            string dialogIntro;
+            string undoLabel;
+            string statusMessage;
+
+            switch (placement)
+            {
+                case FsNotePlacement.ToRow:
+                    dialogTitle = "Add note to row";
+                    dialogIntro = "Turn the selected blank row into a note row. Text is saved in the workbook; row color applies only to this row.";
+                    undoLabel = "add note to row";
+                    statusMessage = "Note added to selected row.";
+                    break;
+                case FsNotePlacement.Above:
+                    dialogTitle = "Add note above";
+                    dialogIntro = "Insert a new note row above the selected row. Text is saved in the workbook; row color applies only to this row.";
+                    undoLabel = "add note above";
+                    statusMessage = "Note added above selected row.";
+                    break;
+                default:
+                    dialogTitle = "Add note below";
+                    dialogIntro = "Insert a new note row below the selected row. Text is saved in the workbook; row color applies only to this row.";
+                    undoLabel = "add note below";
+                    statusMessage = "Note added below selected row.";
+                    break;
+            }
+
+            if (placement == FsNotePlacement.ToRow)
+            {
+                if (!(item.Tag is FsPreviewGapTag gap) || ScheduleBuilderGapNotes.GapTagHasNoteBar(gap))
+                {
+                    SetScheduleBuilderStatus("Add note to row works on a selected blank row.");
+                    return;
+                }
+
+                int lineIndex = FsPreviewLineRef.GetLineIndex(item.Tag);
+                if (lineIndex < 0 || lineIndex >= lines.Count)
+                {
+                    SetScheduleBuilderStatus("Could not add a note on this row.");
+                    return;
+                }
+
+                var toRow = ScheduleGroupNoteForm.Prompt(this, dialogTitle, dialogIntro, "", null);
+                if (toRow == null)
+                    return;
+
+                if (string.IsNullOrWhiteSpace(toRow.NoteText) && !toRow.NoteRowColor.HasValue)
+                    return;
+
+                FsRevealGapsForManualInsert();
+                FsPushUndoSnapshot(undoLabel);
+                ScheduleBuilderGapNotes.ApplyAt(
+                    lines, lineIndex, toRow.NoteText, toRow.NoteRowColor);
+            }
+            else
+            {
+                bool below = placement == FsNotePlacement.Below;
+                if (!TryResolveFsInsertBeforeLine(item, below, out int insertBeforeLine))
+                {
+                    SetScheduleBuilderStatus("Could not add a note here — select a trip, gap, or note row.");
+                    return;
+                }
+
+                var inserted = ScheduleGroupNoteForm.Prompt(this, dialogTitle, dialogIntro, "", null);
+                if (inserted == null)
+                    return;
+
+                if (string.IsNullOrWhiteSpace(inserted.NoteText) && !inserted.NoteRowColor.HasValue)
+                    return;
+
+                FsRevealGapsForManualInsert();
+                FsPushUndoSnapshot(undoLabel);
+                ScheduleBuilderGapNotes.InsertAt(
+                    lines, insertBeforeLine, inserted.NoteText, inserted.NoteRowColor);
+            }
+
+            FsCommitPreviewLinesForTab(_fsActiveDriverTab, lines);
+            ShowFsTripsForTab(_fsActiveDriverTab);
+            SyncFsPreviewCsvsForExport();
+            SetScheduleBuilderStatus(statusMessage);
+        }
+
+        private void FsEditNoteFromContext()
+        {
+            if (string.IsNullOrWhiteSpace(_fsActiveDriverTab) || !_fsHasPreview)
                 return;
 
-            FsPushUndoSnapshot("edit group note");
-            ScheduleBuilderGroupNotes.ApplyNote(lines, groups, group, edited);
+            if (!ScheduleBuilderGapNotes.IsEditableNoteRow(
+                    FsResolveContextListItem(),
+                    _fsLinesByTab.TryGetValue(_fsActiveDriverTab, out var existing) ? existing : null,
+                    out int lineIndex))
+            {
+                return;
+            }
+
+            if (!_fsLinesByTab.TryGetValue(_fsActiveDriverTab, out var lines) || lines == null)
+                return;
+
+            string current = "";
+            Color? currentColor = null;
+            if (_fsTripsCtxHitItem?.Tag is FsPreviewGapTag gapTag)
+            {
+                current = gapTag.NoteText ?? "";
+                currentColor = gapTag.NoteRowColor;
+            }
+            else if (_fsTripsCtxNoteTag != null)
+            {
+                current = _fsTripsCtxNoteTag.NoteText ?? "";
+                currentColor = _fsTripsCtxNoteTag.NoteRowColor;
+            }
+
+            ScheduleBuilderGapNotes.TryReadNoteAt(lines, lineIndex, out current, out currentColor);
+
+            var edited = ScheduleGroupNoteForm.Prompt(
+                this,
+                "Edit note",
+                "Update note text and row color. Row color applies only to this note row.",
+                current,
+                currentColor);
+            if (edited == null)
+                return;
+
+            FsPushUndoSnapshot("edit note");
+            ScheduleBuilderGapNotes.ApplyAt(
+                lines, lineIndex, edited.NoteText, edited.NoteRowColor);
             FsCommitPreviewLinesForTab(_fsActiveDriverTab, lines);
             ShowFsTripsForTab(_fsActiveDriverTab);
             SyncFsPreviewCsvsForExport();
 
-            string status = string.IsNullOrWhiteSpace(edited)
-                ? "Group " + groupNumber + " note cleared."
-                : "Group " + groupNumber + " note saved.";
-            SetScheduleBuilderStatus(status);
+            bool hasContent = !string.IsNullOrWhiteSpace(edited.NoteText)
+                || edited.NoteRowColor.HasValue;
+            SetScheduleBuilderStatus(hasContent ? "Note saved." : "Note cleared.");
         }
 
         private void FsChangeGroupColorFromContext()
@@ -701,64 +888,6 @@ namespace Hiatme_Tool_Suite_v3
                 SetScheduleBuilderStatus("Group " + groupNumber + " color updated.");
             else
                 SetScheduleBuilderStatus("Group " + groupNumber + " color reset to default.");
-        }
-
-        private string FsPromptGroupNoteText(string title, string prompt, string initial)
-        {
-            using (var form = new Form())
-            {
-                form.Text = title;
-                form.FormBorderStyle = FormBorderStyle.FixedDialog;
-                form.StartPosition = FormStartPosition.CenterParent;
-                form.MinimizeBox = false;
-                form.MaximizeBox = false;
-                form.ShowInTaskbar = false;
-                form.BackColor = SupeyTheme.Surface;
-                form.ForeColor = SupeyTheme.TextPrimary;
-                form.ClientSize = new Size(440, 150);
-
-                var lbl = new Label
-                {
-                    Text = prompt,
-                    AutoSize = false,
-                    Left = 12,
-                    Top = 12,
-                    Width = 416,
-                    Height = 32,
-                    ForeColor = SupeyTheme.TextSecondary,
-                };
-                var tb = new TextBox
-                {
-                    Left = 12,
-                    Top = 48,
-                    Width = 416,
-                    Text = initial ?? "",
-                    BackColor = SupeyTheme.SurfaceElevated,
-                    ForeColor = SupeyTheme.TextPrimary,
-                    BorderStyle = BorderStyle.FixedSingle,
-                };
-                var ok = new Button
-                {
-                    Text = "OK",
-                    DialogResult = DialogResult.OK,
-                    Left = 272,
-                    Width = 75,
-                    Top = 108,
-                };
-                var cancel = new Button
-                {
-                    Text = "Cancel",
-                    DialogResult = DialogResult.Cancel,
-                    Left = 353,
-                    Width = 75,
-                    Top = 108,
-                };
-                form.Controls.AddRange(new Control[] { lbl, tb, ok, cancel });
-                form.AcceptButton = ok;
-                form.CancelButton = cancel;
-
-                return form.ShowDialog(this) == DialogResult.OK ? tb.Text.Trim() : null;
-            }
         }
 
         private async Task FsAutoSortGroupForEfficiencyAsync(SupeyTripCluster group)
@@ -916,7 +1045,9 @@ namespace Hiatme_Tool_Suite_v3
             if (lines != null
                 && !tab.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
             {
+                ScheduleBuilderTrailingRows.StripTrailingPads(lines);
                 lines = ScheduleBuilderGroupHeaderReconcile.Reconcile(lines);
+                ScheduleBuilderTrailingRows.EnsureAtEnd(lines);
             }
 
             _fsLinesByTab[tab] = lines;
@@ -950,6 +1081,326 @@ namespace Hiatme_Tool_Suite_v3
             {
                 FsSyncReroutedHighlightsFromPreviewLines();
             }
+        }
+    }
+
+    internal sealed class ScheduleGroupNoteEditResult
+    {
+        public string NoteText { get; set; } = "";
+        public Color? NoteRowColor { get; set; }
+    }
+
+    /// <summary>Themed dialog for group notes — text plus optional note-row color (not whole-group color).</summary>
+    internal sealed class ScheduleGroupNoteForm : SupeyForm
+    {
+        private const int DialogWidth = 500;
+        private const int ContentWidth = 452;
+
+        private readonly TextBox _noteBox;
+        private readonly Panel _swatch;
+        private readonly Label _colorLabel;
+        private Color? _noteRowColor;
+
+        private ScheduleGroupNoteForm(string title, string introText, string initialNote, Color? initialRowColor)
+        {
+            _noteRowColor = initialRowColor;
+
+            Text = title ?? "Note";
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            MaximizeBox = false;
+            MinimizeBox = false;
+            ShowInTaskbar = false;
+            StartPosition = FormStartPosition.CenterParent;
+            ClientSize = new Size(DialogWidth, 320);
+            MinimumSize = new Size(DialogWidth, 320);
+            MaximumSize = new Size(DialogWidth, 320);
+            BackColor = SupeyTheme.Surface;
+
+            var footer = new Panel
+            {
+                Dock = DockStyle.Bottom,
+                Height = 57,
+                BackColor = SupeyTheme.Surface,
+            };
+            footer.Controls.Add(new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 1,
+                BackColor = SupeyTheme.Divider,
+            });
+            var footerButtons = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                FlowDirection = FlowDirection.RightToLeft,
+                WrapContents = false,
+                Padding = new Padding(0, 8, 24, 12),
+                BackColor = SupeyTheme.Surface,
+            };
+            var okBtn = new DarkOnAccentMaterialButton
+            {
+                Text = "SAVE",
+                AutoSize = false,
+                Type = SupeyMaterialButton.MaterialButtonType.Contained,
+                UseAccentColor = true,
+                Size = new Size(96, 36),
+                DialogResult = DialogResult.OK,
+            };
+            var cancelBtn = new SupeyMaterialButton
+            {
+                Text = "CANCEL",
+                AutoSize = false,
+                Type = SupeyMaterialButton.MaterialButtonType.Text,
+                UseAccentColor = false,
+                NoAccentTextColor = SupeyTheme.TextSecondary,
+                Size = new Size(96, 36),
+                Margin = new Padding(0, 0, 8, 0),
+                DialogResult = DialogResult.Cancel,
+            };
+            footerButtons.Controls.Add(okBtn);
+            footerButtons.Controls.Add(cancelBtn);
+            footer.Controls.Add(footerButtons);
+
+            var body = new Panel
+            {
+                Dock = DockStyle.Fill,
+                Padding = new Padding(24, 20, 24, 12),
+                BackColor = SupeyTheme.Surface,
+            };
+
+            var stack = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 3,
+                BackColor = SupeyTheme.Surface,
+            };
+            stack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            stack.RowStyles.Add(new RowStyle(SizeType.Absolute, 88f));
+            stack.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+
+            var introLabel = new Label
+            {
+                Text = string.IsNullOrWhiteSpace(introText)
+                    ? "Note text is saved in the workbook. Row color applies only to this note row."
+                    : introText,
+                Font = new Font("Segoe UI", 9f),
+                AutoSize = true,
+                MaximumSize = new Size(ContentWidth, 0),
+                Margin = new Padding(0, 0, 0, 12),
+                ForeColor = SupeyTheme.TextSecondary,
+                BackColor = SupeyTheme.Surface,
+            };
+            stack.Controls.Add(introLabel, 0, 0);
+
+            var noteHost = new Panel
+            {
+                Dock = DockStyle.Fill,
+                Padding = new Padding(1),
+                BackColor = SupeyTheme.BorderSubtle,
+                Margin = new Padding(0, 0, 0, 14),
+            };
+            _noteBox = new TextBox
+            {
+                Multiline = true,
+                ScrollBars = ScrollBars.Vertical,
+                Dock = DockStyle.Fill,
+                Text = initialNote ?? "",
+                Font = new Font("Segoe UI", 9.75f),
+                BackColor = SupeyTheme.SurfaceElevated,
+                ForeColor = SupeyTheme.TextPrimary,
+                BorderStyle = BorderStyle.None,
+            };
+            noteHost.Controls.Add(_noteBox);
+            stack.Controls.Add(noteHost, 0, 1);
+
+            var colorCard = BuildColorCard(out _swatch, out _colorLabel);
+            colorCard.Dock = DockStyle.Fill;
+            stack.Controls.Add(colorCard, 0, 2);
+
+            body.Controls.Add(stack);
+
+            Controls.Add(body);
+            Controls.Add(footer);
+            AcceptButton = okBtn;
+            CancelButton = cancelBtn;
+
+            SupeyDarkScrollBars.Apply(this);
+            RefreshSwatch();
+        }
+
+        private Panel BuildColorCard(out Panel swatch, out Label colorLabel)
+        {
+            var card = new Panel
+            {
+                BackColor = SupeyTheme.SurfaceElevated,
+                Padding = new Padding(16, 14, 16, 14),
+            };
+            card.Paint += (s, e) =>
+            {
+                var g = e.Graphics;
+                var r = card.ClientRectangle;
+                r.Width -= 1;
+                r.Height -= 1;
+                using (var pen = new Pen(SupeyTheme.BorderSubtle))
+                    g.DrawRectangle(pen, r);
+            };
+
+            var cardStack = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 2,
+                BackColor = SupeyTheme.SurfaceElevated,
+            };
+            cardStack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            cardStack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+            var colorCaption = new Label
+            {
+                Text = "Note row color",
+                Font = new Font("Segoe UI Semibold", 9.75f),
+                AutoSize = true,
+                Margin = new Padding(0, 0, 0, 10),
+                ForeColor = SupeyTheme.TextPrimary,
+                BackColor = SupeyTheme.SurfaceElevated,
+            };
+            cardStack.Controls.Add(colorCaption, 0, 0);
+
+            var colorRow = new TableLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                ColumnCount = 4,
+                RowCount = 1,
+                BackColor = SupeyTheme.SurfaceElevated,
+            };
+            colorRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 56f));
+            colorRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+            colorRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            colorRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+
+            var swatchPanel = new Panel
+            {
+                Width = 48,
+                Height = 32,
+                Margin = new Padding(0, 2, 12, 0),
+                BackColor = SupeyTheme.Surface,
+            };
+            swatchPanel.Paint += (s, e) => SwatchPaint(swatchPanel, e);
+            swatch = swatchPanel;
+
+            var statusLabel = new Label
+            {
+                AutoSize = true,
+                Anchor = AnchorStyles.Left | AnchorStyles.Top,
+                Margin = new Padding(0, 8, 12, 0),
+                Font = new Font("Segoe UI", 9f),
+                ForeColor = SupeyTheme.TextSecondary,
+                BackColor = SupeyTheme.SurfaceElevated,
+            };
+            colorLabel = statusLabel;
+
+            var pickBtn = new SupeyMaterialButton
+            {
+                Text = "PICK COLOR…",
+                AutoSize = false,
+                Type = SupeyMaterialButton.MaterialButtonType.Outlined,
+                Size = new Size(118, 34),
+                Margin = new Padding(0, 0, 6, 0),
+            };
+            pickBtn.Click += (s, e) => PickColor();
+
+            var clearBtn = new SupeyMaterialButton
+            {
+                Text = "NO COLOR",
+                AutoSize = false,
+                Type = SupeyMaterialButton.MaterialButtonType.Text,
+                UseAccentColor = false,
+                NoAccentTextColor = SupeyTheme.TextSecondary,
+                Size = new Size(96, 34),
+                Margin = new Padding(0, 0, 0, 0),
+            };
+            clearBtn.Click += (s, e) =>
+            {
+                _noteRowColor = null;
+                RefreshSwatch();
+            };
+
+            colorRow.Controls.Add(swatch, 0, 0);
+            colorRow.Controls.Add(colorLabel, 1, 0);
+            colorRow.Controls.Add(pickBtn, 2, 0);
+            colorRow.Controls.Add(clearBtn, 3, 0);
+            cardStack.Controls.Add(colorRow, 0, 1);
+            card.Controls.Add(cardStack);
+            return card;
+        }
+
+        private void SwatchPaint(Panel swatch, PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            var r = swatch.ClientRectangle;
+            r.Width -= 1;
+            r.Height -= 1;
+
+            using (var pen = new Pen(SupeyTheme.BorderSubtle))
+                g.DrawRectangle(pen, r);
+
+            if (!_noteRowColor.HasValue)
+                return;
+
+            int stripeW = Math.Max(6, r.Width / 5);
+            var stripe = new Rectangle(r.X + 1, r.Y + 1, stripeW, r.Height - 1);
+            using (var brush = new SolidBrush(_noteRowColor.Value))
+                g.FillRectangle(brush, stripe);
+        }
+
+        public static ScheduleGroupNoteEditResult Prompt(
+            IWin32Window owner,
+            string title,
+            string introText,
+            string initialNote,
+            Color? initialRowColor)
+        {
+            using (var form = new ScheduleGroupNoteForm(title, introText, initialNote, initialRowColor))
+            {
+                if (form.ShowDialog(owner) != DialogResult.OK)
+                    return null;
+
+                return new ScheduleGroupNoteEditResult
+                {
+                    NoteText = form._noteBox.Text.Trim(),
+                    NoteRowColor = form._noteRowColor,
+                };
+            }
+        }
+
+        private void PickColor()
+        {
+            using (var dlg = new ColorDialog())
+            {
+                dlg.FullOpen = true;
+                dlg.Color = _noteRowColor ?? Color.FromArgb(70, 130, 180);
+                if (dlg.ShowDialog(this) != DialogResult.OK)
+                    return;
+
+                _noteRowColor = dlg.Color;
+                RefreshSwatch();
+            }
+        }
+
+        private void RefreshSwatch()
+        {
+            if (_noteRowColor.HasValue)
+            {
+                _colorLabel.Text = "Colored note row";
+                _colorLabel.ForeColor = SupeyTheme.TextPrimary;
+            }
+            else
+            {
+                _colorLabel.Text = "Plain row (no color bar)";
+                _colorLabel.ForeColor = SupeyTheme.TextSecondary;
+            }
+
+            _swatch.Invalidate();
         }
     }
 }

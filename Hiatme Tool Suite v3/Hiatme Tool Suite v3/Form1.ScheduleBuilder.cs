@@ -788,7 +788,7 @@ namespace Hiatme_Tool_Suite_v3
 
                 FullRowSelect = true,
 
-                GridLines = false,
+                GridLines = true,
 
                 HideSelection = false,
 
@@ -799,6 +799,8 @@ namespace Hiatme_Tool_Suite_v3
                 OwnerDraw = true,
 
                 HeaderStyle = ColumnHeaderStyle.Clickable,
+
+                SuppressHoverRepaintFix = true,
 
             };
 
@@ -998,15 +1000,23 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-        private bool FsTripsIsMergedBarRow(ListViewItem item, out FsPreviewNoteTag noteTag, out FsPreviewSectionHeaderTag sectionTag)
+        private bool FsTripsIsMergedBarRow(ListViewItem item, out FsPreviewNoteTag noteTag, out FsPreviewSectionHeaderTag sectionTag, out FsPreviewGapTag gapNoteTag)
         {
             noteTag = item?.Tag as FsPreviewNoteTag;
             sectionTag = item?.Tag as FsPreviewSectionHeaderTag;
+            gapNoteTag = item?.Tag as FsPreviewGapTag;
             bool isReservesTab = _fsActiveDriverTab != null
                 && _fsActiveDriverTab.Equals("Reserves", StringComparison.OrdinalIgnoreCase);
             if (noteTag?.Group != null)
                 return true;
+            if (gapNoteTag != null && ScheduleBuilderGapNotes.GapTagHasNoteBar(gapNoteTag))
+                return true;
             return sectionTag != null && isReservesTab;
+        }
+
+        private bool FsTripsIsMergedBarRow(ListViewItem item, out FsPreviewNoteTag noteTag, out FsPreviewSectionHeaderTag sectionTag)
+        {
+            return FsTripsIsMergedBarRow(item, out noteTag, out sectionTag, out _);
         }
 
         private bool FsTripsTryGetEntireRowBounds(ListViewItem item, out Rectangle bounds)
@@ -1017,6 +1027,9 @@ namespace Hiatme_Tool_Suite_v3
             try
             {
                 bounds = _fsTripsLv.GetItemRect(item.Index, ItemBoundsPortion.Entire);
+                int contentW = SupeyListViewHelpers.GetDetailsContentWidth(_fsTripsLv);
+                if (contentW > bounds.Width)
+                    bounds.Width = contentW;
             }
             catch (ArgumentException)
             {
@@ -1028,7 +1041,7 @@ namespace Hiatme_Tool_Suite_v3
 
         private void FsTripsPaintMergedBarRow(Graphics g, ListViewItem item, bool selected)
         {
-            if (g == null || item == null || !FsTripsIsMergedBarRow(item, out var noteTag, out var sectionTag))
+            if (g == null || item == null || !FsTripsIsMergedBarRow(item, out var noteTag, out var sectionTag, out var gapNoteTag))
                 return;
             if (!FsTripsTryGetEntireRowBounds(item, out Rectangle rowBounds))
                 return;
@@ -1041,11 +1054,34 @@ namespace Hiatme_Tool_Suite_v3
 
             if (noteTag?.Group != null)
             {
-                Color bg = selected ? SupeyTheme.ListSelected : noteTag.Group.DisplayColor;
+                Color? barColor = ScheduleBuilderGroupNotes.ResolveNoteRowDisplayColor(
+                    noteTag.NoteRowColor, noteTag.Group, FsShowGroupColorsEnabled);
+                Color bg = selected
+                    ? SupeyTheme.ListSelected
+                    : (barColor ?? SupeyTheme.ListBody);
                 Color fg = selected
                     ? SupeyTheme.ListSelectedText
-                    : ScheduleBuilderPreviewStyle.ContrastText(noteTag.Group.DisplayColor);
+                    : (barColor.HasValue
+                        ? ScheduleBuilderPreviewStyle.ContrastText(barColor.Value)
+                        : SupeyTheme.ListText);
                 string text = (noteTag.NoteText ?? "").Trim();
+                SupeyListViewHelpers.PaintMergedDetailsRow(
+                    g, rowBounds, bg, text, fg, _fsTripsLv.Font, boldText: text.Length > 0);
+                return;
+            }
+
+            if (gapNoteTag != null && ScheduleBuilderGapNotes.GapTagHasNoteBar(gapNoteTag))
+            {
+                Color? barColor = gapNoteTag.NoteRowColor;
+                Color bg = selected
+                    ? SupeyTheme.ListSelected
+                    : (barColor ?? SupeyTheme.ListBody);
+                Color fg = selected
+                    ? SupeyTheme.ListSelectedText
+                    : (barColor.HasValue
+                        ? ScheduleBuilderPreviewStyle.ContrastText(barColor.Value)
+                        : SupeyTheme.ListText);
+                string text = (gapNoteTag.NoteText ?? "").Trim();
                 SupeyListViewHelpers.PaintMergedDetailsRow(
                     g, rowBounds, bg, text, fg, _fsTripsLv.Font, boldText: text.Length > 0);
                 return;
@@ -1152,9 +1188,13 @@ namespace Hiatme_Tool_Suite_v3
                     ? sectionTag.SectionColor
                     : SupeyTheme.SurfaceHeader;
 
-            else if (!sel && isNote && noteTag?.Group != null && FsShowGroupColorsEnabled)
-
-                rowBg = FsRouteHeaderBackColor(noteTag.Group.DisplayColor);
+            else if (!sel && isNote && noteTag != null)
+            {
+                Color? barColor = ScheduleBuilderGroupNotes.ResolveNoteRowDisplayColor(
+                    noteTag.NoteRowColor, noteTag.Group, FsShowGroupColorsEnabled);
+                if (barColor.HasValue)
+                    rowBg = FsRouteHeaderBackColor(barColor.Value);
+            }
 
             Color fill = rowBg;
 
@@ -2111,6 +2151,8 @@ namespace Hiatme_Tool_Suite_v3
                 else
                     lines = ScheduleBuilderGroupHeaderReconcile.Reconcile(lines);
 
+                ScheduleBuilderTrailingRows.EnsureAtEnd(lines);
+
                 _fsLinesByTab[name] = lines;
 
                 if (builder.PreviewDriverLines is Dictionary<string, List<ScheduleBuilderPreviewLine>> driverDict)
@@ -3007,6 +3049,9 @@ namespace Hiatme_Tool_Suite_v3
 
             {
 
+                if (!tabName.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
+                    ScheduleBuilderTrailingRows.EnsureAtEnd(lines);
+
                 if (tabName.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
 
                 {
@@ -3049,9 +3094,10 @@ namespace Hiatme_Tool_Suite_v3
 
                         lastHeaderGroup = null;
 
-                        // Skip leading gap rows — a separator before the first trip is just a blank top row.
-                        if (FsShowGapsEnabled && sawTripRow)
-                            AddFsTemplateGapRow(li, line.GapNoteText);
+                        if (ScheduleBuilderGapNotes.HasNoteContent(line))
+                            AddFsPositionNoteRow(li, line.GapNoteText, line.GapNoteRowColor);
+                        else if (line.TrailingPad || (FsShowGapsEnabled && sawTripRow))
+                            AddFsTemplateGapRow(li, null, line.TrailingPad);
 
                         continue;
 
@@ -3061,7 +3107,7 @@ namespace Hiatme_Tool_Suite_v3
 
                     {
 
-                        if (FsShowGroupColorsEnabled)
+                        if (ScheduleBuilderGroupNotes.ShouldShowNoteRow(line, FsShowGroupColorsEnabled))
 
                         {
 
@@ -3071,7 +3117,7 @@ namespace Hiatme_Tool_Suite_v3
 
                             {
 
-                                AddFsGroupNoteRow(headerGroup, line.GroupNoteText, li);
+                                AddFsGroupNoteRow(headerGroup, line.GroupNoteText, li, line.GroupNoteRowColor);
 
                                 lastHeaderGroup = headerGroup;
 
@@ -3099,7 +3145,7 @@ namespace Hiatme_Tool_Suite_v3
 
                         // Show the group-color header for every group, including the first.
                         // (Leading blank gap rows are still skipped above.)
-                        AddFsGroupNoteRow(g, null, li);
+                        AddFsGroupNoteRow(g, null, li, null);
 
                     }
 
@@ -3369,7 +3415,7 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-        private void AddFsTemplateGapRow(int previewLineIndex, string noteText = null)
+        private void AddFsTemplateGapRow(int previewLineIndex, string noteText = null, bool trailingPad = false)
 
         {
 
@@ -3378,15 +3424,48 @@ namespace Hiatme_Tool_Suite_v3
             var lvi = new ListViewItem(cells);
 
             lvi.UseItemStyleForSubItems = false;
-            lvi.Tag = new FsPreviewGapTag { PreviewLineIndex = previewLineIndex, NoteText = note };
+            lvi.Tag = new FsPreviewGapTag
+            {
+                PreviewLineIndex = previewLineIndex,
+                NoteText = note,
+                TrailingPad = trailingPad,
+            };
 
             _fsTripsLv.Items.Add(lvi);
 
         }
 
+        private void AddFsPositionNoteRow(int previewLineIndex, string noteText, Color? noteRowColor)
+        {
+            string note = (noteText ?? "").Trim();
+            var lvi = new ListViewItem("");
+            lvi.UseItemStyleForSubItems = false;
+
+            Color? barColor = noteRowColor;
+            Color bar = barColor ?? SupeyTheme.ListBody;
+
+            for (int c = 1; c <= 11; c++)
+                lvi.SubItems.Add("");
+
+            for (int c = 0; c < lvi.SubItems.Count; c++)
+            {
+                lvi.SubItems[c].Text = "";
+                lvi.SubItems[c].BackColor = bar;
+            }
+
+            lvi.Tag = new FsPreviewGapTag
+            {
+                PreviewLineIndex = previewLineIndex,
+                NoteText = note,
+                NoteRowColor = noteRowColor,
+            };
+
+            _fsTripsLv.Items.Add(lvi);
+        }
 
 
-        private void AddFsGroupNoteRow(SupeyTripCluster g, string noteText, int previewLineIndex)
+
+        private void AddFsGroupNoteRow(SupeyTripCluster g, string noteText, int previewLineIndex, Color? noteRowColor)
 
         {
 
@@ -3398,7 +3477,9 @@ namespace Hiatme_Tool_Suite_v3
 
             lvi.UseItemStyleForSubItems = false;
 
-            Color bar = g.DisplayColor;
+            Color? barColor = ScheduleBuilderGroupNotes.ResolveNoteRowDisplayColor(
+                noteRowColor, g, FsShowGroupColorsEnabled);
+            Color bar = barColor ?? SupeyTheme.ListBody;
 
             for (int c = 1; c <= 11; c++)
 
@@ -3410,7 +3491,11 @@ namespace Hiatme_Tool_Suite_v3
                 lvi.SubItems[c].BackColor = bar;
             }
 
-            lvi.Tag = new FsPreviewNoteTag(g, note) { PreviewLineIndex = previewLineIndex };
+            lvi.Tag = new FsPreviewNoteTag(g, note)
+            {
+                PreviewLineIndex = previewLineIndex,
+                NoteRowColor = noteRowColor,
+            };
 
             _fsTripsLv.Items.Add(lvi);
 
