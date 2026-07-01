@@ -46,8 +46,8 @@ namespace Hiatme_Tool_Suite_v3
 
             string num = (_fsCutTrip.TripNumber ?? "").Trim();
             SetScheduleBuilderStatus(string.IsNullOrEmpty(num)
-                ? "Trip cut — right-click a row · Insert above or Insert below."
-                : "Trip " + num + " cut — right-click a row · Insert above or Insert below.");
+                ? "Trip cut — right-click a row · Paste trip or Insert trip above/below."
+                : "Trip " + num + " cut — right-click a row · Paste trip or Insert trip above/below.");
         }
 
         private void FsDeleteSelectedTrip()
@@ -139,19 +139,13 @@ namespace Hiatme_Tool_Suite_v3
                 : "Trip " + num + " inserted — map updating…");
         }
 
-        private void FsInsertBlankRow(bool below)
+        private void FsInsertBlankRowAt(int insertBeforeLine)
         {
-            if (FsHasCutTrip || string.IsNullOrWhiteSpace(_fsActiveDriverTab) || !_fsHasPreview)
+            if (string.IsNullOrWhiteSpace(_fsActiveDriverTab) || !_fsHasPreview)
                 return;
 
             if (_fsActiveDriverTab.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
                 return;
-
-            if (!TryResolveFsInsertBeforeLine(_fsTripsCtxHitItem, below, out int insertBeforeLine))
-            {
-                SetScheduleBuilderStatus("Could not insert here — right-click a trip, gap, or group row.");
-                return;
-            }
 
             string tab = _fsActiveDriverTab;
             if (!_fsLinesByTab.TryGetValue(tab, out var lines) || lines == null)
@@ -160,12 +154,24 @@ namespace Hiatme_Tool_Suite_v3
             FsRevealGapsForManualInsert();
             FsPushUndoSnapshot("insert blank row");
             ScheduleBuilderPreviewDrag.InsertGapLine(lines, insertBeforeLine);
-            // Keep consecutive spacers — collapse would undo insert-from-gap immediately.
             FsCommitPreviewLinesForTab(tab, lines);
             ShowFsTripsForTab(tab);
             SyncFsPreviewCsvsForExport();
             _ = RefreshFsMapForCurrentTabAsync();
+        }
 
+        private void FsInsertBlankRow(bool below)
+        {
+            if (FsHasCutTrip || string.IsNullOrWhiteSpace(_fsActiveDriverTab) || !_fsHasPreview)
+                return;
+
+            if (!TryResolveFsInsertBeforeLine(_fsTripsCtxHitItem, below, out int insertBeforeLine))
+            {
+                SetScheduleBuilderStatus("Could not insert here — right-click a trip, gap, or group row.");
+                return;
+            }
+
+            FsInsertBlankRowAt(insertBeforeLine);
             SetScheduleBuilderStatus("Blank row inserted.");
         }
 

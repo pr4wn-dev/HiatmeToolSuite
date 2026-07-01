@@ -25,9 +25,12 @@ namespace Hiatme_Tool_Suite_v3
         private ToolStripMenuItem _fsTripsCtxUndo;
         private ToolStripMenuItem _fsTripsCtxRedo;
         private ToolStripMenuItem _fsTripsCtxPasteTrip;
-        private ToolStripMenuItem _fsTripsCtxInsertAbove;
-        private ToolStripMenuItem _fsTripsCtxInsertBelow;
+        private ToolStripMenuItem _fsTripsCtxInsertTripAbove;
+        private ToolStripMenuItem _fsTripsCtxInsertTripBelow;
         private ToolStripMenuItem _fsTripsCtxClearCut;
+        private ToolStripMenuItem _fsTripsCtxAddRowMenu;
+        private ToolStripMenuItem _fsTripsCtxAddRowAbove;
+        private ToolStripMenuItem _fsTripsCtxAddRowBelow;
         private ToolStripMenuItem _fsTripsCtxAddNoteMenu;
         private ToolStripMenuItem _fsTripsCtxAddNoteToRow;
         private ToolStripMenuItem _fsTripsCtxAddNoteAbove;
@@ -45,6 +48,12 @@ namespace Hiatme_Tool_Suite_v3
         private enum FsNotePlacement
         {
             ToRow,
+            Above,
+            Below,
+        }
+
+        private enum FsRowPlacement
+        {
             Above,
             Below,
         }
@@ -203,21 +212,21 @@ namespace Hiatme_Tool_Suite_v3
                 ShortcutKeys = Keys.Control | Keys.V,
                 ShowShortcutKeys = true,
             };
-            _fsTripsCtxPasteTrip.Click += (s, e) => FsInsertFromContextMenu(below: false);
+            _fsTripsCtxPasteTrip.Click += (s, e) => FsInsertCutTrip(below: false);
 
-            _fsTripsCtxInsertAbove = new ToolStripMenuItem("Insert above")
+            _fsTripsCtxInsertTripAbove = new ToolStripMenuItem("Insert trip above")
             {
                 BackColor = DarkContextMenuRenderer.Background,
                 ForeColor = DarkContextMenuRenderer.ForeColor,
             };
-            _fsTripsCtxInsertAbove.Click += (s, e) => FsInsertFromContextMenu(below: false);
+            _fsTripsCtxInsertTripAbove.Click += (s, e) => FsInsertCutTrip(below: false);
 
-            _fsTripsCtxInsertBelow = new ToolStripMenuItem("Insert below")
+            _fsTripsCtxInsertTripBelow = new ToolStripMenuItem("Insert trip below")
             {
                 BackColor = DarkContextMenuRenderer.Background,
                 ForeColor = DarkContextMenuRenderer.ForeColor,
             };
-            _fsTripsCtxInsertBelow.Click += (s, e) => FsInsertFromContextMenu(below: true);
+            _fsTripsCtxInsertTripBelow.Click += (s, e) => FsInsertCutTrip(below: true);
 
             _fsTripsCtxClearCut = new ToolStripMenuItem("Clear cut trip")
             {
@@ -246,6 +255,16 @@ namespace Hiatme_Tool_Suite_v3
             _fsTripsCtxAddNoteMenu.DropDownItems.Add(_fsTripsCtxAddNoteToRow);
             _fsTripsCtxAddNoteMenu.DropDownItems.Add(_fsTripsCtxAddNoteAbove);
             _fsTripsCtxAddNoteMenu.DropDownItems.Add(_fsTripsCtxAddNoteBelow);
+
+            _fsTripsCtxAddRowAbove = CreateFsTripsCtxItem("Add row above…");
+            _fsTripsCtxAddRowAbove.Click += (s, e) => FsAddRowFromContext(FsRowPlacement.Above);
+
+            _fsTripsCtxAddRowBelow = CreateFsTripsCtxItem("Add row below…");
+            _fsTripsCtxAddRowBelow.Click += (s, e) => FsAddRowFromContext(FsRowPlacement.Below);
+
+            _fsTripsCtxAddRowMenu = CreateFsTripsCtxItem("Add row");
+            _fsTripsCtxAddRowMenu.DropDownItems.Add(_fsTripsCtxAddRowAbove);
+            _fsTripsCtxAddRowMenu.DropDownItems.Add(_fsTripsCtxAddRowBelow);
 
             _fsTripsCtxChangeGroupColor = new ToolStripMenuItem("Change group color")
             {
@@ -296,8 +315,9 @@ namespace Hiatme_Tool_Suite_v3
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxPasteTrip);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxUndo);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxRedo);
-            _fsTripsCtxMenu.Items.Add(_fsTripsCtxInsertAbove);
-            _fsTripsCtxMenu.Items.Add(_fsTripsCtxInsertBelow);
+            _fsTripsCtxMenu.Items.Add(_fsTripsCtxInsertTripAbove);
+            _fsTripsCtxMenu.Items.Add(_fsTripsCtxInsertTripBelow);
+            _fsTripsCtxMenu.Items.Add(_fsTripsCtxAddRowMenu);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxClearCut);
             _fsTripsCtxMenu.Items.Add(new ToolStripSeparator());
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxAddNoteMenu);
@@ -397,15 +417,16 @@ namespace Hiatme_Tool_Suite_v3
             _fsTripsCtxUndo.Text = FsUndoMenuText();
             _fsTripsCtxRedo.Enabled = _fsUndoStack.CanRedo;
             _fsTripsCtxRedo.Text = FsRedoMenuText();
-            _fsTripsCtxInsertAbove.Enabled = FsHasCutTrip ? canInsertCut : canInsertBlank;
-            _fsTripsCtxInsertBelow.Enabled = FsHasCutTrip ? canInsertCut : canInsertBlank;
+            _fsTripsCtxAddRowAbove.Enabled = canInsertBlank;
+            _fsTripsCtxAddRowBelow.Enabled = canInsertBlank;
+            _fsTripsCtxAddRowMenu.Enabled = canInsertBlank;
+            _fsTripsCtxInsertTripAbove.Visible = FsHasCutTrip;
+            _fsTripsCtxInsertTripBelow.Visible = FsHasCutTrip;
+            _fsTripsCtxInsertTripAbove.Enabled = canInsertCut;
+            _fsTripsCtxInsertTripBelow.Enabled = canInsertCut;
+            _fsTripsCtxInsertTripAbove.Text = "Insert trip above" + FsCutTripMenuSuffix();
+            _fsTripsCtxInsertTripBelow.Text = "Insert trip below" + FsCutTripMenuSuffix();
             _fsTripsCtxClearCut.Enabled = FsHasCutTrip;
-            _fsTripsCtxInsertAbove.Text = FsHasCutTrip
-                ? "Insert above" + FsCutTripMenuSuffix()
-                : "Insert above — new row";
-            _fsTripsCtxInsertBelow.Text = FsHasCutTrip
-                ? "Insert below" + FsCutTripMenuSuffix()
-                : "Insert below — new row";
 
             _fsTripsCtxBanClient.Enabled = hasTrip;
             _fsTripsCtxUnbanClient.Enabled = hasTrip && isBanned;
@@ -652,6 +673,32 @@ namespace Hiatme_Tool_Suite_v3
             }
             else
                 _fsTripsCtxTrip = GetFsTripFromListItem(item);
+        }
+
+        private void FsAddRowFromContext(FsRowPlacement placement)
+        {
+            if (FsHasCutTrip || string.IsNullOrWhiteSpace(_fsActiveDriverTab) || !_fsHasPreview)
+                return;
+
+            if (_fsActiveDriverTab.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
+                return;
+
+            var item = FsResolveContextListItem();
+            if (item == null)
+            {
+                SetScheduleBuilderStatus("Select a row first, then add a blank row.");
+                return;
+            }
+
+            bool below = placement == FsRowPlacement.Below;
+            if (!TryResolveFsInsertBeforeLine(item, below, out int insertBeforeLine))
+            {
+                SetScheduleBuilderStatus("Could not add a row here — select a trip, gap, or note row.");
+                return;
+            }
+
+            FsInsertBlankRowAt(insertBeforeLine);
+            SetScheduleBuilderStatus(below ? "Blank row added below selection." : "Blank row added above selection.");
         }
 
         private bool FsCanAddNoteToRowContext()
