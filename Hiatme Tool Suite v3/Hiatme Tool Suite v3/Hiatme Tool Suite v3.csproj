@@ -222,7 +222,16 @@
       <DependentUpon>Form1.cs</DependentUpon>
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="Form1.TripScoutChangeAlert.cs">
+      <DependentUpon>Form1.cs</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Form1.TripScoutSimulate.cs">
+      <DependentUpon>Form1.cs</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="TripScoutListRow.cs" />
+    <Compile Include="TripScoutChangeFormat.cs" />
     <Compile Include="TripScoutLiveBellControl.cs" />
     <Compile Include="TripScoutLiveScanIndicator.cs" />
     <Compile Include="TripScoutActivityForm.cs" />

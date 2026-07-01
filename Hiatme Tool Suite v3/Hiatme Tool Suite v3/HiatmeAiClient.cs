@@ -465,6 +465,18 @@ namespace Hiatme_Tool_Suite_v3
             public string Kind { get; set; }
             public List<string> Tags { get; set; }
             public string Summary { get; set; }
+            public List<TripScoutChangeFieldRow> Fields { get; set; }
+        }
+
+        public sealed class TripScoutChangeFieldRow
+        {
+            public string Field { get; set; }
+
+            [JsonProperty("before")]
+            public object Before { get; set; }
+
+            [JsonProperty("after")]
+            public object After { get; set; }
         }
 
         public static async Task<BuildProgressStatus> GetBuildProgressAsync(
@@ -2104,6 +2116,66 @@ namespace Hiatme_Tool_Suite_v3
             try
             {
                 using (var req = new HttpRequestMessage(HttpMethod.Get, url))
+                {
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken)
+                        .ConfigureAwait(false))
+                    {
+                        var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        if (!resp.IsSuccessStatusCode)
+                            return new TripScoutDayChanges
+                            {
+                                Ok = false,
+                                Error = "HTTP " + (int)resp.StatusCode + ": " + body,
+                            };
+                        return JsonConvert.DeserializeObject<TripScoutDayChanges>(body)
+                            ?? new TripScoutDayChanges { Ok = false, Error = "empty response" };
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                return new TripScoutDayChanges { Ok = false, Error = ex.Message };
+            }
+        }
+
+        /// <summary>POST /api/hiatme/trips/changes/scout/simulate — dev journal inject.</summary>
+        public static async Task<TripScoutDayChanges> SimulateTripScoutChangeAsync(
+            HiatmeAiSettings settings,
+            string serviceDateIso,
+            string tripNo,
+            string scenario,
+            string client = null,
+            string driver = null,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null || string.IsNullOrWhiteSpace(serviceDateIso))
+                return new TripScoutDayChanges { Ok = false, Error = "settings or date missing" };
+
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl))
+                return new TripScoutDayChanges { Ok = false, Error = "AI server URL not configured" };
+
+            var q = new List<string>
+            {
+                "service_date=" + Uri.EscapeDataString(serviceDateIso.Trim()),
+            };
+            if (!string.IsNullOrWhiteSpace(tripNo))
+                q.Add("trip_no=" + Uri.EscapeDataString(tripNo.Trim()));
+            if (!string.IsNullOrWhiteSpace(scenario))
+                q.Add("scenario=" + Uri.EscapeDataString(scenario.Trim()));
+            if (!string.IsNullOrWhiteSpace(client))
+                q.Add("client=" + Uri.EscapeDataString(client.Trim()));
+            if (!string.IsNullOrWhiteSpace(driver))
+                q.Add("driver=" + Uri.EscapeDataString(driver.Trim()));
+
+            string url = baseUrl + "/api/hiatme/trips/changes/scout/simulate?" + string.Join("&", q);
+
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Post, url))
                 {
                     if (!string.IsNullOrWhiteSpace(settings.ApiToken))
                         req.Headers.Authorization = new AuthenticationHeaderValue(

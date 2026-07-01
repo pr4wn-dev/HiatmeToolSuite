@@ -208,11 +208,15 @@ namespace Hiatme_Tool_Suite_v3
             HiatmeAiClient.TripScoutChangeRow change,
             string tripNo)
         {
-            var item = new ListViewItem("      " + TripScoutFormatChangeTime(change?.Ts));
+            string when = TripScoutFormatChangeTime(change?.Ts);
+            string headline = TripScoutChangeFormat.FormatHeadline(change) ?? "Updated";
+            string diff = TripScoutChangeFormat.FormatDiff(change);
+
+            var item = new ListViewItem("      " + when);
             item.Tag = TripScoutListRow.ForChange(change, tripNo);
+            item.SubItems.Add("↳ " + headline);
             item.SubItems.Add("");
-            item.SubItems.Add("");
-            item.SubItems.Add(change?.Summary ?? "");
+            item.SubItems.Add(diff);
             item.SubItems.Add("");
             item.SubItems.Add("");
             item.SubItems.Add("");
@@ -224,7 +228,7 @@ namespace Hiatme_Tool_Suite_v3
             item.SubItems.Add("");
             item.SubItems.Add("");
             item.BackColor = TripScoutChangeDetailBg;
-            item.ForeColor = Color.Gainsboro;
+            item.ForeColor = Color.FromArgb(255, 220, 160);
             return item;
         }
 

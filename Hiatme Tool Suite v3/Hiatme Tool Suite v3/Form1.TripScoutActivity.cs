@@ -46,6 +46,7 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             EnsureTripScoutExpandClick();
+            EnsureTripScoutSimulateToolbar();
             UpdateTripScoutActivityButtons();
         }
 
@@ -75,6 +76,7 @@ namespace Hiatme_Tool_Suite_v3
             _tripScoutWillCallTripNos.Clear();
             _tripScoutNewChangeTripNos.Clear();
             TripScoutClearExpandedTrips();
+            TripScoutResetChangeAlert();
             UpdateTripScoutActivityButtons();
             TripScoutApplyRowHighlights();
             TripScoutUpdateLiveBellIndicator();
@@ -168,6 +170,8 @@ namespace Hiatme_Tool_Suite_v3
             _tripScoutDayChanges = payload.Changes ?? new List<HiatmeAiClient.TripScoutChangeRow>();
             RebuildTripScoutChangesByTrip();
             RebuildTripScoutNewChangeTripNosFromHash();
+            TripScoutProcessNewChangeAlerts();
+            UpdateTripScoutActivityButtons();
             if (_tripScoutExpandedTripNos.Count > 0)
                 TripScoutRebindVisibleListPreserveScroll();
         }
@@ -320,6 +324,7 @@ namespace Hiatme_Tool_Suite_v3
                 }
             }
             _tripScoutNewChangeTripNos.Clear();
+            TripScoutClearChangeAlertQueue();
             UpdateTripScoutActivityButtons();
             TripScoutApplyRowHighlights();
         }
