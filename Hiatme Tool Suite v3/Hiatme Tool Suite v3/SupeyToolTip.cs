@@ -68,9 +68,9 @@ namespace Hiatme_Tool_Suite_v3
 
             var textRect = new Rectangle(
                 bounds.X + PadH,
-                bounds.Y + PadV / 2,
+                bounds.Y + (PadV + 1) / 2,
                 bounds.Width - PadH * 2,
-                bounds.Height - PadV);
+                bounds.Height - PadV - 1);
 
             TextRenderer.DrawText(
                 g,
@@ -85,6 +85,8 @@ namespace Hiatme_Tool_Suite_v3
         {
             var tip = sender as ToolTip;
             string text = tip?.GetToolTip(e.AssociatedControl);
+            if (string.IsNullOrEmpty(text) && tip?.Tag is Func<string> getText)
+                text = getText() ?? "";
             if (string.IsNullOrEmpty(text))
                 return;
 
@@ -96,7 +98,7 @@ namespace Hiatme_Tool_Suite_v3
 
             e.ToolTipSize = new Size(
                 Math.Max(48, sz.Width + PadH * 2),
-                Math.Max(24, sz.Height + PadV));
+                Math.Max(26, sz.Height + PadV + 2));
         }
     }
 }

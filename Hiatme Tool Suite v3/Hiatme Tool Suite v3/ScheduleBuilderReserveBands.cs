@@ -408,6 +408,9 @@ namespace Hiatme_Tool_Suite_v3
         public static readonly Color BannedBand = Color.FromArgb(168, 72, 88);    // rose — banned (legacy)
         public static readonly Color CancelBand = Color.FromArgb(108, 92, 148); // violet — manual cancels
 
+        public static bool IsRerouteBand(Color band)
+            => band.ToArgb() == RerouteBand.ToArgb();
+
         /// <summary>Section header bar color from title (Will calls / Reservers / Cancels / Reroutes).</summary>
         public static Color SectionColorForTitle(string title)
         {

@@ -172,8 +172,7 @@ namespace Hiatme_Tool_Suite_v3
             RebuildTripScoutNewChangeTripNosFromHash();
             TripScoutProcessNewChangeAlerts();
             UpdateTripScoutActivityButtons();
-            if (_tripScoutExpandedTripNos.Count > 0)
-                TripScoutRebindVisibleListPreserveScroll();
+            TripScoutRebindVisibleListPreserveScroll();
         }
 
         private void RebuildTripScoutNewChangeTripNosFromHash()
@@ -207,6 +206,8 @@ namespace Hiatme_Tool_Suite_v3
                 _tripScoutWillCallTripNos.Add(wc.TripNo.Trim());
             }
             TripScoutUpdateLiveBellIndicator();
+            if (_tripScoutAllTrips != null && _tripScoutAllTrips.Count > 0)
+                TripScoutRebindVisibleListPreserveScroll();
         }
 
         internal string TripScoutPeekBellStatusNote()

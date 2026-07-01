@@ -208,6 +208,82 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        /// <summary>
+        /// Populate <see cref="MCDownloadedTrip.Alerts"/> on schedule-builder preview trips using the
+        /// same checks as <see cref="AnalyzeTrips"/> (no grading UI).
+        /// </summary>
+        public async Task ApplyAlertsToScheduleBuilderAsync(FullScheduleBuilder builder, DateTime serviceDate)
+        {
+            if (builder == null)
+                throw new ArgumentNullException(nameof(builder));
+
+            modivcareDownloadedTrips = builder.MCTripList ?? new List<MCDownloadedTrip>();
+            LastModivcareDownloadCount = modivcareDownloadedTrips.Count;
+
+            await TryLoadWellRydeTripsAndDriversAsync(serviceDate).ConfigureAwait(false);
+            LastWellRydeDownloadCount = wellrydeDownloadedTrips?.Count ?? 0;
+
+            loggedScheduleTrips = new List<MCDownloadedTrip>();
+            drivertablist = BuildDriverTabListFromScheduleBuilder(builder);
+            ClearAlertsOnScheduledTrips(drivertablist);
+
+            gradeList = new List<SubjectGrade>();
+            AnalyzeTrips(serviceDate);
+        }
+
+        private static List<MCDriverTab> BuildDriverTabListFromScheduleBuilder(FullScheduleBuilder builder)
+        {
+            var tabs = new List<MCDriverTab>();
+            IReadOnlyDictionary<string, List<ScheduleBuilderPreviewLine>> preview = builder.PreviewDriverLines;
+            if (preview == null)
+                return tabs;
+
+            foreach (KeyValuePair<string, List<ScheduleBuilderPreviewLine>> kv in preview)
+            {
+                if (string.IsNullOrWhiteSpace(kv.Key))
+                    continue;
+
+                var tab = new MCDriverTab { driverName = kv.Key };
+                IList<ScheduleBuilderPreviewLine> lines = kv.Value;
+                if (lines != null)
+                {
+                    for (int i = 0; i < lines.Count; i++)
+                    {
+                        ScheduleBuilderPreviewLine line = lines[i];
+                        if (line?.Kind != ScheduleBuilderPreviewLine.LineKind.Trip || line.Trip == null)
+                            continue;
+
+                        line.Trip.DriverNameParsed = kv.Key;
+                        tab.scheduledTrips.Add(line.Trip);
+                    }
+                }
+
+                if (tab.scheduledTrips.Count > 0)
+                    tabs.Add(tab);
+            }
+
+            return tabs;
+        }
+
+        private static void ClearAlertsOnScheduledTrips(IEnumerable<MCDriverTab> tabs)
+        {
+            if (tabs == null)
+                return;
+
+            foreach (MCDriverTab tab in tabs)
+            {
+                if (tab?.scheduledTrips == null)
+                    continue;
+
+                foreach (MCDownloadedTrip trip in tab.scheduledTrips)
+                {
+                    if (trip == null)
+                        continue;
+                    trip.Alerts = new List<string>();
+                }
+            }
+        }
+
         private void RunAnalysisStep(string stepName, System.Action step)
         {
             try
@@ -1663,43 +1739,22 @@ namespace Hiatme_Tool_Suite_v3
         }
         private bool CheckIfRowHasNotes(string[] myrow)
         {
-            for (int a = 0; a < myrow.Length; a++)
-            {
-                switch (a)
-                {
-                    case 0:
-                        if (myrow[a] == null)
-                        {
-                            if (myrow[2] != null)
-                            {
-                                return true;
-                            }
-                            if (myrow[3] != null)
-                            {
-                                return true;
-                            }
-                            if (myrow[4] != null)
-                            {
-                                return true;
-                            }
-                            if (myrow[5] != null)
-                            {
-                                return true;
-                            }
-                            if (myrow[6] != null)
-                            {
-                                return true;
-                            }
-                            if (myrow[7] != null)
-                            {
-                                return true;
-                            }
-                        }
-                        break;
-                    default:
-                        break;
-                }
-            }
+            if (myrow == null || myrow.Length == 0)
+                return false;
+
+            if (TripTemplateCsvValidator.IsLikelyHeaderRow(myrow))
+                return false;
+
+            if (CheckIfRowIsGood(myrow))
+                return false;
+
+            // Column A labels (Schedule Builder export) and legacy rows with text in C–N.
+            if (TripTemplateCsvValidator.IsDispatcherNoteRow(myrow))
+                return true;
+
+            if (TripTemplateCsvValidator.IsTemplateInstructionRow(myrow))
+                return true;
+
             return false;
         }
         private string ReturnDateFromMCTime(string datestr)

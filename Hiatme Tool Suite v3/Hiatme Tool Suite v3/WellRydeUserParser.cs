@@ -107,7 +107,7 @@ namespace Hiatme_Tool_Suite_v3
                     FirstName = GetCellValue(row, "UserFirstName"),
                     MiddleName = GetCellValue(row, "UserMiddleName"),
                     LastName = GetCellValue(row, "UserLastName"),
-                    Email = GetCellValue(row, "UserEmail"),
+                    Email = TryNormalizeEmail(ExtractEmailFromListCell(row)),
                     Enabled = ParseCellBool(row, "UserEnabled"),
                     Locked = ParseCellBool(row, "UserPwdAcctLocked"),
                 };
@@ -136,9 +136,34 @@ namespace Hiatme_Tool_Suite_v3
                 if (v == null) return "";
                 if (v.Type == JTokenType.Boolean) return v.Value<bool>() ? "true" : "false";
                 if (v.Type == JTokenType.Null) return "";
-                return (v.ToString() ?? "").Trim();
+                string s = v.Type == JTokenType.String ? (v.Value<string>() ?? "") : (v.ToString() ?? "");
+                s = s.Trim();
+                if (s.StartsWith("{", StringComparison.Ordinal)
+                    && (s.IndexOf("columnValue", StringComparison.OrdinalIgnoreCase) >= 0
+                        || s.IndexOf("colmnLinkId", StringComparison.OrdinalIgnoreCase) >= 0))
+                    return ExtractColumnValueFromJson(s);
+                return s;
             }
             return (cell.ToString() ?? "").Trim();
+        }
+
+        private static string ExtractColumnValueFromJson(string json)
+        {
+            if (string.IsNullOrWhiteSpace(json))
+                return "";
+            try
+            {
+                var o = JObject.Parse(json);
+                string col = (o["columnValue"]?.ToString() ?? "").Trim();
+                if (col.Length > 0)
+                    return col;
+                string link = (o["colmnLinkId"]?.ToString() ?? "").Trim();
+                return link;
+            }
+            catch
+            {
+                return "";
+            }
         }
 
         private static bool ParseCellBool(JObject row, string columnKey)
@@ -215,12 +240,14 @@ namespace Hiatme_Tool_Suite_v3
                 string value = WebUtility.HtmlDecode((m.Groups[2].Value ?? "").Trim());
                 // Strip stray whitespace runs introduced by the portal's pretty-printing.
                 value = Regex.Replace(value, @"\s+", " ").Trim();
+                value = StripInlineHtml(value);
                 if (label.Length > 0)
                     fields[label] = value;
             }
 
             d.Username = GetField(fields, "Username");
-            d.Email = GetField(fields, "Email");
+            string email = TryNormalizeEmail(GetFieldFirst(fields, "Email", "E-mail", "User Email", "Email Address"));
+            d.Email = email;
             d.Phone = GetField(fields, "User Phone Number");
 
             d.Address1 = GetField(fields, "Address1");
@@ -262,6 +289,9 @@ namespace Hiatme_Tool_Suite_v3
                 d.FullName = ((GetField(fields, "First Name") + " " + GetField(fields, "Last Name")).Trim());
             }
 
+            if (string.IsNullOrWhiteSpace(d.Email))
+                d.Email = TryNormalizeEmail(ExtractMailtoFromHtml(html));
+
             // Roles.
             var rolesMatch = UserRolesBlockRegex.Match(html);
             if (rolesMatch.Success)
@@ -278,6 +308,170 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             return d;
+        }
+
+        /// <summary>Validates and normalizes an email string from any WellRyde surface (list, detail, form).</summary>
+        public static string TryNormalizeEmail(string raw)
+        {
+            string v = NormalizeEmailCell(raw);
+            return LooksLikeEmail(v) ? v : "";
+        }
+
+        /// <summary>Reads email from <c>GET /portal/users/{id}?form</c> JSON when detail HTML omits it.</summary>
+        public static string ParseEmailFromEditFormJson(string json)
+        {
+            if (string.IsNullOrWhiteSpace(json))
+                return "";
+
+            try
+            {
+                var root = JObject.Parse(json);
+                foreach (var key in new[] { "email", "orgEmail", "userEmail", "UserEmail" })
+                {
+                    string v = FindStringValueInJson(root, key);
+                    v = NormalizeEmailCell(v);
+                    if (LooksLikeEmail(v))
+                        return v;
+                }
+            }
+            catch
+            {
+                // Best-effort only.
+            }
+
+            return "";
+        }
+
+        private static string ExtractEmailFromListCell(JObject row)
+        {
+            if (row == null)
+                return "";
+
+            foreach (var key in new[] { "UserEmail", "Email", "UserEmailAddress" })
+            {
+                string v = NormalizeEmailCell(GetCellValue(row, key));
+                if (LooksLikeEmail(v))
+                    return v;
+            }
+
+            return "";
+        }
+
+        private static string NormalizeEmailCell(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+                return "";
+
+            raw = raw.Trim();
+            if (raw.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase))
+                return raw.Substring(7).Trim();
+
+            if (raw.StartsWith("{", StringComparison.Ordinal)
+                && raw.IndexOf('@') >= 0
+                && raw.IndexOf("columnValue", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                try
+                {
+                    var o = JObject.Parse(raw);
+                    foreach (var prop in o.Properties())
+                    {
+                        string v = NormalizeEmailCell(prop.Value?.ToString() ?? "");
+                        if (LooksLikeEmail(v))
+                            return v;
+                    }
+                }
+                catch
+                {
+                    // Fall through to raw string.
+                }
+            }
+
+            return raw;
+        }
+
+        private static bool LooksLikeEmail(string value)
+        {
+            value = (value ?? "").Trim();
+            if (value.Length < 5)
+                return false;
+            int at = value.IndexOf('@');
+            if (at <= 0)
+                return false;
+            return value.IndexOf('.', at + 1) > at;
+        }
+
+        private static string ExtractMailtoFromHtml(string html)
+        {
+            if (string.IsNullOrWhiteSpace(html))
+                return "";
+
+            var m = Regex.Match(html, @"mailto:([^\s""'<>]+)", RegexOptions.IgnoreCase);
+            if (!m.Success)
+                return "";
+
+            string email = WebUtility.HtmlDecode(m.Groups[1].Value ?? "").Trim();
+            return LooksLikeEmail(email) ? email : "";
+        }
+
+        private static string StripInlineHtml(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+                return "";
+
+            raw = raw.Trim();
+            if (raw.IndexOf('<') < 0)
+                return raw;
+
+            string mailto = ExtractMailtoFromHtml(raw);
+            if (LooksLikeEmail(mailto))
+                return mailto;
+
+            return Regex.Replace(raw, @"<[^>]+>", "").Trim();
+        }
+
+        private static string GetFieldFirst(Dictionary<string, string> fields, params string[] labels)
+        {
+            if (fields == null || labels == null)
+                return "";
+            foreach (var label in labels)
+            {
+                string v = GetField(fields, label);
+                if (!string.IsNullOrWhiteSpace(v))
+                    return v;
+            }
+            return "";
+        }
+
+        private static string FindStringValueInJson(JToken root, string key)
+        {
+            if (root == null || string.IsNullOrEmpty(key))
+                return "";
+
+            if (root is JObject o)
+            {
+                foreach (var p in o.Properties())
+                {
+                    if (string.Equals(p.Name, key, StringComparison.OrdinalIgnoreCase))
+                        return (p.Value?.ToString() ?? "").Trim();
+                    if (p.Value is JObject || p.Value is JArray)
+                    {
+                        string nested = FindStringValueInJson(p.Value, key);
+                        if (!string.IsNullOrWhiteSpace(nested))
+                            return nested;
+                    }
+                }
+            }
+            else if (root is JArray arr)
+            {
+                foreach (var item in arr)
+                {
+                    string nested = FindStringValueInJson(item, key);
+                    if (!string.IsNullOrWhiteSpace(nested))
+                        return nested;
+                }
+            }
+
+            return "";
         }
 
         private static string GetField(Dictionary<string, string> fields, string label)

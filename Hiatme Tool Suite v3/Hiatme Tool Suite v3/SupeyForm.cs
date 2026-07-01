@@ -102,6 +102,12 @@ namespace Hiatme_Tool_Suite_v3
 
         private const int WM_EXITSIZEMOVE = 0x0232;
 
+        private const int WM_SETICON = 0x0080;
+
+        private const int ICON_SMALL = 0;
+
+        private const int ICON_BIG = 1;
+
 
 
         private const int DWMWA_TRANSITIONS_FORCEDISABLED = 3;
@@ -277,6 +283,12 @@ namespace Hiatme_Tool_Suite_v3
         [DllImport("user32.dll", CharSet = CharSet.Auto)]
 
         private static extern IntPtr SendMessage(IntPtr hWnd, int msg, int wParam, int lParam);
+
+
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+
+        private static extern IntPtr SendMessage(IntPtr hWnd, int msg, int wParam, IntPtr lParam);
 
 
 
@@ -547,6 +559,24 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
+        protected override void OnHandleCreated(EventArgs e)
+
+        {
+
+            base.OnHandleCreated(e);
+
+            if (DesignMode) return;
+
+            EnsureApplicationIcon();
+
+            ApplyNativeWindowIcons();
+
+            RefreshTitleBarChrome();
+
+        }
+
+
+
         protected override void OnCreateControl()
 
         {
@@ -564,6 +594,52 @@ namespace Hiatme_Tool_Suite_v3
             {
 
                 ApplyDwmChrome();
+
+            }
+
+            catch { }
+
+        }
+
+
+
+        private void EnsureApplicationIcon()
+
+        {
+
+            if (DesignMode || Icon != null) return;
+
+            try
+
+            {
+
+                string path = Application.ExecutablePath;
+
+                if (string.IsNullOrEmpty(path)) return;
+
+                Icon = System.Drawing.Icon.ExtractAssociatedIcon(path);
+
+            }
+
+            catch { }
+
+        }
+
+
+
+        private void ApplyNativeWindowIcons()
+
+        {
+
+            if (DesignMode || Icon == null || !IsHandleCreated) return;
+
+            try
+
+            {
+
+                SendMessage(Handle, WM_SETICON, ICON_BIG, Icon.Handle);
+
+                SendMessage(Handle, WM_SETICON, ICON_SMALL, Icon.Handle);
 
             }
 

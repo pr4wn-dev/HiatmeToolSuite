@@ -194,6 +194,8 @@
     <Compile Include="ScheduleBuilderPreviewCsvExport.cs" />
     <Compile Include="ScheduleBuilderTabOrder.cs" />
     <Compile Include="ScheduleBuilderPreviewStyle.cs" />
+    <Compile Include="ScheduleBuilderTripAlertIcons.cs" />
+    <Compile Include="ScheduleBuilderTripAlertsColumn.cs" />
     <Compile Include="ScheduleBuilderExcelWorkbookColors.cs" />
     <Compile Include="ScheduleBuilderPreviewDrag.cs" />
     <Compile Include="ScheduleBuilderPreviewTags.cs" />
@@ -512,6 +514,7 @@
     <Compile Include="WellRydeUserSummary.cs" />
     <Compile Include="WellRydeUserDetail.cs" />
     <Compile Include="WellRydeUserParser.cs" />
+    <Compile Include="WellRydeUserDetailLoader.cs" />
     <Compile Include="WellRydeNuUpdateFormBuilder.cs" />
     <Compile Include="WellRydeUserEditContextParser.cs" />
     <Compile Include="WellRydeUserEditFormHtmlParser.cs" />
@@ -687,6 +690,10 @@
     <Content Include="Resources\login_backgrounds\*.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <Content Include="Resources\trip-alerts\*.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <EmbeddedResource Include="Resources\trip-alerts\*.png" />
     <None Include="Resources\companycode.png" />
   </ItemGroup>
   <ItemGroup>

@@ -110,7 +110,13 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>Cookie name/value for <see cref="PortalRootUri"/> after the last bootstrap attempt.</summary>
         public IReadOnlyDictionary<string, string> LastPortalCookies { get; private set; }
 
-        public WellRydePortalSession()
+        /// <summary>Per-request timeout for interactive portal use (trip paging, billing).</summary>
+        public const int DefaultHttpTimeoutSeconds = 25;
+
+        /// <summary>Shorter timeout for background probes when the portal may be down.</summary>
+        public const int BackgroundHttpTimeoutSeconds = 12;
+
+        public WellRydePortalSession(int httpTimeoutSeconds = DefaultHttpTimeoutSeconds)
         {
             _handler = new HttpClientHandler
             {
@@ -121,9 +127,10 @@ namespace Hiatme_Tool_Suite_v3
                 UseCookies = true,
             };
 
+            int timeoutSeconds = Math.Max(5, httpTimeoutSeconds);
             _client = new HttpClient(_handler)
             {
-                Timeout = TimeSpan.FromSeconds(60),
+                Timeout = TimeSpan.FromSeconds(timeoutSeconds),
             };
 
             // Do not set Accept on DefaultRequestHeaders — it merges with per-request Accept and
@@ -137,6 +144,30 @@ namespace Hiatme_Tool_Suite_v3
             _client.DefaultRequestHeaders.TryAddWithoutValidation("Sec-CH-UA-Platform", "\"Windows\"");
 
             WellRydePortalLog.Info("SESSION", "WellRyde portal client started. Log file: " + WellRydePortalLog.LogFilePath);
+        }
+
+        /// <summary>
+        /// Fast TCP connect to the portal host (443). Lets background callers detect "portal down"
+        /// in a few seconds instead of burning a full HTTP timeout per request.
+        /// </summary>
+        public static async Task<bool> ProbePortalReachableAsync(int timeoutMs = 3000)
+        {
+            try
+            {
+                using (var tcp = new System.Net.Sockets.TcpClient())
+                {
+                    Task connect = tcp.ConnectAsync(PortalRootUri.Host, 443);
+                    Task winner = await Task.WhenAny(connect, Task.Delay(timeoutMs)).ConfigureAwait(false);
+                    if (winner != connect)
+                        return false;
+                    await connect.ConfigureAwait(false); // observe connect exceptions (refused, DNS)
+                    return true;
+                }
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         /// <summary>GET portal root once (no redirect chain). Cookies accumulate in <see cref="CookieJar"/>.</summary>

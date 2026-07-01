@@ -134,30 +134,41 @@ namespace Hiatme_Tool_Suite_v3
 
         private static void AllowDarkOnHandle(Control c)
         {
+            // Always hook HandleCreated (idempotent): WinForms recreates handles on
+            // some property changes (theme switches trigger this), and the dark-mode
+            // allowance is per-HWND — a recreated handle would otherwise lose it.
+            c.HandleCreated -= OnHandleCreatedAllowDark;
+            c.HandleCreated += OnHandleCreatedAllowDark;
             if (c.IsHandleCreated)
             {
                 try { AllowDarkModeForWindow(c.Handle, true); } catch { }
             }
-            else
+        }
+
+        private static void OnHandleCreatedAllowDark(object sender, EventArgs e)
+        {
+            if (sender is Control c)
             {
-                c.HandleCreated += (s, e) =>
-                {
-                    try { AllowDarkModeForWindow(c.Handle, true); } catch { }
-                };
+                try { AllowDarkModeForWindow(c.Handle, true); } catch { }
             }
         }
 
         private static void ApplyTo(Control c)
         {
-            // SetWindowTheme has to run after the HWND exists — themes apply per-window.
+            // SetWindowTheme applies per-HWND, so re-theme after every handle
+            // (re)creation — not just the first one. Without this, any control whose
+            // handle is recreated (e.g. during a live theme switch) reverts to the
+            // bright-gray default scrollbars.
+            c.HandleCreated -= OnHandleCreatedApplyTheme;
+            c.HandleCreated += OnHandleCreatedApplyTheme;
             if (c.IsHandleCreated)
-            {
                 ApplyThemeNow(c);
-            }
-            else
-            {
-                c.HandleCreated += (s, e) => ApplyThemeNow(c);
-            }
+        }
+
+        private static void OnHandleCreatedApplyTheme(object sender, EventArgs e)
+        {
+            if (sender is Control c)
+                ApplyThemeNow(c);
         }
 
         private static void ApplyThemeNow(Control c)

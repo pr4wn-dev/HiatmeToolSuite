@@ -86,6 +86,14 @@ namespace Hiatme_Tool_Suite_v3
 
         private SupeyListView _fsTripsLv;
 
+        private ToolTip _fsTripsAlertTip;
+        private string _fsTripsAlertTipLastText = "";
+        private ScheduleBuilderTripAlertKind? _fsTripsAlertTipActiveKind;
+        private System.Windows.Forms.Timer _fsTripsAlertTipDelayTimer;
+        private ScheduleBuilderTripAlertKind? _fsTripsAlertTipPendingKind;
+        private string _fsTripsAlertTipPendingText = "";
+        private Rectangle _fsTripsAlertTipPendingIconBounds;
+
         private Panel _fsCutTripBar;
         private Label _fsCutTripBarLine1;
         private Label _fsCutTripBarLine2;
@@ -812,7 +820,7 @@ namespace Hiatme_Tool_Suite_v3
 
             ConfigureFsTripsListViewColumns();
 
-
+            ScheduleBuilderTripAlertsColumn.EnsureRowHeightFitsIcons(_fsTripsLv);
 
             host.Controls.Add(_fsTripsLv);
 
@@ -835,6 +843,8 @@ namespace Hiatme_Tool_Suite_v3
             _fsTripsLv.MouseUp += FsTripsLv_MouseUp_ShowContextMenu;
 
             _fsTripsLv.KeyDown += FsTripsLv_KeyDown_ScheduleShortcuts;
+
+            WireFsTripsAlertIconToolTip();
 
             WireFsTripsListDragDrop();
 
@@ -1170,13 +1180,18 @@ namespace Hiatme_Tool_Suite_v3
 
             bool isNote = noteTag != null;
             bool rerouted = tripTag?.ReroutedOnModivcare == true;
-            bool cancelled = !rerouted && tripTag?.CancelledOnWellRyde == true;
+            bool reservesReroute = !rerouted && tripTag?.InReservesReroutesSection == true;
+            bool cancelled = !rerouted && !reservesReroute && tripTag?.CancelledOnWellRyde == true;
 
             Color rowBg = sel ? SupeyTheme.ListSelected : SupeyTheme.ListBody;
 
             if (!sel && rerouted)
 
                 rowBg = ScheduleBuilderPreviewStyle.ReroutedTripBackColor;
+
+            else if (!sel && reservesReroute)
+
+                rowBg = ScheduleBuilderPreviewStyle.ReservesRerouteTripBackColor;
 
             else if (!sel && cancelled)
 
@@ -1202,11 +1217,15 @@ namespace Hiatme_Tool_Suite_v3
 
                 fill = ScheduleBuilderPreviewStyle.ReroutedTripSelectedBackColor;
 
+            else if (sel && reservesReroute)
+
+                fill = ScheduleBuilderPreviewStyle.ReservesRerouteTripSelectedBackColor;
+
             else if (sel && cancelled)
 
                 fill = ScheduleBuilderPreviewStyle.CancelledTripSelectedBackColor;
 
-            else if (!sel && !isGap && !isNote && !rerouted && !cancelled && e.ColumnIndex == 0 && FsShowGroupColorsEnabled
+            else if (!sel && !isGap && !isNote && !rerouted && !reservesReroute && !cancelled && e.ColumnIndex == 0 && FsShowGroupColorsEnabled
                 && !isReservesTab
 
                 && e.SubItem != null && e.SubItem.BackColor != Color.Empty
@@ -1219,7 +1238,17 @@ namespace Hiatme_Tool_Suite_v3
 
             SupeyListViewHelpers.DrawSubItemCellBackground(e, fill, cellBounds);
 
+            if (e.ColumnIndex == ScheduleBuilderTripAlertsColumn.ColumnIndex)
+            {
+                if (tripTag != null)
+                {
+                    var alerts = ScheduleBuilderTripAlertsColumn.ResolveAlerts(tripTag);
+                    ScheduleBuilderTripAlertsColumn.PaintIcons(e.Graphics, cellBounds, alerts, fill);
+                }
 
+                SupeyListViewHelpers.DrawCellGridLines(e.Graphics, cellBounds, _fsTripsLv);
+                return;
+            }
 
             var bounds = new Rectangle(cellBounds.Left + 6, cellBounds.Top, cellBounds.Width - 6, cellBounds.Height);
 
@@ -1234,18 +1263,18 @@ namespace Hiatme_Tool_Suite_v3
                 textColor = Color.White;
 
             var gapTag = e.Item?.Tag as FsPreviewGapTag;
-            if (!sel && isGap && gapTag != null && e.ColumnIndex == 3 && !string.IsNullOrWhiteSpace(gapTag.NoteText))
+            if (!sel && isGap && gapTag != null && e.ColumnIndex == ScheduleBuilderTripAlertsColumn.GapNoteColumnIndex && !string.IsNullOrWhiteSpace(gapTag.NoteText))
                 textColor = SupeyTheme.TextSecondary;
 
-            if (!sel && isSection && !isReservesTab && e.ColumnIndex == 2)
+            if (!sel && isSection && !isReservesTab && e.ColumnIndex == ScheduleBuilderTripAlertsColumn.SectionLabelColumnIndex)
 
                 textColor = SupeyTheme.TextPrimary;
 
-            Font drawFont = isSection && !isReservesTab && e.ColumnIndex == 2
+            Font drawFont = isSection && !isReservesTab && e.ColumnIndex == ScheduleBuilderTripAlertsColumn.SectionLabelColumnIndex
 
                 ? new Font(_fsTripsLv.Font, FontStyle.Bold)
 
-                : (isGap && gapTag != null && !string.IsNullOrWhiteSpace(gapTag.NoteText) && e.ColumnIndex == 3)
+                : (isGap && gapTag != null && !string.IsNullOrWhiteSpace(gapTag.NoteText) && e.ColumnIndex == ScheduleBuilderTripAlertsColumn.GapNoteColumnIndex)
                     ? new Font(_fsTripsLv.Font, FontStyle.Italic)
                     : _fsTripsLv.Font;
 
@@ -1275,6 +1304,141 @@ namespace Hiatme_Tool_Suite_v3
 
             SupeyListViewHelpers.DrawCellGridLines(e.Graphics, cellBounds, _fsTripsLv);
 
+        }
+
+
+
+        private void WireFsTripsAlertIconToolTip()
+        {
+            if (_fsTripsLv == null)
+                return;
+
+            _fsTripsAlertTip = SupeyToolTip.Create(initialDelay: 400, autoPopDelay: 12000, reshowDelay: 200);
+            _fsTripsAlertTip.Tag = (Func<string>)(() => _fsTripsAlertTipLastText);
+            _fsTripsLv.ShowItemToolTips = false;
+            _fsTripsLv.MouseMove += FsTripsLv_MouseMove_AlertToolTip;
+            _fsTripsLv.MouseLeave += FsTripsLv_MouseLeave_AlertToolTip;
+
+            _fsTripsAlertTipDelayTimer = new System.Windows.Forms.Timer { Interval = 180 };
+            _fsTripsAlertTipDelayTimer.Tick += FsTripsAlertTipDelayTimer_Tick;
+        }
+
+        private void FsTripsLv_MouseMove_AlertToolTip(object sender, MouseEventArgs e)
+        {
+            if (_fsTripsLv == null || _fsTripsAlertTip == null)
+                return;
+
+            ListViewHitTestInfo hit = _fsTripsLv.HitTest(e.Location);
+            if (hit?.Item?.Tag is FsPreviewTripTag tripTag
+                && ScheduleBuilderTripAlertsColumn.TryGetAlertsCellBounds(
+                    _fsTripsLv,
+                    hit.Item,
+                    FsTripsGetDragBumpPixels(hit.Item.Index),
+                    out Rectangle cellBounds)
+                && cellBounds.Contains(e.Location))
+            {
+                var alerts = ScheduleBuilderTripAlertsColumn.ResolveAlerts(tripTag);
+                if (ScheduleBuilderTripAlertsColumn.TryGetIconAtPoint(
+                        cellBounds, alerts, e.Location, out var kind, out Rectangle iconBounds))
+                {
+                    string tip = ScheduleBuilderTripAlertsColumn.GetDisplayName(kind);
+                    if (_fsTripsAlertTipActiveKind == kind)
+                        return;
+
+                    if (_fsTripsAlertTipPendingKind == kind)
+                        return;
+
+                    FsTripsQueueAlertToolTip(kind, tip, iconBounds);
+                    return;
+                }
+            }
+
+            FsTripsClearAlertToolTip();
+        }
+
+        private void FsTripsQueueAlertToolTip(
+            ScheduleBuilderTripAlertKind kind,
+            string tip,
+            Rectangle iconBounds)
+        {
+            FsTripsCancelAlertToolTipDelay();
+
+            if (_fsTripsAlertTipActiveKind != null)
+            {
+                FsTripsShowAlertToolTip(kind, tip, iconBounds);
+                return;
+            }
+
+            _fsTripsAlertTipPendingKind = kind;
+            _fsTripsAlertTipPendingText = tip ?? "";
+            _fsTripsAlertTipPendingIconBounds = iconBounds;
+            _fsTripsAlertTipDelayTimer?.Start();
+        }
+
+        private void FsTripsAlertTipDelayTimer_Tick(object sender, EventArgs e)
+        {
+            _fsTripsAlertTipDelayTimer?.Stop();
+            if (_fsTripsAlertTipPendingKind == null)
+                return;
+
+            FsTripsShowAlertToolTip(
+                _fsTripsAlertTipPendingKind.Value,
+                _fsTripsAlertTipPendingText,
+                _fsTripsAlertTipPendingIconBounds);
+            _fsTripsAlertTipPendingKind = null;
+            _fsTripsAlertTipPendingText = "";
+        }
+
+        private void FsTripsShowAlertToolTip(
+            ScheduleBuilderTripAlertKind kind,
+            string tip,
+            Rectangle iconBounds)
+        {
+            tip = (tip ?? "").Trim();
+            if (tip.Length == 0 || _fsTripsLv == null || _fsTripsAlertTip == null)
+                return;
+
+            if (_fsTripsAlertTipActiveKind == kind && tip == _fsTripsAlertTipLastText)
+                return;
+
+            if (_fsTripsAlertTipActiveKind != null)
+                _fsTripsAlertTip.Hide(_fsTripsLv);
+
+            _fsTripsAlertTipLastText = tip;
+            _fsTripsAlertTipActiveKind = kind;
+
+            Size tipSize = TextRenderer.MeasureText(
+                tip,
+                SupeyTheme.CaptionFont,
+                new Size(440, int.MaxValue),
+                TextFormatFlags.SingleLine | TextFormatFlags.Left);
+            tipSize = new Size(tipSize.Width + 20, tipSize.Height + 10);
+
+            Point anchor = ScheduleBuilderTripAlertsColumn.GetToolTipAnchor(iconBounds, tipSize);
+            _fsTripsAlertTip.Show(tip, _fsTripsLv, anchor.X, anchor.Y, 12000);
+        }
+
+        private void FsTripsCancelAlertToolTipDelay()
+        {
+            _fsTripsAlertTipDelayTimer?.Stop();
+            _fsTripsAlertTipPendingKind = null;
+            _fsTripsAlertTipPendingText = "";
+        }
+
+        private void FsTripsClearAlertToolTip()
+        {
+            FsTripsCancelAlertToolTipDelay();
+            if (_fsTripsAlertTipActiveKind == null && _fsTripsAlertTipLastText.Length == 0)
+                return;
+
+            _fsTripsAlertTipActiveKind = null;
+            _fsTripsAlertTipLastText = "";
+            _fsTripsAlertTip?.Hide(_fsTripsLv);
+        }
+
+        private void FsTripsLv_MouseLeave_AlertToolTip(object sender, EventArgs e)
+        {
+            FsTripsClearAlertToolTip();
         }
 
 
@@ -1474,6 +1638,8 @@ namespace Hiatme_Tool_Suite_v3
 
             _fsTripsLv.Columns.Add("Grp", 34);
 
+            _fsTripsLv.Columns.Add("Alerts", ScheduleBuilderTripAlertsColumn.DefaultWidthPx);
+
             _fsTripsLv.Columns.Add("Trip #", 72);
 
             _fsTripsLv.Columns.Add("Date", 68);
@@ -1496,8 +1662,8 @@ namespace Hiatme_Tool_Suite_v3
 
             _fsTripsLv.Columns.Add("Comments", 130);
 
-            _fsTripsLv.Columns[4].TextAlign = HorizontalAlignment.Right;  // PU Time
-            _fsTripsLv.Columns[7].TextAlign = HorizontalAlignment.Right;  // DO Time
+            _fsTripsLv.Columns[ScheduleBuilderTripAlertsColumn.PuTimeColumnIndex].TextAlign = HorizontalAlignment.Right;  // PU Time
+            _fsTripsLv.Columns[ScheduleBuilderTripAlertsColumn.DoTimeColumnIndex].TextAlign = HorizontalAlignment.Right;  // DO Time
 
         }
 
@@ -1520,6 +1686,71 @@ namespace Hiatme_Tool_Suite_v3
             if (_fsTripsLv == null) return;
 
             int[] widths = _fsTripsColumnWidthsPx ?? ScheduleBuilderListViewColumnWidths.DefaultTripsListViewColumnWidthsPx;
+            ScheduleBuilderListViewColumnWidths.PinTripsListViewWidths(_fsTripsLv, widths);
+        }
+
+        /// <summary>
+        /// Size the Alerts column to the row with the most icons across every tab, then pin it so
+        /// all tabs share the same width. Call after anything that changes alerts (analyzer,
+        /// cancel sync, reroute sync).
+        /// </summary>
+        private void FsAutoSizeAlertsColumnToWidest()
+        {
+            if (_fsTripsLv == null || _fsTripsLv.IsDisposed || _fsLinesByTab == null)
+                return;
+
+            int maxIcons = 0;
+            foreach (var kv in _fsLinesByTab)
+            {
+                var lines = kv.Value;
+                if (lines == null)
+                    continue;
+
+                // Reserves → Reroutes section membership adds the reroute icon even without an MC-confirmed flag.
+                HashSet<string> rerouteSectionKeys = null;
+                if (string.Equals(kv.Key, "Reserves", StringComparison.OrdinalIgnoreCase))
+                {
+                    rerouteSectionKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var t in ScheduleBuilderReroutedTrips.EnumerateTripsInReroutesSection(
+                                 lines, skipAlreadyMarked: false))
+                    {
+                        string key = ScheduleBuilderReroutedTrips.TripNumberKey(t.TripNumber);
+                        if (key.Length > 0)
+                            rerouteSectionKeys.Add(key);
+                    }
+                }
+
+                foreach (var line in lines)
+                {
+                    if (line?.Kind != ScheduleBuilderPreviewLine.LineKind.Trip || line.Trip == null)
+                        continue;
+
+                    bool rerouted = line.ReroutedOnModivcare;
+                    if (!rerouted && rerouteSectionKeys != null)
+                    {
+                        string key = ScheduleBuilderReroutedTrips.TripNumberKey(line.Trip.TripNumber);
+                        rerouted = key.Length > 0 && rerouteSectionKeys.Contains(key);
+                    }
+
+                    int n = ScheduleBuilderTripAlertsColumn.CountAlerts(
+                        line.Trip, line.CancelledOnWellRyde, rerouted);
+                    if (n > maxIcons)
+                        maxIcons = n;
+                }
+            }
+
+            int width = ScheduleBuilderTripAlertsColumn.WidthForIconCount(maxIcons);
+
+            int[] widths = _fsTripsColumnWidthsPx
+                ?? ScheduleBuilderListViewColumnWidths.CaptureListViewColumnPixels(_fsTripsLv)
+                ?? (int[])ScheduleBuilderListViewColumnWidths.DefaultTripsListViewColumnWidthsPx.Clone();
+
+            if (ScheduleBuilderTripAlertsColumn.ColumnIndex >= widths.Length
+                || widths[ScheduleBuilderTripAlertsColumn.ColumnIndex] == width)
+                return;
+
+            widths[ScheduleBuilderTripAlertsColumn.ColumnIndex] = width;
+            _fsTripsColumnWidthsPx = widths;
             ScheduleBuilderListViewColumnWidths.PinTripsListViewWidths(_fsTripsLv, widths);
         }
 
@@ -1659,6 +1890,9 @@ namespace Hiatme_Tool_Suite_v3
 
                     fsbuilder.ApplyLoadedSchedule(load);
 
+                    UpdateTabLoadingOverlayMessage(tabPage6, "Checking rerouted-trips registry…");
+                    SetScheduleBuilderStatus("Checking rerouted-trips registry…");
+
                     var rerouteMerge = await ScheduleBuilderReroutedTripsRegistry.MergeIntoBuilderAsync(
                         fsbuilder, serviceDate, HiatmeAiSettings.Load()).ConfigureAwait(true);
 
@@ -1670,7 +1904,11 @@ namespace Hiatme_Tool_Suite_v3
 
                     var driverSync = await SyncFsDriversDuringBuildAsync(
                         fsbuilder.PreviewDriverLines.Keys,
-                        SetScheduleBuilderStatus).ConfigureAwait(true);
+                        text =>
+                        {
+                            SetScheduleBuilderStatus(text);
+                            UpdateTabLoadingOverlayMessage(tabPage6, text);
+                        }).ConfigureAwait(true);
 
                     BindScheduleBuilderPreview(fsbuilder, showInitialTab: false);
                     ScheduleBuilderReroutedTripsRegistry.MarkReroutedOnPreview(
@@ -1694,6 +1932,8 @@ namespace Hiatme_Tool_Suite_v3
                             refreshListView: false)
                         .ConfigureAwait(true);
 
+                    await FsApplyAnalyzerAlertsAsync(serviceDate).ConfigureAwait(true);
+
                     if (ScheduleBuilderPreviewUndo.LinesByTabContainsGap(_fsLinesByTab))
                         FsRevealGapsForManualInsert();
 
@@ -1704,6 +1944,8 @@ namespace Hiatme_Tool_Suite_v3
 
                     if (load.WorkbookColumnWidths != null)
                         _fsTripsColumnWidthsPx = ScheduleBuilderListViewColumnWidths.ApplyToTripsListView(_fsTripsLv, load.WorkbookColumnWidths);
+
+                    FsAutoSizeAlertsColumnToWidest();
 
                     int drivers = fsbuilder.PreviewDriverLines.Count;
 
@@ -1930,6 +2172,8 @@ namespace Hiatme_Tool_Suite_v3
                         refreshListView: false)
                     .ConfigureAwait(true);
 
+                await FsApplyAnalyzerAlertsAsync(fsbdatepicker.Value.Date).ConfigureAwait(true);
+
                 int rer = fsbuilder.PreviewReservesReroute?.Count ?? 0;
                 if (rer > 0)
                     ShowFsTripsForTab("Reserves");
@@ -2053,6 +2297,47 @@ namespace Hiatme_Tool_Suite_v3
 
             }
 
+        }
+
+
+
+        private async Task FsApplyAnalyzerAlertsAsync(DateTime serviceDate)
+        {
+            if (fsbuilder?.PreviewDriverLines == null)
+                return;
+
+            void AlertStatus(string text)
+            {
+                SetScheduleBuilderStatus(text);
+                UpdateTabLoadingOverlayMessage(tabPage6, text);
+            }
+
+            try
+            {
+                AlertStatus("Connecting to WellRyde for trip alerts…");
+                if (await EnsureWellRydePortalSessionForBillingAsync(
+                        showMessageIfNoCredentials: false,
+                        showMessageOnLoginFailure: false).ConfigureAwait(true))
+                    analyzer.SetWellRydePortalSession(_wellRydeSession);
+                else
+                    analyzer.SetWellRydePortalSession(null);
+
+                AlertStatus("Connecting to Modivcare for trip alerts…");
+                if (!await EnsureModivcareSessionAsync().ConfigureAwait(true))
+                    return;
+
+                AlertStatus("Checking trips for alerts…");
+                analyzer.IntializeAnalyzer(mcLoginHandler);
+                await analyzer.ApplyAlertsToScheduleBuilderAsync(fsbuilder, serviceDate).ConfigureAwait(true);
+
+                FsAutoSizeAlertsColumnToWidest();
+                if (_fsTripsLv != null && !_fsTripsLv.IsDisposed)
+                    _fsTripsLv.Invalidate();
+            }
+            catch (ScheduleAnalysisException)
+            {
+                // Non-fatal — preview still usable without alert icons.
+            }
         }
 
 
@@ -3272,7 +3557,7 @@ namespace Hiatme_Tool_Suite_v3
 
             lvi.UseItemStyleForSubItems = false;
 
-            for (int i = 0; i < 11; i++)
+            for (int i = 0; i < 12; i++)
 
                 lvi.SubItems.Add("");
 
@@ -3303,12 +3588,15 @@ namespace Hiatme_Tool_Suite_v3
             if (trip == null) return;
 
             Color band = bandColor ?? ScheduleBuilderReserveBuckets.ReserversBand;
+            bool inReroutesSection = ScheduleBuilderReserveBuckets.IsRerouteBand(band);
 
             var lvi = new ListViewItem("—");
 
             lvi.UseItemStyleForSubItems = false;
 
             lvi.SubItems[0].BackColor = band;
+
+            lvi.SubItems.Add("");
 
             lvi.SubItems.Add(trip.TripNumber ?? "");
 
@@ -3337,10 +3625,13 @@ namespace Hiatme_Tool_Suite_v3
                 PreviewLineIndex = previewLineIndex,
                 ReroutedOnModivcare = reroutedOnModivcare,
                 CancelledOnWellRyde = cancelledOnWellRyde,
+                InReservesReroutesSection = inReroutesSection,
             };
 
             if (reroutedOnModivcare)
                 ApplyFsReroutedTripRowStyle(lvi);
+            else if (inReroutesSection)
+                ApplyFsReservesRerouteRowStyle(lvi);
             else if (cancelledOnWellRyde)
                 ApplyFsCancelledTripRowStyle(lvi);
 
@@ -3420,7 +3711,7 @@ namespace Hiatme_Tool_Suite_v3
         {
 
             string note = (noteText ?? "").Trim();
-            var cells = new[] { "", "", "", note, "", "", "", "", "", "", "", "" };
+            var cells = new[] { "", "", "", "", note, "", "", "", "", "", "", "", "" };
             var lvi = new ListViewItem(cells);
 
             lvi.UseItemStyleForSubItems = false;
@@ -3444,7 +3735,7 @@ namespace Hiatme_Tool_Suite_v3
             Color? barColor = noteRowColor;
             Color bar = barColor ?? SupeyTheme.ListBody;
 
-            for (int c = 1; c <= 11; c++)
+            for (int c = 1; c <= 12; c++)
                 lvi.SubItems.Add("");
 
             for (int c = 0; c < lvi.SubItems.Count; c++)
@@ -3481,7 +3772,7 @@ namespace Hiatme_Tool_Suite_v3
                 noteRowColor, g, FsShowGroupColorsEnabled);
             Color bar = barColor ?? SupeyTheme.ListBody;
 
-            for (int c = 1; c <= 11; c++)
+            for (int c = 1; c <= 12; c++)
 
                 lvi.SubItems.Add("");
 
@@ -3529,6 +3820,8 @@ namespace Hiatme_Tool_Suite_v3
 
             if (g != null && !reroutedOnModivcare && !cancelledOnWellRyde && FsShowGroupColorsEnabled)
                 lvi.SubItems[0].BackColor = g.DisplayColor;
+
+            lvi.SubItems.Add("");
 
             lvi.SubItems.Add(trip.TripNumber ?? "");
 
@@ -3578,6 +3871,17 @@ namespace Hiatme_Tool_Suite_v3
                 return;
 
             Color c = ScheduleBuilderPreviewStyle.ReroutedTripBackColor;
+            lvi.BackColor = c;
+            for (int i = 0; i < lvi.SubItems.Count; i++)
+                lvi.SubItems[i].BackColor = c;
+        }
+
+        private static void ApplyFsReservesRerouteRowStyle(ListViewItem lvi)
+        {
+            if (lvi == null)
+                return;
+
+            Color c = ScheduleBuilderPreviewStyle.ReservesRerouteTripBackColor;
             lvi.BackColor = c;
             for (int i = 0; i < lvi.SubItems.Count; i++)
                 lvi.SubItems[i].BackColor = c;

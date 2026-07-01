@@ -23,9 +23,14 @@ namespace Hiatme_Tool_Suite_v3
         public static Color ReserveSectionHeaderText => Color.White;
 
         /// <summary>Trip rows rerouted on Modivcare (list + workbook fill).</summary>
-        public static Color ReroutedTripBackColor => Color.FromArgb(140, 48, 48);
+        public static Color ReroutedTripBackColor => Color.FromArgb(132, 88, 36);
 
-        public static Color ReroutedTripSelectedBackColor => Color.FromArgb(170, 58, 58);
+        public static Color ReroutedTripSelectedBackColor => Color.FromArgb(158, 108, 44);
+
+        /// <summary>Reserves → Reroutes section rows (not yet confirmed on Modivcare).</summary>
+        public static Color ReservesRerouteTripBackColor => Color.FromArgb(96, 68, 32);
+
+        public static Color ReservesRerouteTripSelectedBackColor => Color.FromArgb(118, 84, 40);
 
         /// <summary>WellRyde Cancelled / Suspended — rose (distinct from reroute red and amber band).</summary>
         public static Color CancelledTripBackColor => Color.FromArgb(168, 72, 98);

@@ -14,10 +14,10 @@ namespace Hiatme_Tool_Suite_v3
     /// <summary>Find the office AI panel on the local LAN — async only, never blocks the UI thread.</summary>
     internal static class HiatmePanelLanDiscovery
     {
-        private const int MaxHostsPerScan = 32;
-        private const int MaxParallel = 8;
-        private static readonly TimeSpan ScanBudget = TimeSpan.FromSeconds(2.5);
-        private static readonly TimeSpan RequestTimeout = TimeSpan.FromMilliseconds(400);
+        private const int MaxHostsPerScan = 12;
+        private const int MaxParallel = 4;
+        private static readonly TimeSpan ScanBudget = TimeSpan.FromSeconds(1.5);
+        private static readonly TimeSpan RequestTimeout = TimeSpan.FromMilliseconds(350);
 
         private static readonly object CacheLock = new object();
         private static DateTime _discoveredUtc = DateTime.MinValue;
@@ -77,27 +77,26 @@ namespace Hiatme_Tool_Suite_v3
             var hosts = CollectProbeHosts();
             if (hosts.Count == 0) return null;
 
-            using (var budget = CancellationTokenSource.CreateLinkedTokenSource(outerToken))
+            var hits = new ConcurrentBag<string>();
+            var started = DateTime.UtcNow;
+            using (var gate = new SemaphoreSlim(MaxParallel, MaxParallel))
             {
-                budget.CancelAfter(ScanBudget);
-                var token = budget.Token;
-                var hits = new ConcurrentBag<string>();
-                using (var gate = new SemaphoreSlim(MaxParallel, MaxParallel))
+                var tasks = new List<Task>();
+                foreach (string ip in hosts)
                 {
-                    var tasks = new List<Task>();
-                    foreach (string ip in hosts)
-                    {
-                        token.ThrowIfCancellationRequested();
-                        if (hits.Count > 0) break;
-                        await gate.WaitAsync(token).ConfigureAwait(false);
-                        tasks.Add(ProbeHostAsync(ip, hits, gate, token));
-                    }
-                    try { await Task.WhenAll(tasks).ConfigureAwait(false); }
-                    catch (OperationCanceledException) when (!outerToken.IsCancellationRequested) { }
-                    catch (TaskCanceledException) { }
+                    if (outerToken.IsCancellationRequested) break;
+                    if (hits.Count > 0) break;
+                    if (DateTime.UtcNow - started > ScanBudget) break;
+
+                    await gate.WaitAsync(outerToken).ConfigureAwait(false);
+                    tasks.Add(ProbeHostAsync(ip, hits, gate, CancellationToken.None));
                 }
-                return hits.OrderBy(u => u, StringComparer.OrdinalIgnoreCase).FirstOrDefault();
+
+                if (tasks.Count > 0)
+                    await Task.WhenAll(tasks).ConfigureAwait(false);
             }
+
+            return hits.OrderBy(u => u, StringComparer.OrdinalIgnoreCase).FirstOrDefault();
         }
 
         private static async Task ProbeHostAsync(

@@ -339,6 +339,7 @@ namespace Hiatme_Tool_Suite_v3
                 ClearFsReroutedTripRowStyle(lvi, line, isReservesTab, tag, FsShowGroupColorsEnabled);
             }
 
+            FsAutoSizeAlertsColumnToWidest();
             _fsTripsLv.Invalidate(true);
         }
 

@@ -46,6 +46,8 @@ namespace Hiatme_Tool_Suite_v3
         // WIP tools — flip to true to show these tabs again (designer + code stay in place).
         private const bool ShowSupeyScheduleTab = false;
         private const bool ShowCameraTab = false;
+        /// <summary>Trip Scout dev simulate — inject fake change rows for alert/UI testing.</summary>
+        private const bool ShowTripScoutTestChangeButton = false;
 
         /// <summary>Preferred launch client size; clamped to the monitor work area on startup.</summary>
         private const int PreferredStartupWidth = 1280;
@@ -58,6 +60,8 @@ namespace Hiatme_Tool_Suite_v3
 
         private WellRydePortalSession _wellRydeSession;
         private readonly SemaphoreSlim _wellRydeLoginGate = new SemaphoreSlim(1, 1);
+        /// <summary>After a silent (background) WR failure, skip repeat login attempts until this time.</summary>
+        private DateTime _wellRydeSilentBlockUntilUtc = DateTime.MinValue;
 
         public System.Windows.Forms.Timer billtimer;
 
@@ -4826,7 +4830,11 @@ namespace Hiatme_Tool_Suite_v3
 
         /// <summary>Bootstrap + Spring login + /portal/nu. On failure abandons the in-flight session only.</summary>
         /// <returns><c>null</c> on success; otherwise an error message for the user.</returns>
-        private async Task<string> TryWellRydePortalHttpLoginAsync(string companycode, string username, string password)
+        private async Task<string> TryWellRydePortalHttpLoginAsync(
+            string companycode,
+            string username,
+            string password,
+            int httpTimeoutSeconds = WellRydePortalSession.DefaultHttpTimeoutSeconds)
         {
             await _wellRydeLoginGate.WaitAsync().ConfigureAwait(true);
             WellRydePortalSession session = null;
@@ -4834,10 +4842,17 @@ namespace Hiatme_Tool_Suite_v3
             {
                 WellRydePortalLog.Info("LOGIN", "TryWellRydePortalHttpLoginAsync start (company=" + (companycode ?? "") + ")");
                 await SetLoadingGifLabel("Checking connections");
+
+                if (!await WellRydePortalSession.ProbePortalReachableAsync().ConfigureAwait(true))
+                {
+                    WellRydePortalLog.Error("LOGIN", "portal unreachable (TCP probe) — login not attempted");
+                    return "WellRyde portal is unreachable — check your connection or try again in a few minutes.";
+                }
+
                 _wellRydeSession?.Dispose();
                 _wellRydeSession = null;
 
-                session = new WellRydePortalSession();
+                session = new WellRydePortalSession(httpTimeoutSeconds);
                 WellRydePortalBootstrapResult wrBoot;
                 try
                 {
@@ -4960,9 +4975,14 @@ namespace Hiatme_Tool_Suite_v3
         /// (commonly ~200/page) regardless of <c>maxResult</c>, so iteration is required to actually fetch everything.
         /// </summary>
         private async Task<(WellRydePortalFilterDataResult result, List<WRDownloadedTrip> trips, int portalTotalRecords)>
-            LoadWellRydeTripsForDateWithAuthRetryAsync(DateTime date)
+            LoadWellRydeTripsForDateWithAuthRetryAsync(DateTime date, bool backgroundSilent = false)
         {
-            if (!await EnsureWellRydePortalSessionForBillingAsync() || _wellRydeSession == null)
+            if (backgroundSilent && IsWellRydeSilentBlocked())
+                return (WellRydePortalFilterDataResult.Fail(null, "WellRyde portal temporarily unavailable."), null, 0);
+
+            bool showCreds = !backgroundSilent;
+            bool showLoginFail = !backgroundSilent;
+            if (!await EnsureWellRydePortalSessionForBillingAsync(showCreds, showLoginFail) || _wellRydeSession == null)
                 return (WellRydePortalFilterDataResult.Fail(null, "WellRyde portal session is not available."), null, 0);
 
             WellRydePortalFilterDataResult firstFd;
@@ -4979,7 +4999,7 @@ namespace Hiatme_Tool_Suite_v3
             if (!firstFd.IsSuccess && WellRydeFilterDataLooksLikeAuthOrSessionFailure(firstFd))
             {
                 InvalidateWellRydePortalSession();
-                if (!await EnsureWellRydePortalSessionForBillingAsync() || _wellRydeSession == null)
+                if (!await EnsureWellRydePortalSessionForBillingAsync(showCreds, showLoginFail) || _wellRydeSession == null)
                     return (WellRydePortalFilterDataResult.Fail(null, "Could not re-authenticate to WellRyde."), null, 0);
 
                 try
@@ -5100,12 +5120,42 @@ namespace Hiatme_Tool_Suite_v3
                 && !string.IsNullOrEmpty(password);
         }
 
-        /// <summary>For billing and tools: probe an existing session with /portal/nu; if stale, re-login then return. Uses saved or on-screen WellRyde credentials.</summary>
-        private async Task<bool> EnsureWellRydePortalSessionForBillingAsync(bool showMessageIfNoCredentials = true)
+        private bool IsWellRydeSilentBlocked()
         {
+            return DateTime.UtcNow < _wellRydeSilentBlockUntilUtc;
+        }
+
+        private void BlockWellRydeSilentRetries(TimeSpan duration)
+        {
+            _wellRydeSilentBlockUntilUtc = DateTime.UtcNow.Add(duration);
+        }
+
+        private void ClearWellRydeSilentBlock()
+        {
+            _wellRydeSilentBlockUntilUtc = DateTime.MinValue;
+        }
+
+        /// <summary>For billing and tools: probe an existing session with /portal/nu; if stale, re-login then return. Uses saved or on-screen WellRyde credentials.</summary>
+        private async Task<bool> EnsureWellRydePortalSessionForBillingAsync(
+            bool showMessageIfNoCredentials = true,
+            bool showMessageOnLoginFailure = true)
+        {
+            bool backgroundSilent = !showMessageIfNoCredentials && !showMessageOnLoginFailure;
+            if (backgroundSilent && IsWellRydeSilentBlocked())
+                return false;
+
+            // Background callers: ~3s TCP probe first, so a down portal costs seconds — not an HTTP timeout per request.
+            if (backgroundSilent && !await WellRydePortalSession.ProbePortalReachableAsync().ConfigureAwait(true))
+            {
+                WellRydePortalLog.Info("LOGIN", "Background WellRyde check skipped — portal unreachable (TCP probe).");
+                BlockWellRydeSilentRetries(TimeSpan.FromMinutes(2));
+                return false;
+            }
+
             if (_wellRydePanelSessionActive && _wellRydeSession != null)
             {
-                await SetLoadingGifLabel("Checking connections");
+                if (!backgroundSilent)
+                    await SetLoadingGifLabel("Checking connections");
                 bool nuOk = false;
                 try
                 {
@@ -5118,7 +5168,9 @@ namespace Hiatme_Tool_Suite_v3
                 }
                 if (nuOk)
                 {
-                    await SetLoadingGifLabel("WellRyde: already signed in");
+                    ClearWellRydeSilentBlock();
+                    if (!backgroundSilent)
+                        await SetLoadingGifLabel("WellRyde: already signed in");
                     return true;
                 }
                 InvalidateWellRydePortalSession();
@@ -5126,21 +5178,36 @@ namespace Hiatme_Tool_Suite_v3
 
             if (!TryGetWellRydeCredentials(out string companycode, out string username, out string password))
             {
-                await SetLoadingGifLabel("Checking connections");
+                if (!backgroundSilent)
+                    await SetLoadingGifLabel("Checking connections");
                 if (showMessageIfNoCredentials)
                 {
                     MessageBox.Show(
                         "WellRyde is not signed in. Use the Login bar (WellRyde), or save credentials with Remember credentials.");
                 }
+                if (backgroundSilent)
+                    BlockWellRydeSilentRetries(TimeSpan.FromMinutes(2));
                 return false;
             }
 
-            string err = await TryWellRydePortalHttpLoginAsync(companycode, username, password);
+            string err = await TryWellRydePortalHttpLoginAsync(
+                companycode,
+                username,
+                password,
+                backgroundSilent
+                    ? WellRydePortalSession.BackgroundHttpTimeoutSeconds
+                    : WellRydePortalSession.DefaultHttpTimeoutSeconds);
             if (err != null)
             {
-                MessageBox.Show(err);
+                if (showMessageOnLoginFailure)
+                    MessageBox.Show(err);
+                else
+                    WellRydePortalLog.Info("LOGIN", "Background WellRyde sign-in skipped: " + err);
+                if (backgroundSilent)
+                    BlockWellRydeSilentRetries(TimeSpan.FromMinutes(2));
                 return false;
             }
+            ClearWellRydeSilentBlock();
             _wellRydePanelSessionActive = true;
             return true;
         }

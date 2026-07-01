@@ -36,13 +36,9 @@ namespace Hiatme_Tool_Suite_v3
             profile.HomeZip = (detail.Zip ?? "").Trim();
             profile.VehicleLabel = (detail.VehicleLabel ?? "").Trim();
 
-            string portalEmail = (detail.Email ?? "").Trim();
+            string portalEmail = WellRydeUserParser.TryNormalizeEmail(detail.Email);
             if (portalEmail.Length > 0)
-            {
-                string localEmail = (profile.Email ?? "").Trim();
-                if (isNewDriver || localEmail.Length == 0)
-                    profile.Email = portalEmail;
-            }
+                profile.Email = portalEmail;
 
             profile.CapacityPassengers = capacity;
             profile.ShiftStart = shiftStart;

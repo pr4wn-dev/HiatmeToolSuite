@@ -382,8 +382,22 @@ namespace Hiatme_Tool_Suite_v3
 
                     if (!string.IsNullOrWhiteSpace(profile.WellRydeSecId))
                     {
+                        WellRydeUserSummary summary = null;
+                        if (summaries != null)
+                        {
+                            foreach (var s in summaries)
+                            {
+                                if (s != null && string.Equals(s.SecId, profile.WellRydeSecId,
+                                        StringComparison.OrdinalIgnoreCase))
+                                {
+                                    summary = s;
+                                    break;
+                                }
+                            }
+                        }
+
                         if (await TryImportWellRydeDetailAsync(
-                                profile, profile.WellRydeSecId, isNew, CancellationToken.None)
+                                profile, profile.WellRydeSecId, isNew, summary, CancellationToken.None)
                             .ConfigureAwait(true))
                         {
                             profile.ScheduleTabKey = tab.Trim();
@@ -492,6 +506,7 @@ namespace Hiatme_Tool_Suite_v3
             SupeyDriverProfile profile,
             string secId,
             bool isNewDriver,
+            WellRydeUserSummary summaryFallback,
             CancellationToken token)
         {
             if (_wellRydeSession == null || profile == null)
@@ -503,16 +518,32 @@ namespace Hiatme_Tool_Suite_v3
 
             try
             {
-                var res = await _wellRydeSession.GetUserDetailHtmlAsync(sec, token).ConfigureAwait(false);
-                if (!res.IsSuccess || string.IsNullOrWhiteSpace(res.HtmlBody))
+                var detail = await WellRydeUserDetailLoader.LoadAsync(
+                    _wellRydeSession, sec, summaryFallback, token).ConfigureAwait(false);
+                if (string.IsNullOrWhiteSpace(detail.Username)
+                    && string.IsNullOrWhiteSpace(detail.FullName)
+                    && string.IsNullOrWhiteSpace(detail.Email)
+                    && string.IsNullOrWhiteSpace(detail.FullStreet))
+                {
                     return false;
-                var detail = WellRydeUserParser.ParseUserDetail(sec, res.HtmlBody);
+                }
+
                 SupeyWellRydeRosterMerge.ApplyPortalDetail(detail, profile, isNewDriver: isNewDriver);
                 return true;
             }
             catch
             {
-                return false;
+                if (summaryFallback == null)
+                    return false;
+                var stub = WellRydeUserDetailLoader.BuildFromSummary(summaryFallback, sec);
+                if (string.IsNullOrWhiteSpace(stub.Email)
+                    && string.IsNullOrWhiteSpace(stub.FullName)
+                    && string.IsNullOrWhiteSpace(stub.Username))
+                {
+                    return false;
+                }
+                SupeyWellRydeRosterMerge.ApplyPortalDetail(stub, profile, isNewDriver: isNewDriver);
+                return true;
             }
         }
 
@@ -653,15 +684,26 @@ namespace Hiatme_Tool_Suite_v3
             using (var dlg = new SupeyImportFromWellRydeForm(_wellRydeSession, alreadyImportedSecIds))
             {
                 if (dlg.ShowDialog(this) != DialogResult.OK)
+                {
+                    int synced = ApplyWellRydePulledDetailsToExistingRoster(dlg.LastImportResult);
+                    if (synced > 0)
+                    {
+                        RebuildFsDriversList();
+                        if (_supeyDriversLv != null) RebuildSupeyDriversList();
+                        SaveFsDriverRosterToDisk(showOk: false);
+                        SetScheduleBuilderStatus("Updated " + synced + " existing driver(s) from WellRyde.");
+                    }
                     return;
+                }
                 var picks = dlg.SelectedDetails ?? new List<WellRydeUserDetail>();
-                if (picks.Count == 0) return;
+                int existingUpdated = ApplyWellRydePulledDetailsToExistingRoster(dlg.LastImportResult);
+                if (picks.Count == 0 && existingUpdated == 0) return;
 
                 int added = 0, updated = 0;
                 foreach (var detail in picks)
                 {
                     if (detail == null || string.IsNullOrEmpty(detail.SecId)) continue;
-                    var existing = FindRosterDriverBySecIdOrName(detail.SecId, detail.FullName);
+                    var existing = FindRosterDriverBySecIdOrName(detail.SecId, detail.FullName, detail.Username);
                     if (existing != null)
                     {
                         SupeyWellRydeRosterMerge.ApplyPortalDetail(detail, existing, isNewDriver: false);
@@ -682,6 +724,7 @@ namespace Hiatme_Tool_Suite_v3
                 SetScheduleBuilderStatus(
                     "WellRyde: " + added + " new"
                     + (updated > 0 ? ", " + updated + " updated" : "")
+                    + (existingUpdated > 0 ? ", " + existingUpdated + " existing synced" : "")
                     + " — names must match driver tabs for map home pins.");
             }
 

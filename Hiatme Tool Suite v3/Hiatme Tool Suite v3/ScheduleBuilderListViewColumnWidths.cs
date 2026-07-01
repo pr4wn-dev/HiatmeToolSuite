@@ -11,7 +11,9 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>Default trip-list column widths (Grp through Comments), matching <c>ConfigureFsTripsListViewColumns</c>.</summary>
         public static readonly int[] DefaultTripsListViewColumnWidthsPx =
         {
-            34, 72, 68, 82, 72, 92, 58, 72, 92, 58, 42, 130,
+            34,
+            ScheduleBuilderTripAlertsColumn.DefaultWidthPx,
+            72, 68, 82, 72, 92, 58, 72, 92, 58, 42, 130,
         };
 
         private sealed class ColumnMap
@@ -20,25 +22,26 @@ namespace Hiatme_Tool_Suite_v3
             public int ExcelIndex { get; set; }
         }
 
-        /// <summary>ListView trip columns that correspond to workbook columns A–N (excludes Grp).</summary>
+        /// <summary>ListView trip columns that correspond to workbook columns A–N (excludes Grp and Alerts).</summary>
         private static readonly ColumnMap[] TripListToExcel =
         {
-            new ColumnMap { ListViewIndex = 1, ExcelIndex = 0 },  // A Trip #
-            new ColumnMap { ListViewIndex = 2, ExcelIndex = 1 },  // B Date
-            new ColumnMap { ListViewIndex = 3, ExcelIndex = 2 },  // C Client
-            new ColumnMap { ListViewIndex = 5, ExcelIndex = 3 },  // D PU street
-            new ColumnMap { ListViewIndex = 6, ExcelIndex = 4 },  // E PU city
-            new ColumnMap { ListViewIndex = 4, ExcelIndex = 6 },  // G PU time
-            new ColumnMap { ListViewIndex = 8, ExcelIndex = 7 },  // H DO street
-            new ColumnMap { ListViewIndex = 9, ExcelIndex = 8 },  // I DO city
-            new ColumnMap { ListViewIndex = 7, ExcelIndex = 10 }, // K DO time
-            new ColumnMap { ListViewIndex = 10, ExcelIndex = 12 }, // M Miles
-            new ColumnMap { ListViewIndex = 11, ExcelIndex = 13 }, // N Comments
+            new ColumnMap { ListViewIndex = 2, ExcelIndex = 0 },  // A Trip #
+            new ColumnMap { ListViewIndex = 3, ExcelIndex = 1 },  // B Date
+            new ColumnMap { ListViewIndex = 4, ExcelIndex = 2 },  // C Client
+            new ColumnMap { ListViewIndex = 6, ExcelIndex = 3 },  // D PU street
+            new ColumnMap { ListViewIndex = 7, ExcelIndex = 4 },  // E PU city
+            new ColumnMap { ListViewIndex = 5, ExcelIndex = 6 },  // G PU time
+            new ColumnMap { ListViewIndex = 9, ExcelIndex = 7 },  // H DO street
+            new ColumnMap { ListViewIndex = 10, ExcelIndex = 8 }, // I DO city
+            new ColumnMap { ListViewIndex = 8, ExcelIndex = 10 }, // K DO time
+            new ColumnMap { ListViewIndex = 11, ExcelIndex = 12 }, // M Miles
+            new ColumnMap { ListViewIndex = 12, ExcelIndex = 13 }, // N Comments
         };
 
         /// <summary>Trips ListView column indices for PU / DO time.</summary>
         public static bool IsTripsListTimeColumn(int listViewColumnIndex)
-            => listViewColumnIndex == 4 || listViewColumnIndex == 7;
+            => listViewColumnIndex == ScheduleBuilderTripAlertsColumn.PuTimeColumnIndex
+               || listViewColumnIndex == ScheduleBuilderTripAlertsColumn.DoTimeColumnIndex;
 
         /// <summary>Workbook trip-grid column indices for PU (G) / DO (K) time.</summary>
         public static bool IsWorkbookTimeColumn(int excelColumnIndex)

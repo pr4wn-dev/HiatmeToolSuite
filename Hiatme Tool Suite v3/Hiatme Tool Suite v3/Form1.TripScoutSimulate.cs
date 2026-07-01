@@ -16,6 +16,9 @@ namespace Hiatme_Tool_Suite_v3
 
         private void EnsureTripScoutSimulateToolbar()
         {
+            if (!ShowTripScoutTestChangeButton)
+                return;
+
             if (_tripScoutToolbarRightFlow == null || _tripScoutToolbarRightFlow.IsDisposed)
                 return;
 

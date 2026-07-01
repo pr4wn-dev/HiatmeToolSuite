@@ -56,7 +56,7 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
-        public static void Configure(HiatmeAiSettings settings)
+        public static void Configure(HiatmeAiSettings settings, bool? panelReachable = null)
         {
             if (settings == null)
             {
@@ -68,7 +68,10 @@ namespace Hiatme_Tool_Suite_v3
 
             _panelUrl = settings.BaseUrl?.Trim();
             _serverOnly = settings.UseServerGeo;
-            _panelReachable = HiatmeAiSettings.ProbePanelPublic(settings.BaseUrl, settings.ApiToken);
+            if (panelReachable.HasValue)
+                _panelReachable = panelReachable.Value;
+            else
+                _panelReachable = HiatmeAiSettings.ProbePanelPublic(settings.BaseUrl, settings.ApiToken);
         }
 
         public static void Refresh()

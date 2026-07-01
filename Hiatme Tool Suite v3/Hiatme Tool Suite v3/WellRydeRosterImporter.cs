@@ -22,7 +22,7 @@ namespace Hiatme_Tool_Suite_v3
     /// </remarks>
     internal sealed class WellRydeRosterImporter
     {
-        public const int DefaultDetailConcurrency = 4;
+        public const int DefaultDetailConcurrency = 2;
 
         private readonly WellRydePortalSession _session;
         private readonly int _detailConcurrency;
@@ -113,32 +113,13 @@ namespace Hiatme_Tool_Suite_v3
                         try
                         {
                             cancellationToken.ThrowIfCancellationRequested();
-                            var detailResult = await _session.GetUserDetailHtmlAsync(summary.SecId, cancellationToken)
-                                .ConfigureAwait(false);
-                            WellRydeUserDetail detail;
-                            if (detailResult.IsSuccess && !string.IsNullOrEmpty(detailResult.HtmlBody))
-                            {
-                                detail = WellRydeUserParser.ParseUserDetail(summary.SecId, detailResult.HtmlBody);
-                                // Backfill summary-level fields the detail page sometimes leaves blank.
-                                if (string.IsNullOrEmpty(detail.Username)) detail.Username = summary.Username;
-                                if (string.IsNullOrEmpty(detail.FullName)) detail.FullName = summary.FullName;
-                                if (string.IsNullOrEmpty(detail.Email)) detail.Email = summary.Email;
-                            }
-                            else
-                            {
-                                // Stub: at least keep the summary identity so the picker can show
-                                // "couldn't load — included as a stub". Address fields stay blank.
-                                detail = new WellRydeUserDetail
-                                {
-                                    SecId = summary.SecId,
-                                    Username = summary.Username,
-                                    FullName = summary.FullName,
-                                    Email = summary.Email,
-                                    AccountEnabled = summary.Enabled,
-                                    AccountLocked = summary.Locked,
-                                };
-                            }
+                            var detail = await WellRydeUserDetailLoader.LoadAsync(
+                                _session, summary.SecId, summary, cancellationToken).ConfigureAwait(false);
                             details[idx] = detail;
+                        }
+                        catch
+                        {
+                            details[idx] = WellRydeUserDetailLoader.BuildFromSummary(summary);
                         }
                         finally
                         {

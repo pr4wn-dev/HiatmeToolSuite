@@ -23,13 +23,53 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (_tripScoutExpandClickWired || tslv == null || tslv.IsDisposed)
                 return;
-            tslv.MouseClick += TripScoutListView_MouseClick;
+            tslv.MouseUp += TripScoutListView_MouseUp;
             _tripScoutExpandClickWired = true;
+        }
+
+        private void TripScoutListView_MouseUp(object sender, MouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Left || tslv == null || tslv.IsDisposed)
+                return;
+
+            var hit = tslv.HitTest(e.Location);
+            if (hit?.Item == null)
+                return;
+
+            var row = hit.Item.Tag as TripScoutListRow;
+            if (row == null || row.Kind != TripScoutListRowKind.Trip)
+                return;
+
+            if (!row.HasChanges)
+                return;
+
+            TripScoutToggleTripExpanded(row.TripNo);
         }
 
         internal void TripScoutClearExpandedTrips()
         {
             _tripScoutExpandedTripNos.Clear();
+        }
+
+        private static string TripScoutNormalizeTripNo(string tripNo)
+        {
+            return string.IsNullOrWhiteSpace(tripNo) ? "" : tripNo.Trim();
+        }
+
+        private void TripScoutPruneExpandedTrips()
+        {
+            if (_tripScoutExpandedTripNos.Count == 0)
+                return;
+
+            var stale = new List<string>();
+            foreach (string key in _tripScoutExpandedTripNos)
+            {
+                if (TripScoutChangeCount(key) <= 0 && !_tripScoutWillCallTripNos.Contains(key))
+                    stale.Add(key);
+            }
+
+            foreach (string key in stale)
+                _tripScoutExpandedTripNos.Remove(key);
         }
 
         private void RebuildTripScoutChangesByTrip()
@@ -70,31 +110,12 @@ namespace Hiatme_Tool_Suite_v3
             return _tripScoutChangesByTrip.TryGetValue(tripNo.Trim(), out list) ? list.Count : 0;
         }
 
-        private void TripScoutListView_MouseClick(object sender, MouseEventArgs e)
-        {
-            if (e.Button != MouseButtons.Left || tslv == null || tslv.IsDisposed)
-                return;
-
-            var hit = tslv.HitTest(e.Location);
-            if (hit?.Item == null)
-                return;
-
-            var row = hit.Item.Tag as TripScoutListRow;
-            if (row == null || row.Kind != TripScoutListRowKind.Trip)
-                return;
-
-            if (!row.HasChanges && !_tripScoutWillCallTripNos.Contains(row.TripNo))
-                return;
-
-            TripScoutToggleTripExpanded(row.TripNo);
-        }
-
         private void TripScoutToggleTripExpanded(string tripNo)
         {
-            if (string.IsNullOrWhiteSpace(tripNo))
+            string key = TripScoutNormalizeTripNo(tripNo);
+            if (key.Length == 0)
                 return;
 
-            string key = tripNo.Trim();
             if (_tripScoutExpandedTripNos.Contains(key))
                 _tripScoutExpandedTripNos.Remove(key);
             else
@@ -108,23 +129,46 @@ namespace Hiatme_Tool_Suite_v3
             if (tslv == null || tslv.IsDisposed)
                 return;
 
-            int topIndex = tslv.TopItem?.Index ?? 0;
+            string anchorTripNo = TripScoutListRowTripNo(tslv.TopItem?.Tag);
+
             ApplyTripScoutFilter(tssearchbox?.Text ?? "");
-            if (topIndex >= 0 && topIndex < tslv.Items.Count)
+
+            if (anchorTripNo.Length == 0)
+                return;
+
+            foreach (ListViewItem item in tslv.Items)
             {
+                var row = item.Tag as TripScoutListRow;
+                if (row == null || row.Kind != TripScoutListRowKind.Trip)
+                    continue;
+                if (!string.Equals(TripScoutNormalizeTripNo(row.TripNo), anchorTripNo, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
                 try
                 {
-                    tslv.TopItem = tslv.Items[topIndex];
+                    item.EnsureVisible();
+                    tslv.TopItem = item;
                 }
                 catch
                 {
-                    // TopItem can throw if index invalid after rebind — ignore.
+                    // TopItem can throw if the list is mid-layout — ignore.
                 }
+                break;
             }
+        }
+
+        private static string TripScoutListRowTripNo(object tag)
+        {
+            if (tag is TripScoutListRow row)
+                return TripScoutNormalizeTripNo(row.TripNo);
+            return "";
         }
 
         private void TripScoutBindListView(List<WRDownloadedTrip> trips, bool fitColumns = false)
         {
+            EnsureTripScoutExpandClick();
+            TripScoutPruneExpandedTrips();
+
             try
             {
                 tslv.BeginUpdate();
@@ -153,13 +197,12 @@ namespace Hiatme_Tool_Suite_v3
                     {
                         var wc = _tripScoutWillCalls?.FirstOrDefault(w =>
                             w != null
-                            && string.Equals(w.TripNo?.Trim(), tripNo, StringComparison.OrdinalIgnoreCase));
+                            && string.Equals(TripScoutNormalizeTripNo(w.TripNo), tripNo, StringComparison.OrdinalIgnoreCase));
                         if (wc != null)
                             tslv.Items.Add(TripScoutBuildWillCallDetailRow(wc, tripNo));
                     }
 
-                    List<HiatmeAiClient.TripScoutChangeRow> changes;
-                    if (_tripScoutChangesByTrip.TryGetValue(tripNo, out changes))
+                    if (_tripScoutChangesByTrip.TryGetValue(tripNo, out List<HiatmeAiClient.TripScoutChangeRow> changes))
                     {
                         foreach (var change in changes)
                             tslv.Items.Add(TripScoutBuildChangeDetailRow(change, tripNo));
@@ -169,6 +212,7 @@ namespace Hiatme_Tool_Suite_v3
             finally
             {
                 tslv.EndUpdate();
+                tslv.ResetHotState();
             }
 
             TripScoutApplyRowHighlights();

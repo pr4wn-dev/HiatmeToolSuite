@@ -71,6 +71,7 @@ namespace Hiatme_Tool_Suite_v3
         public int PreviewLineIndex { get; set; } = -1;
         public bool ReroutedOnModivcare { get; set; }
         public bool CancelledOnWellRyde { get; set; }
+        public bool InReservesReroutesSection { get; set; }
 
         public FsPreviewTripTag(SupeyTripCluster g, MCDownloadedTrip t)
         {

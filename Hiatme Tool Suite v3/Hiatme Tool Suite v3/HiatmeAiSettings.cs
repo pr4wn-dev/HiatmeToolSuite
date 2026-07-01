@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Configuration;
 using System.IO;
@@ -43,9 +42,13 @@ namespace Hiatme_Tool_Suite_v3
         private static readonly object LoadLock = new object();
         private static HiatmeAiSettings _sessionCache;
         private static string _lastConnectionDetail = "";
+        private static bool? _sessionPanelReachable;
 
         /// <summary>Human-readable result from the last panel probe (for map overlay / status).</summary>
         public static string LastConnectionDetail => _lastConnectionDetail ?? "";
+
+        /// <summary>Result of the panel probe during the current session's <see cref="Load"/>.</summary>
+        internal static bool? SessionPanelReachable => _sessionPanelReachable;
 
         public static HiatmeAiSettings Load()
         {
@@ -59,14 +62,22 @@ namespace Hiatme_Tool_Suite_v3
 
         public static void InvalidateSessionCache()
         {
-            lock (LoadLock) { _sessionCache = null; }
+            lock (LoadLock)
+            {
+                _sessionCache = null;
+                _sessionPanelReachable = null;
+            }
             HiatmeGeoSettings.Invalidate();
         }
 
         /// <summary>Clear session settings only (keep LAN discovery cache).</summary>
         internal static void InvalidateSessionCacheOnly()
         {
-            lock (LoadLock) { _sessionCache = null; }
+            lock (LoadLock)
+            {
+                _sessionCache = null;
+                _sessionPanelReachable = null;
+            }
         }
 
         /// <summary>Re-probe the current panel URL without blocking LAN scan.</summary>
@@ -76,11 +87,15 @@ namespace Hiatme_Tool_Suite_v3
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 HiatmeAiSettings settings;
+                bool ok;
                 lock (LoadLock)
                 {
                     settings = _sessionCache ?? LoadAndConfigureLocked(forceResolve: false);
+                    ok = ProbePanelPublic(settings.BaseUrl, settings.ApiToken);
+                    _sessionPanelReachable = ok;
                 }
-                return ProbePanelPublic(settings.BaseUrl, settings.ApiToken);
+                HiatmeGeoSettings.Configure(settings, ok);
+                return ok;
             }, cancellationToken).ConfigureAwait(false);
         }
 
@@ -89,7 +104,7 @@ namespace Hiatme_Tool_Suite_v3
             var merged = LoadMerged();
             if (forceResolve || string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("HIATME_AI_URL")))
                 merged.BaseUrl = ResolvePanelBaseUrl(merged, out _);
-            HiatmeGeoSettings.Configure(merged);
+            HiatmeGeoSettings.Configure(merged, _sessionPanelReachable);
             return merged;
         }
 
@@ -118,6 +133,7 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             var probe = ProbeFirstReachable(candidates, merged.ApiToken);
+            _sessionPanelReachable = probe.Winner.Ok;
             if (probe.Winner.Ok)
             {
                 detail = "Connected: " + probe.Winner.Url;
@@ -144,8 +160,9 @@ namespace Hiatme_Tool_Suite_v3
                     candidates.Add(u);
             }
 
-            add(merged.BaseUrl);
+            // Last good URL first — one quick probe on relaunch instead of timing out every fallback.
             add(merged.LastResolvedBaseUrl);
+            add(merged.BaseUrl);
             if (merged.FallbackBaseUrls != null)
             {
                 foreach (var u in merged.FallbackBaseUrls)
@@ -187,43 +204,45 @@ namespace Hiatme_Tool_Suite_v3
 
         private static ParallelProbeResult ProbeFirstReachable(IReadOnlyList<string> urls, string apiToken)
         {
-            var errors = new ConcurrentBag<string>();
-            PanelProbeResult winner = null;
-            var gate = new object();
-
-            Parallel.ForEach(
-                urls,
-                new ParallelOptions { MaxDegreeOfParallelism = Math.Min(6, urls.Count) },
-                url =>
+            var errors = new List<string>();
+            if (urls == null || urls.Count == 0)
+            {
+                return new ParallelProbeResult
                 {
-                    if (winner != null) return;
-                    var result = ProbePanelDetailed(url, apiToken);
-                    if (!result.Ok)
-                    {
-                        errors.Add(result.Message);
-                        return;
-                    }
-                    lock (gate)
-                    {
-                        if (winner == null)
-                            winner = result;
-                    }
-                });
+                    Winner = PanelProbeResult.Fail("", "No panel URLs configured."),
+                    Errors = errors,
+                };
+            }
+
+            // Sequential with early exit — parallel timeouts on dead fallbacks spam TaskCanceledException in the debugger.
+            for (int i = 0; i < urls.Count; i++)
+            {
+                string url = urls[i];
+                bool quick = i > 0;
+                var result = ProbePanelDetailed(url, apiToken, quickTimeout: quick);
+                if (result.Ok)
+                {
+                    return new ParallelProbeResult { Winner = result, Errors = errors };
+                }
+
+                if (!string.IsNullOrWhiteSpace(result.Message))
+                    errors.Add(result.Message);
+            }
 
             return new ParallelProbeResult
             {
-                Winner = winner ?? PanelProbeResult.Fail(urls[0], "All panel URLs failed."),
-                Errors = errors.ToList(),
+                Winner = PanelProbeResult.Fail(urls[0], "All panel URLs failed."),
+                Errors = errors,
             };
         }
 
-        private static PanelProbeResult ProbePanelDetailed(string baseUrl, string apiToken)
+        private static PanelProbeResult ProbePanelDetailed(string baseUrl, string apiToken, bool quickTimeout = false)
         {
             if (string.IsNullOrWhiteSpace(baseUrl))
                 return PanelProbeResult.Fail(baseUrl, "Empty panel URL.");
 
             string url = baseUrl.TrimEnd('/') + "/api/hiatme/geo/status";
-            int timeoutSec = DefaultProbeTimeoutSeconds;
+            int timeoutSec = quickTimeout ? 2 : DefaultProbeTimeoutSeconds;
             var rawTimeout = Environment.GetEnvironmentVariable("HIATME_AI_PROBE_TIMEOUT_SEC");
             if (!string.IsNullOrWhiteSpace(rawTimeout) && int.TryParse(rawTimeout.Trim(), out var t) && t >= 2 && t <= 30)
                 timeoutSec = t;

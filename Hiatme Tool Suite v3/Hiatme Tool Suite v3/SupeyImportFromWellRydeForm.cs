@@ -58,6 +58,7 @@ namespace Hiatme_Tool_Suite_v3
         private ColumnHeader _colUsername;
         private ColumnHeader _colAddress;
         private ColumnHeader _colCityState;
+        private ColumnHeader _colEmail;
         private ColumnHeader _colRoles;
         private Label _emptyHint;
 
@@ -71,6 +72,9 @@ namespace Hiatme_Tool_Suite_v3
         /// or skip.
         /// </summary>
         public IList<WellRydeUserDetail> SelectedDetails { get; private set; } = new List<WellRydeUserDetail>();
+
+        /// <summary>Full result from the last successful PULL (includes drivers already in roster).</summary>
+        public WellRydeRosterImportResult LastImportResult { get; private set; }
 
         public SupeyImportFromWellRydeForm(WellRydePortalSession session,
             IEnumerable<string> alreadyImportedSecIds)
@@ -185,10 +189,11 @@ namespace Hiatme_Tool_Suite_v3
             _colCheck = new ColumnHeader { Text = "Use", Width = 50 };
             _colName = new ColumnHeader { Text = "Driver", Width = 200 };
             _colUsername = new ColumnHeader { Text = "Username", Width = 120 };
-            _colAddress = new ColumnHeader { Text = "Address", Width = 220 };
-            _colCityState = new ColumnHeader { Text = "City, ST", Width = 140 };
-            _colRoles = new ColumnHeader { Text = "Roles", Width = 170 };
-            _driverList.Columns.AddRange(new[] { _colCheck, _colName, _colUsername, _colAddress, _colCityState, _colRoles });
+            _colAddress = new ColumnHeader { Text = "Address", Width = 200 };
+            _colCityState = new ColumnHeader { Text = "City, ST", Width = 120 };
+            _colEmail = new ColumnHeader { Text = "Email", Width = 200 };
+            _colRoles = new ColumnHeader { Text = "Roles", Width = 150 };
+            _driverList.Columns.AddRange(new[] { _colCheck, _colName, _colUsername, _colAddress, _colCityState, _colEmail, _colRoles });
             _driverList.DrawColumnHeader += OnDrawColumnHeader;
             _driverList.DrawItem += OnDrawItem;
             _driverList.DrawSubItem += OnDrawSubItem;
@@ -347,6 +352,7 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             PopulateDriverList(result);
+            LastImportResult = result;
             _pulling = false;
             UpdateButtonStates();
         }
@@ -402,6 +408,9 @@ namespace Hiatme_Tool_Suite_v3
                         ? string.Join(", ", d.Roles.Take(4)) + (d.Roles.Count > 4 ? "..." : "")
                         : "";
 
+                    string email = (d.Email ?? "").Trim();
+                    if (email.Length == 0) email = "(no email)";
+
                     var item = new ListViewItem(new[]
                     {
                         "",
@@ -409,19 +418,26 @@ namespace Hiatme_Tool_Suite_v3
                         d.Username ?? "",
                         street,
                         cityState,
+                        email,
                         roles,
                     });
                     item.Tag = d;
-                    // Pre-check users not already in roster + with a usable street address; users
-                    // already imported get unchecked so re-pulls don't accidentally re-add them.
-                    item.Checked = !already && !string.IsNullOrWhiteSpace(d.FullStreet);
+                    bool hasEmail = WellRydeUserParser.TryNormalizeEmail(d.Email).Length > 0;
+                    // Pre-check new drivers that have email and/or home — email-only rows (e.g. RNeal) are valid.
+                    item.Checked = !already
+                        && (hasEmail || !string.IsNullOrWhiteSpace(d.FullStreet));
                     _driverList.Items.Add(item);
                 }
 
+                int missingEmail = result.Details.Count(d =>
+                    d != null && WellRydeUserParser.TryNormalizeEmail(d.Email).Length == 0);
                 _summaryLbl.Text = result.Details.Count + " active driver" +
                     (result.Details.Count == 1 ? "" : "s") + " found" +
-                    (alreadyCount > 0 ? " (" + alreadyCount + " already in roster)" : "") + ".";
-                _statusLbl.Text = "Check the drivers you want to add, then click ADD SELECTED.";
+                    (alreadyCount > 0 ? " (" + alreadyCount + " already in roster)" : "") +
+                    (missingEmail > 0 ? " · " + missingEmail + " missing email" : "") + ".";
+                _statusLbl.Text = alreadyCount > 0
+                    ? "Green rows sync on close. Check new drivers to add, then ADD SELECTED."
+                    : "Check the drivers you want to add, then click ADD SELECTED.";
                 _emptyHint.Visible = false;
             }
             finally
@@ -522,6 +538,7 @@ namespace Hiatme_Tool_Suite_v3
             bool selected = e.Item != null && e.Item.Selected;
             bool already = ItemIsAlreadyImported(e.Item);
             bool noAddress = (e.SubItem == e.Item.SubItems[3]) && IsNoAddress(e.SubItem.Text);
+            bool noEmail = (e.SubItem == e.Item.SubItems[5]) && IsNoEmail(e.SubItem.Text);
             SupeyListViewHelpers.DrawSubItemCellBackground(e, ImportRowBackground(e.Item, selected));
 
             // Column 0 (Use) — paint the modern flat checkbox via the shared
@@ -541,6 +558,7 @@ namespace Hiatme_Tool_Suite_v3
             if (selected) fg = ListSelectedText;
             else if (already) fg = Color.LightGreen;
             else if (noAddress) fg = SupeyTheme.ErrorText;
+            else if (noEmail) fg = SupeyTheme.ErrorText;
             else fg = ListText;
 
             var bounds = new Rectangle(e.Bounds.Left + 8, e.Bounds.Top, e.Bounds.Width - 12, e.Bounds.Height);
@@ -564,6 +582,11 @@ namespace Hiatme_Tool_Suite_v3
         private static bool IsNoAddress(string text)
         {
             return string.Equals((text ?? "").Trim(), "(no address)", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsNoEmail(string text)
+        {
+            return string.Equals((text ?? "").Trim(), "(no email)", StringComparison.OrdinalIgnoreCase);
         }
     }
 }

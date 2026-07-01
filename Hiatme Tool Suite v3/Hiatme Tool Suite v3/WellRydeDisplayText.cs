@@ -16,7 +16,7 @@ namespace Hiatme_Tool_Suite_v3
     {
         private static readonly HashSet<string> SkipColumnHeaders = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            "Trip ID", "Trip #", "Trip", "PU Time", "DO Time", "Sched PU", "Sched DO",
+            "Trip ID", "Trip #", "Trip", "Status", "PU Time", "DO Time", "Sched PU", "Sched DO",
             "Scheduled PU", "Scheduled DO", "Driver PU", "Driver DO", "Suggested PU", "Suggested DO",
             "Miles", "Mi", "Price", "Rate", "References", "Ref", "CoPay", "Co-Pay", "Billed",
             "Amount", "Date", "Created", "Count", "Failed", "Vehicle", "Signature", "Rider Call",

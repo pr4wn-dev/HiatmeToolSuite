@@ -455,14 +455,53 @@ namespace Hiatme_Tool_Suite_v3
             if (listView == null || listView.IsDisposed || listView.View != View.Details)
                 return 0;
 
-            if (listView.Items.Count > 0)
+            if (!listView.IsHandleCreated)
+                return FallbackDetailsHeaderHeight();
+
+            try
             {
-                int top = listView.Items[0].Bounds.Top;
-                if (top > 0)
-                    return top;
+                if (listView.Items.Count > 0)
+                {
+                    ListViewItem first = listView.Items[0];
+                    if (first != null)
+                    {
+                        int top = first.Bounds.Top;
+                        if (top > 0)
+                            return top;
+                    }
+                }
+            }
+            catch (NullReferenceException)
+            {
+                // Bounds are not always materialized during BeginUpdate or the first WM_PAINT.
             }
 
-            return Math.Max(24, TextRenderer.MeasureText("Status", ListViewOwnerDrawFonts.Header).Height + 8);
+            return FallbackDetailsHeaderHeight();
+        }
+
+        private static int FallbackDetailsHeaderHeight() =>
+            Math.Max(24, TextRenderer.MeasureText("Status", ListViewOwnerDrawFonts.Header).Height + 8);
+
+        private static bool TryGetItemBounds(ListView listView, int index, out Rectangle bounds)
+        {
+            bounds = Rectangle.Empty;
+            if (listView == null || listView.IsDisposed || !listView.IsHandleCreated)
+                return false;
+            if (index < 0 || index >= listView.Items.Count)
+                return false;
+
+            try
+            {
+                ListViewItem item = listView.Items[index];
+                if (item == null)
+                    return false;
+                bounds = item.Bounds;
+                return true;
+            }
+            catch (NullReferenceException)
+            {
+                return false;
+            }
         }
 
         /// <summary>
@@ -474,14 +513,14 @@ namespace Hiatme_Tool_Suite_v3
             if (listView is SupeyListView slv && !slv.GridLines)
                 return;
             if (g == null || listView == null || listView.IsDisposed || listView.View != View.Details
-                || listView.Columns.Count == 0)
+                || listView.Columns.Count == 0 || !listView.IsHandleCreated)
                 return;
 
             int headerH = GetDetailsHeaderHeight(listView);
 
-            int rowH = listView.Items.Count > 0
-                ? Math.Max(16, listView.Items[0].Bounds.Height)
-                : Math.Max(18, TextRenderer.MeasureText("Ag", listView.Font ?? ListViewOwnerDrawFonts.Cell).Height + 5);
+            int rowH = Math.Max(18, TextRenderer.MeasureText("Ag", listView.Font ?? ListViewOwnerDrawFonts.Cell).Height + 5);
+            if (TryGetItemBounds(listView, 0, out Rectangle firstBounds) && firstBounds.Height > 0)
+                rowH = Math.Max(16, firstBounds.Height);
 
             int contentW = 0;
             foreach (ColumnHeader col in listView.Columns)
@@ -489,10 +528,10 @@ namespace Hiatme_Tool_Suite_v3
             contentW = Math.Max(contentW, listView.ClientSize.Width);
 
             int startY = headerH;
-            if (listView.Items.Count > 0)
+            if (listView.Items.Count > 0
+                && TryGetItemBounds(listView, listView.Items.Count - 1, out Rectangle lastBounds))
             {
-                var last = listView.Items[listView.Items.Count - 1];
-                startY = Math.Max(headerH, last.Bounds.Bottom);
+                startY = Math.Max(headerH, lastBounds.Bottom);
             }
 
             using (var pen = new Pen(ListGridLineColor, 1f))

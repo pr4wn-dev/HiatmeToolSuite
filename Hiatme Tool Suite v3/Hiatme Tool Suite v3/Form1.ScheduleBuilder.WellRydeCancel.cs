@@ -28,7 +28,9 @@ namespace Hiatme_Tool_Suite_v3
             List<WRDownloadedTrip> trips = null;
             try
             {
-                var load = await LoadWellRydeTripsForDateWithAuthRetryAsync(serviceDate).ConfigureAwait(true);
+                var load = await LoadWellRydeTripsForDateWithAuthRetryAsync(
+                    serviceDate,
+                    backgroundSilent: true).ConfigureAwait(true);
                 if (!load.result.IsSuccess || load.trips == null)
                 {
                     _fsWellRydeCancelledKeys = null;
