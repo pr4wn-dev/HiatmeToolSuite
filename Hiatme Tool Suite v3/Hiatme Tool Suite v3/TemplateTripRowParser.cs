@@ -7,7 +7,7 @@ namespace Hiatme_Tool_Suite_v3
             string Cell(int i) => i < row.Length ? (row[i] ?? "").Trim() : "";
             return new MCDownloadedTrip
             {
-                TripNumber = Cell(0),
+                TripNumber = ModivcareDelimitedTripParser.NormalizeStoredTripNumber(Cell(0)),
                 Date = Cell(1),
                 ClientFullName = Cell(2),
                 PUStreet = Cell(3),

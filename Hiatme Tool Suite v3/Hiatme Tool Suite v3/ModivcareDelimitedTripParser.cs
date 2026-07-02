@@ -68,7 +68,7 @@ namespace Hiatme_Tool_Suite_v3
                     if (tripsubitems.Length < 10)
                         continue;
 
-                    string tripNumber = tripsubitems[1].Replace("\"", "").Replace(" ", "");
+                    string tripNumber = NormalizeStoredTripNumber(tripsubitems[1].Replace("\"", ""));
                     if (string.IsNullOrWhiteSpace(tripNumber) || !tripNumber.Contains("-"))
                         continue;
 
@@ -134,9 +134,30 @@ namespace Hiatme_Tool_Suite_v3
             return new List<MCDownloadedTrip>(byTrip.Values);
         }
 
+        /// <summary>Short schedule-style trip # — e.g. long MC/WR ids become <c>1-39032-A</c>.</summary>
+        internal static string NormalizeStoredTripNumber(string tripNumber) =>
+            WellRydeFilterDataParser.FormatTripIdForScheduleMatch(CanonicalizeTripNumber(tripNumber));
+
         internal static string NormalizeTripKey(string tripNumber)
         {
-            return WellRydeFilterDataParser.FormatTripIdForScheduleMatch((tripNumber ?? "").Replace(" ", ""));
+            return ScheduleBuilderPreviewDrag.TripLegKey(NormalizeStoredTripNumber(tripNumber));
+        }
+
+        /// <summary>
+        /// MC downloads sometimes send the leg letter glued to the id ("1-39032 A" → "1-39032A" after
+        /// space-stripping) while the rest of the app uses "1-39032-A". Insert the dash so downloaded
+        /// trip numbers match schedule rows, the reroute registry, and leg-suffix helpers.
+        /// </summary>
+        internal static string CanonicalizeTripNumber(string tripNumber)
+        {
+            string t = (tripNumber ?? "").Replace(" ", "").Trim();
+            if (t.Length >= 2)
+            {
+                char last = char.ToUpperInvariant(t[t.Length - 1]);
+                if ((last == 'A' || last == 'B' || last == 'C') && char.IsDigit(t[t.Length - 2]))
+                    t = t.Substring(0, t.Length - 1) + "-" + last;
+            }
+            return t;
         }
 
         private static bool TryParseTrip(
@@ -148,9 +169,9 @@ namespace Hiatme_Tool_Suite_v3
             if (fields == null || fields.Count < 10)
                 return false;
 
-            string tripNumber = FirstNonEmpty(
+            string tripNumber = NormalizeStoredTripNumber(FirstNonEmpty(
                 FieldByHeader(headerMap, fields, "trip #", "trip number", "tripid", "trip id", "tripidleg"),
-                Get(fields, 1)).Replace(" ", "");
+                Get(fields, 1)));
             if (string.IsNullOrWhiteSpace(tripNumber))
                 return false;
 

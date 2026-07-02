@@ -500,7 +500,8 @@ namespace Hiatme_Tool_Suite_v3
 
         internal static string NormalizeTripNumberKey(string tripNumber)
         {
-            string tn = (tripNumber ?? "").Trim();
+            string tn = WellRydeFilterDataParser.FormatTripIdForScheduleMatch(
+                ModivcareDelimitedTripParser.CanonicalizeTripNumber(tripNumber));
             if (tn.Length >= 2 && tn.StartsWith("1-", StringComparison.OrdinalIgnoreCase))
                 tn = tn.Substring(2).Trim();
             return tn;
@@ -556,18 +557,19 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>Identity for matching — includes A/B/C leg so partner legs never collide.</summary>
         internal static string TripLegKey(string tripNumber)
         {
-            string tn = NormalizeTripNumberKey(tripNumber);
+            string canonical = ModivcareDelimitedTripParser.CanonicalizeTripNumber(tripNumber);
+            string tn = NormalizeTripNumberKey(canonical);
             if (tn.Length == 0)
                 return "";
 
-            if (!HasLegSuffix(tripNumber))
+            if (!HasLegSuffix(canonical))
                 return tn;
 
             string baseId = SupeyScheduleAlgorithm.TripPartnerBase(tn);
             if (string.IsNullOrWhiteSpace(baseId))
                 baseId = tn;
 
-            char leg = SupeyScheduleAlgorithm.DetectLegPublic(tripNumber);
+            char leg = SupeyScheduleAlgorithm.DetectLegPublic(canonical);
             return baseId + "-" + char.ToUpperInvariant(leg);
         }
 

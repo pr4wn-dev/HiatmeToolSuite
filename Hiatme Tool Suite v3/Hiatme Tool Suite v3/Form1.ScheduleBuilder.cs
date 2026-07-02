@@ -778,6 +778,8 @@ namespace Hiatme_Tool_Suite_v3
 
             WireFsEmailSchedulesButton(_fsDriverTabStrip);
 
+            WireFsSyncNewTripsButton(_fsDriverTabStrip);
+
             SupeyDarkScrollBars.Apply(_fsDriverTabStrip);
 
 

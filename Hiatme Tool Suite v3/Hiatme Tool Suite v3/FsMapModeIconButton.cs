@@ -18,8 +18,10 @@ namespace Hiatme_Tool_Suite_v3
                 ControlStyles.AllPaintingInWmPaint
                 | ControlStyles.OptimizedDoubleBuffer
                 | ControlStyles.ResizeRedraw
-                | ControlStyles.UserPaint,
+                | ControlStyles.UserPaint
+                | ControlStyles.Opaque,
                 true);
+            BackColor = SupeyTheme.SurfaceHeader;
             Size = new Size(30, 30);
             Cursor = Cursors.Hand;
             TabStop = true;
@@ -69,7 +71,7 @@ namespace Hiatme_Tool_Suite_v3
                 ? Color.FromArgb(48, SupeyTheme.AccentPrimary)
                 : _hover
                     ? SupeyTheme.SurfaceElevated
-                    : Color.Transparent;
+                    : BackColor;
             if (back.A > 0)
             {
                 using (var brush = new SolidBrush(back))

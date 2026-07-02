@@ -1005,17 +1005,19 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>
         /// Add a trip from a fresh Modivcare download to the correct Reserves section in-place
         /// (will call / reroute / reservers via current rules). Existing rows keep their positions.
+        /// Returns the bucket the trip was placed in so the caller can update the matching bucket list.
         /// </summary>
-        public static void InsertNewDownloadTripIntoReserveLines(
+        public static ReserveBucket InsertNewDownloadTripIntoReserveLines(
             List<ScheduleBuilderPreviewLine> reserveLines,
             MCDownloadedTrip trip)
         {
             if (reserveLines == null || trip == null)
-                return;
+                return ReserveBucket.Reserver;
 
             ReserveBucket bucket = Classify(trip);
             InsertTripAtSectionEnd(reserveLines, trip, bucket, BandForBucket(bucket));
             RefreshReserveSectionHeaderCounts(reserveLines);
+            return bucket;
         }
 
         private static Color BandForBucket(ReserveBucket bucket)

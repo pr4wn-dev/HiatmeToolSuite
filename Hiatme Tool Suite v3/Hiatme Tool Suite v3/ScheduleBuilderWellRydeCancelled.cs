@@ -17,7 +17,7 @@ namespace Hiatme_Tool_Suite_v3
         public static string NormalizeTripKey(string tripNumber)
         {
             return ScheduleBuilderPreviewDrag.TripLegKey(
-                WellRydeFilterDataParser.FormatTripIdForScheduleMatch((tripNumber ?? "").Replace(" ", "")));
+                ModivcareDelimitedTripParser.NormalizeStoredTripNumber(tripNumber));
         }
 
         public static HashSet<string> CollectCancelledTripKeys(IEnumerable<WRDownloadedTrip> trips)
