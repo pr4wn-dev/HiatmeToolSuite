@@ -72,7 +72,38 @@ namespace Hiatme_Tool_Suite_v3
 
         }
 
+        /// <summary>Fill missing cluster PU/DO slots from the geocode cache used by the map.</summary>
+        public static void HydrateGroupEndpointsFromLookup(
+            SupeyTripCluster group,
+            IReadOnlyDictionary<string, GeoPoint> pickupByTrip,
+            IReadOnlyDictionary<string, GeoPoint> dropoffByTrip)
+        {
+            if (group?.Trips == null || group.Trips.Count == 0)
+                return;
 
+            while (group.PickupPoints.Count < group.Trips.Count)
+                group.PickupPoints.Add(default);
+            while (group.DropoffPoints.Count < group.Trips.Count)
+                group.DropoffPoints.Add(default);
+
+            for (int i = 0; i < group.Trips.Count; i++)
+            {
+                var t = group.Trips[i];
+                string key = (t?.TripNumber ?? "").Trim();
+                if (key.Length == 0)
+                    continue;
+
+                if (!IsValid(group.PickupPoints[i])
+                    && pickupByTrip != null
+                    && pickupByTrip.TryGetValue(key, out var pu))
+                    group.PickupPoints[i] = pu;
+
+                if (!IsValid(group.DropoffPoints[i])
+                    && dropoffByTrip != null
+                    && dropoffByTrip.TryGetValue(key, out var dof))
+                    group.DropoffPoints[i] = dof;
+            }
+        }
 
         public static async Task<(double? meters, bool approx)> ResolveTripPuDoMetersAsync(
 
@@ -279,7 +310,14 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             if (!HasRoutableEndpoints(group, n))
+            {
+                var routeOnly = await ResolveGroupRouteMetersAsync(group, token).ConfigureAwait(false);
+                if (routeOnly.meters > 0)
+                    return (null, routeOnly.meters, routeOnly.meters, routeOnly.approx);
+                if (group.IntraClusterMeters > 0)
+                    return (null, group.IntraClusterMeters, group.IntraClusterMeters, group.IsStraightLineFallback);
                 return (null, 0, 0, false);
+            }
 
             var currentOrder = IdentityOrder(n);
 

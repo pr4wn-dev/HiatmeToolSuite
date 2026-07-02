@@ -33,8 +33,12 @@ namespace Hiatme_Tool_Suite_v3
 
             if (showReserves)
             {
-                SelectFsDriverTab("Reserves");
+                SelectFsDriverTab("Reserves", refreshMap: false);
                 FsSyncReroutedHighlightsFromPreviewLines();
+                StartFsMapPreloadAfterScheduleBind(
+                    ScheduleBuilderTabOrder.NormalizeFullTabOrder(
+                        fsbuilder?.TabOrder?.Count > 0 ? fsbuilder.TabOrder : null,
+                        _fsLinesByTab.Keys));
                 return;
             }
 
@@ -43,17 +47,23 @@ namespace Hiatme_Tool_Suite_v3
                 fsbuilder?.TabOrder);
             string firstDriver = driverNames.FirstOrDefault();
             if (!string.IsNullOrWhiteSpace(firstDriver))
-                SelectFsDriverTab(firstDriver);
+                SelectFsDriverTab(firstDriver, refreshMap: false);
             else
             {
                 var tabNames = ScheduleBuilderTabOrder.NormalizeFullTabOrder(
                     fsbuilder?.TabOrder?.Count > 0 ? fsbuilder.TabOrder : null,
                     _fsLinesByTab.Keys);
                 if (tabNames.Count > 0)
-                    SelectFsDriverTab(tabNames[0]);
+                    SelectFsDriverTab(tabNames[0], refreshMap: false);
             }
 
             FsSyncReroutedHighlightsFromPreviewLines();
+
+            var preloadTabs = ScheduleBuilderTabOrder.NormalizeFullTabOrder(
+                fsbuilder?.TabOrder?.Count > 0 ? fsbuilder.TabOrder : null,
+                _fsLinesByTab.Keys);
+            if (preloadTabs.Count > 0 && !string.IsNullOrWhiteSpace(_fsActiveDriverTab))
+                StartFsMapPreloadAfterScheduleBind(preloadTabs);
         }
 
         /// <summary>
@@ -594,13 +604,13 @@ namespace Hiatme_Tool_Suite_v3
                 }
 
                 if (removed && !key.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
-                    _fsLinesByTab[key] = ScheduleBuilderGroupHeaderReconcile.Reconcile(lines);
+                    SetFsLinesByTabEntry(key, ScheduleBuilderGroupHeaderReconcile.Reconcile(lines));
             }
 
             if (!_fsLinesByTab.TryGetValue("Reserves", out var reserveLines) || reserveLines == null)
             {
                 reserveLines = new List<ScheduleBuilderPreviewLine>();
-                _fsLinesByTab["Reserves"] = reserveLines;
+                SetFsLinesByTabEntry("Reserves", reserveLines);
             }
 
             ScheduleBuilderReserveBuckets.MoveTripIntoReroutesSectionInPlace(reserveLines, trip);

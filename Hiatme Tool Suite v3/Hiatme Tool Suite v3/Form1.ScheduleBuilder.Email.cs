@@ -11,15 +11,48 @@ namespace Hiatme_Tool_Suite_v3
     public partial class Form1
     {
         private SupeyButton _fsEmailSchedulesBtn;
+        private ToolTip _fsEmailSchedulesTip;
+        private bool _fsEmailSchedulesRunning;
+        private const string FsEmailSchedulesBtnLabel = "EMAIL SCHEDULES";
 
         private void SetFsPreviewExportButtonsEnabled(bool enabled)
         {
             if (_fsSaveBtn != null)
                 _fsSaveBtn.Enabled = enabled;
             if (_fsEmailSchedulesBtn != null)
-                _fsEmailSchedulesBtn.Enabled = enabled;
+                _fsEmailSchedulesBtn.Enabled = enabled && !_fsEmailSchedulesRunning;
             if (_fsSyncNewTripsBtn != null)
                 _fsSyncNewTripsBtn.Enabled = enabled && !_fsSyncNewTripsRunning;
+        }
+
+        private void SetFsEmailSchedulesBusy(bool busy, string buttonText, string statusMessage)
+        {
+            _fsEmailSchedulesRunning = busy;
+
+            if (_fsEmailSchedulesBtn != null && !_fsEmailSchedulesBtn.IsDisposed)
+            {
+                _fsEmailSchedulesBtn.Text = string.IsNullOrWhiteSpace(buttonText)
+                    ? FsEmailSchedulesBtnLabel
+                    : buttonText;
+            }
+
+            SetFsPreviewExportButtonsEnabled(_fsHasPreview);
+
+            if (!string.IsNullOrWhiteSpace(statusMessage))
+                SetScheduleBuilderStatus(statusMessage);
+
+            if (_fsEmailSchedulesTip != null && _fsEmailSchedulesBtn != null)
+            {
+                _fsEmailSchedulesTip.SetToolTip(
+                    _fsEmailSchedulesBtn,
+                    busy
+                        ? (statusMessage ?? "Email schedules — working…")
+                        : "Email each driver the full schedule workbook (.xlsx, all tabs) using Gmail. "
+                          + "Uses the office Gmail account automatically — no login needed. "
+                          + "Optional: Login → Gmail → enter your own Gmail App Password instead.");
+            }
+
+            UseWaitCursor = busy;
         }
 
         private void WireFsEmailSchedulesButton(Panel host)
@@ -35,8 +68,8 @@ namespace Hiatme_Tool_Suite_v3
             };
             _fsEmailSchedulesBtn.Click += async (s, e) => await FsEmailSchedulesBtn_ClickAsync();
 
-            var tip = SupeyToolTip.Create(autoPopDelay: 14000, initialDelay: 400);
-            tip.SetToolTip(_fsEmailSchedulesBtn,
+            _fsEmailSchedulesTip = SupeyToolTip.Create(autoPopDelay: 14000, initialDelay: 400);
+            _fsEmailSchedulesTip.SetToolTip(_fsEmailSchedulesBtn,
                 "Email each driver the full schedule workbook (.xlsx, all tabs) using Gmail. "
                 + "Uses the office Gmail account automatically — no login needed. "
                 + "Optional: Login → Gmail → enter your own Gmail App Password instead.");
@@ -119,76 +152,93 @@ namespace Hiatme_Tool_Suite_v3
 
         private async Task FsEmailSchedulesBtn_ClickAsync()
         {
+            if (_fsEmailSchedulesRunning)
+                return;
+
             if (fsbuilder == null || !_fsHasPreview)
             {
                 SetScheduleBuilderStatus("Build or load a schedule first, then email drivers.");
                 return;
             }
 
-            if (!TryGetGmailCredentialsForMailer(out string gmailUser, out string gmailPass))
+            try
             {
-                SupeyMessageDialog.ShowInfo(this,
-                    "Email schedules",
-                    "Office Gmail is not set up yet",
-                    "An admin needs to fill in hiatme_config\\gmail_default.json once before distributing the app.\r\n\r\n"
-                    + "Or use Login → Gmail to enter your own Gmail App Password.");
-                return;
-            }
+                SetFsEmailSchedulesBusy(true, "LOADING…", "Preparing email schedules…");
 
-            EnsureFsDriverRosterLoaded();
-            ScheduleBuilderDriverEmailsRegistry.ApplyLocalRegistryToRoster(_supeyRoster);
+                if (!TryGetGmailCredentialsForMailer(out string gmailUser, out string gmailPass))
+                {
+                    SupeyMessageDialog.ShowInfo(this,
+                        "Email schedules",
+                        "Office Gmail is not set up yet",
+                        "An admin needs to fill in hiatme_config\\gmail_default.json once before distributing the app.\r\n\r\n"
+                        + "Or use Login → Gmail to enter your own Gmail App Password.");
+                    return;
+                }
 
-            if (fsbdatepicker != null)
-                fsbuilder.ApplyServiceDate(fsbdatepicker.Value);
+                EnsureFsDriverRosterLoaded();
+                ScheduleBuilderDriverEmailsRegistry.ApplyLocalRegistryToRoster(_supeyRoster);
 
-            await SyncFsDriverEmailsAsync(reportOffline: true).ConfigureAwait(true);
+                if (fsbdatepicker != null)
+                    fsbuilder.ApplyServiceDate(fsbdatepicker.Value);
 
-            DateTime serviceDate = fsbuilder.ServiceDate;
-            var driverTabs = _fsDriverTabOrder
-                .Where(n => !string.IsNullOrWhiteSpace(n)
-                    && !n.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
-                .ToList();
+                SetFsEmailSchedulesBusy(true, "LOADING…", "Syncing driver emails…");
+                await SyncFsDriverEmailsAsync(reportOffline: true).ConfigureAwait(true);
 
-            var recipientEntries = BuildScheduleEmailRecipientEntries(driverTabs);
+                DateTime serviceDate = fsbuilder.ServiceDate;
+                var driverTabs = _fsDriverTabOrder
+                    .Where(n => !string.IsNullOrWhiteSpace(n)
+                        && !n.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
 
-            if (recipientEntries.Count == 0)
-            {
-                SupeyMessageDialog.ShowInfo(this,
-                    "Email schedules",
-                    "No drivers to email",
-                    "Add drivers on the Drivers tab or build/load a schedule first.");
-                return;
-            }
+                var recipientEntries = BuildScheduleEmailRecipientEntries(driverTabs);
 
-            if (recipientEntries.All(r => !r.CanSend))
-            {
-                SupeyMessageDialog.ShowWarning(this,
-                    "Email schedules",
-                    "No drivers have an email on the roster",
-                    "Add emails via Pull from WellRyde or Edit driver on the Drivers tab.");
-                return;
-            }
+                if (recipientEntries.Count == 0)
+                {
+                    SupeyMessageDialog.ShowInfo(this,
+                        "Email schedules",
+                        "No drivers to email",
+                        "Add drivers on the Drivers tab or build/load a schedule first.");
+                    return;
+                }
 
-            List<(string TabName, string Email, string DisplayName)> sendPlan;
-            using (var picker = new ScheduleEmailRecipientsForm(recipientEntries, serviceDate, gmailUser))
-            {
-                if (picker.ShowDialog(this) != DialogResult.OK)
+                if (recipientEntries.All(r => !r.CanSend))
+                {
+                    SupeyMessageDialog.ShowWarning(this,
+                        "Email schedules",
+                        "No drivers have an email on the roster",
+                        "Add emails via Pull from WellRyde or Edit driver on the Drivers tab.");
+                    return;
+                }
+
+                SetFsEmailSchedulesBusy(false, null, null);
+
+                List<(string TabName, string Email, string DisplayName)> sendPlan;
+                using (var picker = new ScheduleEmailRecipientsForm(recipientEntries, serviceDate, gmailUser))
+                {
+                    if (picker.ShowDialog(this) != DialogResult.OK)
+                        return;
+
+                    sendPlan = (picker.SelectedRecipients ?? Array.Empty<ScheduleEmailRecipientEntry>())
+                        .Where(r => r != null && r.CanSend)
+                        .Select(r => (r.TabName, r.Email.Trim(), r.DisplayName ?? r.TabName))
+                        .ToList();
+                }
+
+                if (sendPlan.Count == 0)
                     return;
 
-                sendPlan = (picker.SelectedRecipients ?? Array.Empty<ScheduleEmailRecipientEntry>())
-                    .Where(r => r != null && r.CanSend)
-                    .Select(r => (r.TabName, r.Email.Trim(), r.DisplayName ?? r.TabName))
+                var recipients = sendPlan
+                    .Select(x => (x.Email, x.DisplayName))
                     .ToList();
+
+                SetFsEmailSchedulesBusy(true, "SENDING…", "Preparing to email driver schedules…");
+                await FsSendWorkbookEmailsAsync(recipients, serviceDate, gmailUser, gmailPass, showResultPopup: true)
+                    .ConfigureAwait(true);
             }
-
-            if (sendPlan.Count == 0)
-                return;
-
-            var recipients = sendPlan
-                .Select(x => (x.Email, x.DisplayName))
-                .ToList();
-            await FsSendWorkbookEmailsAsync(recipients, serviceDate, gmailUser, gmailPass, showResultPopup: true)
-                .ConfigureAwait(true);
+            finally
+            {
+                SetFsEmailSchedulesBusy(false, null, null);
+            }
         }
 
         /// <summary>Right-click on schedule preview — email the active driver tab's roster entry.</summary>
@@ -266,6 +316,8 @@ namespace Hiatme_Tool_Suite_v3
             var exportOptions = MakeFsPreviewCsvExportOptions();
 
             SetFsPreviewExportButtonsEnabled(false);
+            if (_fsEmailSchedulesBtn != null && !_fsEmailSchedulesBtn.IsDisposed)
+                _fsEmailSchedulesBtn.Text = "SENDING…";
             if (_fsBuildBtn != null) _fsBuildBtn.Enabled = false;
             if (_fsLoadBtn != null) _fsLoadBtn.Enabled = false;
 

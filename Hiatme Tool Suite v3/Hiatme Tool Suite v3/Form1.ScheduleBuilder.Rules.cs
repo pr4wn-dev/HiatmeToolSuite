@@ -1061,7 +1061,7 @@ namespace Hiatme_Tool_Suite_v3
 
                     if (kv.Key.Equals("Reserves", StringComparison.OrdinalIgnoreCase)) continue;
 
-                    _fsLinesByTab[kv.Key] = kv.Value ?? new List<ScheduleBuilderPreviewLine>();
+                    SetFsLinesByTabEntry(kv.Key, kv.Value ?? new List<ScheduleBuilderPreviewLine>());
 
                 }
 
@@ -1086,7 +1086,7 @@ namespace Hiatme_Tool_Suite_v3
                 cancels: fsbuilder.PreviewReservesCancel);
 
             ScheduleBuilderReroutedTrips.RestoreAndMarkRerouted(reserveLines, priorReserves, justRerouted: null);
-            _fsLinesByTab["Reserves"] = reserveLines;
+            SetFsLinesByTabEntry("Reserves", reserveLines);
             FsTrackReroutedKeysFromLines(reserveLines);
             FsReapplyReroutedHighlights();
             FsReapplyWellRydeCancelledHighlights();

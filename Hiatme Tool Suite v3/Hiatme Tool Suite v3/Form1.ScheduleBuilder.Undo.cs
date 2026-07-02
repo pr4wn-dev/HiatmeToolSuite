@@ -66,9 +66,7 @@ namespace Hiatme_Tool_Suite_v3
 
         private void FsApplyUndoEntry(ScheduleBuilderUndoEntry entry)
         {
-            _fsLinesByTab.Clear();
-            foreach (var kv in entry.LinesByTab)
-                _fsLinesByTab[kv.Key] = kv.Value;
+            ReplaceFsLinesByTabFrom(entry.LinesByTab);
 
             FsApplyAllPreviewLinesFromDictionary(entry.LinesByTab);
 

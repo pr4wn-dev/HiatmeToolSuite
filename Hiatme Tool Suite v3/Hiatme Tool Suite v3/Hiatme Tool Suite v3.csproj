@@ -161,6 +161,10 @@
     <Compile Include="ScheduleBuilderGmailMailer.cs" />
     <Compile Include="ScheduleBuilderGmailDefaults.cs" />
     <Compile Include="ScheduleBuilderGmailSync.cs" />
+    <Compile Include="FsModivcareNewTripsSyncResult.cs" />
+    <Compile Include="SupeyModivcareNewTripsResultForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="SupeyMessageForm.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -316,6 +320,14 @@
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="Form1.ScheduleBuilder.MapDisplay.cs">
+      <DependentUpon>Form1.cs</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Form1.ScheduleBuilder.MapCache.cs">
+      <DependentUpon>Form1.cs</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Form1.ScheduleBuilder.MapRefresh.cs">
       <DependentUpon>Form1.cs</DependentUpon>
       <SubType>Form</SubType>
     </Compile>

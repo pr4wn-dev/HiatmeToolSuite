@@ -26,7 +26,7 @@ namespace Hiatme_Tool_Suite_v3
         ServiceDog,
         Scooter,
         MassTransit,
-        /// <summary>Schedule Builder — rerouted on Modivcare or placed in Reserves → Reroutes.</summary>
+        /// <summary>Schedule Builder — confirmed rerouted on Modivcare only.</summary>
         Rerouted,
     }
 
@@ -311,7 +311,7 @@ namespace Hiatme_Tool_Suite_v3
             if (tripTag.CancelledOnWellRyde)
                 into.Add(ScheduleBuilderTripAlertKind.Cancelled);
 
-            if (tripTag.ReroutedOnModivcare || tripTag.InReservesReroutesSection)
+            if (tripTag.ReroutedOnModivcare)
                 into.Add(ScheduleBuilderTripAlertKind.Rerouted);
         }
 

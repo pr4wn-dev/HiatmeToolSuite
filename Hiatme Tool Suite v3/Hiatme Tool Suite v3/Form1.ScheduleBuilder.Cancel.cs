@@ -49,13 +49,13 @@ namespace Hiatme_Tool_Suite_v3
                 }
 
                 if (removed && !key.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
-                    _fsLinesByTab[key] = ScheduleBuilderGroupHeaderReconcile.Reconcile(lines);
+                    SetFsLinesByTabEntry(key, ScheduleBuilderGroupHeaderReconcile.Reconcile(lines));
             }
 
             if (!_fsLinesByTab.TryGetValue("Reserves", out var reserveLines) || reserveLines == null)
             {
                 reserveLines = new List<ScheduleBuilderPreviewLine>();
-                _fsLinesByTab["Reserves"] = reserveLines;
+                SetFsLinesByTabEntry("Reserves", reserveLines);
             }
 
             ScheduleBuilderReserveBuckets.MoveTripIntoCancelsSectionInPlace(reserveLines, trip);
@@ -105,7 +105,7 @@ namespace Hiatme_Tool_Suite_v3
         private void FsCommitReservePreviewLinesDirect(List<ScheduleBuilderPreviewLine> lines)
         {
             FsTrackReroutedKeysFromLines(lines);
-            _fsLinesByTab["Reserves"] = lines;
+            SetFsLinesByTabEntry("Reserves", lines);
 
             if (fsbuilder?.driverTripList != null)
             {

@@ -1102,7 +1102,7 @@ namespace Hiatme_Tool_Suite_v3
                 ScheduleBuilderTrailingRows.EnsureAtEnd(lines);
             }
 
-            _fsLinesByTab[tab] = lines;
+            SetFsLinesByTabEntry(tab, lines);
 
             if (fsbuilder?.PreviewDriverLines != null)
             {

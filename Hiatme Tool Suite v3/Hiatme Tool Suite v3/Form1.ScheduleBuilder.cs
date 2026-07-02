@@ -134,8 +134,6 @@ namespace Hiatme_Tool_Suite_v3
 
         private bool _fsFocusFirstGroupAfterPreviewBind;
 
-        private bool _fsRunMapFinalizeAfterRefresh;
-
         private bool _fsCenterMaineAfterBuild;
 
         private Dictionary<string, GeoPoint> _fsMapPickupByTrip =
@@ -939,7 +937,7 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-        private void SelectFsDriverTab(string tabName)
+        private void SelectFsDriverTab(string tabName, bool refreshMap = true)
 
         {
 
@@ -964,19 +962,22 @@ namespace Hiatme_Tool_Suite_v3
 
             // Keep the user's map display mode (default: selected group only).
             _fsShowAllGroupsOnNextMapLoad = _fsMapDisplayMode == FsMapDisplayMode.AllDriverTrips;
+            _fsFocusFirstGroupAfterPreviewBind = false;
 
             PushFsMapSelectionSuppress();
             try
             {
                 ClearFsTripsListSelection();
                 ShowFsTripsForTab(tabName, preserveScroll: false);
+                TrySelectFirstTripOnActiveDriverTab();
             }
             finally
             {
                 PopFsMapSelectionSuppress();
             }
 
-            _ = RefreshFsMapForCurrentTabAsync();
+            if (refreshMap && !_fsMapPreloadRunning)
+                _ = RefreshFsMapForCurrentTabAsync();
 
         }
 
@@ -1184,18 +1185,13 @@ namespace Hiatme_Tool_Suite_v3
 
             bool isNote = noteTag != null;
             bool rerouted = tripTag?.ReroutedOnModivcare == true;
-            bool reservesReroute = !rerouted && tripTag?.InReservesReroutesSection == true;
-            bool cancelled = !rerouted && !reservesReroute && tripTag?.CancelledOnWellRyde == true;
+            bool cancelled = !rerouted && tripTag?.CancelledOnWellRyde == true;
 
             Color rowBg = sel ? SupeyTheme.ListSelected : SupeyTheme.ListBody;
 
             if (!sel && rerouted)
 
                 rowBg = ScheduleBuilderPreviewStyle.ReroutedTripBackColor;
-
-            else if (!sel && reservesReroute)
-
-                rowBg = ScheduleBuilderPreviewStyle.ReservesRerouteTripBackColor;
 
             else if (!sel && cancelled)
 
@@ -1221,15 +1217,11 @@ namespace Hiatme_Tool_Suite_v3
 
                 fill = ScheduleBuilderPreviewStyle.ReroutedTripSelectedBackColor;
 
-            else if (sel && reservesReroute)
-
-                fill = ScheduleBuilderPreviewStyle.ReservesRerouteTripSelectedBackColor;
-
             else if (sel && cancelled)
 
                 fill = ScheduleBuilderPreviewStyle.CancelledTripSelectedBackColor;
 
-            else if (!sel && !isGap && !isNote && !rerouted && !reservesReroute && !cancelled && e.ColumnIndex == 0 && FsShowGroupColorsEnabled
+            else if (!sel && !isGap && !isNote && !rerouted && !cancelled && e.ColumnIndex == 0 && FsShowGroupColorsEnabled
                 && !isReservesTab
 
                 && e.SubItem != null && e.SubItem.BackColor != Color.Empty
@@ -1710,34 +1702,13 @@ namespace Hiatme_Tool_Suite_v3
                 if (lines == null)
                     continue;
 
-                // Reserves → Reroutes section membership adds the reroute icon even without an MC-confirmed flag.
-                HashSet<string> rerouteSectionKeys = null;
-                if (string.Equals(kv.Key, "Reserves", StringComparison.OrdinalIgnoreCase))
-                {
-                    rerouteSectionKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                    foreach (var t in ScheduleBuilderReroutedTrips.EnumerateTripsInReroutesSection(
-                                 lines, skipAlreadyMarked: false))
-                    {
-                        string key = ScheduleBuilderReroutedTrips.TripNumberKey(t.TripNumber);
-                        if (key.Length > 0)
-                            rerouteSectionKeys.Add(key);
-                    }
-                }
-
                 foreach (var line in lines)
                 {
                     if (line?.Kind != ScheduleBuilderPreviewLine.LineKind.Trip || line.Trip == null)
                         continue;
 
-                    bool rerouted = line.ReroutedOnModivcare;
-                    if (!rerouted && rerouteSectionKeys != null)
-                    {
-                        string key = ScheduleBuilderReroutedTrips.TripNumberKey(line.Trip.TripNumber);
-                        rerouted = key.Length > 0 && rerouteSectionKeys.Contains(key);
-                    }
-
                     int n = ScheduleBuilderTripAlertsColumn.CountAlerts(
-                        line.Trip, line.CancelledOnWellRyde, rerouted);
+                        line.Trip, line.CancelledOnWellRyde, line.ReroutedOnModivcare);
                     if (n > maxIcons)
                         maxIcons = n;
                 }
@@ -1938,8 +1909,9 @@ namespace Hiatme_Tool_Suite_v3
 
                     UpdateTabLoadingOverlayMessage(tabPage6, "Checking Modivcare for new trips…");
 
-                    string newTripsNote = await FsSyncNewModivcareTripsAsync(serviceDate)
+                    var newTripsResult = await FsSyncNewModivcareTripsAsync(serviceDate)
                         .ConfigureAwait(true);
+                    string newTripsNote = newTripsResult.StatusNote;
 
                     await FsApplyAnalyzerAlertsAsync(serviceDate).ConfigureAwait(true);
 
@@ -2419,12 +2391,14 @@ namespace Hiatme_Tool_Suite_v3
 
 
             _fsLinesByTab.Clear();
+            ResetFsTabLinesRevisions();
 
             _fsWellRydeCancelledKeys = null;
 
             _fsReroutedTripKeys = null;
 
             _fsGroupsByTab.Clear();
+            ClearFsTabMapCache();
 
             FsHideNewTripsBar();
 
@@ -2450,7 +2424,7 @@ namespace Hiatme_Tool_Suite_v3
 
                 ScheduleBuilderTrailingRows.EnsureAtEnd(lines);
 
-                _fsLinesByTab[name] = lines;
+                SetFsLinesByTabEntry(name, lines);
 
                 if (builder.PreviewDriverLines is Dictionary<string, List<ScheduleBuilderPreviewLine>> driverDict)
                     driverDict[name] = lines;
@@ -2459,7 +2433,7 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-            _fsLinesByTab["Reserves"] = BuildFsReservePreviewLines(builder);
+            SetFsLinesByTabEntry("Reserves", BuildFsReservePreviewLines(builder));
 
 
 
@@ -2485,11 +2459,11 @@ namespace Hiatme_Tool_Suite_v3
             var firstDriver = driverNames.FirstOrDefault();
             if (!string.IsNullOrWhiteSpace(firstDriver))
 
-                SelectFsDriverTab(firstDriver);
+                SelectFsDriverTab(firstDriver, refreshMap: false);
 
             else if (tabNames.Count > 0)
 
-                SelectFsDriverTab(tabNames[0]);
+                SelectFsDriverTab(tabNames[0], refreshMap: false);
 
             else
 
@@ -2498,6 +2472,9 @@ namespace Hiatme_Tool_Suite_v3
                 _fsMap?.CenterOnMaineHub();
                 _fsCenterMaineAfterBuild = false;
             }
+
+            if (showInitialTab && tabNames.Count > 0 && !string.IsNullOrWhiteSpace(_fsActiveDriverTab))
+                StartFsMapPreloadAfterScheduleBind(tabNames);
 
         }
 
@@ -2556,7 +2533,7 @@ namespace Hiatme_Tool_Suite_v3
                 if (string.IsNullOrWhiteSpace(tab) || tab.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
                     _fsFocusFirstGroupAfterPreviewBind = false;
                 else if (_fsTripsLv != null && _fsTripsLv.Items.Count > 0)
-                    TrySelectFirstGroupOnActiveDriverTab();
+                    TrySelectFirstTripOnActiveDriverTab();
             }
 
             if (_fsTripsLv != null && _fsTripsLv.SelectedItems.Count > 0)
@@ -2569,6 +2546,30 @@ namespace Hiatme_Tool_Suite_v3
             {
                 ApplyFsMapDisplayFilter(autoFit: false);
             }
+        }
+
+        private bool TrySelectFirstTripOnActiveDriverTab()
+        {
+            if (_fsTripsLv == null || _fsTripsLv.Items.Count == 0)
+                return false;
+
+            foreach (ListViewItem item in _fsTripsLv.Items)
+            {
+                if (item.Tag is FsPreviewNoteTag || item.Tag is FsPreviewGapTag
+                    || item.Tag is FsPreviewSectionHeaderTag)
+                    continue;
+
+                if (item.Tag is FsPreviewTripTag tripTag && tripTag.Trip != null)
+                {
+                    _fsTripsLv.SelectedItems.Clear();
+                    item.Selected = true;
+                    item.Focused = true;
+                    item.EnsureVisible();
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private bool TrySelectFirstGroupOnActiveDriverTab()
@@ -2590,21 +2591,7 @@ namespace Hiatme_Tool_Suite_v3
                 }
             }
 
-            foreach (ListViewItem item in _fsTripsLv.Items)
-            {
-                if (item.Tag is FsPreviewGapTag || item.Tag is FsPreviewSectionHeaderTag)
-                    continue;
-                if (item.Tag is FsPreviewNoteTag || item.Tag is FsPreviewTripTag)
-                {
-                    _fsTripsLv.SelectedItems.Clear();
-                    item.Selected = true;
-                    item.Focused = true;
-                    item.EnsureVisible();
-                    return true;
-                }
-            }
-
-            return false;
+            return TrySelectFirstTripOnActiveDriverTab();
         }
 
         private async Task RefreshFsMapForCurrentTabAsync()
@@ -2613,233 +2600,13 @@ namespace Hiatme_Tool_Suite_v3
 
             if (_fsMap == null || string.IsNullOrWhiteSpace(_fsActiveDriverTab)) return;
 
+            CancelFsMapPreloadIfRunning();
+
             string tabName = _fsActiveDriverTab;
 
             int gen = Interlocked.Increment(ref _fsMapRefreshGen);
-            Interlocked.Increment(ref _fsMileageHudGen);
 
-            PushFsMapSelectionSuppress();
-            try
-            {
-
-            _fsMap.SaveLegendSnapshotForTabIfLoaded(tabName);
-            _fsMap.Clear();
-            _fsMap.ClearMileageHud();
-            _fsMapPickupByTrip.Clear();
-            _fsMapDropoffByTrip.Clear();
-
-            bool isReservesTab = tabName.Equals("Reserves", StringComparison.OrdinalIgnoreCase);
-
-            if (string.IsNullOrEmpty(tabName) || !_fsLinesByTab.TryGetValue(tabName, out var lines))
-
-            {
-
-                SetFsMapPreviewAvailable(ScheduleOsrmGate.PreviewRoutingOk);
-                _fsMap.CenterOnMaineHub();
-
-                return;
-
-            }
-
-
-
-            var trips = CollectFsMapTrips(lines);
-
-            if (trips.Count == 0)
-            {
-                SetFsMapPreviewAvailable(ScheduleOsrmGate.PreviewRoutingOk);
-                _fsMap.CenterOnMaineHub();
-                return;
-            }
-
-            bool mapLoadingActive = false;
-            try
-            {
-                _fsMap.PushMapLoading("Loading map…");
-                mapLoadingActive = true;
-                await Task.Yield();
-
-                if (gen != _fsMapRefreshGen) return;
-
-                _fsMap.SetMapLoadingMessage("Checking routing…");
-                var (routingOk, routingDetail) = await ScheduleOsrmGate.ProbePreviewRoutingAsync(
-                    HiatmeAiSettings.Load(), CancellationToken.None).ConfigureAwait(true);
-
-                if (gen != _fsMapRefreshGen) return;
-
-                if (!routingOk)
-                {
-                    SetFsMapPreviewAvailable(false, routingDetail);
-                    SetScheduleBuilderStatus(tabName
-                        + " · map hidden (road routing offline — trip list still works).");
-                    return;
-                }
-
-                SetFsMapPreviewAvailable(true, showGroupKey: !isReservesTab && FsShowGroupColorsEnabled);
-                _fsMap.SetMapLoadingMessage("Geocoding trips…");
-
-            var pickup = new Dictionary<string, GeoPoint>(StringComparer.OrdinalIgnoreCase);
-
-            var dropoff = new Dictionary<string, GeoPoint>(StringComparer.OrdinalIgnoreCase);
-
-            await ScheduleBuilderMapGeocode.ResolveTripsForMapAsync(trips, pickup, dropoff, CancellationToken.None)
-                .ConfigureAwait(true);
-
-            _fsMapPickupByTrip = pickup;
-            _fsMapDropoffByTrip = dropoff;
-
-
-
-            if (gen != _fsMapRefreshGen) return;
-
-
-
-            if (!_fsGroupsByTab.TryGetValue(tabName, out var groups) || groups == null)
-
-                groups = new List<SupeyTripCluster>();
-
-            if (isReservesTab && groups.Count == 0 && lines != null && lines.Count > 0)
-
-            {
-
-                groups = ScheduleBuilderPreviewGroups.BuildTripFlatClustersFromPreviewLines(lines);
-
-                _fsGroupsByTab[tabName] = groups;
-
-            }
-
-
-
-            foreach (var g in groups)
-
-            {
-
-                if (g == null) continue;
-
-                ScheduleBuilderPreviewGroups.ApplyGeocodes(g, pickup, dropoff);
-
-            }
-
-            if (gen != _fsMapRefreshGen) return;
-
-            EnsureFsDriverRosterLoaded();
-            SupeyDriverProfile driverProfile = null;
-            GeoPoint? homeGeo = null;
-            if (!isReservesTab)
-            {
-                driverProfile = ScheduleBuilderDriverMapRouting.FindProfileForScheduleTab(_supeyRoster, tabName);
-                if (driverProfile != null && string.IsNullOrWhiteSpace(driverProfile.ScheduleTabKey))
-                    driverProfile.ScheduleTabKey = tabName;
-
-                _fsMap.SetMapLoadingMessage("Resolving driver home…");
-                if (driverProfile != null)
-                {
-                    homeGeo = await ScheduleBuilderDriverMapRouting.ResolveHomeGeoAsync(
-                        driverProfile, CancellationToken.None).ConfigureAwait(true);
-                }
-            }
-            if (gen != _fsMapRefreshGen) return;
-
-            if (!string.Equals(tabName, _fsActiveDriverTab, StringComparison.OrdinalIgnoreCase))
-                return;
-
-            _fsMap.SetMapLoadingMessage("Loading road routes…");
-            SetScheduleBuilderStatus(tabName + " map · loading road routes…");
-            _fsMap.TripFlatMapMode = isReservesTab || !FsShowGroupColorsEnabled;
-            _fsMap.UseGroupRouteColors = !isReservesTab && _fsShowGroupColors;
-            var routeHome = (!isReservesTab && FsShowGroupColorsEnabled) ? homeGeo : (GeoPoint?)null;
-            var routeProgress = new Progress<(int Done, int Total)>(p =>
-            {
-                if (gen != _fsMapRefreshGen) return;
-                string msg = p.Total > 1
-                    ? "Loading road routes… " + p.Done + "/" + p.Total
-                    : "Loading road routes…";
-                _fsMap.SetMapLoadingMessage(msg);
-            });
-            var routeCounts = await ScheduleBuilderPreviewGroups.BuildOsrmRoutePolylinesAsync(
-                groups, routeHome, CancellationToken.None, routeProgress).ConfigureAwait(true);
-
-            if (!isReservesTab && FsShowGroupColorsEnabled)
-            {
-                await ScheduleBuilderPreviewGroups.BuildTripLegPolylinesAsync(
-                    groups, CancellationToken.None).ConfigureAwait(true);
-            }
-
-            if (gen != _fsMapRefreshGen) return;
-
-            var plan = new SupeyDriverPlan
-            {
-                Driver = driverProfile ?? new SupeyDriverProfile { Name = tabName, ScheduleTabKey = tabName },
-            };
-            plan.Groups.AddRange(groups);
-            if (!isReservesTab && homeGeo.HasValue && SupeyMapWorkspace.IsValidGeoPoint(homeGeo.Value))
-                plan.HomeGeo = homeGeo;
-
-            if (gen != _fsMapRefreshGen) return;
-
-            bool centerMaineAfterBuild = _fsCenterMaineAfterBuild;
-            if (centerMaineAfterBuild)
-                _fsCenterMaineAfterBuild = false;
-
-            if (gen != _fsMapRefreshGen) return;
-
-            _fsMap.UseGroupRouteColors = !isReservesTab && _fsShowGroupColors;
-            _fsMap.TripFlatMapMode = isReservesTab || !FsShowGroupColorsEnabled;
-
-            _fsMap.ShowDriverPlan(plan, autoFitViewport: !centerMaineAfterBuild, restoreSavedLegend: !_fsShowAllGroupsOnNextMapLoad);
-
-            if (centerMaineAfterBuild || !SupeyMapWorkspace.HasValidMapPins(plan))
-                _fsMap.CenterOnMaineHub();
-
-            _fsRunMapFinalizeAfterRefresh = true;
-
-            int pinCount = pickup.Count + dropoff.Count;
-
-            int grpCount = groups.Count;
-
-            if (pinCount > 0)
-            {
-                string routes = routeCounts.roadGroups > 0 && routeCounts.straightGroups > 0
-                    ? routeCounts.roadGroups + " road, " + routeCounts.straightGroups + " straight fallback"
-                    : routeCounts.straightGroups > 0
-                        ? routeCounts.straightGroups + " straight (OSRM unavailable)"
-                        : "road routes";
-                string countLabel = _fsMap.TripFlatMapMode
-                    ? grpCount + " trip(s), "
-                    : grpCount + " group(s), ";
-                SetScheduleBuilderStatus(tabName + " map · " + countLabel
-                    + pinCount + " pin(s), " + routes
-                    + (plan.HomeGeo.HasValue ? ", home pin" : FormatFsHomePinHint(driverProfile, tabName))
-                    + ".");
-            }
-
-            else if (!HiatmeGeoSettings.UseServer && HiatmeGeoSettings.ServerOnly)
-
-                SetScheduleBuilderStatus(tabName + " map · no pins (office server offline — BUILD/SAVE still work).");
-
-            else
-
-                SetScheduleBuilderStatus(tabName + " map · no pins (geocode cache empty — BUILD/SAVE still work).");
-            }
-            catch (OperationCanceledException)
-            {
-                // Geocode / OSRM timeouts — map refresh continues with fallbacks.
-            }
-            finally
-            {
-                if (mapLoadingActive)
-                    _fsMap.PopMapLoading();
-            }
-            }
-            finally
-            {
-                PopFsMapSelectionSuppress();
-                if (_fsRunMapFinalizeAfterRefresh)
-                {
-                    _fsRunMapFinalizeAfterRefresh = false;
-                    FinalizeFsMapAfterRefresh();
-                }
-            }
+            await RefreshFsMapCoreAsync(gen, tabName).ConfigureAwait(false);
 
         }
 
@@ -3005,121 +2772,204 @@ namespace Hiatme_Tool_Suite_v3
 
             int gen = Interlocked.Increment(ref _fsMileageHudGen);
 
-            _fsMap.PushMapLoading("Loading mileage…");
+            string activeTab = _fsActiveDriverTab;
+            var pickup = _fsMapPickupByTrip;
+            var dropoff = _fsMapDropoffByTrip;
+
+            GeoPoint? pinPu = null;
+            GeoPoint? pinDo = null;
+            if (trip != null)
+            {
+                var pins = FsGetTripPinGeoPoints(trip);
+                pinPu = pins.pu;
+                pinDo = pins.dof;
+            }
+
+            FsMapBeginInvoke(() =>
+            {
+                if (gen != _fsMileageHudGen || _fsMap == null)
+                    return;
+                _fsMap.SetMileageHudBusy(group, trip);
+            });
+
             try
             {
-            await Task.Yield();
-            if (gen != _fsMileageHudGen) return;
+                MileageHudSnapshot snapshot = await Task.Run(async () =>
+                    await ComputeFsMapMileageHudSnapshotAsync(
+                        group, trip, activeTab, pickup, dropoff, pinPu, pinDo, gen).ConfigureAwait(false))
+                    .ConfigureAwait(false);
+
+                if (gen != _fsMileageHudGen)
+                    return;
+
+                if (snapshot == null)
+                {
+                    FsMapBeginInvoke(() =>
+                    {
+                        if (gen != _fsMileageHudGen)
+                            return;
+                        _fsMap?.ClearMileageHud();
+                    });
+                    return;
+                }
+
+                FsMapBeginInvoke(() =>
+                {
+                    if (gen != _fsMileageHudGen || _fsMap == null)
+                        return;
+
+                    _fsMap.SetMileageHud(
+                        snapshot.Group,
+                        snapshot.Trip,
+                        snapshot.GroupMeters,
+                        snapshot.TripMeters,
+                        snapshot.TripApprox,
+                        snapshot.ScorePercent,
+                        snapshot.CurrentMeters,
+                        snapshot.EfficiencyApprox,
+                        snapshot.RouteChangeMeters);
+                });
+            }
+            catch (OperationCanceledException)
+            {
+                if (gen == _fsMileageHudGen)
+                {
+                    FsMapBeginInvoke(() =>
+                    {
+                        if (gen != _fsMileageHudGen)
+                            return;
+                        _fsMap?.ClearMileageHud();
+                    });
+                }
+            }
+
+        }
+
+        private sealed class MileageHudSnapshot
+        {
+            public SupeyTripCluster Group;
+            public MCDownloadedTrip Trip;
+            public double GroupMeters;
+            public double? TripMeters;
+            public bool TripApprox;
+            public double? ScorePercent;
+            public double CurrentMeters;
+            public bool EfficiencyApprox;
+            public double? RouteChangeMeters;
+        }
+
+        private (GeoPoint? pu, GeoPoint? dof) FsGetTripPinGeoPoints(MCDownloadedTrip trip)
+        {
+            if (trip == null || _fsMap == null)
+                return (null, null);
+
+            GeoPoint pu = default;
+            GeoPoint dof = default;
+            bool ok = false;
+
+            void ReadPins()
+            {
+                ok = _fsMap.TryGetTripPinGeoPoints(trip, out pu, out dof);
+            }
+
+            if (InvokeRequired)
+                Invoke((Action)ReadPins);
+            else
+                ReadPins();
+
+            return ok ? ((GeoPoint?)pu, (GeoPoint?)dof) : (null, null);
+        }
+
+        private async Task<MileageHudSnapshot> ComputeFsMapMileageHudSnapshotAsync(
+            SupeyTripCluster group,
+            MCDownloadedTrip trip,
+            string activeTab,
+            Dictionary<string, GeoPoint> pickup,
+            Dictionary<string, GeoPoint> dropoff,
+            GeoPoint? pinPu,
+            GeoPoint? pinDo,
+            int gen)
+        {
+            if (gen != _fsMileageHudGen)
+                return null;
+
+            ScheduleBuilderMapMileage.HydrateGroupEndpointsFromLookup(group, pickup, dropoff);
 
             double? tripMeters = null;
-
             bool tripApprox = false;
 
             if (trip != null)
-
             {
-
-                GeoPoint? pinPu = null, pinDo = null;
-
-                if (_fsMap.TryGetTripPinGeoPoints(trip, out var puPin, out var doPin))
-
-                {
-
-                    pinPu = puPin;
-
-                    pinDo = doPin;
-
-                }
-
                 var tripLeg = await ScheduleBuilderMapMileage.ResolveTripPuDoMetersAsync(
-
                     group,
-
                     trip,
-
-                    _fsMapPickupByTrip,
-
-                    _fsMapDropoffByTrip,
-
+                    pickup,
+                    dropoff,
                     pinPu,
-
                     pinDo,
-
-                    CancellationToken.None).ConfigureAwait(true);
+                    CancellationToken.None).ConfigureAwait(false);
 
                 tripMeters = tripLeg.meters;
-
                 tripApprox = tripLeg.approx;
-
             }
+
+            if (gen != _fsMileageHudGen)
+                return null;
 
             EnsureFsDriverRosterLoaded();
             var driverProfile = ScheduleBuilderDriverMapRouting.FindProfileForScheduleTab(
-                _supeyRoster, _fsActiveDriverTab);
+                _supeyRoster, activeTab);
             GeoPoint? homeGeo = null;
             var dayPosition = ScheduleBuilderDriverMapRouting.GroupDayPosition.Middle;
             if (driverProfile != null
-                && _fsGroupsByTab.TryGetValue(_fsActiveDriverTab, out var tabGroups)
+                && _fsGroupsByTab.TryGetValue(activeTab, out var tabGroups)
                 && tabGroups != null)
             {
                 homeGeo = await ScheduleBuilderDriverMapRouting.ResolveHomeGeoAsync(
-                    driverProfile, CancellationToken.None).ConfigureAwait(true);
+                    driverProfile, CancellationToken.None).ConfigureAwait(false);
                 int groupIndex = FindFsGroupIndex(tabGroups, group);
                 dayPosition = ScheduleBuilderDriverMapRouting.ResolveDayPosition(
                     groupIndex, tabGroups.Count);
             }
 
-            _fsMap.SetMapLoadingMessage("Calculating group efficiency…");
+            if (gen != _fsMileageHudGen)
+                return null;
+
+            double groupMeters = group.IntraClusterMeters > 0
+                ? group.IntraClusterMeters
+                : ScheduleBuilderMapMileage.GroupRouteMeters(group);
+
             var efficiency = await ScheduleBuilderMapMileage.ComputeGroupEfficiencyAsync(
                 group,
                 homeGeo,
                 dayPosition,
-                CancellationToken.None).ConfigureAwait(true);
+                CancellationToken.None).ConfigureAwait(false);
 
-            double groupMeters = efficiency.currentMeters > 0
-                ? efficiency.currentMeters
-                : ScheduleBuilderMapMileage.GroupRouteMeters(group);
+            if (efficiency.currentMeters > 0)
+                groupMeters = efficiency.currentMeters;
 
             double? routeChangeMeters = null;
-
             if (trip != null && _fsPreMoveGroupMeters.HasValue && _fsPreMoveTripRef != null
-
                 && (ReferenceEquals(trip, _fsPreMoveTripRef)
-
                     || (!string.IsNullOrEmpty(trip.TripNumber)
-
                         && string.Equals(trip.TripNumber, _fsPreMoveTripRef.TripNumber,
-
                             StringComparison.OrdinalIgnoreCase))))
-
             {
-
                 routeChangeMeters = groupMeters - _fsPreMoveGroupMeters.Value;
-
             }
 
-            if (gen != _fsMileageHudGen) return;
-
-            _fsMap.SetMileageHud(
-                group,
-                trip,
-                groupMeters,
-                tripMeters,
-                tripApprox,
-                efficiency.scorePercent,
-                efficiency.currentMeters,
-                efficiency.approx,
-                routeChangeMeters);
-            }
-            catch (OperationCanceledException)
+            return new MileageHudSnapshot
             {
-                // OSRM / geocode timeout while computing mileage HUD.
-            }
-            finally
-            {
-                _fsMap.PopMapLoading();
-            }
-
+                Group = group,
+                Trip = trip,
+                GroupMeters = groupMeters,
+                TripMeters = tripMeters,
+                TripApprox = tripApprox,
+                ScorePercent = efficiency.scorePercent,
+                CurrentMeters = efficiency.currentMeters,
+                EfficiencyApprox = efficiency.approx,
+                RouteChangeMeters = routeChangeMeters,
+            };
         }
 
         /// <summary>Map/list rebuild creates new cluster objects — always use the live row from the current tab.</summary>
@@ -3642,8 +3492,6 @@ namespace Hiatme_Tool_Suite_v3
 
             if (reroutedOnModivcare)
                 ApplyFsReroutedTripRowStyle(lvi);
-            else if (inReroutesSection)
-                ApplyFsReservesRerouteRowStyle(lvi);
             else if (cancelledOnWellRyde)
                 ApplyFsCancelledTripRowStyle(lvi);
 
@@ -3883,17 +3731,6 @@ namespace Hiatme_Tool_Suite_v3
                 return;
 
             Color c = ScheduleBuilderPreviewStyle.ReroutedTripBackColor;
-            lvi.BackColor = c;
-            for (int i = 0; i < lvi.SubItems.Count; i++)
-                lvi.SubItems[i].BackColor = c;
-        }
-
-        private static void ApplyFsReservesRerouteRowStyle(ListViewItem lvi)
-        {
-            if (lvi == null)
-                return;
-
-            Color c = ScheduleBuilderPreviewStyle.ReservesRerouteTripBackColor;
             lvi.BackColor = c;
             for (int i = 0; i < lvi.SubItems.Count; i++)
                 lvi.SubItems[i].BackColor = c;

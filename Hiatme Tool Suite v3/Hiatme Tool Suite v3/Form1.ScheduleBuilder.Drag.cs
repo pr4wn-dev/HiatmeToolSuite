@@ -348,9 +348,10 @@ namespace Hiatme_Tool_Suite_v3
 
             foreach (ListViewItem item in _fsTripsLv.Items)
             {
-                if (item.Tag is FsPreviewNoteTag note
-                    && note.Group != null
-                    && note.Group.GroupNumber == groupNumber)
+                if (item.Tag is FsPreviewTripTag row
+                    && row.Trip != null
+                    && row.Group != null
+                    && row.Group.GroupNumber == groupNumber)
                 {
                     _fsTripsLv.SelectedItems.Clear();
                     item.Selected = true;
@@ -362,9 +363,9 @@ namespace Hiatme_Tool_Suite_v3
 
             foreach (ListViewItem item in _fsTripsLv.Items)
             {
-                if (item.Tag is FsPreviewTripTag row
-                    && row.Group != null
-                    && row.Group.GroupNumber == groupNumber)
+                if (item.Tag is FsPreviewNoteTag note
+                    && note.Group != null
+                    && note.Group.GroupNumber == groupNumber)
                 {
                     _fsTripsLv.SelectedItems.Clear();
                     item.Selected = true;

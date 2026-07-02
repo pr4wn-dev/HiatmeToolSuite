@@ -57,11 +57,19 @@ namespace Hiatme_Tool_Suite_v3
 
             try
             {
-                string note = await FsSyncNewModivcareTripsAsync(serviceDate).ConfigureAwait(true);
-                SetScheduleBuilderStatus("Modivcare new-trip check." + note);
+                var result = await FsSyncNewModivcareTripsAsync(serviceDate).ConfigureAwait(true);
+                SetScheduleBuilderStatus("Modivcare new-trip check." + result.StatusNote);
 
                 if (_fsHasPreview && !string.IsNullOrWhiteSpace(_fsActiveDriverTab))
                     ShowFsTripsForTab(_fsActiveDriverTab, preserveScroll: true);
+
+                if (SupeyModivcareNewTripsResultForm.Show(this, result)
+                    && result.HasAddedTrips
+                    && _fsLinesByTab != null
+                    && _fsLinesByTab.ContainsKey("Reserves"))
+                {
+                    SelectFsDriverTab("Reserves");
+                }
             }
             finally
             {
@@ -75,10 +83,10 @@ namespace Hiatme_Tool_Suite_v3
         /// trips not on the schedule anywhere to the Reserves tab. Reuses the live Modivcare session
         /// (only re-logs in when the session is dead). Fails soft — the load continues without the check.
         /// </summary>
-        private async Task<string> FsSyncNewModivcareTripsAsync(DateTime serviceDate)
+        private async Task<FsModivcareNewTripsSyncResult> FsSyncNewModivcareTripsAsync(DateTime serviceDate)
         {
             if (fsbuilder == null || _fsLinesByTab == null || _fsLinesByTab.Count == 0)
-                return "";
+                return FsModivcareNewTripsSyncResult.EmptySchedule(serviceDate);
 
             void ProbeStatus(string text)
             {
@@ -98,7 +106,12 @@ namespace Hiatme_Tool_Suite_v3
                 mcReady = false;
             }
             if (!mcReady)
-                return " New-trip check skipped — Modivcare not available.";
+            {
+                return FsModivcareNewTripsSyncResult.Skipped(
+                    serviceDate,
+                    FsModivcareNewTripsSyncFailure.ModivcareUnavailable,
+                    " New-trip check skipped — Modivcare not available.");
+            }
 
             List<MCDownloadedTrip> downloaded;
             try
@@ -110,11 +123,19 @@ namespace Hiatme_Tool_Suite_v3
             }
             catch
             {
-                return " New-trip check skipped — Modivcare download failed.";
+                return FsModivcareNewTripsSyncResult.Skipped(
+                    serviceDate,
+                    FsModivcareNewTripsSyncFailure.DownloadFailed,
+                    " New-trip check skipped — Modivcare download failed.");
             }
 
             if (downloaded == null || downloaded.Count == 0)
-                return " New-trip check — Modivcare returned no trips for the date.";
+            {
+                return FsModivcareNewTripsSyncResult.Skipped(
+                    serviceDate,
+                    FsModivcareNewTripsSyncFailure.NoModivcareTrips,
+                    " New-trip check — Modivcare returned no trips for the date.");
+            }
 
             ProbeStatus("Comparing Modivcare trips against the schedule…");
 
@@ -169,21 +190,19 @@ namespace Hiatme_Tool_Suite_v3
 
             FsWriteNewTripsDebugLog(debugLog.ToString());
 
-            string skipNote = "";
-            if (skippedOnSchedule > 0 || skippedRerouted > 0)
-            {
-                var parts = new List<string>();
-                if (skippedOnSchedule > 0)
-                    parts.Add(skippedOnSchedule + " already on schedule");
-                if (skippedRerouted > 0)
-                    parts.Add(skippedRerouted + " already rerouted");
-                skipNote = " (" + string.Join(", ", parts) + " skipped)";
-            }
+            string skipNote = BuildNewTripsSkipNote(skippedOnSchedule, skippedRerouted);
+            int modivcareCount = downloaded.Count;
 
             if (newTrips.Count == 0)
             {
                 FsHideNewTripsBar();
-                return " No new Modivcare trips" + skipNote + ".";
+                return FsModivcareNewTripsSyncResult.Completed(
+                    serviceDate,
+                    " No new Modivcare trips" + skipNote + ".",
+                    modivcareCount,
+                    skippedOnSchedule,
+                    skippedRerouted,
+                    Array.Empty<FsModivcareNewTripsAddedEntry>());
             }
 
             ProbeStatus("Adding " + newTrips.Count + " new trip"
@@ -193,6 +212,7 @@ namespace Hiatme_Tool_Suite_v3
                 reserveLines = new List<ScheduleBuilderPreviewLine>();
 
             var actuallyAdded = new List<MCDownloadedTrip>();
+            var addedEntries = new List<FsModivcareNewTripsAddedEntry>();
             foreach (var trip in newTrips)
             {
                 if (FsReserveLinesContainTrip(reserveLines, trip))
@@ -207,12 +227,23 @@ namespace Hiatme_Tool_Suite_v3
                 if (fsbuilder.MCTripList != null && !fsbuilder.MCTripList.Contains(trip))
                     fsbuilder.MCTripList.Add(trip);
                 actuallyAdded.Add(trip);
+                addedEntries.Add(new FsModivcareNewTripsAddedEntry
+                {
+                    Trip = trip,
+                    Bucket = bucket,
+                });
             }
 
             if (actuallyAdded.Count == 0)
             {
                 FsHideNewTripsBar();
-                return " No new Modivcare trips" + skipNote + ".";
+                return FsModivcareNewTripsSyncResult.Completed(
+                    serviceDate,
+                    " No new Modivcare trips" + skipNote + ".",
+                    modivcareCount,
+                    skippedOnSchedule,
+                    skippedRerouted,
+                    Array.Empty<FsModivcareNewTripsAddedEntry>());
             }
 
             FsCommitReservePreviewLinesDirect(reserveLines);
@@ -220,8 +251,27 @@ namespace Hiatme_Tool_Suite_v3
             FsReapplyWellRydeCancelledHighlights();
             FsShowNewTripsBar(actuallyAdded);
 
-            return " New trips — " + actuallyAdded.Count + " added to Reserves from Modivcare"
-                + skipNote + ".";
+            return FsModivcareNewTripsSyncResult.Completed(
+                serviceDate,
+                " New trips — " + actuallyAdded.Count + " added to Reserves from Modivcare"
+                    + skipNote + ".",
+                modivcareCount,
+                skippedOnSchedule,
+                skippedRerouted,
+                addedEntries);
+        }
+
+        private static string BuildNewTripsSkipNote(int skippedOnSchedule, int skippedRerouted)
+        {
+            if (skippedOnSchedule <= 0 && skippedRerouted <= 0)
+                return "";
+
+            var parts = new List<string>();
+            if (skippedOnSchedule > 0)
+                parts.Add(skippedOnSchedule + " already on schedule");
+            if (skippedRerouted > 0)
+                parts.Add(skippedRerouted + " already rerouted");
+            return " (" + string.Join(", ", parts) + " skipped)";
         }
 
         /// <summary>Empty = not skipped; otherwise short reason for debug log.</summary>

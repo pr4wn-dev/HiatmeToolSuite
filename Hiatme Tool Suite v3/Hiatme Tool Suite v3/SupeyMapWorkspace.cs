@@ -642,6 +642,45 @@ namespace Hiatme_Tool_Suite_v3
                 _mileageHudHost.Visible = false;
         }
 
+        /// <summary>Show mileage panels immediately with placeholders while OSRM work runs.</summary>
+        public void SetMileageHudBusy(SupeyTripCluster group, MCDownloadedTrip trip)
+        {
+            if (_mileageHudHost == null || group == null)
+            {
+                ClearMileageHud();
+                return;
+            }
+
+            _groupMileageTitle.Text = "Group Mileage";
+            _groupMileageValue.Text = "…";
+            _groupMileageValue.ForeColor = SupeyTheme.TextMuted;
+            _groupMileageDetail.Text = "Group " + group.GroupNumber + " · calculating…";
+
+            if (trip != null)
+            {
+                string tn = (trip.TripNumber ?? "").Trim();
+                _tripMileageTitle.Text = "Trip Mileage";
+                _tripMileageValue.Text = "…";
+                _tripMileageValue.ForeColor = SupeyTheme.TextMuted;
+                _tripMileageDetail.Text = string.IsNullOrEmpty(tn) ? "Pickup → dropoff" : tn + " · PU → DO";
+                _tripMileageCard.Visible = true;
+            }
+            else
+            {
+                _tripMileageCard.Visible = false;
+            }
+
+            _efficiencyMileageTitle.Text = "Route Efficiency";
+            _efficiencyMileageValue.Text = "…";
+            _efficiencyMileageValue.ForeColor = SupeyTheme.TextMuted;
+            _efficiencyMileageDetail.Text = "Comparing trip orders…";
+            _efficiencyMileageDetail.Visible = true;
+            _efficiencyMileageCard.Visible = true;
+
+            _mileageHudHost.Visible = true;
+            PositionMileageHudHost();
+        }
+
         /// <summary>PU/DO positions from markers currently on the map (after ShowDriverPlan).</summary>
         public bool TryGetTripPinGeoPoints(MCDownloadedTrip trip, out GeoPoint pu, out GeoPoint dof)
         {
@@ -2261,16 +2300,12 @@ namespace Hiatme_Tool_Suite_v3
             if (previousFilter == FsMapDisplayMode.AllDriverTrips && mode != FsMapDisplayMode.AllDriverTrips)
                 PersistLegendSnapshotForCurrentPlan();
 
-            if (mode == FsMapDisplayMode.AllDriverTrips && previousFilter != FsMapDisplayMode.AllDriverTrips)
-            {
-                var legendSnap = ResolveLegendSnapshot(_currentPlan);
-                if (legendSnap != null)
-                    RestoreLegendCheckboxesFromSnapshot(legendSnap);
-            }
-
             MapDisplayFilter = mode;
             if (_currentPlan == null)
                 return;
+
+            if (mode == FsMapDisplayMode.AllDriverTrips && previousFilter != FsMapDisplayMode.AllDriverTrips)
+                ShowAllGroups();
 
             _filterSelectedGroupNumber = selectedGroupNumber;
             _filterSelectedTrips.Clear();
@@ -2405,17 +2440,27 @@ namespace Hiatme_Tool_Suite_v3
                 && !TripFlatMapMode
                 && _groupCheckboxes.Count > 0)
             {
+                bool allTripsSelected = AllPlanTripsAreSelected(selectedTrips);
+
                 _syncingLegend = true;
                 try
                 {
                     foreach (var kv in _groupCheckboxes)
                     {
-                        kv.Value.Checked = _filterGroupOverlayVisible.TryGetValue(kv.Key, out bool shown) && shown;
+                        bool shown = allTripsSelected
+                            || (_filterGroupOverlayVisible.TryGetValue(kv.Key, out bool vis) && vis);
+                        kv.Value.Checked = shown;
                     }
                 }
                 finally
                 {
                     _syncingLegend = false;
+                }
+
+                if (allTripsSelected)
+                {
+                    foreach (var kv in _groupOverlays)
+                        ApplyGroupLegendVisibility(kv.Key, true);
                 }
             }
 
@@ -2444,6 +2489,40 @@ namespace Hiatme_Tool_Suite_v3
                 }
             }
             return false;
+        }
+
+        private bool AllPlanTripsAreSelected(IReadOnlyCollection<string> selectedTripNumbers)
+        {
+            if (_currentPlan?.Groups == null || selectedTripNumbers == null || selectedTripNumbers.Count == 0)
+                return false;
+
+            var selected = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var tn in selectedTripNumbers)
+            {
+                if (!string.IsNullOrWhiteSpace(tn))
+                    selected.Add(tn.Trim());
+            }
+
+            if (selected.Count == 0)
+                return false;
+
+            int planTrips = 0;
+            foreach (var g in _currentPlan.Groups)
+            {
+                if (g.Trips == null)
+                    continue;
+                foreach (var t in g.Trips)
+                {
+                    string tn = (t?.TripNumber ?? "").Trim();
+                    if (tn.Length == 0)
+                        continue;
+                    planTrips++;
+                    if (!selected.Contains(tn))
+                        return false;
+                }
+            }
+
+            return planTrips > 0;
         }
 
         private void FitToVisibleMapContent(
