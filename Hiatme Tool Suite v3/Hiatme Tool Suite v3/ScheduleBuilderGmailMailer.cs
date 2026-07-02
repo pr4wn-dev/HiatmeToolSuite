@@ -66,6 +66,8 @@ namespace Hiatme_Tool_Suite_v3
             string body =
                 "Hello " + driver + ",\r\n\r\n"
                 + "Attached is the full schedule workbook for " + dateLabel + " (all driver tabs).\r\n\r\n"
+                + "Not seeing schedule emails? Check your Spam folder, mark this message \"Not spam\", "
+                + "and add " + fromAddress + " to your contacts so future schedules go to your inbox.\r\n\r\n"
                 + "— Sent from Hiatme Tool Suite Schedule Builder";
 
             await Task.Run(() =>

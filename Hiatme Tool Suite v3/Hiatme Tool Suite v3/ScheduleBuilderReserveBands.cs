@@ -1002,6 +1002,33 @@ namespace Hiatme_Tool_Suite_v3
             RefreshReserveSectionHeaderCounts(reserveLines);
         }
 
+        /// <summary>
+        /// Add a trip from a fresh Modivcare download to the correct Reserves section in-place
+        /// (will call / reroute / reservers via current rules). Existing rows keep their positions.
+        /// </summary>
+        public static void InsertNewDownloadTripIntoReserveLines(
+            List<ScheduleBuilderPreviewLine> reserveLines,
+            MCDownloadedTrip trip)
+        {
+            if (reserveLines == null || trip == null)
+                return;
+
+            ReserveBucket bucket = Classify(trip);
+            InsertTripAtSectionEnd(reserveLines, trip, bucket, BandForBucket(bucket));
+            RefreshReserveSectionHeaderCounts(reserveLines);
+        }
+
+        private static Color BandForBucket(ReserveBucket bucket)
+        {
+            switch (bucket)
+            {
+                case ReserveBucket.WillCall: return WillCallBand;
+                case ReserveBucket.Reroute: return RerouteBand;
+                case ReserveBucket.Cancel: return CancelBand;
+                default: return ReserversBand;
+            }
+        }
+
         private static ScheduleBuilderPreviewLine CopyReservePreviewLine(ScheduleBuilderPreviewLine line)
         {
             if (line == null)

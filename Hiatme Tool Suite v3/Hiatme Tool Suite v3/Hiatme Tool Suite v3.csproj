@@ -277,6 +277,17 @@
       <DependentUpon>Form1.cs</DependentUpon>
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="Form1.ScheduleBuilder.NewTrips.cs">
+      <DependentUpon>Form1.cs</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="ScheduleEmailSendLog.cs" />
+    <Compile Include="SupeyMessageDialog.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="ScheduleEmailProgressForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="ScheduleBuilderWellRydeCancelled.cs" />
     <Compile Include="Form1.ScheduleBuilder.Drag.cs">
       <DependentUpon>Form1.cs</DependentUpon>

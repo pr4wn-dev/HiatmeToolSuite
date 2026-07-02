@@ -105,13 +105,11 @@ namespace Hiatme_Tool_Suite_v3
 
             if (!TryGetGmailCredentialsForMailer(out string gmailUser, out string gmailPass))
             {
-                MessageBox.Show(this,
-                    "Office Gmail is not set up yet.\r\n\r\n"
-                    + "An admin needs to fill in hiatme_config\\gmail_default.json once before distributing the app.\r\n\r\n"
-                    + "Or use Login → Gmail to enter your own Gmail App Password.",
-                    "Schedule Builder",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Information);
+                SupeyMessageDialog.ShowInfo(this,
+                    "Email schedules",
+                    "Office Gmail is not set up yet",
+                    "An admin needs to fill in hiatme_config\\gmail_default.json once before distributing the app.\r\n\r\n"
+                    + "Or use Login → Gmail to enter your own Gmail App Password.");
                 return;
             }
 
@@ -133,23 +131,19 @@ namespace Hiatme_Tool_Suite_v3
 
             if (recipientEntries.Count == 0)
             {
-                MessageBox.Show(this,
-                    "No drivers to email.\r\n\r\n"
-                    + "Add drivers on the Drivers tab or build/load a schedule first.",
-                    "Schedule Builder",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Information);
+                SupeyMessageDialog.ShowInfo(this,
+                    "Email schedules",
+                    "No drivers to email",
+                    "Add drivers on the Drivers tab or build/load a schedule first.");
                 return;
             }
 
             if (recipientEntries.All(r => !r.CanSend))
             {
-                MessageBox.Show(this,
-                    "No drivers have an email on the roster.\r\n\r\n"
-                    + "Add emails via Pull from WellRyde or Edit driver on the Drivers tab.",
-                    "Schedule Builder",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Warning);
+                SupeyMessageDialog.ShowWarning(this,
+                    "Email schedules",
+                    "No drivers have an email on the roster",
+                    "Add emails via Pull from WellRyde or Edit driver on the Drivers tab.");
                 return;
             }
 
@@ -190,13 +184,11 @@ namespace Hiatme_Tool_Suite_v3
 
             if (!TryGetGmailCredentialsForMailer(out string gmailUser, out string gmailPass))
             {
-                MessageBox.Show(this,
-                    "Office Gmail is not set up yet.\r\n\r\n"
-                    + "An admin needs to fill in hiatme_config\\gmail_default.json once before distributing the app.\r\n\r\n"
-                    + "Or use Login → Gmail to enter your own Gmail App Password.",
-                    "Schedule Builder",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Information);
+                SupeyMessageDialog.ShowInfo(this,
+                    "Email schedule",
+                    "Office Gmail is not set up yet",
+                    "An admin needs to fill in hiatme_config\\gmail_default.json once before distributing the app.\r\n\r\n"
+                    + "Or use Login → Gmail to enter your own Gmail App Password.");
                 return;
             }
 
@@ -216,12 +208,10 @@ namespace Hiatme_Tool_Suite_v3
 
             if (email.Length == 0)
             {
-                MessageBox.Show(this,
-                    "This driver has no email on the roster.\r\n\r\n"
-                    + "Edit the driver on the Drivers tab or Pull from WellRyde.",
-                    "Schedule Builder",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Warning);
+                SupeyMessageDialog.ShowWarning(this,
+                    "Email schedule",
+                    "This driver has no email on the roster",
+                    "Edit the driver on the Drivers tab or Pull from WellRyde.");
                 return;
             }
 
@@ -263,7 +253,11 @@ namespace Hiatme_Tool_Suite_v3
             Directory.CreateDirectory(tempRoot);
 
             int sent = 0;
-            var failures = new List<string>();
+            int failed = 0;
+            int skipped = 0;
+
+            var progress = new ScheduleEmailProgressForm(recipients.Count, serviceDate, gmailUser);
+            progress.Show(this);
 
             try
             {
@@ -274,13 +268,45 @@ namespace Hiatme_Tool_Suite_v3
                 string attachmentPath = Path.Combine(tempRoot, workbookFileName);
 
                 SetScheduleBuilderStatus("Building schedule workbook…");
+                progress.ReportPreparing("Building schedule workbook…");
                 var tabs = ScheduleBuilderPreviewCsvExport.BuildWorkbookTabs(_fsLinesByTab, exportOptions);
                 var colWidths = ScheduleBuilderListViewColumnWidths.CaptureFromTripsListView(_fsTripsLv);
                 ScheduleBuilderXlsxWriter.WriteWorkbookFromTabs(attachmentPath, tabs, colWidths);
 
-                foreach (var item in recipients)
+                // Pause between messages so Gmail doesn't see a burst of identical mail
+                // (burst + same attachment to many gmail.com inboxes = classic spam signature).
+                var pacing = new Random();
+
+                for (int i = 0; i < recipients.Count; i++)
                 {
-                    SetScheduleBuilderStatus("Emailing " + item.DisplayName + "…");
+                    var item = recipients[i];
+
+                    if (progress.CancelRequested)
+                    {
+                        skipped++;
+                        progress.ReportSkipped(item.DisplayName, item.Email);
+                        continue;
+                    }
+
+                    if (i > 0)
+                    {
+                        int waitMs = pacing.Next(4000, 9000);
+                        SetScheduleBuilderStatus("Pacing sends… next: " + item.DisplayName
+                            + " (" + (i + 1) + " of " + recipients.Count + ")");
+                        progress.ReportPacing(item.DisplayName, i + 1);
+                        await Task.Delay(waitMs).ConfigureAwait(true);
+
+                        if (progress.CancelRequested)
+                        {
+                            skipped++;
+                            progress.ReportSkipped(item.DisplayName, item.Email);
+                            continue;
+                        }
+                    }
+
+                    SetScheduleBuilderStatus("Emailing " + item.DisplayName
+                        + " (" + (i + 1) + " of " + recipients.Count + ")…");
+                    progress.ReportSending(item.DisplayName, i + 1);
 
                     try
                     {
@@ -293,38 +319,36 @@ namespace Hiatme_Tool_Suite_v3
                             attachmentPath).ConfigureAwait(true);
 
                         sent++;
+                        progress.ReportResult(item.DisplayName, item.Email, ok: true, error: null);
+                        ScheduleEmailSendLog.Append(serviceDate, item.DisplayName, item.Email, ok: true, detail: null);
                     }
                     catch (Exception ex)
                     {
-                        failures.Add(item.DisplayName + ": " + ex.Message);
+                        failed++;
+                        progress.ReportResult(item.DisplayName, item.Email, ok: false, error: ex.Message);
+                        ScheduleEmailSendLog.Append(serviceDate, item.DisplayName, item.Email, ok: false, detail: ex.Message);
                     }
+
+                    progress.SetProgress(sent + failed);
                 }
 
-                if (failures.Count == 0)
-                {
+                if (failed == 0 && skipped == 0)
                     SetScheduleBuilderStatus("Emailed " + sent + " driver schedule" + (sent == 1 ? "" : "s") + ".");
-                    if (showResultPopup)
-                    {
-                        MessageBox.Show(this,
-                            "Sent " + sent + " schedule email" + (sent == 1 ? "" : "s") + ".",
-                            "Schedule Builder",
-                            MessageBoxButtons.OK,
-                            MessageBoxIcon.Information);
-                    }
-                }
                 else
-                {
-                    var sb = new StringBuilder();
-                    sb.AppendLine("Sent " + sent + " of " + recipients.Count + ".");
-                    sb.AppendLine();
-                    sb.AppendLine("Failed:");
-                    foreach (string f in failures)
-                        sb.AppendLine("  · " + f);
+                    SetScheduleBuilderStatus("Email finished — " + sent + " sent"
+                        + (failed > 0 ? ", " + failed + " failed" : "")
+                        + (skipped > 0 ? ", " + skipped + " skipped" : "") + ".");
 
-                    SetScheduleBuilderStatus("Email finished with errors — see message.");
-                    MessageBox.Show(this, sb.ToString(), "Schedule Builder",
-                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                }
+                progress.ReportDone(sent, failed, skipped);
+
+                // Single-driver context sends used to close silently on success — keep that.
+                if (!showResultPopup && failed == 0 && skipped == 0)
+                    progress.Close();
+            }
+            catch
+            {
+                progress.ForceClose();
+                throw;
             }
             finally
             {

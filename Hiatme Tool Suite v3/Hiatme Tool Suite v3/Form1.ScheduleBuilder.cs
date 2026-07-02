@@ -826,6 +826,8 @@ namespace Hiatme_Tool_Suite_v3
 
             BuildFsCutTripBar(host);
 
+            BuildFsNewTripsBar(host);
+
             BuildFsMapModeToolbar(host);
 
             host.Controls.Add(_fsDriverTabStrip);
@@ -1932,6 +1934,11 @@ namespace Hiatme_Tool_Suite_v3
                             refreshListView: false)
                         .ConfigureAwait(true);
 
+                    UpdateTabLoadingOverlayMessage(tabPage6, "Checking Modivcare for new trips…");
+
+                    string newTripsNote = await FsSyncNewModivcareTripsAsync(serviceDate)
+                        .ConfigureAwait(true);
+
                     await FsApplyAnalyzerAlertsAsync(serviceDate).ConfigureAwait(true);
 
                     if (ScheduleBuilderPreviewUndo.LinesByTabContainsGap(_fsLinesByTab))
@@ -1996,7 +2003,8 @@ namespace Hiatme_Tool_Suite_v3
                         + FormatFsDriverSyncNote(driverSync)
                         + " Undo history cleared."
                         + rerouteVerifyNote
-                        + cancelVerifyNote);
+                        + cancelVerifyNote
+                        + newTripsNote);
 
                 }
 
@@ -2415,6 +2423,8 @@ namespace Hiatme_Tool_Suite_v3
             _fsReroutedTripKeys = null;
 
             _fsGroupsByTab.Clear();
+
+            FsHideNewTripsBar();
 
             FsClearUndoHistory();
 
