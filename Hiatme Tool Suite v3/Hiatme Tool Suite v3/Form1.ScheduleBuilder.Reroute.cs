@@ -539,7 +539,9 @@ namespace Hiatme_Tool_Suite_v3
             string tab = _fsActiveDriverTab;
             string num = (trip.TripNumber ?? "").Trim();
 
-            if (!FsNeedsMoveToReservesReroutes(trip, tab, fsbuilder))
+            _fsLinesByTab.TryGetValue("Reserves", out var reserveLinesForMove);
+
+            if (!FsNeedsMoveToReservesReroutes(trip, tab, fsbuilder, reserveLinesForMove))
             {
                 SetScheduleBuilderStatus(string.IsNullOrEmpty(num)
                     ? "Trip is already in Reserves → Reroutes."
@@ -548,37 +550,7 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             FsPushUndoSnapshot("add trip to reroutes");
-
-            // Preserve any rows already marked rerouted (red) — rebuilding reserve
-            // lines wipes the ReroutedOnModivcare flags.
-            _fsLinesByTab.TryGetValue("Reserves", out var priorReserves);
-
-            // Move the trip into the Reserves → Reroutes bucket WITHOUT submitting to
-            // Modivcare and WITHOUT marking the row red (no rerouted highlight).
-            fsbuilder.MoveTripToPreviewReservesReroute(trip);
-
-            var reserveLines = ScheduleBuilderReserveBuckets.BuildReservePreviewLines(
-                fsbuilder.PreviewReserves,
-                fsbuilder.PreviewReservesReroute,
-                banned: null,
-                fsbuilder.PreviewReservesWillCalls,
-                fsbuilder.WillCallsInDownloadCount,
-                preserveTripOrder: true,
-                cancels: fsbuilder.PreviewReservesCancel);
-            // Restore prior red marks but do NOT mark the newly added trip.
-            ScheduleBuilderReroutedTrips.RestoreAndMarkRerouted(reserveLines, priorReserves, justRerouted: null);
-            FsCommitPreviewLinesForTab("Reserves", reserveLines);
-
-            if (fsbuilder.PreviewDriverLines is Dictionary<string, List<ScheduleBuilderPreviewLine>> dict)
-            {
-                foreach (string driverTab in dict.Keys)
-                {
-                    if (driverTab.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
-                        continue;
-                    if (dict.TryGetValue(driverTab, out var driverLines) && driverLines != null)
-                        _fsLinesByTab[driverTab] = driverLines;
-                }
-            }
+            FsMoveSingleTripToReservesReroutesSection(trip, markNewlyReroutedOnModivcare: false);
 
             SelectFsDriverTab("Reserves");
             ShowFsTripsForTab("Reserves");
@@ -592,7 +564,77 @@ namespace Hiatme_Tool_Suite_v3
                 : "Trip " + num + " added to Reserves → Reroutes.");
         }
 
-        private static bool FsNeedsMoveToReservesReroutes(MCDownloadedTrip trip, string sourceTab, FullScheduleBuilder builder)
+        /// <summary>
+        /// Move exactly one trip into Reserves → Reroutes without rebuilding the tab.
+        /// Other reserve rows (including other rerouted trips still under Reservers) stay put.
+        /// </summary>
+        private void FsMoveSingleTripToReservesReroutesSection(
+            MCDownloadedTrip trip,
+            bool markNewlyReroutedOnModivcare)
+        {
+            if (trip == null || fsbuilder == null)
+                return;
+
+            foreach (string key in new List<string>(_fsLinesByTab.Keys))
+            {
+                var lines = _fsLinesByTab[key];
+                if (lines == null)
+                    continue;
+
+                bool removed = false;
+                for (int i = lines.Count - 1; i >= 0; i--)
+                {
+                    var ln = lines[i];
+                    if (ln?.Kind == ScheduleBuilderPreviewLine.LineKind.Trip
+                        && ScheduleBuilderPreviewDrag.TripEquals(ln.Trip, trip))
+                    {
+                        lines.RemoveAt(i);
+                        removed = true;
+                    }
+                }
+
+                if (removed && !key.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
+                    _fsLinesByTab[key] = ScheduleBuilderGroupHeaderReconcile.Reconcile(lines);
+            }
+
+            if (!_fsLinesByTab.TryGetValue("Reserves", out var reserveLines) || reserveLines == null)
+            {
+                reserveLines = new List<ScheduleBuilderPreviewLine>();
+                _fsLinesByTab["Reserves"] = reserveLines;
+            }
+
+            ScheduleBuilderReserveBuckets.MoveTripIntoReroutesSectionInPlace(reserveLines, trip);
+
+            if (markNewlyReroutedOnModivcare)
+            {
+                foreach (var line in reserveLines)
+                {
+                    if (line?.Kind != ScheduleBuilderPreviewLine.LineKind.Trip
+                        || !ScheduleBuilderPreviewDrag.TripEquals(line.Trip, trip))
+                    {
+                        continue;
+                    }
+
+                    line.ReroutedOnModivcare = true;
+                    line.CancelledOnWellRyde = false;
+                    break;
+                }
+
+                FsTrackReroutedTripKey(trip.TripNumber);
+            }
+
+            fsbuilder.SyncPreviewDriverLinesFromUi(_fsLinesByTab);
+            fsbuilder.MoveTripToPreviewReservesReroute(trip);
+            FsCommitReservePreviewLinesDirect(reserveLines);
+            FsReapplyReroutedHighlights();
+            FsReapplyWellRydeCancelledHighlights();
+        }
+
+        private static bool FsNeedsMoveToReservesReroutes(
+            MCDownloadedTrip trip,
+            string sourceTab,
+            FullScheduleBuilder builder,
+            IList<ScheduleBuilderPreviewLine> reserveLines = null)
         {
             if (trip == null || builder == null)
                 return false;
@@ -600,10 +642,17 @@ namespace Hiatme_Tool_Suite_v3
             if (!sourceTab.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
                 return true;
 
-            if (!ScheduleBuilderReroutedTrips.IsInReservesRerouteBucket(builder.PreviewReservesReroute, trip))
+            if (reserveLines != null
+                && ScheduleBuilderReroutedTrips.IsInReservesRerouteSection(reserveLines, trip))
+                return false;
+
+            // Bucket can list a trip while preview lines still show it under Reservers
+            // (e.g. after Modivcare new-trip sync). Offer section move until lines match.
+            if (reserveLines != null)
                 return true;
 
-            return false;
+            return !ScheduleBuilderReroutedTrips.IsInReservesRerouteBucket(
+                builder.PreviewReservesReroute, trip);
         }
 
         private void FsApplySuccessfulModivcareReroute(
@@ -620,33 +669,10 @@ namespace Hiatme_Tool_Suite_v3
 
             _fsLinesByTab.TryGetValue("Reserves", out var priorReserves);
 
-            if (FsNeedsMoveToReservesReroutes(trip, sourceTab, fsbuilder))
+            if (FsNeedsMoveToReservesReroutes(trip, sourceTab, fsbuilder, priorReserves))
             {
-                fsbuilder.MoveTripToPreviewReservesReroute(trip);
-
-                if (fsbuilder.PreviewDriverLines is Dictionary<string, List<ScheduleBuilderPreviewLine>> dict)
-                {
-                    var driverTabs = new List<string>(dict.Keys);
-                    foreach (string driverTab in driverTabs)
-                    {
-                        if (driverTab.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
-                            continue;
-                        if (dict.TryGetValue(driverTab, out var driverLines) && driverLines != null)
-                            FsCommitPreviewLinesForTab(driverTab, driverLines);
-                    }
-                }
-
-                var reserveLines = ScheduleBuilderReserveBuckets.BuildReservePreviewLines(
-                    fsbuilder.PreviewReserves,
-                    fsbuilder.PreviewReservesReroute,
-                    banned: null,
-                    fsbuilder.PreviewReservesWillCalls,
-                    fsbuilder.WillCallsInDownloadCount,
-                    preserveTripOrder: true,
-                    cancels: fsbuilder.PreviewReservesCancel);
-                ScheduleBuilderReroutedTrips.RestoreAndMarkRerouted(reserveLines, priorReserves, trip);
-                marked = ScheduleBuilderReroutedTrips.IsMarked(reserveLines, trip);
-                FsCommitPreviewLinesForTab("Reserves", reserveLines);
+                FsMoveSingleTripToReservesReroutesSection(trip, markNewlyReroutedOnModivcare: true);
+                marked = ScheduleBuilderReroutedTrips.IsMarkedAnyTab(_fsLinesByTab, trip);
                 movedToReserves = true;
                 SelectFsDriverTab("Reserves");
                 return;

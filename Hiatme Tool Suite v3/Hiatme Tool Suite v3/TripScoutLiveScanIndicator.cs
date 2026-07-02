@@ -5,14 +5,14 @@ using System.Windows.Forms;
 
 namespace Hiatme_Tool_Suite_v3
 {
-    /// <summary>Dot-circle spinner for Trip Scout live panel polling (no text).</summary>
+    /// <summary>Theme-aware spinner for Trip Scout live panel polling.</summary>
     internal sealed class TripScoutLiveScanIndicator : Control
     {
-        private const int DotCount = 8;
-        private const int TickMs = 180;
+        private const int TickMs = 80;
+        private const float SpinStep = 28f;
 
         private readonly Timer _timer;
-        private int _tick;
+        private float _angle;
         private bool _scanning;
 
         public TripScoutLiveScanIndicator()
@@ -25,18 +25,20 @@ namespace Hiatme_Tool_Suite_v3
                     | ControlStyles.SupportsTransparentBackColor,
                 true);
 
-            Size = new Size(22, 22);
-            BackColor = Color.Transparent;
+            MinimumSize = new Size(24, 24);
+            Size = new Size(28, 28);
+            BackColor = SupeyTheme.Surface;
             TabStop = false;
-            Visible = false;
             AccessibleName = "Live panel scanning";
 
             _timer = new Timer { Interval = TickMs };
             _timer.Tick += (_, __) =>
             {
-                _tick = (_tick + 1) % DotCount;
+                _angle = (_angle + SpinStep) % 360f;
                 Invalidate();
             };
+
+            SupeyThemeManager.ThemeChanged += OnThemeChanged;
         }
 
         public bool Scanning
@@ -44,62 +46,61 @@ namespace Hiatme_Tool_Suite_v3
             get => _scanning;
             set
             {
+                if (_scanning == value)
+                    return;
+
                 _scanning = value;
                 if (value)
                 {
-                    _tick = 0;
-                    Visible = true;
+                    _angle = 0f;
                     if (!IsDisposed && !_timer.Enabled)
                         _timer.Start();
                 }
                 else
                 {
                     _timer.Stop();
-                    Visible = false;
+                    _angle = 0f;
                 }
+
                 Invalidate();
             }
         }
 
-        protected override void OnPaintBackground(PaintEventArgs pevent)
+        private void OnThemeChanged(object sender, EventArgs e)
         {
-            if (Parent != null)
-            {
-                using (var brush = new SolidBrush(Parent.BackColor))
-                    pevent.Graphics.FillRectangle(brush, ClientRectangle);
-            }
-            else
-            {
-                base.OnPaintBackground(pevent);
-            }
+            if (IsDisposed)
+                return;
+
+            BackColor = SupeyTheme.Surface;
+            Invalidate();
         }
 
         protected override void OnPaint(PaintEventArgs e)
         {
+            var g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+
+            using (var bg = new SolidBrush(SupeyTheme.Surface))
+                g.FillRectangle(bg, ClientRectangle);
+
+            var rect = new Rectangle(4, 4, Width - 9, Height - 9);
+            if (rect.Width <= 0 || rect.Height <= 0)
+                return;
+
+            Color track = Blend(SupeyTheme.TextMuted, SupeyTheme.Surface, 0.45f);
+            using (var trackPen = new Pen(track, 2f))
+                g.DrawEllipse(trackPen, rect);
+
             if (!_scanning)
                 return;
 
-            var g = e.Graphics;
-            g.SmoothingMode = SmoothingMode.AntiAlias;
-
-            float cx = Width / 2f;
-            float cy = Height / 2f;
-            float orbit = Math.Min(Width, Height) / 2f - 4f;
-            int active = _tick % DotCount;
-            var dimDot = Blend(SupeyTheme.TextMuted, SupeyTheme.SurfaceHeader, 0.35f);
-            var litDot = SupeyTheme.AccentPrimary;
-
-            for (int i = 0; i < DotCount; i++)
+            using (var pen = new Pen(SupeyTheme.AccentPrimary, 2.5f)
             {
-                bool lit = i == active;
-                float dotSize = lit ? 4.2f : 3f;
-                double angle = (i * (Math.PI * 2 / DotCount)) - (Math.PI / 2);
-                float x = cx + (float)(Math.Cos(angle) * orbit);
-                float y = cy + (float)(Math.Sin(angle) * orbit);
-
-                using (var brush = new SolidBrush(lit ? litDot : dimDot))
-                    g.FillEllipse(brush, x - dotSize / 2f, y - dotSize / 2f, dotSize, dotSize);
-            }
+                StartCap = LineCap.Round,
+                EndCap = LineCap.Round,
+            })
+                g.DrawArc(pen, rect, _angle, 270f);
         }
 
         private static Color Blend(Color a, Color b, float t)
@@ -114,7 +115,10 @@ namespace Hiatme_Tool_Suite_v3
         protected override void Dispose(bool disposing)
         {
             if (disposing)
+            {
+                SupeyThemeManager.ThemeChanged -= OnThemeChanged;
                 _timer?.Dispose();
+            }
             base.Dispose(disposing);
         }
     }

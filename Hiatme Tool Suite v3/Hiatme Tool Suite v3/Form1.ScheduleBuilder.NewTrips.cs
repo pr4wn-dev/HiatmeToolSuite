@@ -19,24 +19,20 @@ namespace Hiatme_Tool_Suite_v3
         private ToolTip _fsNewTripsBarToolTip;
         private List<MCDownloadedTrip> _fsNewTripsNavList;
         private int _fsNewTripsNavIndex = -1;
-        private FsMapModeIconButton _fsSyncNewTripsBtn;
+        private SupeyToolbarIconButton _fsSyncNewTripsBtn;
         private bool _fsSyncNewTripsRunning;
         private ToolTip _fsSyncNewTripsTip;
 
         internal void WireFsSyncNewTripsButton(Panel host)
         {
-            Bitmap iconSrc = Properties.Resources.modivcare_new_trips;
-            Bitmap icon = iconSrc != null
-                ? SupeyIconTint.Tint(iconSrc, new Size(20, 20), SupeyTheme.TextSecondary)
-                : null;
-
-            _fsSyncNewTripsBtn = new FsMapModeIconButton
+            _fsSyncNewTripsBtn = new SupeyToolbarIconButton
             {
-                Icon = icon,
                 Size = new Size(26, 26),
+                Margin = new Padding(0, 0, 4, 0),
                 Enabled = false,
                 Anchor = AnchorStyles.Top | AnchorStyles.Right,
             };
+            _fsSyncNewTripsBtn.SetIconFactory(ScheduleBuilderModivcareNewTripsIcon.Create);
             _fsSyncNewTripsBtn.Click += async (s, e) => await FsSyncNewTripsBtn_ClickAsync();
 
             _fsSyncNewTripsTip = SupeyToolTip.Create(autoPopDelay: 12000, initialDelay: 400);

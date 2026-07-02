@@ -5,25 +5,32 @@ using System.Windows.Forms;
 
 namespace Hiatme_Tool_Suite_v3
 {
-    /// <summary>
-    /// WellRyde notification bell for Trip Scout live panel — shakes when will-calls are ready.
-    /// </summary>
+    /// <summary>Theme-aware WellRyde notification bell for Trip Scout live panel.</summary>
     internal sealed class TripScoutLiveBellControl : Control
     {
+        private static readonly Font BadgeFont = new Font("Segoe UI", 7f, FontStyle.Bold);
+
         private readonly Timer _shakeTimer;
         private int _shakeFrame;
         private bool _shaking;
+        private bool _hover;
         private int _badgeCount;
 
         public event EventHandler BellClicked;
 
         public TripScoutLiveBellControl()
         {
-            SetStyle(ControlStyles.AllPaintingInWmPaint |
-                     ControlStyles.OptimizedDoubleBuffer |
-                     ControlStyles.ResizeRedraw |
-                     ControlStyles.UserPaint, true);
+            SetStyle(
+                ControlStyles.AllPaintingInWmPaint
+                | ControlStyles.OptimizedDoubleBuffer
+                | ControlStyles.ResizeRedraw
+                | ControlStyles.UserPaint
+                | ControlStyles.StandardClick,
+                true);
+
+            MinimumSize = new Size(28, 28);
             Size = new Size(32, 32);
+            BackColor = SupeyTheme.Surface;
             Cursor = Cursors.Hand;
             TabStop = false;
             AccessibleName = "WellRyde notifications";
@@ -37,13 +44,40 @@ namespace Hiatme_Tool_Suite_v3
             };
 
             Click += (_, __) => BellClicked?.Invoke(this, EventArgs.Empty);
+            SupeyThemeManager.ThemeChanged += OnThemeChanged;
         }
 
         protected override void Dispose(bool disposing)
         {
             if (disposing)
+            {
+                SupeyThemeManager.ThemeChanged -= OnThemeChanged;
                 _shakeTimer?.Dispose();
+            }
             base.Dispose(disposing);
+        }
+
+        private void OnThemeChanged(object sender, EventArgs e)
+        {
+            if (IsDisposed)
+                return;
+
+            BackColor = SupeyTheme.Surface;
+            Invalidate();
+        }
+
+        protected override void OnMouseEnter(EventArgs e)
+        {
+            base.OnMouseEnter(e);
+            _hover = true;
+            Invalidate();
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            base.OnMouseLeave(e);
+            _hover = false;
+            Invalidate();
         }
 
         public void SetNotificationState(int badgeCount, bool shouldShake)
@@ -68,85 +102,111 @@ namespace Hiatme_Tool_Suite_v3
 
         protected override void OnPaint(PaintEventArgs e)
         {
-            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            e.Graphics.Clear(Parent?.BackColor ?? SupeyTheme.SurfaceHeader);
+            var g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+
+            using (var bg = new SolidBrush(SupeyTheme.Surface))
+                g.FillRectangle(bg, ClientRectangle);
 
             float angle = 0f;
             if (_shaking)
             {
-                // Swing back and forth like a bell clapper.
-                float[] swing = { -14f, 12f, -10f, 8f, -6f, 5f, -3f, 2f, 0f, 0f, 0f, 0f };
+                float[] swing = { -12f, 10f, -8f, 7f, -5f, 4f, -2f, 1f, 0f, 0f, 0f, 0f };
                 angle = swing[_shakeFrame % swing.Length];
             }
 
-            var center = new PointF(Width / 2f, Height / 2f + 1f);
-            e.Graphics.TranslateTransform(center.X, center.Y);
-            e.Graphics.RotateTransform(angle);
-            e.Graphics.TranslateTransform(-center.X, -center.Y);
+            var center = new PointF(Width / 2f, Height / 2f);
+            g.TranslateTransform(center.X, center.Y);
+            g.RotateTransform(angle);
+            g.TranslateTransform(-center.X, -center.Y);
 
-            Color bellColor = _badgeCount > 0
-                ? Color.FromArgb(255, 220, 120)
-                : SupeyTheme.TextSecondary;
+            Color bellFill = ResolveBellFill();
+            Color bellStroke = ResolveBellStroke(bellFill);
+            DrawBell(g, center, bellFill, bellStroke);
 
-            DrawBell(e.Graphics, center, bellColor);
-
-            e.Graphics.ResetTransform();
+            g.ResetTransform();
 
             if (_badgeCount > 0)
-                DrawBadge(e.Graphics, _badgeCount);
+                DrawBadge(g, _badgeCount);
         }
 
-        private static void DrawBell(Graphics g, PointF center, Color fill)
+        private Color ResolveBellFill()
         {
-            float w = 14f;
-            float h = 15f;
+            if (_badgeCount > 0)
+                return SupeyTheme.AccentPrimary;
+            if (_hover)
+                return Blend(SupeyTheme.TextSecondary, SupeyTheme.AccentPrimary, 0.22f);
+            return SupeyTheme.TextSecondary;
+        }
+
+        private static Color ResolveBellStroke(Color fill)
+        {
+            return Blend(fill, SupeyTheme.TextPrimary, 0.35f);
+        }
+
+        private static void DrawBell(Graphics g, PointF center, Color fill, Color stroke)
+        {
+            float scale = Math.Min(g.VisibleClipBounds.Width, g.VisibleClipBounds.Height) / 32f;
+            scale = Math.Max(0.75f, Math.Min(1.15f, scale));
+            float w = 14f * scale;
+            float h = 15f * scale;
             float cx = center.X;
             float top = center.Y - h * 0.55f;
 
             using (var path = new GraphicsPath())
             {
                 path.AddBezier(
-                    cx - w * 0.45f, top + h * 0.15f,
-                    cx - w * 0.55f, top + h * 0.85f,
-                    cx - w * 0.35f, top + h,
+                    cx - w * 0.42f, top + h * 0.12f,
+                    cx - w * 0.58f, top + h * 0.82f,
+                    cx - w * 0.34f, top + h,
                     cx, top + h);
                 path.AddBezier(
                     cx, top + h,
-                    cx + w * 0.35f, top + h,
-                    cx + w * 0.55f, top + h * 0.85f,
-                    cx + w * 0.45f, top + h * 0.15f);
+                    cx + w * 0.34f, top + h,
+                    cx + w * 0.58f, top + h * 0.82f,
+                    cx + w * 0.42f, top + h * 0.12f);
                 path.CloseFigure();
 
                 using (var brush = new SolidBrush(fill))
                     g.FillPath(brush, path);
-                using (var pen = new Pen(Color.FromArgb(180, 140, 60), 1.2f))
+                using (var pen = new Pen(stroke, 1.1f))
                     g.DrawPath(pen, path);
             }
 
-            // Clapper
-            using (var brush = new SolidBrush(Color.FromArgb(200, 160, 70)))
-                g.FillEllipse(brush, cx - 2.5f, top + h + 1f, 5f, 5f);
+            Color clapper = Blend(fill, SupeyTheme.TextPrimary, 0.25f);
+            using (var brush = new SolidBrush(clapper))
+                g.FillEllipse(brush, cx - 2.2f * scale, top + h + 0.5f, 4.4f * scale, 4.4f * scale);
 
-            // Top knob
             using (var brush = new SolidBrush(fill))
-                g.FillRectangle(brush, cx - 2f, top - 3f, 4f, 4f);
+                g.FillRectangle(brush, cx - 1.8f * scale, top - 2.5f * scale, 3.6f * scale, 3.6f * scale);
         }
 
         private void DrawBadge(Graphics g, int count)
         {
             string text = count > 9 ? "9+" : count.ToString();
-            var rect = new Rectangle(ClientSize.Width - 16, 0, 16, 14);
-            using (var brush = new SolidBrush(Color.FromArgb(220, 70, 60)))
-            {
-                g.FillEllipse(brush, rect.X, rect.Y, rect.Width, rect.Height);
-            }
+            int badgeW = 15;
+            int badgeH = 14;
+            var rect = new Rectangle(Width - badgeW - 1, 1, badgeW, badgeH);
+            using (var brush = new SolidBrush(SupeyTheme.ErrorText))
+                g.FillEllipse(brush, rect);
+
             TextRenderer.DrawText(
                 g,
                 text,
-                new Font("Segoe UI", 7f, FontStyle.Bold),
+                BadgeFont,
                 rect,
                 Color.White,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+        }
+
+        private static Color Blend(Color a, Color b, float t)
+        {
+            t = Math.Max(0f, Math.Min(1f, t));
+            return Color.FromArgb(
+                (int)(a.R + (b.R - a.R) * t),
+                (int)(a.G + (b.G - a.G) * t),
+                (int)(a.B + (b.B - a.B) * t));
         }
     }
 }

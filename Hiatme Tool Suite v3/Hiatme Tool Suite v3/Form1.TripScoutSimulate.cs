@@ -19,18 +19,18 @@ namespace Hiatme_Tool_Suite_v3
             if (!ShowTripScoutTestChangeButton)
                 return;
 
-            if (_tripScoutToolbarRightFlow == null || _tripScoutToolbarRightFlow.IsDisposed)
+            if (_tripScoutActionsHost == null || _tripScoutActionsHost.IsDisposed)
                 return;
 
             if (_tripScoutTestChangeBtn != null && !_tripScoutTestChangeBtn.IsDisposed)
                 return;
 
             _tripScoutTestChangeBtn = MakeTripScoutActivityButton("Test change", TripScoutTestChangeBtn_Click);
-            _tripScoutTestChangeBtn.Size = new System.Drawing.Size(108, 30);
-            _tripScoutTestChangeBtn.Kind = SupeyButton.Variant.Secondary;
+            _tripScoutSimulateSep = MakeTripScoutToolbarSeparator("tripScoutSimulateSep");
 
-            _tripScoutToolbarRightFlow.Controls.Add(MakeFsToolbarSeparator());
-            _tripScoutToolbarRightFlow.Controls.Add(_tripScoutTestChangeBtn);
+            _tripScoutActionsHost.Controls.Add(_tripScoutSimulateSep);
+            _tripScoutActionsHost.Controls.Add(_tripScoutTestChangeBtn);
+            LayoutTripScoutToolbarControls();
         }
 
         private async void TripScoutTestChangeBtn_Click(object sender, EventArgs e)

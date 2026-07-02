@@ -32,17 +32,18 @@ namespace Hiatme_Tool_Suite_v3
 
         private void EnsureTripScoutActivityToolbar()
         {
-            if (_tripScoutToolbarRightFlow == null || _tripScoutToolbarRightFlow.IsDisposed)
+            if (_tripScoutActionsHost == null || _tripScoutActionsHost.IsDisposed)
                 return;
 
             if (_tripScoutChangesBtn == null || _tripScoutChangesBtn.IsDisposed)
             {
                 _tripScoutChangesBtn = MakeTripScoutActivityButton("Changes", TripScoutChangesBtn_Click);
                 _tripScoutWillCallsBtn = MakeTripScoutActivityButton("Will calls", TripScoutWillCallsBtn_Click);
+                _tripScoutActivitySep = MakeTripScoutToolbarSeparator("tripScoutActivitySep");
 
-                _tripScoutToolbarRightFlow.Controls.Add(MakeFsToolbarSeparator());
-                _tripScoutToolbarRightFlow.Controls.Add(_tripScoutChangesBtn);
-                _tripScoutToolbarRightFlow.Controls.Add(_tripScoutWillCallsBtn);
+                _tripScoutActionsHost.Controls.Add(_tripScoutActivitySep);
+                _tripScoutActionsHost.Controls.Add(_tripScoutChangesBtn);
+                _tripScoutActionsHost.Controls.Add(_tripScoutWillCallsBtn);
             }
 
             EnsureTripScoutExpandClick();
@@ -55,9 +56,6 @@ namespace Hiatme_Tool_Suite_v3
             var btn = new SupeyButton
             {
                 Text = text,
-                AutoSize = false,
-                Size = new Size(108, 30),
-                Margin = new Padding(0, 1, 6, 0),
                 Kind = SupeyButton.Variant.Secondary,
             };
             btn.Click += click;
@@ -102,6 +100,8 @@ namespace Hiatme_Tool_Suite_v3
             _tripScoutWillCallsBtn.Kind = newBell > 0
                 ? SupeyButton.Variant.Primary
                 : SupeyButton.Variant.Secondary;
+
+            LayoutTripScoutToolbarControls();
         }
 
         private int CountUnackedChanges()

@@ -14,7 +14,9 @@ namespace Hiatme_Tool_Suite_v3
         private const int TripScoutLivePollIntervalMs = 60_000;
 
         private System.Windows.Forms.Timer _tripScoutLivePollTimer;
+        private System.Windows.Forms.Timer _tripScoutLivePollCountdownTimer;
         private bool _tripScoutLivePollInFlight;
+        private DateTime _tripScoutLivePollNextUtc;
         private string _tripScoutLiveServerHash;
         private string _tripScoutLiveBellHash;
         private string _tripScoutLivePollServiceDate;
@@ -38,21 +40,67 @@ namespace Hiatme_Tool_Suite_v3
         private void StartTripScoutLivePolling()
         {
             EnsureTripScoutLivePollTimer();
+            EnsureTripScoutLivePollCountdownTimer();
             _tripScoutLiveServerHash = null;
             _tripScoutLiveBellHash = null;
             _tripScoutLivePollServiceDate = TripScoutSelectedServiceDateIso();
             _tripScoutLivePollTimer.Start();
+            _tripScoutLivePollCountdownTimer.Start();
+            TripScoutScheduleNextLivePoll();
             _ = TripScoutLivePollServerAsync();
         }
 
         private void StopTripScoutLivePolling()
         {
             _tripScoutLivePollTimer?.Stop();
+            _tripScoutLivePollCountdownTimer?.Stop();
             _tripScoutLivePollInFlight = false;
             if (InvokeRequired)
                 BeginInvoke(new Action(StopTripScoutLiveScan));
             else
                 StopTripScoutLiveScan();
+            TripScoutUpdateLivePollCountdownLabel();
+        }
+
+        private void EnsureTripScoutLivePollCountdownTimer()
+        {
+            if (_tripScoutLivePollCountdownTimer != null)
+                return;
+
+            _tripScoutLivePollCountdownTimer = new System.Windows.Forms.Timer { Interval = 1000 };
+            _tripScoutLivePollCountdownTimer.Tick += (_, __) => TripScoutUpdateLivePollCountdownLabel();
+        }
+
+        private void TripScoutScheduleNextLivePoll()
+        {
+            _tripScoutLivePollNextUtc = DateTime.UtcNow.AddMilliseconds(TripScoutLivePollIntervalMs);
+            TripScoutUpdateLivePollCountdownLabel();
+        }
+
+        internal void TripScoutUpdateLivePollCountdownLabel()
+        {
+            if (_tripScoutLivePollCountdown == null || _tripScoutLivePollCountdown.IsDisposed)
+                return;
+
+            if (!TripScoutLivePanelEnabled)
+            {
+                _tripScoutLivePollCountdown.Visible = false;
+                return;
+            }
+
+            _tripScoutLivePollCountdown.Visible = true;
+            if (_tripScoutLivePollInFlight)
+            {
+                _tripScoutLivePollCountdown.Text = "…";
+                _tripScoutLivePollCountdown.ForeColor = SupeyTheme.AccentPrimary;
+                return;
+            }
+
+            int seconds = Math.Max(0, (int)Math.Ceiling((_tripScoutLivePollNextUtc - DateTime.UtcNow).TotalSeconds));
+            _tripScoutLivePollCountdown.Text = seconds + "s";
+            _tripScoutLivePollCountdown.ForeColor = seconds <= 5
+                ? SupeyTheme.AccentPrimary
+                : SupeyTheme.TextPrimary;
         }
 
         private void EnsureTripScoutLivePollTimer()
@@ -76,6 +124,7 @@ namespace Hiatme_Tool_Suite_v3
             _tripScoutLiveBellHash = null;
             _tripScoutLivePollServiceDate = TripScoutSelectedServiceDateIso();
             TripScoutResetActivityState();
+            TripScoutClearStatusBlinks();
         }
 
         private string TripScoutSelectedServiceDateIso()
@@ -108,6 +157,7 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             _tripScoutLivePollInFlight = true;
+            TripScoutUpdateLivePollCountdownLabel();
             string checkedAt = DateTime.Now.ToString("h:mm:ss tt", CultureInfo.CurrentCulture);
 
             try
@@ -155,7 +205,7 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     await TripScoutRefreshActivityAfterLivePollAsync(settings, serviceDate)
                         .ConfigureAwait(true);
-                    RefreshTripScoutListViewKeepingFilter();
+                    // Trip data unchanged — activity handlers rebind with scroll preserved when needed.
                     TripScoutApplyRowHighlights();
 
                     string bellNote = TripScoutPeekBellStatusNote();
@@ -189,7 +239,6 @@ namespace Hiatme_Tool_Suite_v3
                 await TripScoutRefreshActivityAfterLivePollAsync(settings, serviceDate)
                     .ConfigureAwait(true);
                 RefreshTripScoutListViewKeepingFilter();
-                TripScoutApplyRowHighlights();
 
                 string finish = "Live panel: updated " + changed + " trip(s) from server ("
                     + payload.TripCount + " on server, checked " + checkedAt + ").";
@@ -207,6 +256,7 @@ namespace Hiatme_Tool_Suite_v3
             finally
             {
                 _tripScoutLivePollInFlight = false;
+                TripScoutScheduleNextLivePoll();
             }
         }
 
@@ -270,8 +320,11 @@ namespace Hiatme_Tool_Suite_v3
                     index[key] = trip;
                 }
 
+                string beforeStatus = trip.Status ?? "";
                 if (TripScoutApplyServerRow(trip, row))
                     touched++;
+                if (!string.Equals(beforeStatus, trip.Status ?? "", StringComparison.Ordinal))
+                    TripScoutRegisterStatusBlink(key);
             }
 
             return touched;
@@ -379,6 +432,9 @@ namespace Hiatme_Tool_Suite_v3
                 _tripScoutToolbarTitle.ForeColor = live
                     ? BlendTheme(SupeyTheme.TextPrimary, SupeyTheme.AccentPrimary, 0.12f)
                     : SupeyTheme.TextPrimary;
+
+            StyleTripScoutLiveToolbarCard(live);
+            LayoutTripScoutToolbarControls();
         }
 
         private static Color BlendTheme(Color a, Color b, float t)

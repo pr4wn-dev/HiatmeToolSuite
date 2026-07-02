@@ -41,6 +41,7 @@ namespace Hiatme_Tool_Suite_v3
         private bool _isRecomputing;
         private bool _contentAutoFit = true;
         private int _contentSignature;
+        private int _suspendAutoFitDepth;
         private Timer _debounceTimer;
 
         /// <summary>True while auto-fit is assigning every column width in one batch (suppress per-column repaints).</summary>
@@ -77,7 +78,7 @@ namespace Hiatme_Tool_Suite_v3
 
         private void OnLayoutRelatedChange(object sender, EventArgs e)
         {
-            if (SupeyListViewHelpers.SplitterDragActive) return;
+            if (SupeyListViewHelpers.SplitterDragActive || _suspendAutoFitDepth > 0) return;
             ScheduleRecompute();
         }
 
@@ -123,7 +124,7 @@ namespace Hiatme_Tool_Suite_v3
 
         private void CheckContentSignature()
         {
-            if (!_contentAutoFit || !_lv.IsHandleCreated || !_lv.Visible)
+            if (!_contentAutoFit || !_lv.IsHandleCreated || !_lv.Visible || _suspendAutoFitDepth > 0)
                 return;
 
             int sig = ComputeContentSignature();
@@ -251,8 +252,13 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     for (int i = 0; i < colCount && i < _lv.Columns.Count; i++)
                     {
-                        if (_lv.Columns[i].Width != widths[i])
-                            _lv.Columns[i].Width = widths[i];
+                        int current = _lv.Columns[i].Width;
+                        int next = widths[i];
+                        // Auto-fit widens to fit content; never shrink on refresh (empty list / shorter cells).
+                        if (current > 0 && current > next)
+                            next = current;
+                        if (_lv.Columns[i].Width != next)
+                            _lv.Columns[i].Width = next;
                     }
                 }
                 finally
@@ -289,7 +295,7 @@ namespace Hiatme_Tool_Suite_v3
 
         private void ScheduleRecompute()
         {
-            if (_lv.IsDisposed)
+            if (_lv.IsDisposed || _suspendAutoFitDepth > 0)
                 return;
 
             _debounceTimer.Stop();
@@ -345,6 +351,30 @@ namespace Hiatme_Tool_Suite_v3
             if (lv == null) return;
             if (_attached.TryGetValue(lv, out var enforcer))
                 enforcer._contentAutoFit = enabled;
+        }
+
+        /// <summary>Suppress debounced/layout auto-fit while bulk-updating list items (e.g. Trip Scout live refresh).</summary>
+        public static void SuspendAutoFit(ListView lv)
+        {
+            if (lv == null) return;
+            if (_attached.TryGetValue(lv, out var enforcer))
+                enforcer._suspendAutoFitDepth++;
+        }
+
+        /// <summary>Re-enable auto-fit after <see cref="SuspendAutoFit"/>.</summary>
+        public static void ResumeAutoFit(ListView lv)
+        {
+            if (lv == null) return;
+            if (_attached.TryGetValue(lv, out var enforcer) && enforcer._suspendAutoFitDepth > 0)
+                enforcer._suspendAutoFitDepth--;
+        }
+
+        /// <summary>Remove floor/ceiling locks (e.g. after <see cref="PinColumnWidths"/>).</summary>
+        public static void ClearWidthLocks(ListView lv)
+        {
+            if (lv == null) return;
+            _columnFloors.Remove(lv);
+            _columnCeilings.Remove(lv);
         }
 
         /// <summary>

@@ -222,6 +222,10 @@
       <DependentUpon>Form1.cs</DependentUpon>
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="Form1.TripScoutToolbarLayout.cs">
+      <DependentUpon>Form1.cs</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="Form1.TripScoutBellHud.cs">
       <DependentUpon>Form1.cs</DependentUpon>
       <SubType>Form</SubType>
@@ -231,6 +235,10 @@
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="Form1.TripScoutSimulate.cs">
+      <DependentUpon>Form1.cs</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Form1.TripScoutStatusBlink.cs">
       <DependentUpon>Form1.cs</DependentUpon>
       <SubType>Form</SubType>
     </Compile>
@@ -289,6 +297,10 @@
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="ScheduleBuilderModivcareTripMatch.cs" />
+    <Compile Include="ScheduleBuilderModivcareNewTripsIcon.cs" />
+    <Compile Include="SupeyToolbarIconButton.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="ScheduleBuilderWellRydeCancelled.cs" />
     <Compile Include="Form1.ScheduleBuilder.Drag.cs">
       <DependentUpon>Form1.cs</DependentUpon>

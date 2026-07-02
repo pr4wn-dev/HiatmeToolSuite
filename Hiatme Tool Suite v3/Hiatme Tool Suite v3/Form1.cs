@@ -108,12 +108,14 @@ namespace Hiatme_Tool_Suite_v3
         private int _tripScoutStatusSpinnerTick;
         private string _tripScoutStatusBaseMessage = "";
         private System.Windows.Forms.Panel _tripScoutToolbarPanel;
-        private FlowLayoutPanel _tripScoutToolbarLeftFlow;
-        private FlowLayoutPanel _tripScoutToolbarRightFlow;
         private System.Windows.Forms.Panel _templatesToolbarPanel;
         private SupeyButton _templatesAddBtn;
         private System.Windows.Forms.Label _tripScoutToolbarTitle;
         private System.Windows.Forms.Label _tripScoutToolbarSubtitle;
+        private SupeyCard _tripScoutSearchCard;
+        private SupeyCard _tripScoutActionsCard;
+        private Label _tripScoutSearchLabel;
+        private Label _tripScoutDateLabel;
         private System.Windows.Forms.Label _templatesToolbarTitle;
         private System.Windows.Forms.Label _templatesToolbarSubtitle;
         private System.Windows.Forms.Panel _autoAssignToolbarPanel;
@@ -361,6 +363,7 @@ namespace Hiatme_Tool_Suite_v3
         private void ConfigureTripScoutColumnWidths()
         {
             if (tslv == null) return;
+            ListViewMinWidthEnforcer.ClearWidthLocks(tslv);
             SetTripScoutColumnCeiling(tsColClient, 170);
             SetTripScoutColumnCeiling(tsColDriver, 140);
             SetTripScoutColumnCeiling(tsColPUStreet, 180);
@@ -2426,9 +2429,9 @@ namespace Hiatme_Tool_Suite_v3
             {
                 _tripScoutToolbarPanel = new System.Windows.Forms.Panel
                 {
-                    Height = BillingToolbarH,
+                    Height = TripScoutToolbarH,
                     BackColor = SupeyTheme.SurfaceHeader,
-                    Padding = new Padding(14, 8, 14, 8),
+                    Padding = new Padding(TripScoutTbPadH, TripScoutTbPadV, TripScoutTbPadH, TripScoutTbPadV),
                     Name = "tripScoutToolbarPanel",
                 };
 
@@ -2447,7 +2450,7 @@ namespace Hiatme_Tool_Suite_v3
                     Text = "Trip Scout",
                     Font = SupeyTheme.SubHeaderFont,
                     ForeColor = SupeyTheme.TextPrimary,
-                    BackColor = SupeyTheme.SurfaceHeader,
+                    BackColor = Color.Transparent,
                     TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
                 };
                 _tripScoutToolbarSubtitle = new System.Windows.Forms.Label
@@ -2457,97 +2460,87 @@ namespace Hiatme_Tool_Suite_v3
                     Text = "Search and inspect WellRyde trips for a service date.",
                     Font = SupeyTheme.CaptionFont,
                     ForeColor = SupeyTheme.TextSecondary,
-                    BackColor = SupeyTheme.SurfaceHeader,
+                    BackColor = Color.Transparent,
                     TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
                 };
 
-                var leftFlow = new FlowLayoutPanel
+                _tripScoutHeaderCard = MakeTripScoutToolbarChromeCard("tripScoutHeaderCard");
+                _tripScoutHeaderHost = new System.Windows.Forms.Panel
                 {
-                    FlowDirection = FlowDirection.LeftToRight,
-                    WrapContents = false,
-                    AutoSize = true,
-                    AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                    BackColor = SupeyTheme.SurfaceHeader,
-                    Padding = new Padding(0),
-                    Name = "tripScoutToolbarLeftFlow",
+                    Name = "tripScoutHeaderHost",
+                    Dock = DockStyle.Fill,
+                    BackColor = Color.Transparent,
                 };
-                _tripScoutToolbarLeftFlow = leftFlow;
+                _tripScoutHeaderHost.Controls.Add(_tripScoutToolbarTitle);
+                _tripScoutHeaderHost.Controls.Add(_tripScoutToolbarSubtitle);
+                _tripScoutHeaderCard.Controls.Add(_tripScoutHeaderHost);
 
-                var rightFlow = new FlowLayoutPanel
+                _tripScoutSearchCard = MakeTripScoutToolbarChromeCard("tripScoutSearchCard");
+                _tripScoutActionsCard = MakeTripScoutToolbarChromeCard("tripScoutActionsCard");
+
+                _tripScoutSearchHost = new System.Windows.Forms.Panel
                 {
-                    FlowDirection = FlowDirection.LeftToRight,
-                    WrapContents = false,
-                    AutoSize = true,
-                    AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                    BackColor = SupeyTheme.SurfaceHeader,
-                    Padding = new Padding(0),
-                    Name = "tripScoutToolbarRightFlow",
+                    Name = "tripScoutSearchHost",
+                    Dock = DockStyle.Fill,
+                    BackColor = Color.Transparent,
                 };
-                _tripScoutToolbarRightFlow = rightFlow;
 
-                var searchLabel = new Label
+                _tripScoutActionsHost = new System.Windows.Forms.Panel
+                {
+                    Name = "tripScoutActionsHost",
+                    Dock = DockStyle.Fill,
+                    BackColor = Color.Transparent,
+                };
+
+                _tripScoutSearchLabel = new Label
                 {
                     Text = "Search",
                     AutoSize = true,
                     ForeColor = SupeyTheme.TextSecondary,
-                    BackColor = SupeyTheme.SurfaceHeader,
+                    BackColor = Color.Transparent,
                     Font = SupeyTheme.CaptionFont,
-                    Margin = new Padding(0, 8, 8, 0),
                 };
-                var dateLabel = new Label
+                _tripScoutDateLabel = new Label
                 {
                     Text = "Service date",
                     AutoSize = true,
                     ForeColor = SupeyTheme.TextSecondary,
-                    BackColor = SupeyTheme.SurfaceHeader,
+                    BackColor = Color.Transparent,
                     Font = SupeyTheme.CaptionFont,
-                    Margin = new Padding(0, 8, 8, 0),
                 };
 
-                tssearchbox.Margin = new Padding(0, 0, 0, 0);
+                tssearchbox.Margin = Padding.Empty;
                 tssearchbox.Anchor = AnchorStyles.Top | AnchorStyles.Left;
-                tssearchbox.Size = new Size(560, BillingControlH);
-                tssearchbox.UseTallSize = false;
-                tssearchbox.UseToolbarSize = true;
                 tssearchbox.Hint = "Search trips by ID, client, driver, address, phone...";
-
-                tsdatepicker.Margin = new Padding(0, 0, 6, 0);
-                tsdatepicker.Size = new Size(232, 30);
-                tsdatepicker.BorderColor = SupeyTheme.BorderSubtle;
-                tsdatepicker.BorderSize = 1;
-                tsdatepicker.Font = new Font("Segoe UI", 9.5f);
-                tsdatepicker.SkinColor = SupeyTheme.SurfaceElevated;
-                tsdatepicker.TextColor = SupeyTheme.TextPrimary;
 
                 tsloadbtn.Text = "LOAD";
                 tsloadbtn.UseAccentColor = false;
-                tsloadbtn.AutoSize = false;
-                tsloadbtn.Size = new Size(96, 30);
-                tsloadbtn.Margin = new Padding(0, 1, 0, 0);
-                tsloadbtn.HighEmphasis = true;
 
-                leftFlow.Controls.Add(searchLabel);
-                leftFlow.Controls.Add(tssearchbox);
-                rightFlow.Controls.Add(MakeFsToolbarSeparator());
-                rightFlow.Controls.Add(dateLabel);
-                rightFlow.Controls.Add(tsdatepicker);
-                rightFlow.Controls.Add(tsloadbtn);
+                _tripScoutSearchHost.Controls.Add(_tripScoutSearchLabel);
+                _tripScoutSearchHost.Controls.Add(tssearchbox);
+                _tripScoutActionsHost.Controls.Add(_tripScoutDateLabel);
+                _tripScoutActionsHost.Controls.Add(tsdatepicker);
+                _tripScoutActionsHost.Controls.Add(tsloadbtn);
+
+                _tripScoutSearchCard.Controls.Add(_tripScoutSearchHost);
+                _tripScoutActionsCard.Controls.Add(_tripScoutActionsHost);
 
                 _tripScoutToolbarPanel.Controls.Add(divider);
-                _tripScoutToolbarPanel.Controls.Add(rightFlow);
-                _tripScoutToolbarPanel.Controls.Add(leftFlow);
-                _tripScoutToolbarPanel.Controls.Add(_tripScoutToolbarTitle);
-                _tripScoutToolbarPanel.Controls.Add(_tripScoutToolbarSubtitle);
+                _tripScoutToolbarPanel.Controls.Add(_tripScoutActionsCard);
+                _tripScoutToolbarPanel.Controls.Add(_tripScoutSearchCard);
+                _tripScoutToolbarPanel.Controls.Add(_tripScoutHeaderCard);
                 _tripScoutToolbarPanel.Resize += (_, __) => LayoutTripScoutToolbarControls();
             }
             else
             {
                 _tripScoutToolbarPanel.Dock = DockStyle.None;
-                _tripScoutToolbarPanel.Height = BillingToolbarH;
+                _tripScoutToolbarPanel.Height = TripScoutToolbarH;
             }
 
             if (!ReferenceEquals(_tripScoutToolbarPanel.Parent, tsmaterialCard))
                 tsmaterialCard.Controls.Add(_tripScoutToolbarPanel);
+            EnsureTripScoutHeaderCard();
+            EnsureTripScoutToolbarControlParents();
             WireTripScoutLivePanelSwitch();
             EnsureTripScoutActivityToolbar();
             EnsureTripScoutLiveBell();
@@ -2565,22 +2558,14 @@ namespace Hiatme_Tool_Suite_v3
             tsLivePanelSwitch.AutoSize = true;
             tsLivePanelSwitch.Text = "Live panel";
             tsLivePanelSwitch.Margin = Padding.Empty;
-            tsLivePanelSwitch.BackColor = SupeyTheme.SurfaceHeader;
+            tsLivePanelSwitch.BackColor = SupeyTheme.SurfaceElevated;
             tsLivePanelSwitch.Font = SupeyTheme.BodyFont;
             tsLivePanelSwitch.ForeColor = SupeyTheme.TextPrimary;
         }
 
         private void WireTripScoutLivePanelSwitch()
         {
-            if (tsLivePanelSwitch == null || _tripScoutToolbarPanel == null)
-                return;
-            StyleTripScoutLivePanelSwitch();
-            if (tsLivePanelSwitch.Parent != _tripScoutToolbarPanel)
-            {
-                _tripScoutToolbarRightFlow?.Controls.Remove(tsLivePanelSwitch);
-                _tripScoutToolbarPanel.Controls.Add(tsLivePanelSwitch);
-                tsLivePanelSwitch.BringToFront();
-            }
+            EnsureTripScoutLiveBell();
         }
 
         private void LayoutTripScoutToolbarBounds()
@@ -2592,71 +2577,8 @@ namespace Hiatme_Tool_Suite_v3
                 BillingCardPad,
                 BillingCardPad,
                 Math.Max(120, tsmaterialCard.ClientSize.Width - (BillingCardPad * 2)),
-                BillingToolbarH);
+                TripScoutToolbarH);
             LayoutTripScoutToolbarControls();
-        }
-
-        private void LayoutTripScoutToolbarControls()
-        {
-            if (_tripScoutToolbarPanel == null || _tripScoutToolbarPanel.IsDisposed || tssearchbox == null ||
-                _tripScoutToolbarRightFlow == null || _tripScoutToolbarRightFlow.IsDisposed)
-                return;
-
-            int padL = _tripScoutToolbarPanel.Padding.Left;
-            int padR = _tripScoutToolbarPanel.Padding.Right;
-            int clientW = _tripScoutToolbarPanel.ClientSize.Width;
-            int titleW = 170;
-            int liveSwitchW = 0;
-            int bellReserve = TripScoutLivePanelEnabled ? 76 : 0;
-            if (tsLivePanelSwitch != null && !tsLivePanelSwitch.IsDisposed)
-            {
-                StyleTripScoutLivePanelSwitch();
-                liveSwitchW = tsLivePanelSwitch.GetPreferredSize(Size.Empty).Width;
-                int liveSwitchH = Math.Max(24, tsLivePanelSwitch.GetPreferredSize(Size.Empty).Height);
-                tsLivePanelSwitch.SetBounds(clientW - padR - liveSwitchW, 9, liveSwitchW, liveSwitchH);
-            }
-            if (_tripScoutToolbarTitle != null)
-            {
-                _tripScoutToolbarTitle.Font = SupeyTheme.SubHeaderFont;
-                _tripScoutToolbarTitle.ForeColor = SupeyTheme.TextPrimary;
-                _tripScoutToolbarTitle.BackColor = SupeyTheme.SurfaceHeader;
-                _tripScoutToolbarTitle.SetBounds(padL, 10, titleW, 22);
-            }
-            if (_tripScoutToolbarSubtitle != null)
-            {
-                _tripScoutToolbarSubtitle.Font = SupeyTheme.CaptionFont;
-                _tripScoutToolbarSubtitle.ForeColor = SupeyTheme.TextSecondary;
-                _tripScoutToolbarSubtitle.BackColor = SupeyTheme.SurfaceHeader;
-                _tripScoutToolbarSubtitle.SetBounds(padL + titleW + 12, 12,
-                    Math.Max(120, clientW - padL - padR - titleW - 12 - liveSwitchW - bellReserve - 8), 18);
-            }
-
-            LayoutTripScoutLiveBell();
-
-            if (TripScoutLivePanelEnabled)
-            {
-                _tripScoutLiveBell?.BringToFront();
-                _tripScoutLiveScan?.BringToFront();
-                tsLivePanelSwitch?.BringToFront();
-            }
-
-            int rowY = 56;
-            _tripScoutToolbarRightFlow.SetBounds(
-                Math.Max(padL, clientW - padR - _tripScoutToolbarRightFlow.Width),
-                rowY,
-                _tripScoutToolbarRightFlow.Width,
-                BillingControlH);
-
-            int reservedRight = _tripScoutToolbarRightFlow.Width + padR + 12;
-            int available = clientW - padL - reservedRight;
-            int searchWidth = Math.Max(280, Math.Min(920, available));
-            tssearchbox.Width = searchWidth;
-            if (_tripScoutToolbarLeftFlow != null)
-            {
-                _tripScoutToolbarLeftFlow.PerformLayout();
-                int flowW = _tripScoutToolbarLeftFlow.PreferredSize.Width;
-                _tripScoutToolbarLeftFlow.SetBounds(padL, rowY, flowW, BillingControlH);
-            }
         }
 
         private void LayoutTripScoutListBounds()
@@ -7128,7 +7050,7 @@ namespace Hiatme_Tool_Suite_v3
         /// listview. Skips the min-width recompute so the user's column widths don't jump on every
         /// keystroke.
         /// </summary>
-        private void ApplyTripScoutFilter(string query)
+        private void ApplyTripScoutFilter(string query, string scrollAnchorTripNo = null, int scrollAnchorIndex = -1)
         {
             if (_tripScoutAllTrips == null || _tripScoutAllTrips.Count == 0)
             {
@@ -7152,7 +7074,7 @@ namespace Hiatme_Tool_Suite_v3
                 }
             }
 
-            BindTripScoutListView(visible);
+            BindTripScoutListView(visible, scrollAnchorTripNo: scrollAnchorTripNo, scrollAnchorIndex: scrollAnchorIndex);
 
             string dateStr = tsdatepicker.Value.ToLongDateString();
             if (trimmed.Length == 0)
@@ -7548,17 +7470,23 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>Re-renders <see cref="tslv"/> after an in-memory mutation, preserving the active search filter.</summary>
         private void RefreshTripScoutListViewKeepingFilter()
         {
-            ApplyTripScoutFilter(tssearchbox.Text);
-            TripScoutApplyRowHighlights();
+            if (TripScoutTryRefreshVisibleTripRowsInPlace())
+                TripScoutApplyRowHighlights();
+            else
+                TripScoutRebindVisibleListPreserveScroll();
         }
 
         /// <summary>
         /// Fills <see cref="tslv"/> from a Trip Scout-owned trip list. Click a trip row to expand/collapse
         /// its change history inline (▶ / ▼ in the Status column).
         /// </summary>
-        private void BindTripScoutListView(List<WRDownloadedTrip> trips, bool fitColumns = false)
+        private void BindTripScoutListView(
+            List<WRDownloadedTrip> trips,
+            bool fitColumns = false,
+            string scrollAnchorTripNo = null,
+            int scrollAnchorIndex = -1)
         {
-            TripScoutBindListView(trips, fitColumns);
+            TripScoutBindListView(trips, fitColumns, scrollAnchorTripNo, scrollAnchorIndex);
         }
 
         /// <summary>Runs after the Trip Scout list handle is ready and layout has settled.</summary>
@@ -7568,8 +7496,6 @@ namespace Hiatme_Tool_Suite_v3
             void fit()
             {
                 if (tslv.IsDisposed || !tslv.IsHandleCreated) return;
-                // Use our enforcer's batched recompute (single redraw pass). Native
-                // AutoResizeColumns visibly walks columns one-by-one in Trip Scout.
                 ListViewMinWidthEnforcer.Recompute(tslv);
                 if (tsColAlerts != null)
                     tsColAlerts.Width = 0;
@@ -9124,9 +9050,15 @@ namespace Hiatme_Tool_Suite_v3
             // Trip Scout, Billing, and the other owner-draw trip lists share the SupeyTheme header palette.
             Color lvbg = themed ? SupeyTheme.ListHeader : ColorTranslator.FromHtml("#333333");
 
-            SolidBrush bluegrayBrush = new SolidBrush(lvbg);
-
-            e.Graphics.FillRectangle(bluegrayBrush, e.Bounds);
+            if (themed)
+            {
+                SupeyListViewHelpers.PaintColumnHeaderChrome(e.Graphics, e.Bounds, drawRightSplitter: false);
+            }
+            else
+            {
+                using (var bluegrayBrush = new SolidBrush(lvbg))
+                    e.Graphics.FillRectangle(bluegrayBrush, e.Bounds);
+            }
 
             Rectangle rowBounds = e.Bounds;
             Rectangle bounds = new Rectangle(rowBounds.Left + 10, rowBounds.Top, Math.Max(0, rowBounds.Width - 10 - 1), rowBounds.Height);
@@ -9159,16 +9091,19 @@ namespace Hiatme_Tool_Suite_v3
                 themed ? SupeyTheme.ListHeaderText : Color.Gainsboro,
                 align | TextFormatFlags.SingleLine | TextFormatFlags.GlyphOverhangPadding | TextFormatFlags.VerticalCenter | TextFormatFlags.WordEllipsis);
 
-            if (themed)
+            if (!themed)
             {
-                using (var rowPen = new Pen(SupeyTheme.ListGridLine, 1f))
+                using (var rowPen = new Pen(Color.FromArgb(64, 255, 255, 255), 1f))
                     e.Graphics.DrawLine(rowPen, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right - 1, e.Bounds.Bottom - 1);
             }
 
             // Column boundary + resize affordance (full height so the grid reads clearly).
-            using (var dividerPen = new Pen(themed ? SupeyTheme.ListGridLine : Color.FromArgb(64, 255, 255, 255), 1f))
+            if (themed)
+                SupeyListViewHelpers.PaintColumnHeaderSplitter(e.Graphics, e.Bounds);
+            else
             {
-                e.Graphics.DrawLine(dividerPen, e.Bounds.Right - 1, e.Bounds.Top, e.Bounds.Right - 1, e.Bounds.Bottom - 1);
+                using (var dividerPen = new Pen(Color.FromArgb(64, 255, 255, 255), 1f))
+                    e.Graphics.DrawLine(dividerPen, e.Bounds.Right - 1, e.Bounds.Top, e.Bounds.Right - 1, e.Bounds.Bottom - 1);
             }
 
             // Sort arrow indicator if this column is the active sort column on a ListViewSorter-equipped list.
@@ -9285,6 +9220,7 @@ namespace Hiatme_Tool_Suite_v3
                 Color bg = selected ? SupeyTheme.ListSelected : e.Item.BackColor;
                 if (bg == Color.Empty || bg == Color.Transparent)
                     bg = SupeyTheme.ListBody;
+                TripScoutPaintStatusCellIfBlinking(e, bg, out bg);
                 using (var rowBrush = new SolidBrush(bg))
                     e.Graphics.FillRectangle(rowBrush, e.Bounds);
             }

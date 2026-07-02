@@ -1,3 +1,4 @@
+using System;
 using System.Drawing;
 
 namespace Hiatme_Tool_Suite_v3
@@ -52,6 +53,8 @@ namespace Hiatme_Tool_Suite_v3
         public static Color ListGrid => P.ListGrid;
         /// <summary>Owner-draw cell grid lines — readable on ListBody but softer than legacy ListGrid.</summary>
         public static Color ListGridLine => ResolveListGridLine(P);
+        /// <summary>Column resize splitters on ListHeader — higher contrast than cell grid lines, every theme.</summary>
+        public static Color ListHeaderSplitter => ResolveListHeaderSplitter(P);
         public static Color ListSelected => P.ListSelected;
         public static Color ListSelectedText => P.ListSelectedText;
         public static Color ListText => P.ListText;
@@ -76,6 +79,27 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         internal static Color ListGridLineForPalette(SupeyThemePalette palette) => ResolveListGridLine(palette);
+        internal static Color ListHeaderSplitterForPalette(SupeyThemePalette palette) => ResolveListHeaderSplitter(palette);
+
+        private static Color ResolveListHeaderSplitter(SupeyThemePalette palette)
+        {
+            if (palette == null)
+                return Color.FromArgb(110, 110, 110);
+            Color accent = !palette.TextSecondary.IsEmpty ? palette.TextSecondary
+                : !palette.TextMuted.IsEmpty ? palette.TextMuted
+                : !palette.BorderSubtle.IsEmpty ? palette.BorderSubtle
+                : Color.FromArgb(130, 130, 130);
+            double headerLum = RelativeLuminance(palette.ListHeader);
+            double accentLum = RelativeLuminance(accent);
+            // Dark headers: lift toward accent; light headers: deepen toward accent for a visible grip.
+            double blend = headerLum < 0.45 ? 0.72 : 0.58;
+            if (Math.Abs(accentLum - headerLum) < 0.06 && !palette.Divider.IsEmpty)
+                accent = palette.Divider;
+            return BlendColors(palette.ListHeader, accent, blend);
+        }
+
+        private static double RelativeLuminance(Color c)
+            => (0.299 * c.R + 0.587 * c.G + 0.114 * c.B) / 255.0;
 
         /// <summary>Previous cell grid formula — used only for live theme-switch color remap.</summary>
         internal static Color LegacyListGridLineBlend(SupeyThemePalette palette)

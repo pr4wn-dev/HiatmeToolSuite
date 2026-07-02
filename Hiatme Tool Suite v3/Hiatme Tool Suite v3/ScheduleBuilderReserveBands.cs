@@ -987,6 +987,52 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         /// <summary>
+        /// Move ONE trip into the Reserves → Reroutes section in an existing line list.
+        /// Only the given trip moves; every other row keeps its exact position.
+        /// </summary>
+        public static void MoveTripIntoReroutesSectionInPlace(
+            List<ScheduleBuilderPreviewLine> reserveLines,
+            MCDownloadedTrip trip)
+        {
+            if (reserveLines == null || trip == null)
+                return;
+
+            bool reroutedOnModivcare = false;
+            bool cancelledOnWellRyde = false;
+            foreach (var line in reserveLines)
+            {
+                if (line?.Kind != ScheduleBuilderPreviewLine.LineKind.Trip
+                    || !ScheduleBuilderPreviewDrag.TripEquals(line.Trip, trip))
+                {
+                    continue;
+                }
+
+                reroutedOnModivcare = line.ReroutedOnModivcare;
+                cancelledOnWellRyde = line.CancelledOnWellRyde;
+                break;
+            }
+
+            RemoveTripFromReserveLines(reserveLines, trip);
+            InsertTripAtSectionEnd(reserveLines, trip, ReserveBucket.Reroute, RerouteBand);
+
+            for (int i = reserveLines.Count - 1; i >= 0; i--)
+            {
+                var line = reserveLines[i];
+                if (line?.Kind != ScheduleBuilderPreviewLine.LineKind.Trip
+                    || !ScheduleBuilderPreviewDrag.TripEquals(line.Trip, trip))
+                {
+                    continue;
+                }
+
+                line.ReroutedOnModivcare = reroutedOnModivcare;
+                line.CancelledOnWellRyde = cancelledOnWellRyde;
+                break;
+            }
+
+            RefreshReserveSectionHeaderCounts(reserveLines);
+        }
+
+        /// <summary>
         /// Move ONE trip into the Reserves → Cancels section in an existing line list.
         /// Only the given trip moves; every other row keeps its exact position.
         /// </summary>

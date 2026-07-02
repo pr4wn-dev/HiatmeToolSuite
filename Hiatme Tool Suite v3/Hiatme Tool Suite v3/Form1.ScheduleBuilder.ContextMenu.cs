@@ -287,7 +287,7 @@ namespace Hiatme_Tool_Suite_v3
             };
             _fsTripsCtxRerouteModivcare.Click += (s, e) => FsRerouteTripOnModivcareFromContext();
 
-            _fsTripsCtxAddToReroutes = new ToolStripMenuItem("Add to Reroutes section (no Modivcare)")
+            _fsTripsCtxAddToReroutes = new ToolStripMenuItem("Move to Reroutes section")
             {
                 BackColor = DarkContextMenuRenderer.Background,
                 ForeColor = DarkContextMenuRenderer.ForeColor,
@@ -440,12 +440,17 @@ namespace Hiatme_Tool_Suite_v3
             else
                 _fsTripsCtxRerouteModivcare.Text = "Reroute on Modivcare…";
 
+            _fsLinesByTab.TryGetValue("Reserves", out var reserveLinesForCtx);
             bool alreadyInReroutes = hasTrip && hasBuild
-                && !FsNeedsMoveToReservesReroutes(_fsTripsCtxTrip, _fsActiveDriverTab ?? "", fsbuilder);
+                && !FsNeedsMoveToReservesReroutes(
+                    _fsTripsCtxTrip, _fsActiveDriverTab ?? "", fsbuilder, reserveLinesForCtx);
             _fsTripsCtxAddToReroutes.Enabled = hasTrip && hasBuild && !alreadyInReroutes;
-            _fsTripsCtxAddToReroutes.Text = alreadyInReroutes
-                ? "Add to Reroutes section (already there)"
-                : "Add to Reroutes section (no Modivcare)";
+            if (alreadyInReroutes)
+                _fsTripsCtxAddToReroutes.Text = "Move to Reroutes section (already there)";
+            else if (alreadyRerouted)
+                _fsTripsCtxAddToReroutes.Text = "Move to Reroutes section";
+            else
+                _fsTripsCtxAddToReroutes.Text = "Add to Reroutes section";
 
             bool alreadyInCancels = hasTrip && hasBuild
                 && !FsNeedsMoveToReservesCancels(_fsTripsCtxTrip, _fsActiveDriverTab ?? "", fsbuilder);

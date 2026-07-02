@@ -270,18 +270,40 @@ namespace Hiatme_Tool_Suite_v3
         public static string GetCellDisplayText(ListView listView, int columnIndex, string raw)
             => WellRydeDisplayText.FormatListCell(listView, columnIndex, raw);
 
+        /// <summary>Header bottom rule + column resize splitter (theme-aware, all palettes).</summary>
+        public static void PaintColumnHeaderChrome(Graphics g, Rectangle bounds, bool drawRightSplitter = true)
+        {
+            if (g == null) return;
+            using (var brush = new SolidBrush(SupeyTheme.ListHeader))
+                g.FillRectangle(brush, bounds);
+            using (var bottomPen = new Pen(ListGridLineColor, 1f))
+                g.DrawLine(bottomPen, bounds.Left, bounds.Bottom - 1, bounds.Right - 1, bounds.Bottom - 1);
+            if (drawRightSplitter)
+                PaintColumnHeaderSplitter(g, bounds);
+        }
+
+        /// <summary>Visible full-height column boundary for resize affordance.</summary>
+        public static void PaintColumnHeaderSplitter(Graphics g, Rectangle bounds)
+        {
+            if (g == null) return;
+            int x = bounds.Right - 1;
+            int y1 = bounds.Top + 2;
+            int y2 = bounds.Bottom - 2;
+            if (y2 <= y1) return;
+            Color bright = SupeyTheme.ListHeaderSplitter;
+            Color shadow = BlendColors(SupeyTheme.ListHeader, bright, 0.22);
+            using (var shadowPen = new Pen(shadow, 1f))
+                g.DrawLine(shadowPen, x - 1, y1, x - 1, y2);
+            using (var gripPen = new Pen(bright, 1f))
+                g.DrawLine(gripPen, x, y1, x, y2);
+        }
+
         /// <summary>Shared dark column header chrome for Supey owner-draw listviews.</summary>
         public static void DrawColumnHeader(DrawListViewColumnHeaderEventArgs e)
         {
             if (e == null) return;
             e.DrawDefault = false;
-            using (var brush = new SolidBrush(SupeyTheme.ListHeader))
-                e.Graphics.FillRectangle(brush, e.Bounds);
-            using (var pen = new Pen(ListGridLineColor, 1f))
-            {
-                e.Graphics.DrawLine(pen, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right - 1, e.Bounds.Bottom - 1);
-                e.Graphics.DrawLine(pen, e.Bounds.Right - 1, e.Bounds.Top, e.Bounds.Right - 1, e.Bounds.Bottom - 1);
-            }
+            PaintColumnHeaderChrome(e.Graphics, e.Bounds);
             var rect = new Rectangle(e.Bounds.Left + 6, e.Bounds.Top, e.Bounds.Width - 6, e.Bounds.Height);
             TextFormatFlags align = TextFormatFlags.Left;
             if (e.Header != null)

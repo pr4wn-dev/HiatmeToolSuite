@@ -37,6 +37,9 @@ namespace Hiatme_Tool_Suite_v3
         private RectangleF iconButtonArea;
         private const int calendarIconWidth = 34;
         private const int arrowIconWidth = 17;
+        private const int DefaultMinHeight = 35;
+        private const int ToolbarHeight = 30;
+        private bool _useToolbarSize;
 
         // Custom themed calendar popup that replaces the un-themable native MonthCalendar.
         private SupeyCalendarPopup _popup;
@@ -87,14 +90,36 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        /// <summary>30px height for toolbar rows (matches SupeyTextBox / SupeyButton).</summary>
+        public bool UseToolbarSize
+        {
+            get => _useToolbarSize;
+            set
+            {
+                if (_useToolbarSize == value)
+                    return;
+                _useToolbarSize = value;
+                ApplySizeMetrics();
+                Invalidate();
+            }
+        }
+
         //Constructor
         public RJDatePicker()
         {
             this.SetStyle(ControlStyles.UserPaint, true);
-            this.MinimumSize = new Size(0, 35);
             this.Font = new Font(this.Font.Name, 9.5F);
+            ApplySizeMetrics();
             ApplyTheme();
             SupeyThemeManager.ThemeChanged += OnSupeyThemeChanged;
+        }
+
+        private void ApplySizeMetrics()
+        {
+            int h = _useToolbarSize ? ToolbarHeight : DefaultMinHeight;
+            MinimumSize = new Size(4, h);
+            if (_useToolbarSize && Height != h)
+                Height = h;
         }
 
         /// <summary>Pull the closed-face + popup-calendar colors from the active Supey theme.</summary>
