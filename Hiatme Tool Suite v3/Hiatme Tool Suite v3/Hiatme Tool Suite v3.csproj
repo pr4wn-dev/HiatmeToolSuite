@@ -390,6 +390,7 @@
     <Compile Include="ModivcareRequestErrors.cs" />
     <Compile Include="UpdateClient.cs" />
     <Compile Include="UserSettingsMigration.cs" />
+    <Compile Include="UpdateReleaseNotesParser.cs" />
     <Compile Include="UpdatePrompt.cs">
       <SubType>Form</SubType>
     </Compile>

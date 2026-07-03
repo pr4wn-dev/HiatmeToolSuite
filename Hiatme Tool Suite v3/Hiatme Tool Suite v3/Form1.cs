@@ -3136,17 +3136,16 @@ namespace Hiatme_Tool_Suite_v3
 
                     if (!UpdateClient.LaunchUpdaterAndExit(dlg.DownloadedZipPath))
                     {
-                        MessageBox.Show(this,
-                            "Could not start the updater. Your install folder is missing Update.exe and it could not be extracted from the download.\n\n" +
+                        SupeyMessageDialog.ShowWarning(this,
+                            "Update",
+                            "Could not start the updater.",
+                            "Your install folder is missing Update.exe and it could not be extracted from the download.",
                             "Install folder:\n" + AppDomain.CurrentDomain.BaseDirectory + "\n\n" +
-                            "Downloaded zip:\n" + dlg.DownloadedZipPath + "\n\n" +
-                            "Copy Update.exe from a full release zip into your install folder, or reinstall from HiatmeToolSuite-3.0.1.1.zip.",
-                            "Update", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                            "Downloaded zip:\n" + dlg.DownloadedZipPath);
                         return;
                     }
 
-                    // Updater is running; close the main app cleanly so it can replace files.
-                    Application.Exit();
+                    ExitForUpdaterInstall();
                 }
             }
             finally
@@ -3156,6 +3155,50 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         // ---------- /Updates ----------
+
+        /// <summary>
+        /// Shut down quickly and deterministically after handing off to Update.exe so file locks are
+        /// released before the updater copies over the install folder.
+        /// </summary>
+        private void ExitForUpdaterInstall()
+        {
+            _applicationExitRequested = true;
+
+            try { StopRecurringUiTimers(); } catch { }
+            try { StopClientListPollingTimer(); } catch { }
+            try { ShutdownListenerAndTrackedSockets(); } catch { }
+            try { CloseOtherOpenForms(); } catch { }
+            try { InvalidateWellRydePortalSession(); } catch { }
+            try { mcLoginHandler?.Client?.Dispose(); } catch { }
+            try { AddressGeocoder.Flush(); } catch { }
+
+            var http = ServerHttpClient;
+            ServerHttpClient = null;
+            try
+            {
+                var disposeTask = Task.Run(() =>
+                {
+                    try { http?.Dispose(); } catch { }
+                });
+                disposeTask.Wait(TimeSpan.FromSeconds(2));
+            }
+            catch { }
+
+            try
+            {
+                foreach (Form f in Application.OpenForms)
+                {
+                    if (f == null || f.IsDisposed || ReferenceEquals(f, this))
+                        continue;
+                    try { f.Close(); } catch { }
+                }
+            }
+            catch { }
+
+            // Environment.Exit terminates immediately — Application.Exit() can leave the process
+            // alive long enough for Update.exe to hit "file in use" on the main exe/DLLs.
+            Environment.Exit(0);
+        }
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
@@ -4556,7 +4599,11 @@ namespace Hiatme_Tool_Suite_v3
             LayoutLoginPanel();
         }
 
-        /// <summary>Pick the provider the user most likely wants based on saved credentials.</summary>
+        /// <summary>
+        /// Login dropdown defaults to WellRyde. Only auto-select Modivcare/Hiatme when that portal
+        /// has saved credentials and WellRyde does not. Never open on Gmail — office Gmail defaults
+        /// are for schedule email, not the primary login screen.
+        /// </summary>
         private static int ResolveDefaultLoginProviderIndex()
         {
             try
@@ -4565,8 +4612,6 @@ namespace Hiatme_Tool_Suite_v3
                 if (!string.IsNullOrWhiteSpace(s.wrUserName)) return 0;
                 if (!string.IsNullOrWhiteSpace(s.mcUserName)) return 1;
                 if (!string.IsNullOrWhiteSpace(s.hiatmeUserName)) return 2;
-                if (s.gmailUseOfficeDefault && ScheduleBuilderGmailDefaults.IsConfigured()) return 3;
-                if (!string.IsNullOrWhiteSpace(s.gmailUserName)) return 3;
             }
             catch { /* settings unavailable */ }
             return 0;

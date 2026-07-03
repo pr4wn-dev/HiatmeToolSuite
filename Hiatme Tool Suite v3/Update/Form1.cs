@@ -71,7 +71,8 @@ namespace Update
             _startupHintLabel.Padding = new Padding(28, 28, 28, 28);
             _startupHintLabel.Text =
                 "Installing update — please don't close this window.\r\n\r\n" +
-                "Your saved login and templates will be kept.";
+                "Your saved login and templates will be kept.\r\n\r\n" +
+                "When installation finishes, use the launch button to reopen the app.";
             // Replace the static hint with a simple status line at the bottom.
             _statusLabel = new Label
             {
@@ -84,9 +85,44 @@ namespace Update
             };
             Controls.Add(_statusLabel);
             _statusLabel.BringToFront();
+
+            _launchButton = new MaterialButton
+            {
+                Text = "LAUNCH HIATME TOOL SUITE",
+                Type = MaterialButton.MaterialButtonType.Contained,
+                UseAccentColor = true,
+                AutoSize = false,
+                Size = new System.Drawing.Size(320, 42),
+                Anchor = AnchorStyles.Bottom,
+                Visible = false,
+            };
+            _launchButton.Click += (_, __) => OnLaunchMainAppClicked();
+            Controls.Add(_launchButton);
+            _launchButton.BringToFront();
+            PositionLaunchButton();
+            Resize += (_, __) => PositionLaunchButton();
+        }
+
+        private void PositionLaunchButton()
+        {
+            if (_launchButton == null)
+                return;
+            int x = Math.Max(28, (ClientSize.Width - _launchButton.Width) / 2);
+            int y = ClientSize.Height - _launchButton.Height - 100;
+            _launchButton.Location = new System.Drawing.Point(x, y);
+        }
+
+        private void OnLaunchMainAppClicked()
+        {
+            _launchButton.Enabled = false;
+            if (TryRelaunchMainApp(showFailureDialog: true))
+                BeginInvoke((MethodInvoker)Close);
+            else
+                _launchButton.Enabled = true;
         }
 
         private Label _statusLabel;
+        private MaterialButton _launchButton;
 
         private void Status(string text)
         {
@@ -109,24 +145,38 @@ namespace Update
                 if (_opts.WaitForPid.HasValue)
                 {
                     Status("Waiting for Hiatme Tool Suite to exit...");
-                    bool exited = await Task.Run(() => WaitForProcessExit(_opts.WaitForPid.Value, TimeSpan.FromSeconds(30)));
-                    Program.Log("WaitForProcessExit(" + _opts.WaitForPid.Value + ") returned " + exited);
+                    bool exited = await Task.Run(() => WaitForMainAppExit(_opts.WaitForPid.Value));
+                    Program.Log("WaitForMainAppExit(" + _opts.WaitForPid.Value + ") returned " + exited);
                     if (!exited)
                     {
-                        Status("Main app didn't exit in time. Trying to terminate...");
-                        try
-                        {
-                            using (var p = Process.GetProcessById(_opts.WaitForPid.Value))
-                            {
-                                p.Kill();
-                                p.WaitForExit(5000);
-                                Program.Log("Killed pid " + _opts.WaitForPid.Value);
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            Program.Log("Could not kill pid " + _opts.WaitForPid.Value + ": " + ex.Message);
-                        }
+                        Fail("Hiatme Tool Suite did not exit in time.\n\nClose the app manually, then run the update again.");
+                        return;
+                    }
+                }
+
+                // Any OTHER instances (e.g. a second window the user opened) still lock the exe/DLLs.
+                // Wait for every process running from the install folder to exit before we touch files.
+                if (!string.IsNullOrEmpty(_opts.RestartExe) && File.Exists(_opts.RestartExe))
+                {
+                    Status("Waiting for all app windows to close...");
+                    bool allClosed = await Task.Run(() =>
+                        WaitForAllInstancesExit(_opts.RestartExe, TimeSpan.FromSeconds(60)));
+                    Program.Log("WaitForAllInstancesExit returned " + allClosed);
+                    if (!allClosed)
+                    {
+                        Fail("Another Hiatme Tool Suite window is still open.\n\n" +
+                             "Close every Hiatme Tool Suite window, then run the update again.");
+                        return;
+                    }
+
+                    Status("Waiting for app files to unlock...");
+                    bool unlocked = await Task.Run(() =>
+                        WaitForFileUnlocked(_opts.RestartExe, TimeSpan.FromSeconds(45)));
+                    Program.Log("WaitForFileUnlocked(" + _opts.RestartExe + ") returned " + unlocked);
+                    if (!unlocked)
+                    {
+                        Fail("App files are still in use.\n\nClose Hiatme Tool Suite completely and try again.");
+                        return;
                     }
                 }
 
@@ -157,23 +207,19 @@ namespace Update
 
                 if (!string.IsNullOrEmpty(_opts.RestartExe) && File.Exists(_opts.RestartExe))
                 {
-                    Status("Done. Restarting Hiatme Tool Suite...");
-                    try
+                    Status("Update installed. Launch when you're ready.");
+                    void ShowLaunch()
                     {
-                        var rp = Process.Start(new ProcessStartInfo
-                        {
-                            FileName = _opts.RestartExe,
-                            UseShellExecute = false,
-                            WorkingDirectory = Path.GetDirectoryName(_opts.RestartExe) ?? "",
-                        });
-                        Program.Log("Relaunched main app as pid " + (rp == null ? "(null)" : rp.Id.ToString()));
+                        _launchButton.Visible = true;
+                        _launchButton.Enabled = true;
+                        _launchButton.BringToFront();
+                        PositionLaunchButton();
                     }
-                    catch (Exception ex)
-                    {
-                        Program.Log("Restart failed: " + ex);
-                        Fail("Update installed, but the app could not be relaunched.\n\n" + ex.Message);
-                        return;
-                    }
+                    if (_launchButton.InvokeRequired)
+                        _launchButton.BeginInvoke((MethodInvoker)ShowLaunch);
+                    else
+                        ShowLaunch();
+                    return;
                 }
                 else
                 {
@@ -198,27 +244,226 @@ namespace Update
         }
 
         /// <summary>
-        /// Waits up to <paramref name="timeout"/> for the given pid to exit. Returns true if the process is gone
-        /// (either because it exited cleanly or because the pid was already invalid by the time we asked).
+        /// Waits for the main app pid to exit. Uses a graceful wait, then CloseMainWindow, then Kill as last resort.
         /// </summary>
-        private static bool WaitForProcessExit(int pid, TimeSpan timeout)
+        private static bool WaitForMainAppExit(int pid)
         {
+            Process proc = null;
             try
             {
-                using (var p = Process.GetProcessById(pid))
-                {
-                    return p.WaitForExit((int)timeout.TotalMilliseconds);
-                }
+                proc = Process.GetProcessById(pid);
             }
             catch (ArgumentException)
             {
-                // Process not found = already exited.
                 return true;
             }
             catch (InvalidOperationException)
             {
                 return true;
             }
+
+            using (proc)
+            {
+                if (proc.WaitForExit(20000))
+                {
+                    Thread.Sleep(1500);
+                    return true;
+                }
+
+                try
+                {
+                    if (proc.MainWindowHandle != IntPtr.Zero)
+                        proc.CloseMainWindow();
+                }
+                catch { }
+
+                if (proc.WaitForExit(8000))
+                {
+                    Thread.Sleep(1500);
+                    return true;
+                }
+
+                try
+                {
+                    proc.Kill();
+                    proc.WaitForExit(8000);
+                    Program.Log("Killed pid " + pid);
+                }
+                catch (Exception ex)
+                {
+                    Program.Log("Could not kill pid " + pid + ": " + ex.Message);
+                    return false;
+                }
+
+                Thread.Sleep(2000);
+                return !IsProcessRunning(pid);
+            }
+        }
+
+        private static bool IsProcessRunning(int pid)
+        {
+            try
+            {
+                using (var p = Process.GetProcessById(pid))
+                    return !p.HasExited;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Blocks until no process is running from <paramref name="exePath"/> (any instance the user opened),
+        /// escalating to CloseMainWindow then Kill as the timeout nears. Returns true only when all are gone.
+        /// </summary>
+        private static bool WaitForAllInstancesExit(string exePath, TimeSpan timeout)
+        {
+            if (string.IsNullOrEmpty(exePath))
+                return true;
+
+            string processName = Path.GetFileNameWithoutExtension(exePath);
+            string fullPath;
+            try { fullPath = Path.GetFullPath(exePath); }
+            catch { fullPath = exePath; }
+
+            var sw = Stopwatch.StartNew();
+            bool triedClose = false;
+            bool triedKill = false;
+
+            while (sw.Elapsed < timeout)
+            {
+                var matches = GetProcessesAtPath(processName, fullPath);
+                if (matches.Count == 0)
+                {
+                    Thread.Sleep(1000); // let the OS release file handles
+                    return true;
+                }
+
+                // Halfway to the deadline: politely ask windows to close.
+                if (!triedClose && sw.Elapsed > TimeSpan.FromTicks(timeout.Ticks / 2))
+                {
+                    triedClose = true;
+                    foreach (var p in matches)
+                    {
+                        try { if (p.MainWindowHandle != IntPtr.Zero) p.CloseMainWindow(); }
+                        catch { }
+                    }
+                }
+
+                // Near the deadline: force any stragglers.
+                if (!triedKill && sw.Elapsed > TimeSpan.FromTicks((long)(timeout.Ticks * 0.8)))
+                {
+                    triedKill = true;
+                    foreach (var p in matches)
+                    {
+                        try { p.Kill(); Program.Log("Killed stray instance pid " + p.Id); }
+                        catch (Exception ex) { Program.Log("Could not kill pid " + p.Id + ": " + ex.Message); }
+                    }
+                }
+
+                foreach (var p in matches)
+                {
+                    try { p.Dispose(); } catch { }
+                }
+                Thread.Sleep(400);
+            }
+
+            return GetProcessesAtPath(processName, fullPath).Count == 0;
+        }
+
+        private static List<Process> GetProcessesAtPath(string processName, string fullPath)
+        {
+            var result = new List<Process>();
+            Process[] byName;
+            try { byName = Process.GetProcessesByName(processName); }
+            catch { return result; }
+
+            foreach (var p in byName)
+            {
+                bool keep = false;
+                try
+                {
+                    // MainModule access can throw for protected/exited processes; match on path when we can,
+                    // otherwise fall back to the process-name match (better to over-wait than copy over a lock).
+                    string modPath = p.MainModule?.FileName;
+                    keep = string.IsNullOrEmpty(modPath)
+                        || string.Equals(modPath, fullPath, StringComparison.OrdinalIgnoreCase);
+                }
+                catch
+                {
+                    keep = true;
+                }
+
+                if (keep)
+                    result.Add(p);
+                else
+                    try { p.Dispose(); } catch { }
+            }
+            return result;
+        }
+
+        private static bool WaitForFileUnlocked(string path, TimeSpan timeout)
+        {
+            if (string.IsNullOrEmpty(path) || !File.Exists(path))
+                return true;
+
+            var sw = Stopwatch.StartNew();
+            while (sw.Elapsed < timeout)
+            {
+                try
+                {
+                    using (var fs = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                        return true;
+                }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+                Thread.Sleep(300);
+            }
+            return false;
+        }
+
+        private bool TryRelaunchMainApp(bool showFailureDialog)
+        {
+            if (string.IsNullOrEmpty(_opts.RestartExe) || !File.Exists(_opts.RestartExe))
+                return false;
+
+            string workDir = Path.GetDirectoryName(_opts.RestartExe) ?? "";
+
+            // Don't launch a fresh instance while an old one is still shutting down — that's exactly
+            // the "file in use" race. Make sure every prior instance is gone first.
+            if (!WaitForAllInstancesExit(_opts.RestartExe, TimeSpan.FromSeconds(20)))
+                Program.Log("Relaunch: prior instances still present after wait; proceeding cautiously.");
+
+            for (int attempt = 1; attempt <= 8; attempt++)
+            {
+                try
+                {
+                    if (!WaitForFileUnlocked(_opts.RestartExe, TimeSpan.FromSeconds(5)))
+                        throw new IOException("Application files are still locked.");
+
+                    var rp = Process.Start(new ProcessStartInfo
+                    {
+                        FileName = _opts.RestartExe,
+                        UseShellExecute = true,
+                        WorkingDirectory = workDir,
+                    });
+                    Program.Log("Relaunched main app as pid " + (rp == null ? "(null)" : rp.Id.ToString()));
+                    return rp != null;
+                }
+                catch (Exception ex)
+                {
+                    Program.Log("Restart attempt " + attempt + " failed: " + ex.Message);
+                    Thread.Sleep(400 * attempt);
+                }
+            }
+
+            if (showFailureDialog)
+            {
+                Fail("Update installed, but the app could not be relaunched.\n\n" +
+                     "Open Hiatme Tool Suite from the desktop or install folder.");
+            }
+            return false;
         }
 
         private static readonly HashSet<string> PreservedInstallSubdirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase)

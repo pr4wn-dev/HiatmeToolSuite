@@ -146,6 +146,8 @@ try {
     if (Test-Path $updPdb) { Copy-Item -Path $updPdb -Destination $staging -Force }
     $updCfg = Join-Path $updRelease 'Update.exe.config'
     if (Test-Path $updCfg) { Copy-Item -Path $updCfg -Destination $staging -Force }
+    $materialSkin = Join-Path $updRelease 'MaterialSkin.dll'
+    if (Test-Path $materialSkin) { Copy-Item -Path $materialSkin -Destination $staging -Force }
 
     $zipName = "HiatmeToolSuite-$ver.zip"
     $zipPath = Join-Path $scriptDir $zipName

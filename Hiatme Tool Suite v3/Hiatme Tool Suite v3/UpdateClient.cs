@@ -19,7 +19,25 @@ namespace Hiatme_Tool_Suite_v3
     internal static class UpdateClient
     {
         // Single source of truth for the publish layout. Bump together with the PHP endpoint path.
-        public const string ManifestUrl = "https://hiatme.com/downloads/hiatme-tool-suite/latest.php";
+        public const string DefaultManifestUrl = "https://hiatme.com/downloads/hiatme-tool-suite/latest.php";
+
+        /// <summary>
+        /// Override via <c>appSettings["UpdateManifestUrl"]</c> for local updater testing
+        /// (see release\test-updater-local.ps1).
+        /// </summary>
+        public static string ManifestUrl => ResolveManifestUrl();
+
+        private static string ResolveManifestUrl()
+        {
+            try
+            {
+                string configured = System.Configuration.ConfigurationManager.AppSettings["UpdateManifestUrl"];
+                if (!string.IsNullOrWhiteSpace(configured))
+                    return configured.Trim();
+            }
+            catch { }
+            return DefaultManifestUrl;
+        }
 
         private static int _tlsConfigured;
 

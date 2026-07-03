@@ -63,7 +63,7 @@ namespace Hiatme_Tool_Suite_v3
             //
             // _progress
             //
-            this._progress.Location = new System.Drawing.Point(20, 296);
+            this._progress.Location = new System.Drawing.Point(20, 348);
             this._progress.Size = new System.Drawing.Size(540, 8);
             //
             // _progressLabel
@@ -71,16 +71,16 @@ namespace Hiatme_Tool_Suite_v3
             this._progressLabel.AutoSize = false;
             this._progressLabel.ForeColor = Hiatme_Tool_Suite_v3.SupeyTheme.TextSecondary;
             this._progressLabel.Font = new System.Drawing.Font("Segoe UI", 8.5F);
-            this._progressLabel.Location = new System.Drawing.Point(20, 314);
+            this._progressLabel.Location = new System.Drawing.Point(20, 366);
             this._progressLabel.Size = new System.Drawing.Size(540, 18);
             //
             // _installButton
             //
             this._installButton.AutoSize = false;
             this._installButton.Density = SupeyMaterialButton.MaterialButtonDensity.Default;
-            this._installButton.Location = new System.Drawing.Point(380, 340);
+            this._installButton.Location = new System.Drawing.Point(380, 392);
             this._installButton.Size = new System.Drawing.Size(180, 36);
-            this._installButton.Text = "INSTALL NOW";
+            this._installButton.Text = "DOWNLOAD UPDATE";
             this._installButton.Type = SupeyMaterialButton.MaterialButtonType.Contained;
             this._installButton.UseAccentColor = true;
             this._installButton.Click += new System.EventHandler(this.OnInstallClicked);
@@ -89,7 +89,7 @@ namespace Hiatme_Tool_Suite_v3
             //
             this._laterButton.AutoSize = false;
             this._laterButton.Density = SupeyMaterialButton.MaterialButtonDensity.Default;
-            this._laterButton.Location = new System.Drawing.Point(260, 340);
+            this._laterButton.Location = new System.Drawing.Point(260, 392);
             this._laterButton.Size = new System.Drawing.Size(110, 36);
             this._laterButton.Text = "LATER";
             this._laterButton.Type = SupeyMaterialButton.MaterialButtonType.Text;
@@ -102,7 +102,7 @@ namespace Hiatme_Tool_Suite_v3
             // UpdatePrompt
             //
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.None;
-            this.ClientSize = new System.Drawing.Size(580, 392);
+            this.ClientSize = new System.Drawing.Size(580, 444);
             this.Controls.Add(this._versionLabel);
             this.Controls.Add(this._sizeLabel);
             this.Controls.Add(this._notesLabel);
