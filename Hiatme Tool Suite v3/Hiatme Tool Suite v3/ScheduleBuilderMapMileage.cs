@@ -105,6 +105,51 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        /// <summary>
+        /// Ensure every trip in the group has valid PU/DO pins: map cache first, then live geocode.
+        /// Returns false when any stop still cannot be resolved.
+        /// </summary>
+        public static async Task<bool> EnsureGroupEndpointsAsync(
+            SupeyTripCluster group,
+            IReadOnlyDictionary<string, GeoPoint> pickupByTrip,
+            IReadOnlyDictionary<string, GeoPoint> dropoffByTrip,
+            CancellationToken token)
+        {
+            if (group?.Trips == null || group.Trips.Count == 0)
+                return false;
+
+            HydrateGroupEndpointsFromLookup(group, pickupByTrip, dropoffByTrip);
+
+            int n = group.Trips.Count;
+            if (HasRoutableEndpoints(group, n))
+                return true;
+
+            for (int i = 0; i < n; i++)
+            {
+                var t = group.Trips[i];
+                if (t == null)
+                    continue;
+
+                if (!IsValid(group.PickupPoints[i]))
+                {
+                    var pu = await ScheduleBuilderMapGeocode.ResolveEndpointAsync(
+                        t.PUStreet, t.PUCity, token).ConfigureAwait(false);
+                    if (pu.HasValue && IsValid(pu.Value))
+                        group.PickupPoints[i] = pu.Value;
+                }
+
+                if (!IsValid(group.DropoffPoints[i]))
+                {
+                    var dof = await ScheduleBuilderMapGeocode.ResolveEndpointAsync(
+                        t.DOStreet, t.DOCITY, token).ConfigureAwait(false);
+                    if (dof.HasValue && IsValid(dof.Value))
+                        group.DropoffPoints[i] = dof.Value;
+                }
+            }
+
+            return HasRoutableEndpoints(group, n);
+        }
+
         public static async Task<(double? meters, bool approx)> ResolveTripPuDoMetersAsync(
 
             SupeyTripCluster group,

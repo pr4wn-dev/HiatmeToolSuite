@@ -991,6 +991,21 @@ namespace Hiatme_Tool_Suite_v3
             if (homeGeo.HasValue && !SupeyMapWorkspace.IsValidGeoPoint(homeGeo.Value))
                 homeGeo = null;
 
+            // Map routes often have pins in the geocode cache while the cluster arrays are empty
+            // (list rebuild / cache restore). Fill those first so auto-sort matches the map.
+            group = FsResolveLiveGroup(group) ?? group;
+            bool endpointsReady = await ScheduleBuilderMapMileage.EnsureGroupEndpointsAsync(
+                group,
+                _fsMapPickupByTrip,
+                _fsMapDropoffByTrip,
+                CancellationToken.None).ConfigureAwait(true);
+            if (!endpointsReady)
+            {
+                SetScheduleBuilderStatus("Group " + group.GroupNumber
+                    + " · could not sort (trips need geocoded PU/DO pins).");
+                return;
+            }
+
             var (bestOrder, scorePercent, alreadyOptimal, approx) =
                 await ScheduleBuilderMapMileage.FindBestTripOrderAsync(
                     group, homeGeo, dayPosition, CancellationToken.None).ConfigureAwait(true);
@@ -998,7 +1013,7 @@ namespace Hiatme_Tool_Suite_v3
             if (bestOrder == null || bestOrder.Count == 0)
             {
                 SetScheduleBuilderStatus("Group " + group.GroupNumber
-                    + " · could not sort (trips need geocoded PU/DO pins).");
+                    + " · could not sort (routing failed — check OSRM).");
                 return;
             }
 
