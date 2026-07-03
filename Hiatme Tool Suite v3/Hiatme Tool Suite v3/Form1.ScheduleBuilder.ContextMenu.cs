@@ -306,9 +306,6 @@ namespace Hiatme_Tool_Suite_v3
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxRerouteModivcare);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxAddToReroutes);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxAddToCancels);
-            // Suggest driver hidden for now — kept in the menu so it can be re-enabled later.
-            _fsTripsCtxSuggestDriver.Visible = false;
-            _fsTripsCtxMenu.Items.Add(_fsTripsCtxSuggestDriver);
             _fsTripsCtxMenu.Items.Add(new ToolStripSeparator());
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxCutTrip);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxDelete);
@@ -324,6 +321,8 @@ namespace Hiatme_Tool_Suite_v3
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxEditNote);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxChangeGroupColor);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxResetGroupColor);
+            // Deterministic placement tools (OSRM + roster + rules) — not LLM chat.
+            _fsTripsCtxMenu.Items.Add(_fsTripsCtxSuggestDriver);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxAutoSortGroup);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxGeocodeDriverHome);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxEmailDriver);
