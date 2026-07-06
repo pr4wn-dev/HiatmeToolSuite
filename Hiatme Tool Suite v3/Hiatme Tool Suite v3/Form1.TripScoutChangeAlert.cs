@@ -207,6 +207,7 @@ namespace Hiatme_Tool_Suite_v3
                 _tripScoutChangeAlertIndex = 0;
 
             TripScoutRefreshChangeAlertBar();
+            TripScoutProcessNewCancelledBellAlerts();
         }
 
         private void LayoutTripScoutChangeAlertBar()
@@ -365,18 +366,7 @@ namespace Hiatme_Tool_Suite_v3
 
         private WRDownloadedTrip TripScoutFindTripForChange(string tripNo)
         {
-            if (string.IsNullOrWhiteSpace(tripNo) || _tripScoutAllTrips == null)
-                return null;
-
-            string key = tripNo.Trim();
-            foreach (var trip in _tripScoutAllTrips)
-            {
-                if (trip == null)
-                    continue;
-                if (string.Equals(TripScoutTripKey(trip), key, StringComparison.OrdinalIgnoreCase))
-                    return trip;
-            }
-            return null;
+            return TripScoutFindLoadedTrip(tripNo);
         }
 
         private static double TripScoutMaxChangeTs(IList<HiatmeAiClient.TripScoutChangeRow> rows)

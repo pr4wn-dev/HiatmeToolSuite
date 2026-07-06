@@ -42,7 +42,7 @@ namespace Hiatme_Tool_Suite_v3
             FsUpdateCutTripBar();
             FsCommitPreviewLinesForTab(tab, lines);
             ShowFsTripsForTab(tab);
-            _ = RefreshFsMapForCurrentTabAsync();
+            RequestFsMapRefresh();
 
             string num = (_fsCutTrip.TripNumber ?? "").Trim();
             SetScheduleBuilderStatus(string.IsNullOrEmpty(num)
@@ -80,7 +80,7 @@ namespace Hiatme_Tool_Suite_v3
             FsCommitPreviewLinesForTab(tab, lines);
             ShowFsTripsForTab(tab);
             SyncFsPreviewCsvsForExport();
-            _ = RefreshFsMapForCurrentTabAsync();
+            RequestFsMapRefresh();
 
             SetScheduleBuilderStatus(string.IsNullOrEmpty(num)
                 ? "Trip deleted from schedule."
@@ -157,7 +157,7 @@ namespace Hiatme_Tool_Suite_v3
             FsCommitPreviewLinesForTab(tab, lines);
             ShowFsTripsForTab(tab);
             SyncFsPreviewCsvsForExport();
-            _ = RefreshFsMapForCurrentTabAsync();
+            RequestFsMapRefresh();
         }
 
         private void FsInsertBlankRow(bool below)
@@ -212,7 +212,7 @@ namespace Hiatme_Tool_Suite_v3
             FsCommitPreviewLinesForTab(tab, lines);
             ShowFsTripsForTab(tab);
             SyncFsPreviewCsvsForExport();
-            _ = RefreshFsMapForCurrentTabAsync();
+            RequestFsMapRefresh();
             SetScheduleBuilderStatus("Blank row deleted.");
         }
 
@@ -257,7 +257,7 @@ namespace Hiatme_Tool_Suite_v3
             FsCommitPreviewLinesForTab(tab, lines);
             ShowFsTripsForTab(tab);
             SyncFsPreviewCsvsForExport();
-            _ = RefreshFsMapForCurrentTabAsync();
+            RequestFsMapRefresh();
             SetScheduleBuilderStatus("Note row deleted.");
         }
 
@@ -300,7 +300,7 @@ namespace Hiatme_Tool_Suite_v3
             FsCommitPreviewLinesForTab(tab, lines);
             ShowFsTripsForTab(tab);
             SyncFsPreviewCsvsForExport();
-            _ = RefreshFsMapForCurrentTabAsync();
+            RequestFsMapRefresh();
             SetScheduleBuilderStatus("Note row deleted.");
         }
 

@@ -64,7 +64,7 @@ namespace Hiatme_Tool_Suite_v3
             var stale = new List<string>();
             foreach (string key in _tripScoutExpandedTripNos)
             {
-                if (TripScoutChangeCount(key) <= 0 && !_tripScoutWillCallTripNos.Contains(key))
+                if (TripScoutChangeCount(key) <= 0 && !TripScoutIsWillCallTrip(key))
                     stale.Add(key);
             }
 
@@ -233,7 +233,7 @@ namespace Hiatme_Tool_Suite_v3
                 if (!resyncDetailRows)
                 {
                     int changeCount = TripScoutChangeCount(tripNo);
-                    bool hasWillCall = _tripScoutWillCallTripNos.Contains(tripNo);
+                    bool hasWillCall = TripScoutIsWillCallTrip(tripNo);
                     bool hasDetails = changeCount > 0 || hasWillCall;
                     bool expanded = _tripScoutExpandedTripNos.Contains(tripNo);
                     if (row.HasChanges != hasDetails || row.IsExpanded != expanded)
@@ -251,7 +251,7 @@ namespace Hiatme_Tool_Suite_v3
                     var trip = visible[i];
                     string tripNo = TripScoutTripKey(trip);
                     int changeCount = TripScoutChangeCount(tripNo);
-                    bool hasWillCall = _tripScoutWillCallTripNos.Contains(tripNo);
+                    bool hasWillCall = TripScoutIsWillCallTrip(tripNo);
                     bool hasDetails = changeCount > 0 || hasWillCall;
                     bool expanded = _tripScoutExpandedTripNos.Contains(tripNo);
                     var tripItem = tripItems[i];
@@ -305,8 +305,7 @@ namespace Hiatme_Tool_Suite_v3
             if (hasWillCall)
             {
                 var wc = _tripScoutWillCalls?.FirstOrDefault(w =>
-                    w != null
-                    && string.Equals(TripScoutNormalizeTripNo(w.TripNo), TripScoutNormalizeTripNo(tripNo), StringComparison.OrdinalIgnoreCase));
+                    w != null && TripScoutTripNosMatch(w.TripNo, tripNo));
                 if (wc != null)
                     rows.Add(TripScoutBuildWillCallDetailRow(wc, tripNo));
             }
@@ -354,7 +353,7 @@ namespace Hiatme_Tool_Suite_v3
 
                     string tripNo = TripScoutTripKey(trip);
                     int changeCount = TripScoutChangeCount(tripNo);
-                    bool hasWillCall = _tripScoutWillCallTripNos.Contains(tripNo);
+                    bool hasWillCall = TripScoutIsWillCallTrip(tripNo);
                     bool hasDetails = changeCount > 0 || hasWillCall;
                     bool expanded = _tripScoutExpandedTripNos.Contains(tripNo);
 
@@ -367,8 +366,7 @@ namespace Hiatme_Tool_Suite_v3
                     if (hasWillCall)
                     {
                         var wc = _tripScoutWillCalls?.FirstOrDefault(w =>
-                            w != null
-                            && string.Equals(TripScoutNormalizeTripNo(w.TripNo), tripNo, StringComparison.OrdinalIgnoreCase));
+                            w != null && TripScoutTripNosMatch(w.TripNo, tripNo));
                         if (wc != null)
                             tslv.Items.Add(TripScoutBuildWillCallDetailRow(wc, tripNo));
                     }

@@ -271,7 +271,7 @@ namespace Hiatme_Tool_Suite_v3
                 _fsMap.TripFlatMapMode = !_fsShowGroupColors;
                 if (_fsHasPreview && !string.IsNullOrWhiteSpace(_fsActiveDriverTab)
                     && !_fsActiveDriverTab.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
-                    _ = RefreshFsMapForCurrentTabAsync();
+                    RequestFsMapRefresh();
             }
         }
 

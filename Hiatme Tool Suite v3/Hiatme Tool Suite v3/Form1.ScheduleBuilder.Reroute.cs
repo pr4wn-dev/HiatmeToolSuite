@@ -460,7 +460,7 @@ namespace Hiatme_Tool_Suite_v3
                 _fsTripsLv?.Invalidate(true);
                 SelectFsTripInListView(trip);
                 SyncFsPreviewCsvsForExport();
-                _ = RefreshFsMapForCurrentTabAsync();
+                RequestFsMapRefresh();
 
                 string successMsg = result.Message ?? ("Trip " + num + " rerouted on Modivcare.");
                 if (!string.IsNullOrWhiteSpace(selectedReasonLabel))
@@ -567,7 +567,7 @@ namespace Hiatme_Tool_Suite_v3
             _fsTripsLv?.Invalidate(true);
             SelectFsTripInListView(trip);
             SyncFsPreviewCsvsForExport();
-            _ = RefreshFsMapForCurrentTabAsync();
+            RequestFsMapRefresh();
 
             SetScheduleBuilderStatus(string.IsNullOrEmpty(num)
                 ? "Trip added to Reserves → Reroutes."

@@ -23,6 +23,12 @@ namespace Hiatme_Tool_Suite_v3
 
         private int _fsMapLoadingMessageGen;
 
+        private CancellationTokenSource _fsMapWorkCts;
+        private readonly object _fsMapWorkCtsLock = new object();
+
+        private System.Windows.Forms.Timer _fsMapRefreshDebounceTimer;
+        private volatile bool _fsMapRefreshDebouncePending;
+
         private sealed class FsMapRefreshPayload
         {
             public bool Aborted;
@@ -186,6 +192,27 @@ namespace Hiatme_Tool_Suite_v3
         private bool IsFsMapPreloadStale(int preloadGen) =>
             preloadGen != _fsMapPreloadGen || IsDisposed;
 
+        private CancellationToken ReplaceFsMapWorkToken()
+        {
+            lock (_fsMapWorkCtsLock)
+            {
+                try { _fsMapWorkCts?.Cancel(); } catch { }
+                _fsMapWorkCts?.Dispose();
+                _fsMapWorkCts = new CancellationTokenSource();
+                return _fsMapWorkCts.Token;
+            }
+        }
+
+        private void CancelFsMapWorkToken()
+        {
+            lock (_fsMapWorkCtsLock)
+            {
+                try { _fsMapWorkCts?.Cancel(); } catch { }
+                _fsMapWorkCts?.Dispose();
+                _fsMapWorkCts = null;
+            }
+        }
+
         private void CancelFsMapPreloadIfRunning()
         {
             if (!_fsMapPreloadRunning)
@@ -193,12 +220,51 @@ namespace Hiatme_Tool_Suite_v3
 
             Interlocked.Increment(ref _fsMapPreloadGen);
             _fsMapPreloadRunning = false;
+            CancelFsMapWorkToken();
 
             int loadingGen = _fsMapLoadingRefreshGen;
             if (loadingGen != 0)
                 FsMapTryPopRouteLoading(loadingGen);
             if (_fsMapOsrmLoadGen != 0)
                 _fsMapOsrmLoadGen = 0;
+        }
+
+        private void EnsureFsMapRefreshDebounceTimer()
+        {
+            if (_fsMapRefreshDebounceTimer != null)
+                return;
+
+            _fsMapRefreshDebounceTimer = new System.Windows.Forms.Timer { Interval = 300 };
+            _fsMapRefreshDebounceTimer.Tick += async (s, e) =>
+            {
+                _fsMapRefreshDebounceTimer.Stop();
+                if (!_fsMapRefreshDebouncePending || _fsMap == null)
+                    return;
+
+                _fsMapRefreshDebouncePending = false;
+                try
+                {
+                    await RefreshFsMapForCurrentTabAsync().ConfigureAwait(true);
+                }
+                catch
+                {
+                    /* desk preview — stale refresh superseded */
+                }
+            };
+        }
+
+        /// <summary>Coalesce rapid map refresh requests (drag, cut/paste, settings toggles).</summary>
+        private void RequestFsMapRefresh()
+        {
+            if (_fsMap == null || string.IsNullOrWhiteSpace(_fsActiveDriverTab))
+                return;
+            if (_fsMapPreloadRunning)
+                return;
+
+            EnsureFsMapRefreshDebounceTimer();
+            _fsMapRefreshDebouncePending = true;
+            _fsMapRefreshDebounceTimer.Stop();
+            _fsMapRefreshDebounceTimer.Start();
         }
 
         private static List<MCDownloadedTrip> CollectAllFsMapTripsDistinct(
@@ -235,9 +301,10 @@ namespace Hiatme_Tool_Suite_v3
             Dictionary<string, GeoPoint> dropoff,
             SupeyDriverProfile driverProfile,
             int gen,
-            bool checkRefreshStale)
+            bool checkRefreshStale,
+            CancellationToken token)
         {
-            if (checkRefreshStale && IsFsMapRefreshStale(gen, tabName))
+            if (checkRefreshStale && (IsFsMapRefreshStale(gen, tabName) || token.IsCancellationRequested))
                 return FsMapAbortedPayload();
 
             var groups = BuildFsMapGroupsFromLines(lines, isReservesTab, showGroupColors);
@@ -251,10 +318,10 @@ namespace Hiatme_Tool_Suite_v3
             if (!isReservesTab && driverProfile != null)
             {
                 homeGeo = await ScheduleBuilderDriverMapRouting.ResolveHomeGeoAsync(
-                    driverProfile, CancellationToken.None).ConfigureAwait(false);
+                    driverProfile, token).ConfigureAwait(false);
             }
 
-            if (checkRefreshStale && IsFsMapRefreshStale(gen, tabName))
+            if (checkRefreshStale && (IsFsMapRefreshStale(gen, tabName) || token.IsCancellationRequested))
                 return FsMapAbortedPayload();
 
             var routeHome = (!isReservesTab && showGroupColors) ? homeGeo : (GeoPoint?)null;
@@ -297,18 +364,19 @@ namespace Hiatme_Tool_Suite_v3
             bool isReservesTab,
             bool showGroupColors,
             SupeyDriverProfile driverProfile,
-            int gen)
+            int gen,
+            CancellationToken token)
         {
-            if (IsFsMapRefreshStale(gen, tabName))
+            if (IsFsMapRefreshStale(gen, tabName) || token.IsCancellationRequested)
                 return FsMapAbortedPayload();
 
             if (!ScheduleOsrmGate.PreviewRoutingOk)
             {
                 FsMapSetRouteLoadingMessage(gen, "Checking routing…");
                 var (routingOk, routingDetail) = await ScheduleOsrmGate.ProbePreviewRoutingAsync(
-                    HiatmeAiSettings.Load(), CancellationToken.None).ConfigureAwait(false);
+                    HiatmeAiSettings.Load(), token).ConfigureAwait(false);
 
-                if (IsFsMapRefreshStale(gen, tabName))
+                if (IsFsMapRefreshStale(gen, tabName) || token.IsCancellationRequested)
                     return FsMapAbortedPayload();
 
                 if (!routingOk)
@@ -325,9 +393,9 @@ namespace Hiatme_Tool_Suite_v3
             var pickup = new Dictionary<string, GeoPoint>(StringComparer.OrdinalIgnoreCase);
             var dropoff = new Dictionary<string, GeoPoint>(StringComparer.OrdinalIgnoreCase);
             await ScheduleBuilderMapGeocode.ResolveTripsForMapAsync(
-                trips, pickup, dropoff, CancellationToken.None).ConfigureAwait(false);
+                trips, pickup, dropoff, token).ConfigureAwait(false);
 
-            if (IsFsMapRefreshStale(gen, tabName))
+            if (IsFsMapRefreshStale(gen, tabName) || token.IsCancellationRequested)
                 return FsMapAbortedPayload();
 
             return await BuildFsMapPayloadForTabFromGeocodesAsync(
@@ -339,7 +407,8 @@ namespace Hiatme_Tool_Suite_v3
                 dropoff,
                 driverProfile,
                 gen,
-                checkRefreshStale: true).ConfigureAwait(false);
+                checkRefreshStale: true,
+                token).ConfigureAwait(false);
         }
 
         /// <summary>Upgrade preview routes to OSRM on a worker thread (group tours only).</summary>
@@ -347,9 +416,13 @@ namespace Hiatme_Tool_Suite_v3
             FsMapRefreshPayload payload,
             bool isReservesTab,
             bool showGroupColors,
-            int gen)
+            int gen,
+            CancellationToken token)
         {
             if (payload?.Groups == null || payload.Groups.Count == 0)
+                return (0, 0);
+
+            if (token.IsCancellationRequested)
                 return (0, 0);
 
             GeoPoint? homeGeo = payload.Plan?.HomeGeo;
@@ -364,13 +437,13 @@ namespace Hiatme_Tool_Suite_v3
 
             Task<(int roadGroups, int straightGroups)> groupRoutesTask =
                 ScheduleBuilderPreviewGroups.BuildOsrmRoutePolylinesAsync(
-                    payload.Groups, routeHome, CancellationToken.None, routeProgress);
+                    payload.Groups, routeHome, token, routeProgress);
 
             Task tripLegsTask = Task.CompletedTask;
             if (showGroupColors && !isReservesTab)
             {
                 tripLegsTask = ScheduleBuilderPreviewGroups.BuildTripLegPolylinesAsync(
-                    payload.Groups, CancellationToken.None);
+                    payload.Groups, token);
             }
 
             await Task.WhenAll(groupRoutesTask, tripLegsTask).ConfigureAwait(false);
@@ -491,7 +564,11 @@ namespace Hiatme_Tool_Suite_v3
             _fsMap.CenterOnMaineHub();
         }
 
-        private async Task RefreshFsMapCoreAsync(int gen, string tabName, bool reuseExistingLoadingOverlay = false)
+        private async Task RefreshFsMapCoreAsync(
+            int gen,
+            string tabName,
+            CancellationToken token,
+            bool reuseExistingLoadingOverlay = false)
         {
             bool isReservesTab = tabName.Equals("Reserves", StringComparison.OrdinalIgnoreCase);
 
@@ -537,10 +614,10 @@ namespace Hiatme_Tool_Suite_v3
             {
                 FsMapRefreshPayload payload = await Task.Run(async () =>
                     await BuildFsMapPreviewPayloadAsync(
-                        tabName, lines, trips, isReservesTab, showGroupColors, driverProfile, gen)
-                        .ConfigureAwait(false)).ConfigureAwait(false);
+                        tabName, lines, trips, isReservesTab, showGroupColors, driverProfile, gen, token)
+                        .ConfigureAwait(false), token).ConfigureAwait(false);
 
-                if (IsFsMapRefreshStale(gen, tabName) || payload.Aborted)
+                if (IsFsMapRefreshStale(gen, tabName) || payload.Aborted || token.IsCancellationRequested)
                 {
                     if (reuseExistingLoadingOverlay)
                         FsMapTryPopRouteLoading(gen);
@@ -554,7 +631,7 @@ namespace Hiatme_Tool_Suite_v3
                     return;
                 }
 
-                if (IsFsMapRefreshStale(gen, tabName))
+                if (IsFsMapRefreshStale(gen, tabName) || token.IsCancellationRequested)
                 {
                     if (reuseExistingLoadingOverlay)
                         FsMapTryPopRouteLoading(gen);
@@ -566,9 +643,9 @@ namespace Hiatme_Tool_Suite_v3
 
                 var routeCounts = await Task.Run(async () =>
                     await UpgradeFsMapPayloadWithOsrmAsync(
-                        payload, isReservesTab, showGroupColors, gen).ConfigureAwait(false)).ConfigureAwait(false);
+                        payload, isReservesTab, showGroupColors, gen, token).ConfigureAwait(false), token).ConfigureAwait(false);
 
-                if (IsFsMapRefreshStale(gen, tabName))
+                if (IsFsMapRefreshStale(gen, tabName) || token.IsCancellationRequested)
                 {
                     if (reuseExistingLoadingOverlay)
                         FsMapTryPopRouteLoading(gen);
@@ -602,232 +679,15 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
-        /// <summary>
-        /// After schedule bind/load: geocode all trips once, OSRM every tab, fill cache, then show the active tab.
-        /// Map stays behind the loading veil until the first paint.
-        /// </summary>
-        private async Task PreloadFsMapForAllTabsAsync(IReadOnlyList<string> tabNames)
-        {
-            if (_fsMap == null || tabNames == null || tabNames.Count == 0)
-                return;
-
-            CancelFsMapPreloadIfRunning();
-            int preloadGen = Interlocked.Increment(ref _fsMapPreloadGen);
-            _fsMapPreloadRunning = true;
-
-            int gen = Interlocked.Increment(ref _fsMapRefreshGen);
-
-            FsMapBeginInvoke(() =>
-            {
-                if (_fsMap == null)
-                    return;
-                _fsMap.SaveLegendSnapshotForTabIfLoaded(_fsActiveDriverTab ?? "");
-                _fsMap.Clear();
-                _fsMap.ClearMileageHud();
-            });
-
-            _fsMapOsrmLoadGen = gen;
-            FsMapPushRouteLoading(gen, "Preparing map…");
-            bool dismissLoadingInFinally = true;
-
-            bool routingOk = false;
-            string routingDetail = null;
-
-            try
-            {
-                var cachedEntries = await Task.Run(async () =>
-                {
-                    var entries = new List<(string Tab, bool IsReserves, FsMapRefreshPayload Payload)>();
-
-                    if (IsFsMapPreloadStale(preloadGen))
-                        return entries;
-
-                    FsMapSetRouteLoadingMessage(gen, "Checking routing…");
-                    (routingOk, routingDetail) = await ScheduleOsrmGate.ProbePreviewRoutingAsync(
-                        HiatmeAiSettings.Load(), CancellationToken.None).ConfigureAwait(false);
-
-                    if (IsFsMapPreloadStale(preloadGen))
-                        return entries;
-
-                    if (!routingOk)
-                        return entries;
-
-                    var allTrips = CollectAllFsMapTripsDistinct(_fsLinesByTab);
-                    if (allTrips.Count == 0)
-                        return entries;
-
-                    FsMapSetRouteLoadingMessage(gen, "Geocoding all trips…");
-                    var sharedPickup = new Dictionary<string, GeoPoint>(StringComparer.OrdinalIgnoreCase);
-                    var sharedDropoff = new Dictionary<string, GeoPoint>(StringComparer.OrdinalIgnoreCase);
-                    await ScheduleBuilderMapGeocode.ResolveTripsForMapAsync(
-                        allTrips, sharedPickup, sharedDropoff, CancellationToken.None).ConfigureAwait(false);
-
-                    if (IsFsMapPreloadStale(preloadGen))
-                        return entries;
-
-                    EnsureFsDriverRosterLoaded();
-                    bool showGroupColors = FsShowGroupColorsEnabled;
-
-                    var tabsWithTrips = new List<string>();
-                    foreach (var name in tabNames)
-                    {
-                        if (string.IsNullOrWhiteSpace(name))
-                            continue;
-                        if (!_fsLinesByTab.TryGetValue(name, out var tabLines))
-                            continue;
-                        if (CollectFsMapTrips(tabLines).Count == 0)
-                            continue;
-                        tabsWithTrips.Add(name);
-                    }
-
-                    int tabDone = 0;
-                    int tabTotal = tabsWithTrips.Count;
-
-                    foreach (var name in tabsWithTrips)
-                    {
-                        if (IsFsMapPreloadStale(preloadGen))
-                            return entries;
-
-                        tabDone++;
-                        FsMapSetRouteLoadingMessage(
-                            gen,
-                            tabTotal > 1
-                                ? "Loading routes… " + tabDone + "/" + tabTotal + " (" + name + ")"
-                                : "Loading routes…");
-
-                        bool isReservesTab = name.Equals("Reserves", StringComparison.OrdinalIgnoreCase);
-                        _fsLinesByTab.TryGetValue(name, out var tabLines);
-
-                        SupeyDriverProfile driverProfile = null;
-                        if (!isReservesTab)
-                        {
-                            driverProfile = ScheduleBuilderDriverMapRouting.FindProfileForScheduleTab(
-                                _supeyRoster, name);
-                        }
-
-                        var payload = await BuildFsMapPayloadForTabFromGeocodesAsync(
-                            name,
-                            tabLines,
-                            isReservesTab,
-                            showGroupColors,
-                            sharedPickup,
-                            sharedDropoff,
-                            driverProfile,
-                            gen,
-                            checkRefreshStale: false).ConfigureAwait(false);
-
-                        if (payload == null || payload.Aborted || !payload.RoutingOk)
-                            continue;
-
-                        var routeCounts = await UpgradeFsMapPayloadWithOsrmAsync(
-                            payload, isReservesTab, showGroupColors, gen).ConfigureAwait(false);
-
-                        if (IsFsMapPreloadStale(preloadGen))
-                            return entries;
-
-                        payload.HasOsrmRoutes = true;
-                        int pinCount = sharedPickup.Count + sharedDropoff.Count;
-                        payload.StatusMessage = BuildFsMapStatusMessage(
-                            name,
-                            isReservesTab,
-                            showGroupColors,
-                            pinCount,
-                            payload.Groups?.Count ?? 0,
-                            routeCounts.roadGroups,
-                            routeCounts.straightGroups,
-                            payload.Plan,
-                            payload.DriverProfile,
-                            osrmPending: false);
-
-                        entries.Add((name, isReservesTab, payload));
-                    }
-
-                    return entries;
-                }).ConfigureAwait(false);
-
-                if (IsFsMapPreloadStale(preloadGen))
-                    return;
-
-                if (!routingOk)
-                {
-                    dismissLoadingInFinally = false;
-                    string tab = _fsActiveDriverTab;
-                    if (!string.IsNullOrWhiteSpace(tab))
-                    {
-                        QueueFsMapRefreshApply(
-                            gen,
-                            tab,
-                            tab.Equals("Reserves", StringComparison.OrdinalIgnoreCase),
-                            FsShowGroupColorsEnabled,
-                            new FsMapRefreshPayload
-                            {
-                                RoutingOk = false,
-                                RoutingDetail = routingDetail,
-                            },
-                            false,
-                            true);
-                    }
-                    else
-                    {
-                        FsMapTryPopRouteLoading(gen);
-                        dismissLoadingInFinally = false;
-                    }
-
-                    return;
-                }
-
-                if (cachedEntries.Count > 0)
-                {
-                    Action saveCaches = () =>
-                    {
-                        foreach (var entry in cachedEntries)
-                        {
-                            SaveFsTabMapCache(
-                                entry.Tab,
-                                entry.IsReserves,
-                                entry.Payload.Plan,
-                                entry.Payload.Pickup,
-                                entry.Payload.Dropoff,
-                                entry.Payload.StatusMessage);
-                        }
-                    };
-
-                    if (InvokeRequired)
-                        Invoke(saveCaches);
-                    else
-                        saveCaches();
-                }
-
-                if (IsFsMapPreloadStale(preloadGen))
-                    return;
-
-                string activeTab = _fsActiveDriverTab;
-                if (string.IsNullOrWhiteSpace(activeTab))
-                {
-                    FsMapTryPopRouteLoading(gen);
-                    dismissLoadingInFinally = false;
-                    return;
-                }
-
-                dismissLoadingInFinally = false;
-                await RefreshFsMapCoreAsync(gen, activeTab, reuseExistingLoadingOverlay: true).ConfigureAwait(false);
-            }
-            finally
-            {
-                _fsMapPreloadRunning = false;
-                if (_fsMapOsrmLoadGen == gen)
-                    _fsMapOsrmLoadGen = 0;
-                if (dismissLoadingInFinally)
-                    FsMapTryPopRouteLoading(gen);
-            }
-        }
-
         private void StartFsMapPreloadAfterScheduleBind(IReadOnlyList<string> tabNames)
         {
             if (_fsMap == null || tabNames == null || tabNames.Count == 0)
                 return;
+            if (string.IsNullOrWhiteSpace(_fsActiveDriverTab))
+                return;
 
-            _ = PreloadFsMapForAllTabsAsync(tabNames);
+            // Load only the active tab; other tabs refresh lazily on first visit.
+            _ = RefreshFsMapForCurrentTabAsync();
         }
     }
 }

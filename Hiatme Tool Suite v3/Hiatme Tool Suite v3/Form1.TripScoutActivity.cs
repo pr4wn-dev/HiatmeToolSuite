@@ -75,6 +75,7 @@ namespace Hiatme_Tool_Suite_v3
             _tripScoutNewChangeTripNos.Clear();
             TripScoutClearExpandedTrips();
             TripScoutResetChangeAlert();
+            TripScoutResetBellAlert();
             UpdateTripScoutActivityButtons();
             TripScoutApplyRowHighlights();
             TripScoutUpdateLiveBellIndicator();
@@ -257,8 +258,7 @@ namespace Hiatme_Tool_Suite_v3
                 w != null
                 && !string.IsNullOrWhiteSpace(w.TripNo)
                 && _tripScoutAllTrips != null
-                && _tripScoutAllTrips.Any(t =>
-                    string.Equals(TripScoutTripKey(t), w.TripNo.Trim(), StringComparison.OrdinalIgnoreCase)));
+                && _tripScoutAllTrips.Any(t => TripScoutTripNosMatch(TripScoutTripKey(t), w.TripNo.Trim())));
 
             return "Bell: " + _tripScoutWillCalls.Count + " will-call ready"
                 + (matched > 0 ? " (" + matched + " in list)" : "")
@@ -278,7 +278,7 @@ namespace Hiatme_Tool_Suite_v3
                 var row = item.Tag as TripScoutListRow;
                 var trip = row?.Trip;
                 string key = TripScoutTripKey(trip);
-                if (_tripScoutWillCallTripNos.Contains(key))
+                if (_tripScoutWillCallTripNos.Contains(key) || TripScoutIsWillCallTrip(key))
                     item.BackColor = TripScoutWillCallRowColor;
                 else if (_tripScoutNewChangeTripNos.Contains(key))
                     item.BackColor = TripScoutChangeRowColor;
@@ -298,16 +298,15 @@ namespace Hiatme_Tool_Suite_v3
 
         private void TripScoutWillCallsBtn_Click(object sender, EventArgs e)
         {
-            if (_tripScoutWillCalls != null)
+            TripScoutRebuildBellAlertQueueForDisplay(includeAllPending: true);
+            if (_tripScoutBellAlertQueue.Count == 0)
             {
-                foreach (var wc in _tripScoutWillCalls)
-                {
-                    if (wc != null && !string.IsNullOrWhiteSpace(wc.TripNo))
-                        _tripScoutExpandedTripNos.Add(wc.TripNo.Trim());
-                }
+                AckTripScoutBell();
+                return;
             }
-            AckTripScoutBell();
-            TripScoutRebindVisibleListPreserveScroll();
+
+            _tripScoutBellAlertIndex = 0;
+            TripScoutRefreshBellAlertBar();
         }
 
         private void AckTripScoutChanges()
@@ -364,37 +363,137 @@ namespace Hiatme_Tool_Suite_v3
             TripScoutUpdateLiveBellIndicator();
         }
 
-        internal void TripScoutSelectTripByNumber(string tripNo)
+        internal void TripScoutSelectTripByNumber(string tripNo, bool expandDetails = false)
         {
             if (string.IsNullOrWhiteSpace(tripNo) || tslv == null || tslv.IsDisposed)
                 return;
 
-            string key = tripNo.Trim();
+            if (expandDetails)
+            {
+                string listKey = TripScoutResolveListTripNo(tripNo);
+                if (!string.IsNullOrWhiteSpace(listKey))
+                    _tripScoutExpandedTripNos.Add(listKey);
+            }
+
             _suppressTripScoutSearch = true;
             try
             {
                 if (tssearchbox != null)
-                    tssearchbox.Text = key;
+                    tssearchbox.Text = "";
             }
             finally
             {
                 _suppressTripScoutSearch = false;
             }
 
-            ApplyTripScoutFilter(key);
+            ApplyTripScoutFilter("");
 
+            ListViewItem found = null;
             foreach (ListViewItem item in tslv.Items)
             {
                 var trip = TripScoutListRow.TryGetTrip(item?.Tag);
                 if (trip == null)
                     continue;
-                if (!string.Equals(TripScoutTripKey(trip), key, StringComparison.OrdinalIgnoreCase))
+                if (!TripScoutTripNosMatch(TripScoutTripKey(trip), tripNo))
                     continue;
-                item.Selected = true;
-                item.Focused = true;
-                item.EnsureVisible();
+                found = item;
                 break;
             }
+
+            if (found == null)
+                return;
+
+            tslv.SelectedItems.Clear();
+            found.Selected = true;
+            found.Focused = true;
+            found.EnsureVisible();
+            TripScoutApplyRowHighlights();
+        }
+
+        /// <summary>WellRyde bell uses full ids (1-YYYYMMDD-leg-B); the list stores schedule-short ids (1-leg-B).</summary>
+        internal static string TripScoutCanonicalTripNo(string tripNo)
+        {
+            if (string.IsNullOrWhiteSpace(tripNo))
+                return "";
+            return WellRydeFilterDataParser.FormatTripIdForScheduleMatch(tripNo.Trim());
+        }
+
+        internal static bool TripScoutTripNosMatch(string a, string b)
+        {
+            if (string.IsNullOrWhiteSpace(a) || string.IsNullOrWhiteSpace(b))
+                return false;
+
+            a = a.Trim();
+            b = b.Trim();
+            if (string.Equals(a, b, StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            string ca = TripScoutCanonicalTripNo(a);
+            string cb = TripScoutCanonicalTripNo(b);
+            if (!string.IsNullOrEmpty(ca) && string.Equals(ca, cb, StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            string sa = TripScoutTripNoLegSuffix(a);
+            string sb = TripScoutTripNoLegSuffix(b);
+            return sa.Length > 0
+                && string.Equals(sa, sb, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string TripScoutTripNoLegSuffix(string tripNo)
+        {
+            if (string.IsNullOrWhiteSpace(tripNo))
+                return "";
+
+            string[] parts = tripNo.Replace(" ", "").Trim()
+                .Split(new[] { '-' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length >= 4)
+                return parts[2] + "-" + parts[3];
+            if (parts.Length >= 3)
+                return parts[1] + "-" + parts[2];
+            return tripNo.Trim();
+        }
+
+        internal WRDownloadedTrip TripScoutFindLoadedTrip(string tripNo)
+        {
+            if (string.IsNullOrWhiteSpace(tripNo) || _tripScoutAllTrips == null)
+                return null;
+
+            foreach (var trip in _tripScoutAllTrips)
+            {
+                if (trip == null)
+                    continue;
+                string key = TripScoutTripKey(trip);
+                if (string.Equals(key, tripNo.Trim(), StringComparison.OrdinalIgnoreCase))
+                    return trip;
+                if (TripScoutTripNosMatch(key, tripNo))
+                    return trip;
+            }
+
+            return null;
+        }
+
+        internal string TripScoutResolveListTripNo(string tripNo)
+        {
+            var trip = TripScoutFindLoadedTrip(tripNo);
+            if (trip != null)
+                return TripScoutTripKey(trip);
+            return TripScoutCanonicalTripNo(tripNo);
+        }
+
+        private bool TripScoutIsWillCallTrip(string tripKey)
+        {
+            if (string.IsNullOrWhiteSpace(tripKey) || _tripScoutWillCalls == null)
+                return false;
+
+            foreach (var wc in _tripScoutWillCalls)
+            {
+                if (wc == null || string.IsNullOrWhiteSpace(wc.TripNo))
+                    continue;
+                if (TripScoutTripNosMatch(wc.TripNo, tripKey))
+                    return true;
+            }
+
+            return false;
         }
     }
 }

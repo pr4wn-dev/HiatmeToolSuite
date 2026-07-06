@@ -144,6 +144,12 @@ namespace Hiatme_Tool_Suite_v3
 
         private int _fsMileageHudGen;
 
+        private CancellationTokenSource _fsMileageHudCts;
+
+        private System.Windows.Forms.Timer _fsMileageHudDebounceTimer;
+        private SupeyTripCluster _fsMileageHudPendingGroup;
+        private MCDownloadedTrip _fsMileageHudPendingTrip;
+
         private int _fsSuppressMapSelectionUpdates;
 
         private double? _fsPreMoveGroupMeters;
@@ -2605,8 +2611,9 @@ namespace Hiatme_Tool_Suite_v3
             string tabName = _fsActiveDriverTab;
 
             int gen = Interlocked.Increment(ref _fsMapRefreshGen);
+            var token = ReplaceFsMapWorkToken();
 
-            await RefreshFsMapCoreAsync(gen, tabName).ConfigureAwait(false);
+            await RefreshFsMapCoreAsync(gen, tabName, token).ConfigureAwait(false);
 
         }
 
@@ -2755,8 +2762,42 @@ namespace Hiatme_Tool_Suite_v3
 
             }
 
-            _ = UpdateFsMapMileageHudAsync(group, trip);
+            RequestFsMileageHudUpdate(group, trip);
 
+        }
+
+
+
+        private void EnsureFsMileageHudDebounceTimer()
+        {
+            if (_fsMileageHudDebounceTimer != null)
+                return;
+
+            _fsMileageHudDebounceTimer = new System.Windows.Forms.Timer { Interval = 150 };
+            _fsMileageHudDebounceTimer.Tick += (s, e) =>
+            {
+                _fsMileageHudDebounceTimer.Stop();
+                if (_fsMileageHudPendingGroup == null)
+                    return;
+
+                var group = _fsMileageHudPendingGroup;
+                var trip = _fsMileageHudPendingTrip;
+                _fsMileageHudPendingGroup = null;
+                _fsMileageHudPendingTrip = null;
+                _ = UpdateFsMapMileageHudAsync(group, trip);
+            };
+        }
+
+        private void RequestFsMileageHudUpdate(SupeyTripCluster group, MCDownloadedTrip trip)
+        {
+            if (group == null)
+                return;
+
+            EnsureFsMileageHudDebounceTimer();
+            _fsMileageHudPendingGroup = group;
+            _fsMileageHudPendingTrip = trip;
+            _fsMileageHudDebounceTimer.Stop();
+            _fsMileageHudDebounceTimer.Start();
         }
 
 
@@ -2769,6 +2810,11 @@ namespace Hiatme_Tool_Suite_v3
 
             group = FsResolveLiveGroup(group);
             if (group == null) return;
+
+            try { _fsMileageHudCts?.Cancel(); } catch { }
+            _fsMileageHudCts?.Dispose();
+            _fsMileageHudCts = new CancellationTokenSource();
+            var token = _fsMileageHudCts.Token;
 
             int gen = Interlocked.Increment(ref _fsMileageHudGen);
 
@@ -2796,7 +2842,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 MileageHudSnapshot snapshot = await Task.Run(async () =>
                     await ComputeFsMapMileageHudSnapshotAsync(
-                        group, trip, activeTab, pickup, dropoff, pinPu, pinDo, gen).ConfigureAwait(false))
+                        group, trip, activeTab, pickup, dropoff, pinPu, pinDo, gen, token).ConfigureAwait(false), token)
                     .ConfigureAwait(false);
 
                 if (gen != _fsMileageHudGen)
@@ -2888,9 +2934,10 @@ namespace Hiatme_Tool_Suite_v3
             Dictionary<string, GeoPoint> dropoff,
             GeoPoint? pinPu,
             GeoPoint? pinDo,
-            int gen)
+            int gen,
+            CancellationToken token)
         {
-            if (gen != _fsMileageHudGen)
+            if (gen != _fsMileageHudGen || token.IsCancellationRequested)
                 return null;
 
             ScheduleBuilderMapMileage.HydrateGroupEndpointsFromLookup(group, pickup, dropoff);
@@ -2907,13 +2954,13 @@ namespace Hiatme_Tool_Suite_v3
                     dropoff,
                     pinPu,
                     pinDo,
-                    CancellationToken.None).ConfigureAwait(false);
+                    token).ConfigureAwait(false);
 
                 tripMeters = tripLeg.meters;
                 tripApprox = tripLeg.approx;
             }
 
-            if (gen != _fsMileageHudGen)
+            if (gen != _fsMileageHudGen || token.IsCancellationRequested)
                 return null;
 
             EnsureFsDriverRosterLoaded();
@@ -2926,13 +2973,13 @@ namespace Hiatme_Tool_Suite_v3
                 && tabGroups != null)
             {
                 homeGeo = await ScheduleBuilderDriverMapRouting.ResolveHomeGeoAsync(
-                    driverProfile, CancellationToken.None).ConfigureAwait(false);
+                    driverProfile, token).ConfigureAwait(false);
                 int groupIndex = FindFsGroupIndex(tabGroups, group);
                 dayPosition = ScheduleBuilderDriverMapRouting.ResolveDayPosition(
                     groupIndex, tabGroups.Count);
             }
 
-            if (gen != _fsMileageHudGen)
+            if (gen != _fsMileageHudGen || token.IsCancellationRequested)
                 return null;
 
             double groupMeters = group.IntraClusterMeters > 0
@@ -2943,7 +2990,8 @@ namespace Hiatme_Tool_Suite_v3
                 group,
                 homeGeo,
                 dayPosition,
-                CancellationToken.None).ConfigureAwait(false);
+                token,
+                maxExactPermutationTrips: ScheduleBuilderMapMileage.MaxExactPermutationTripsDeskHud).ConfigureAwait(false);
 
             if (efficiency.currentMeters > 0)
                 groupMeters = efficiency.currentMeters;

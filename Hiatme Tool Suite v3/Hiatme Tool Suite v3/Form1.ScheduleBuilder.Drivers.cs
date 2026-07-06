@@ -569,7 +569,7 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (_fsHasPreview && !string.IsNullOrWhiteSpace(_fsActiveDriverTab)
                 && !_fsActiveDriverTab.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
-                _ = RefreshFsMapForCurrentTabAsync();
+                RequestFsMapRefresh();
         }
 
         private void OnFsDriverAdd()
@@ -755,7 +755,7 @@ namespace Hiatme_Tool_Suite_v3
             _fsDriversCtxMenu.Items.Add(_fsDriversCtxGeocodeHome);
         }
 
-        private async void FsDriversLv_MouseUp_ShowContextMenu(object sender, MouseEventArgs e)
+        private void FsDriversLv_MouseUp_ShowContextMenu(object sender, MouseEventArgs e)
         {
             if (e.Button != MouseButtons.Right || _fsDriversLv == null) return;
 
@@ -766,12 +766,7 @@ namespace Hiatme_Tool_Suite_v3
                 hit.Item.Focused = true;
             }
 
-            try
-            {
-                await ScheduleOsrmGate.ProbePreviewServicesAsync(
-                    HiatmeAiSettings.Load(), CancellationToken.None).ConfigureAwait(true);
-            }
-            catch { }
+            FsKickPreviewServicesProbeInBackground();
 
             var profile = hit.Item?.Tag as SupeyDriverProfile;
             bool hasHome = profile != null

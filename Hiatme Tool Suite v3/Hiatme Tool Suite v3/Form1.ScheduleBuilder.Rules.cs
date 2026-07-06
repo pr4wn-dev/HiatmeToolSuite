@@ -1093,7 +1093,7 @@ namespace Hiatme_Tool_Suite_v3
 
             ShowFsTripsForTab(string.IsNullOrWhiteSpace(_fsActiveDriverTab) ? "Reserves" : _fsActiveDriverTab);
 
-            _ = RefreshFsMapForCurrentTabAsync();
+            RequestFsMapRefresh();
 
         }
 

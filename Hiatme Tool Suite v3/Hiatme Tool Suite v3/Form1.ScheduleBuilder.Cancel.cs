@@ -74,7 +74,7 @@ namespace Hiatme_Tool_Suite_v3
             _fsTripsLv?.Invalidate(true);
             SelectFsTripInListView(trip);
             SyncFsPreviewCsvsForExport();
-            _ = RefreshFsMapForCurrentTabAsync();
+            RequestFsMapRefresh();
 
             SetScheduleBuilderStatus(string.IsNullOrEmpty(num)
                 ? "Trip added to Reserves → Cancels."

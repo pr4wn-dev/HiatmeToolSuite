@@ -2588,9 +2588,11 @@ namespace Hiatme_Tool_Suite_v3
             if (_tripScoutToolbarPanel == null || _tripScoutToolbarPanel.IsDisposed)
                 return;
 
-            int alertExtra = (_tsChangeAlertBar != null && !_tsChangeAlertBar.IsDisposed && _tsChangeAlertBar.Visible)
-                ? TripScoutChangeAlertBarHeight + BillingCardPad
-                : 0;
+            int alertExtra = 0;
+            if (_tsChangeAlertBar != null && !_tsChangeAlertBar.IsDisposed && _tsChangeAlertBar.Visible)
+                alertExtra += TripScoutChangeAlertBarHeight + BillingCardPad;
+            if (_tsBellAlertBar != null && !_tsBellAlertBar.IsDisposed && _tsBellAlertBar.Visible)
+                alertExtra += TripScoutBellAlertBarHeight + BillingCardPad;
             int listTop = _tripScoutToolbarPanel.Bottom + BillingCardPad + alertExtra;
             tslv.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
             tslv.SetBounds(
@@ -2618,6 +2620,7 @@ namespace Hiatme_Tool_Suite_v3
 
             LayoutTripScoutToolbarBounds();
             LayoutTripScoutChangeAlertBar();
+            LayoutTripScoutBellAlertBar();
             LayoutTripScoutListBounds();
 
             var fill = tsstatuspanel.Controls["tsStatusFillPanel"] as System.Windows.Forms.Panel;

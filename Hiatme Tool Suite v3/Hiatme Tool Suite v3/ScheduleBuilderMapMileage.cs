@@ -316,6 +316,9 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>Enumerate every trip order; above this use a bounded candidate set.</summary>
         private const int MaxExactPermutationTrips = 8;
 
+        /// <summary>Desk mileage HUD — cap factorial search so arrow-key selection stays responsive.</summary>
+        public const int MaxExactPermutationTripsDeskHud = 6;
+
         /// <summary>
         /// 100 = current trip list order is the shortest PU-then-DO tour for this group;
         /// lower = drag-reordering trips would save road miles.
@@ -338,7 +341,8 @@ namespace Hiatme_Tool_Suite_v3
             SupeyTripCluster group,
             GeoPoint? homeGeo,
             ScheduleBuilderDriverMapRouting.GroupDayPosition dayPosition,
-            CancellationToken token)
+            CancellationToken token,
+            int maxExactPermutationTrips = MaxExactPermutationTrips)
         {
             if (group?.Trips == null || group.Trips.Count == 0)
                 return (null, 0, 0, false);
@@ -387,11 +391,13 @@ namespace Hiatme_Tool_Suite_v3
 
             double bestMeters = currentMeters.Value;
             List<int> bestOrder = new List<int>(currentOrder);
-            var tripOrders = n <= MaxExactPermutationTrips
+            int exactCap = Math.Max(1, maxExactPermutationTrips);
+            var tripOrders = n <= exactCap
                 ? AllPermutations(n)
                 : BuildLinkedTripOrderCandidates(group, n);
             foreach (var tripOrder in tripOrders)
             {
+                token.ThrowIfCancellationRequested();
                 var m = await TotalMetersForOrderAsync(
                     group, tripOrder, table, homeGeo, dayPosition, token).ConfigureAwait(false);
                 if (!m.HasValue)

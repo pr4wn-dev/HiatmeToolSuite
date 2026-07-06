@@ -340,16 +340,24 @@ namespace Hiatme_Tool_Suite_v3
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxCopySelectedTrip);
         }
 
-        private async void FsTripsLv_MouseUp_ShowContextMenu(object sender, MouseEventArgs e)
+        private void FsKickPreviewServicesProbeInBackground()
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await ScheduleOsrmGate.ProbePreviewServicesAsync(
+                        HiatmeAiSettings.Load(), CancellationToken.None).ConfigureAwait(false);
+                }
+                catch { /* desk preview */ }
+            });
+        }
+
+        private void FsTripsLv_MouseUp_ShowContextMenu(object sender, MouseEventArgs e)
         {
             if (e.Button != MouseButtons.Right || _fsTripsLv == null) return;
 
-            try
-            {
-                await ScheduleOsrmGate.ProbePreviewServicesAsync(
-                    HiatmeAiSettings.Load(), CancellationToken.None).ConfigureAwait(true);
-            }
-            catch { }
+            FsKickPreviewServicesProbeInBackground();
 
             var hit = _fsTripsLv.HitTest(e.Location);
             _fsTripsCtxHitItem = hit.Item;
@@ -933,7 +941,7 @@ namespace Hiatme_Tool_Suite_v3
             FsCommitPreviewLinesForTab(_fsActiveDriverTab, lines);
             ShowFsTripsForTab(_fsActiveDriverTab);
             SyncFsPreviewCsvsForExport();
-            _ = RefreshFsMapForCurrentTabAsync();
+            RequestFsMapRefresh();
 
             if (color.HasValue)
                 SetScheduleBuilderStatus("Group " + groupNumber + " color updated.");

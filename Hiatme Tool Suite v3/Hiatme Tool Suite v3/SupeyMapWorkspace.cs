@@ -507,14 +507,44 @@ namespace Hiatme_Tool_Suite_v3
 
         private void ClearLegend()
         {
+            foreach (Control c in _legend.Controls)
+                c.Dispose();
             _legend.Controls.Clear();
+            foreach (Control c in _legendFooter.Controls)
+                c.Dispose();
             _legendFooter.Controls.Clear();
             _deadheadToggle = null;
+        }
+
+        private static void DisposeRouteStrokesInOverlay(GMap.NET.WindowsForms.GMapOverlay overlay)
+        {
+            if (overlay?.Routes == null)
+                return;
+            foreach (GMap.NET.WindowsForms.GMapRoute route in overlay.Routes)
+                route.Stroke?.Dispose();
+        }
+
+        private void DisposeAllOverlayRouteStrokes()
+        {
+            if (_map?.Overlays != null)
+            {
+                foreach (var overlay in _map.Overlays)
+                    DisposeRouteStrokesInOverlay(overlay);
+            }
+            foreach (var kv in _groupOverlays)
+                DisposeRouteStrokesInOverlay(kv.Value);
+            DisposeRouteStrokesInOverlay(_deadheadOverlay);
+            DisposeRouteStrokesInOverlay(_homeOverlay);
+            DisposeRouteStrokesInOverlay(_selectionRouteOverlay);
+            DisposeRouteStrokesInOverlay(_selectionMarkerOverlay);
         }
 
         /// <summary>Clears the map + legend so the host can show "no driver selected" state.</summary>
         public void Clear()
         {
+            _selectionPulseTimer?.Stop();
+            ClearSelectionTopRoutes();
+            DisposeAllOverlayRouteStrokes();
             _map.Overlays.Clear();
             _groupOverlays.Clear();
             _groupCheckboxes.Clear();
@@ -1543,6 +1573,9 @@ namespace Hiatme_Tool_Suite_v3
 
             var legendSnap = restoreSavedLegend ? ResolveLegendSnapshot(plan) : null;
             _currentPlan = plan;
+            _selectionPulseTimer?.Stop();
+            ClearSelectionTopRoutes();
+            DisposeAllOverlayRouteStrokes();
             _map.Overlays.Clear();
             _groupOverlays.Clear();
             _groupCheckboxes.Clear();
