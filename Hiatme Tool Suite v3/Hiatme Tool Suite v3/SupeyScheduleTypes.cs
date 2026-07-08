@@ -242,6 +242,44 @@ namespace Hiatme_Tool_Suite_v3
             return dt.ToString("h:mm tt", CultureInfo.CurrentCulture);
         }
 
+        /// <summary>
+        /// Schedule preview / workbook times — Modivcare style 24h (<c>9:30</c>, <c>12:00</c>).
+        /// Midnight will-calls stay <c>0:00</c>; never rewrite to <c>12:00 AM</c>.
+        /// </summary>
+        public static string FormatForSchedule(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+                return raw ?? "";
+
+            string trimmed = raw.Trim();
+            var span = TryParse(trimmed);
+            if (!span.HasValue)
+                return trimmed;
+
+            // Cap at 23:59 so odd day wraps don't print weirdly.
+            int totalMinutes = (int)Math.Floor(span.Value.TotalMinutes);
+            if (totalMinutes < 0)
+                totalMinutes = 0;
+            totalMinutes %= 24 * 60;
+            int hours = totalMinutes / 60;
+            int minutes = totalMinutes % 60;
+            return hours.ToString(CultureInfo.InvariantCulture)
+                + ":"
+                + minutes.ToString("00", CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>Schedule dates — Modivcare style unpadded <c>M/d/yyyy</c> (e.g. <c>7/8/2026</c>).</summary>
+        public static string FormatDateForSchedule(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+                return raw ?? "";
+
+            if (ScheduleBuilderLoadDateResolver.TryParseTripServiceDate(raw, out DateTime d))
+                return d.ToString("M/d/yyyy", CultureInfo.InvariantCulture);
+
+            return raw.Trim();
+        }
+
         /// <summary>"6h 12m" — used by the per-driver stats strip.</summary>
         public static string FormatHoursMinutes(TimeSpan span)
         {

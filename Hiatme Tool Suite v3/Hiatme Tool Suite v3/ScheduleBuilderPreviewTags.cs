@@ -72,6 +72,8 @@ namespace Hiatme_Tool_Suite_v3
         public bool ReroutedOnModivcare { get; set; }
         public bool CancelledOnWellRyde { get; set; }
         public bool InReservesReroutesSection { get; set; }
+        /// <summary>Reserves section band — kept across ListView round-trips so section counts stay correct.</summary>
+        public Color? ReserveBandColor { get; set; }
 
         public FsPreviewTripTag(SupeyTripCluster g, MCDownloadedTrip t)
         {

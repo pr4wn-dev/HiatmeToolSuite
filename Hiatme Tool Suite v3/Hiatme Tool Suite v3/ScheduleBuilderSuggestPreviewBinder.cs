@@ -371,8 +371,7 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (string.IsNullOrWhiteSpace(raw))
                 return "";
-            var t = SupeyTripTimes.TryParse(raw.Trim());
-            return t.HasValue ? SupeyTripTimes.FormatTimeOfDay(t) : raw.Trim();
+            return SupeyTripTimes.FormatForSchedule(raw);
         }
 
         private static Color Blend(Color a, Color b, float amount)

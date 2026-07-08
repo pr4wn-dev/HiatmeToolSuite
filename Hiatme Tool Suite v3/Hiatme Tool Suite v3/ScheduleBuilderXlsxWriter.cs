@@ -35,7 +35,7 @@ namespace Hiatme_Tool_Suite_v3
             14, // D PU street
             10, // E PU city
             10, // F PU phone
-            9,  // G PU time  ("12:30 PM")
+            9,  // G PU time  ("0:00" / "9:30")
             14, // H DO street
             10, // I DO city
             10, // J DO phone

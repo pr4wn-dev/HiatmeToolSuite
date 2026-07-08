@@ -75,17 +75,20 @@ namespace Hiatme_Tool_Suite_v3
                     list.Add(new MCDownloadedTrip
                     {
                         TripNumber = tripNumber,
-                        Date = tripsubitems[2].Replace("\"", ""),
+                        Date = SupeyTripTimes.FormatDateForSchedule(tripsubitems[2].Replace("\"", "")),
                         ClientFullName = tripsubitems[4].Replace("\"", ""),
                         PUStreet = tripsubitems[7].Replace("\"", ""),
                         PUCity = tripsubitems[10].Replace("\"", ""),
                         PUTelephone = tripsubitems[13].Replace("\"", ""),
-                        PUTime = TripTemplateCsvValidator.NormalizeTimeField(tripsubitems[14].Replace("\"", "")),
+                        PUTime = SupeyTripTimes.FormatForSchedule(
+                            TripTemplateCsvValidator.NormalizeTimeField(tripsubitems[14].Replace("\"", ""))),
                         DOStreet = tripsubitems[16].Replace("\"", ""),
                         DOCITY = tripsubitems[19].Replace("\"", ""),
                         DOTelephone = tripsubitems[22].Replace("\"", ""),
-                        SchedDOTime = TripTemplateCsvValidator.NormalizeTimeField(tripsubitems[23].Replace("\"", "")),
-                        DOTime = TripTemplateCsvValidator.NormalizeTimeField(tripsubitems[24].Replace("\"", "")),
+                        SchedDOTime = SupeyTripTimes.FormatForSchedule(
+                            TripTemplateCsvValidator.NormalizeTimeField(tripsubitems[23].Replace("\"", ""))),
+                        DOTime = SupeyTripTimes.FormatForSchedule(
+                            TripTemplateCsvValidator.NormalizeTimeField(tripsubitems[24].Replace("\"", ""))),
                         Age = tripsubitems[25].Replace("\"", ""),
                         Miles = tripsubitems[33].Replace("\"", ""),
                         Comments = tripsubitems[34].Replace("\"", ""),
@@ -182,7 +185,7 @@ namespace Hiatme_Tool_Suite_v3
             trip = new MCDownloadedTrip
             {
                 TripNumber = tripNumber,
-                Date = date,
+                Date = SupeyTripTimes.FormatDateForSchedule(date),
                 ClientFullName = FirstNonEmpty(
                     FieldByHeader(headerMap, fields, "member name", "client name", "recipient", "member"),
                     Get(fields, 4)),
@@ -195,9 +198,10 @@ namespace Hiatme_Tool_Suite_v3
                 PUTelephone = FirstNonEmpty(
                     FieldByHeader(headerMap, fields, "pick up phone", "pickup phone", "pu phone", "pickup phone number"),
                     Get(fields, 13)),
-                PUTime = TripTemplateCsvValidator.NormalizeTimeField(FirstNonEmpty(
-                    FieldByHeader(headerMap, fields, "pick up time", "pickup time", "pu time", "scheduled pick up"),
-                    Get(fields, 14))),
+                PUTime = SupeyTripTimes.FormatForSchedule(
+                    TripTemplateCsvValidator.NormalizeTimeField(FirstNonEmpty(
+                        FieldByHeader(headerMap, fields, "pick up time", "pickup time", "pu time", "scheduled pick up"),
+                        Get(fields, 14)))),
                 DOStreet = FirstNonEmpty(
                     FieldByHeader(headerMap, fields, "drop off address", "dropoff address", "do address", "drop off street"),
                     Get(fields, 16)),
@@ -207,10 +211,12 @@ namespace Hiatme_Tool_Suite_v3
                 DOTelephone = FirstNonEmpty(
                     FieldByHeader(headerMap, fields, "drop off phone", "dropoff phone", "do phone", "drop off phone number"),
                     Get(fields, 22)),
-                SchedDOTime = TripTemplateCsvValidator.NormalizeTimeField(Get(fields, 23)),
-                DOTime = TripTemplateCsvValidator.NormalizeTimeField(FirstNonEmpty(
-                    FieldByHeader(headerMap, fields, "appointment time", "appt time", "do time", "drop off time"),
-                    Get(fields, 24))),
+                SchedDOTime = SupeyTripTimes.FormatForSchedule(
+                    TripTemplateCsvValidator.NormalizeTimeField(Get(fields, 23))),
+                DOTime = SupeyTripTimes.FormatForSchedule(
+                    TripTemplateCsvValidator.NormalizeTimeField(FirstNonEmpty(
+                        FieldByHeader(headerMap, fields, "appointment time", "appt time", "do time", "drop off time"),
+                        Get(fields, 24)))),
                 Age = FirstNonEmpty(
                     FieldByHeader(headerMap, fields, "age", "member age"),
                     Get(fields, 25)),

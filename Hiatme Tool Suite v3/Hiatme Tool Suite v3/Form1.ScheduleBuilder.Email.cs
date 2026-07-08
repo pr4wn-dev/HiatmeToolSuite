@@ -343,7 +343,14 @@ namespace Hiatme_Tool_Suite_v3
 
                 SetScheduleBuilderStatus("Building schedule workbook…");
                 progress.ReportPreparing("Building schedule workbook…");
-                var tabs = ScheduleBuilderPreviewCsvExport.BuildWorkbookTabs(_fsLinesByTab, exportOptions);
+                // Use the UI tab order (same as Save), not alphabetical fallback.
+                var tabOrder = _fsDriverTabOrder != null && _fsDriverTabOrder.Count > 0
+                    ? (IReadOnlyList<string>)_fsDriverTabOrder
+                    : fsbuilder?.TabOrder;
+                var tabs = ScheduleBuilderPreviewCsvExport.BuildWorkbookTabs(
+                    _fsLinesByTab,
+                    exportOptions,
+                    tabOrder);
                 var colWidths = ScheduleBuilderListViewColumnWidths.CaptureFromTripsListView(_fsTripsLv);
                 ScheduleBuilderXlsxWriter.WriteWorkbookFromTabs(attachmentPath, tabs, colWidths);
 

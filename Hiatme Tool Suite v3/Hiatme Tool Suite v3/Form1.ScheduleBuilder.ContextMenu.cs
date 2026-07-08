@@ -451,9 +451,42 @@ namespace Hiatme_Tool_Suite_v3
             bool alreadyInReroutes = hasTrip && hasBuild
                 && !FsNeedsMoveToReservesReroutes(
                     _fsTripsCtxTrip, _fsActiveDriverTab ?? "", fsbuilder, reserveLinesForCtx);
-            _fsTripsCtxAddToReroutes.Enabled = hasTrip && hasBuild && !alreadyInReroutes;
-            if (alreadyInReroutes)
+
+            int selectedTripCount = 0;
+            if (_fsTripsLv != null)
+            {
+                foreach (ListViewItem item in _fsTripsLv.SelectedItems)
+                {
+                    if (item?.Tag is FsPreviewTripTag tag && tag.Trip != null)
+                        selectedTripCount++;
+                }
+            }
+            if (selectedTripCount == 0 && hasTrip)
+                selectedTripCount = 1;
+
+            bool canAddAnySelectedToReroutes = false;
+            if (hasTrip && hasBuild && _fsTripsLv != null)
+            {
+                foreach (ListViewItem item in _fsTripsLv.SelectedItems)
+                {
+                    if (item?.Tag is FsPreviewTripTag tag
+                        && tag.Trip != null
+                        && FsNeedsMoveToReservesReroutes(
+                            tag.Trip, _fsActiveDriverTab ?? "", fsbuilder, reserveLinesForCtx))
+                    {
+                        canAddAnySelectedToReroutes = true;
+                        break;
+                    }
+                }
+            }
+            if (!canAddAnySelectedToReroutes && hasTrip && hasBuild && !alreadyInReroutes)
+                canAddAnySelectedToReroutes = true;
+
+            _fsTripsCtxAddToReroutes.Enabled = canAddAnySelectedToReroutes;
+            if (alreadyInReroutes && selectedTripCount <= 1)
                 _fsTripsCtxAddToReroutes.Text = "Move to Reroutes section (already there)";
+            else if (selectedTripCount > 1)
+                _fsTripsCtxAddToReroutes.Text = "Add " + selectedTripCount + " trips to Reroutes section";
             else if (alreadyRerouted)
                 _fsTripsCtxAddToReroutes.Text = "Move to Reroutes section";
             else
@@ -461,10 +494,30 @@ namespace Hiatme_Tool_Suite_v3
 
             bool alreadyInCancels = hasTrip && hasBuild
                 && !FsNeedsMoveToReservesCancels(_fsTripsCtxTrip, _fsActiveDriverTab ?? "", fsbuilder);
-            _fsTripsCtxAddToCancels.Enabled = hasTrip && hasBuild && !alreadyInCancels;
-            _fsTripsCtxAddToCancels.Text = alreadyInCancels
-                ? "Add to Cancels section (already there)"
-                : "Add to Cancels section (no Modivcare)";
+            bool canAddAnySelectedToCancels = false;
+            if (hasTrip && hasBuild && _fsTripsLv != null)
+            {
+                foreach (ListViewItem item in _fsTripsLv.SelectedItems)
+                {
+                    if (item?.Tag is FsPreviewTripTag tag
+                        && tag.Trip != null
+                        && FsNeedsMoveToReservesCancels(tag.Trip, _fsActiveDriverTab ?? "", fsbuilder))
+                    {
+                        canAddAnySelectedToCancels = true;
+                        break;
+                    }
+                }
+            }
+            if (!canAddAnySelectedToCancels && hasTrip && hasBuild && !alreadyInCancels)
+                canAddAnySelectedToCancels = true;
+
+            _fsTripsCtxAddToCancels.Enabled = canAddAnySelectedToCancels;
+            if (alreadyInCancels && selectedTripCount <= 1)
+                _fsTripsCtxAddToCancels.Text = "Add to Cancels section (already there)";
+            else if (selectedTripCount > 1)
+                _fsTripsCtxAddToCancels.Text = "Add " + selectedTripCount + " trips to Cancels section (no Modivcare)";
+            else
+                _fsTripsCtxAddToCancels.Text = "Add to Cancels section (no Modivcare)";
 
             bool canSuggestDriver = hasTrip && hasBuild && ScheduleOsrmGate.PreviewRoutingOk;
             _fsTripsCtxSuggestDriver.Enabled = canSuggestDriver;
@@ -1134,7 +1187,10 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             if (tab.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
+            {
+                ScheduleBuilderReserveBuckets.ReassignBandsAndRefreshSectionCounts(lines);
                 fsbuilder?.ApplyPreviewReserveLines(lines);
+            }
 
             if (fsbuilder?.driverTripList != null)
             {

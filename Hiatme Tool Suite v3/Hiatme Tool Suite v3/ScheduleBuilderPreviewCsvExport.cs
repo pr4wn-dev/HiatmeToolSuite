@@ -352,16 +352,17 @@ namespace Hiatme_Tool_Suite_v3
 
             var cells = EmptyWorkbookRow();
             cells[0] = trip.TripNumber ?? "";
-            cells[1] = trip.Date ?? "";
+            cells[1] = SupeyTripTimes.FormatDateForSchedule(trip.Date);
             cells[2] = trip.ClientFullName ?? "";
             cells[3] = trip.PUStreet ?? "";
             cells[4] = trip.PUCity ?? "";
             cells[5] = trip.PUTelephone ?? "";
-            cells[6] = trip.PUTime ?? "";
+            // Always write Modivcare 24h times so save/email never stick "12:00 AM" in the file.
+            cells[6] = SupeyTripTimes.FormatForSchedule(trip.PUTime);
             cells[7] = trip.DOStreet ?? "";
             cells[8] = trip.DOCITY ?? "";
             cells[9] = trip.DOTelephone ?? "";
-            cells[10] = trip.DOTime ?? "";
+            cells[10] = SupeyTripTimes.FormatForSchedule(trip.DOTime);
             cells[11] = trip.Age ?? "";
             cells[12] = trip.Miles ?? "";
             cells[13] = trip.Comments ?? "";

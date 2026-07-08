@@ -302,8 +302,10 @@ namespace Hiatme_Tool_Suite_v3
 
             try
             {
-                var clock = DateTime.Today.Add(TimeSpan.FromDays(dayFraction));
-                formatted = clock.ToString("h:mm tt", CultureInfo.InvariantCulture);
+                formatted = SupeyTripTimes.FormatForSchedule(
+                    DateTime.Today
+                        .Add(TimeSpan.FromDays(dayFraction))
+                        .ToString("H:mm", CultureInfo.InvariantCulture));
                 return true;
             }
             catch

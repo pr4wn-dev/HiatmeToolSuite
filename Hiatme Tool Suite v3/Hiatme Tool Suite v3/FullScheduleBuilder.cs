@@ -1622,7 +1622,7 @@ namespace Hiatme_Tool_Suite_v3
                 var csv = new StringBuilder();
                 foreach (MCDownloadedTrip trip in triplist)
                 {
-                    var newLine = string.Format("\"{0}\",\"{1}\",\"{2}\",\"{3}\",\"{4}\",\"{5}\",\"{6}\",\"{7}\",\"{8}\",\"{9}\",\"{10}\",\"{11}\",\"{12}\",\"{13}\"", trip.TripNumber ?? "", trip.Date ?? "", trip.ClientFullName ?? "", trip.PUStreet ?? "", trip.PUCity ?? "", trip.PUTelephone ?? "", trip.PUTime ?? "", trip.DOStreet ?? "", trip.DOCITY ?? "", trip.DOTelephone ?? "", trip.DOTime ?? "", trip.Age ?? "", trip.Miles ?? "", trip.Comments ?? "");
+                    var newLine = string.Format("\"{0}\",\"{1}\",\"{2}\",\"{3}\",\"{4}\",\"{5}\",\"{6}\",\"{7}\",\"{8}\",\"{9}\",\"{10}\",\"{11}\",\"{12}\",\"{13}\"", trip.TripNumber ?? "", SupeyTripTimes.FormatDateForSchedule(trip.Date), trip.ClientFullName ?? "", trip.PUStreet ?? "", trip.PUCity ?? "", trip.PUTelephone ?? "", SupeyTripTimes.FormatForSchedule(trip.PUTime), trip.DOStreet ?? "", trip.DOCITY ?? "", trip.DOTelephone ?? "", SupeyTripTimes.FormatForSchedule(trip.DOTime), trip.Age ?? "", trip.Miles ?? "", trip.Comments ?? "");
                     csv.AppendLine(newLine);
                 }
                 File.WriteAllText(fullPath, csv.ToString());
@@ -1765,16 +1765,18 @@ namespace Hiatme_Tool_Suite_v3
 
                     MCDownloadedTrip mCTrip = new MCDownloadedTrip();
                     mCTrip.TripNumber = rowValues[0].Replace("\"", string.Empty);
-                    mCTrip.Date = rowValues[1].Replace("\"", string.Empty);
+                    mCTrip.Date = SupeyTripTimes.FormatDateForSchedule(rowValues[1].Replace("\"", string.Empty));
                     mCTrip.ClientFullName = rowValues[2].Replace("\"", string.Empty);
                     mCTrip.PUStreet = rowValues[3].Replace("\"", string.Empty);
                     mCTrip.PUCity = rowValues[4].Replace("\"", string.Empty);
                     mCTrip.PUTelephone = rowValues[5].Replace("\"", string.Empty);
-                    mCTrip.PUTime = TripTemplateCsvValidator.NormalizeTimeField(rowValues[6]);
+                    mCTrip.PUTime = SupeyTripTimes.FormatForSchedule(
+                        TripTemplateCsvValidator.NormalizeTimeField(rowValues[6]));
                     mCTrip.DOStreet = rowValues[7].Replace("\"", string.Empty);
                     mCTrip.DOCITY = rowValues[8].Replace("\"", string.Empty);
                     mCTrip.DOTelephone = rowValues[9].Replace("\"", string.Empty);
-                    mCTrip.DOTime = TripTemplateCsvValidator.NormalizeTimeField(rowValues[10]);
+                    mCTrip.DOTime = SupeyTripTimes.FormatForSchedule(
+                        TripTemplateCsvValidator.NormalizeTimeField(rowValues[10]));
                     mCTrip.Age = rowValues[11].Replace("\"", string.Empty);
                     mCTrip.Miles = rowValues[12].Replace("\"", string.Empty);
                     mCTrip.Comments = rowValues[13].Replace("\"", string.Empty);

@@ -657,12 +657,14 @@ namespace Hiatme_Tool_Suite_v3
                 });
             }
 
-            AppendMissingReserveTrips(lines, tripKeysInLines, willCallsAfterLoad, WillCallBand);
-            AppendMissingReserveTrips(lines, tripKeysInLines, reserversAfterLoad, ReserversBand);
-            AppendMissingReserveTrips(lines, tripKeysInLines, cancelsAfterLoad, CancelBand);
-            AppendMissingReserveTrips(lines, tripKeysInLines, reroutesAfterLoad, RerouteBand);
+            AppendMissingReserveTrips(lines, tripKeysInLines, willCallsAfterLoad, ReserveBucket.WillCall, WillCallBand);
+            AppendMissingReserveTrips(lines, tripKeysInLines, reserversAfterLoad, ReserveBucket.Reserver, ReserversBand);
+            AppendMissingReserveTrips(lines, tripKeysInLines, cancelsAfterLoad, ReserveBucket.Cancel, CancelBand);
+            AppendMissingReserveTrips(lines, tripKeysInLines, reroutesAfterLoad, ReserveBucket.Reroute, RerouteBand);
 
             ReorderCancelsAboveReroutes(lines);
+            // Saved headers keep their old "(N)" until refreshed — recount against actual trip rows.
+            RefreshReserveSectionHeaderCounts(lines);
 
             return lines;
         }
@@ -736,11 +738,15 @@ namespace Hiatme_Tool_Suite_v3
                 seen.Add(key);
         }
 
-        /// <summary>Trips added after load (registry reroutes, banned pull) append at the end in bucket-list order.</summary>
+        /// <summary>
+        /// Trips added after load (registry reroutes, banned pull) go under the matching section —
+        /// never dumped at the end of the sheet (that skews the previous section's count).
+        /// </summary>
         private static void AppendMissingReserveTrips(
             List<ScheduleBuilderPreviewLine> lines,
             HashSet<string> tripKeysInLines,
             IList<MCDownloadedTrip> trips,
+            ReserveBucket bucket,
             Color band)
         {
             if (lines == null || trips == null || trips.Count == 0)
@@ -754,7 +760,7 @@ namespace Hiatme_Tool_Suite_v3
                 if (key.Length > 0 && !tripKeysInLines.Add(key))
                     continue;
 
-                lines.Add(TripLine(trip, band));
+                InsertTripAtSectionEnd(lines, trip, bucket, band);
             }
         }
 
@@ -913,7 +919,7 @@ namespace Hiatme_Tool_Suite_v3
                 InsertTripAtSectionEnd(lines, movedToCancel, ReserveBucket.Cancel, CancelBand);
             }
 
-            RefreshReserveSectionHeaderCounts(lines);
+            ReassignBandsAndRefreshSectionCounts(lines);
             return lines;
         }
 
@@ -1198,7 +1204,38 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
-        private static void RefreshReserveSectionHeaderCounts(List<ScheduleBuilderPreviewLine> lines)
+        /// <summary>
+        /// After drag/cut/load, keep each trip's band color in sync with the section it sits under,
+        /// then rewrite headers as "Reroutes (N)" etc. from the trips actually in that block.
+        /// </summary>
+        public static void ReassignBandsAndRefreshSectionCounts(List<ScheduleBuilderPreviewLine> lines)
+        {
+            if (lines == null || lines.Count == 0)
+                return;
+
+            Color? currentBand = null;
+            for (int i = 0; i < lines.Count; i++)
+            {
+                var line = lines[i];
+                if (line == null)
+                    continue;
+
+                if (line.Kind == ScheduleBuilderPreviewLine.LineKind.SectionHeader)
+                {
+                    currentBand = line.ReserveBandColor
+                        ?? SectionColorForTitle(line.SectionTitle);
+                    line.ReserveBandColor = currentBand;
+                    continue;
+                }
+
+                if (line.Kind == ScheduleBuilderPreviewLine.LineKind.Trip && currentBand.HasValue)
+                    line.ReserveBandColor = currentBand;
+            }
+
+            RefreshReserveSectionHeaderCounts(lines);
+        }
+
+        public static void RefreshReserveSectionHeaderCounts(List<ScheduleBuilderPreviewLine> lines)
         {
             if (lines == null)
                 return;

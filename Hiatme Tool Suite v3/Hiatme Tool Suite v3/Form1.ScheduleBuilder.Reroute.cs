@@ -540,38 +540,58 @@ namespace Hiatme_Tool_Suite_v3
 
         private void FsAddTripToReroutesSectionFromContext()
         {
-            if (_fsTripsCtxTrip == null || !_fsHasPreview || string.IsNullOrWhiteSpace(_fsActiveDriverTab))
+            if (!_fsHasPreview || string.IsNullOrWhiteSpace(_fsActiveDriverTab))
                 return;
             if (fsbuilder == null)
                 return;
 
-            MCDownloadedTrip trip = _fsTripsCtxTrip;
             string tab = _fsActiveDriverTab;
-            string num = (trip.TripNumber ?? "").Trim();
+            var trips = FsCollectSelectedTripsForReserveSectionMove();
+            if (trips.Count == 0)
+                return;
 
             _fsLinesByTab.TryGetValue("Reserves", out var reserveLinesForMove);
 
-            if (!FsNeedsMoveToReservesReroutes(trip, tab, fsbuilder, reserveLinesForMove))
+            var toMove = new List<MCDownloadedTrip>();
+            foreach (var trip in trips)
             {
-                SetScheduleBuilderStatus(string.IsNullOrEmpty(num)
+                if (FsNeedsMoveToReservesReroutes(trip, tab, fsbuilder, reserveLinesForMove))
+                    toMove.Add(trip);
+            }
+
+            if (toMove.Count == 0)
+            {
+                SetScheduleBuilderStatus(trips.Count == 1
                     ? "Trip is already in Reserves → Reroutes."
-                    : "Trip " + num + " is already in Reserves → Reroutes.");
+                    : "Selected trips are already in Reserves → Reroutes.");
                 return;
             }
 
-            FsPushUndoSnapshot("add trip to reroutes");
-            FsMoveSingleTripToReservesReroutesSection(trip, markNewlyReroutedOnModivcare: false);
+            FsPushUndoSnapshot(toMove.Count == 1
+                ? "add trip to reroutes"
+                : "add " + toMove.Count + " trips to reroutes");
+
+            foreach (var trip in toMove)
+                FsMoveSingleTripToReservesReroutesSection(trip, markNewlyReroutedOnModivcare: false);
 
             SelectFsDriverTab("Reserves");
             ShowFsTripsForTab("Reserves");
             _fsTripsLv?.Invalidate(true);
-            SelectFsTripInListView(trip);
+            SelectFsTripInListView(toMove[toMove.Count - 1]);
             SyncFsPreviewCsvsForExport();
             RequestFsMapRefresh();
 
-            SetScheduleBuilderStatus(string.IsNullOrEmpty(num)
-                ? "Trip added to Reserves → Reroutes."
-                : "Trip " + num + " added to Reserves → Reroutes.");
+            if (toMove.Count == 1)
+            {
+                string num = (toMove[0].TripNumber ?? "").Trim();
+                SetScheduleBuilderStatus(string.IsNullOrEmpty(num)
+                    ? "Trip added to Reserves → Reroutes."
+                    : "Trip " + num + " added to Reserves → Reroutes.");
+            }
+            else
+            {
+                SetScheduleBuilderStatus(toMove.Count + " trips added to Reserves → Reroutes.");
+            }
         }
 
         /// <summary>

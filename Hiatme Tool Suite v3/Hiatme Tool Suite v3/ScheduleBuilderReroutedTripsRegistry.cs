@@ -87,7 +87,7 @@ namespace Hiatme_Tool_Suite_v3
                 TripNumber = (trip.TripNumber ?? "").Trim(),
                 Leg = char.ToLowerInvariant(
                     SupeyScheduleAlgorithm.DetectLegPublic(trip.TripNumber)).ToString(),
-                Date = (trip.Date ?? "").Trim(),
+                Date = SupeyTripTimes.FormatDateForSchedule(trip.Date),
                 ClientFirstName = (trip.ClientFirstName ?? "").Trim(),
                 ClientLastName = (trip.ClientLastName ?? "").Trim(),
                 ClientFullName = full,

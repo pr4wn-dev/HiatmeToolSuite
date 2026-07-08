@@ -451,18 +451,8 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (string.IsNullOrWhiteSpace(raw))
                 return "—";
-
-            var parsed = SupeyTripTimes.TryParse(raw);
-            if (parsed.HasValue)
-            {
-                return DateTime.Today.Add(parsed.Value)
-                    .ToString("h:mm tt", CultureInfo.InvariantCulture);
-            }
-
-            if (DateTime.TryParse(raw, CultureInfo.CurrentCulture, DateTimeStyles.None, out var dt))
-                return dt.ToString("h:mm tt", CultureInfo.InvariantCulture);
-
-            return raw.Trim();
+            string formatted = SupeyTripTimes.FormatForSchedule(raw);
+            return string.IsNullOrWhiteSpace(formatted) ? "—" : formatted;
         }
 
         private static string BucketLabel(ScheduleBuilderReserveBuckets.ReserveBucket bucket)

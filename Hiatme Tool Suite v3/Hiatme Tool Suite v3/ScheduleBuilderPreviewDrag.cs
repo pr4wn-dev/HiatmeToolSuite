@@ -52,11 +52,16 @@ namespace Hiatme_Tool_Suite_v3
 
                 if (item.Tag is FsPreviewTripTag row && row.Trip != null)
                 {
-                    lines.Add(new ScheduleBuilderPreviewLine
+                    var tripLine = new ScheduleBuilderPreviewLine
                     {
                         Kind = ScheduleBuilderPreviewLine.LineKind.Trip,
                         Trip = row.Trip,
-                    });
+                        ReroutedOnModivcare = row.ReroutedOnModivcare,
+                        CancelledOnWellRyde = row.CancelledOnWellRyde,
+                    };
+                    if (row.ReserveBandColor.HasValue)
+                        tripLine.ReserveBandColor = row.ReserveBandColor;
+                    lines.Add(tripLine);
                 }
             }
 
@@ -471,9 +476,15 @@ namespace Hiatme_Tool_Suite_v3
                 int targetLine = FindTripLine(lines, dropOnTargetTrip);
                 if (targetLine < 0)
                 {
+                    Color? destBand = ResolveReserveBandForInsert(lines, insertBeforeLineIndex);
+                    if (destBand.HasValue)
+                        moving.ReserveBandColor = destBand;
                     lines.Insert(Math.Min(insertBeforeLineIndex, lines.Count), moving);
                     return;
                 }
+
+                if (lines[targetLine]?.ReserveBandColor.HasValue == true)
+                    moving.ReserveBandColor = lines[targetLine].ReserveBandColor;
                 lines.Insert(targetLine + 1, moving);
                 return;
             }
@@ -481,7 +492,26 @@ namespace Hiatme_Tool_Suite_v3
             int insert = insertBeforeLineIndex;
             if (from < insert) insert--;
             insert = Math.Max(0, Math.Min(insert, lines.Count));
+            // Cross-section moves on Reserves: adopt the destination band so headers/buckets match.
+            if (!moving.ReserveBandColor.HasValue
+                || DestinationBandDiffers(moving.ReserveBandColor, lines, insert))
+            {
+                Color? destBand = ResolveReserveBandForInsert(lines, insert);
+                if (destBand.HasValue)
+                    moving.ReserveBandColor = destBand;
+            }
             lines.Insert(insert, moving);
+        }
+
+        private static bool DestinationBandDiffers(
+            Color? currentBand,
+            IList<ScheduleBuilderPreviewLine> lines,
+            int insertIndex)
+        {
+            Color? dest = ResolveReserveBandForInsert(lines, insertIndex);
+            if (!dest.HasValue || !currentBand.HasValue)
+                return dest.HasValue;
+            return currentBand.Value.ToArgb() != dest.Value.ToArgb();
         }
 
         internal static int FindTripLineIndex(IList<ScheduleBuilderPreviewLine> lines, MCDownloadedTrip trip) =>

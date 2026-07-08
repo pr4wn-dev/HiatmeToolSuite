@@ -109,6 +109,7 @@ namespace Hiatme_Tool_Suite_v3
 
                 if (tab.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
                 {
+                    ScheduleBuilderReserveBuckets.ReassignBandsAndRefreshSectionCounts(lines);
                     fsbuilder?.ApplyPreviewReserveLines(lines);
                     continue;
                 }

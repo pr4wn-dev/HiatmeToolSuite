@@ -3510,17 +3510,17 @@ namespace Hiatme_Tool_Suite_v3
 
             lvi.SubItems.Add(trip.TripNumber ?? "");
 
-            lvi.SubItems.Add(trip.Date ?? "");
+            lvi.SubItems.Add(SupeyTripTimes.FormatDateForSchedule(trip.Date));
 
             lvi.SubItems.Add(trip.ClientFullName ?? "");
 
-            lvi.SubItems.Add(FormatTimeOnly(trip.PUTime));
+            lvi.SubItems.Add(SupeyTripTimes.FormatForSchedule(trip.PUTime));
 
             lvi.SubItems.Add(trip.PUStreet ?? "");
 
             lvi.SubItems.Add(trip.PUCity ?? "");
 
-            lvi.SubItems.Add(FormatTimeOnly(trip.DOTime));
+            lvi.SubItems.Add(SupeyTripTimes.FormatForSchedule(trip.DOTime));
 
             lvi.SubItems.Add(trip.DOStreet ?? "");
 
@@ -3536,6 +3536,7 @@ namespace Hiatme_Tool_Suite_v3
                 ReroutedOnModivcare = reroutedOnModivcare,
                 CancelledOnWellRyde = cancelledOnWellRyde,
                 InReservesReroutesSection = inReroutesSection,
+                ReserveBandColor = band,
             };
 
             if (reroutedOnModivcare)
@@ -3733,17 +3734,17 @@ namespace Hiatme_Tool_Suite_v3
 
             lvi.SubItems.Add(trip.TripNumber ?? "");
 
-            lvi.SubItems.Add(trip.Date ?? "");
+            lvi.SubItems.Add(SupeyTripTimes.FormatDateForSchedule(trip.Date));
 
             lvi.SubItems.Add(trip.ClientFullName ?? "");
 
-            lvi.SubItems.Add(FormatTimeOnly(trip.PUTime));
+            lvi.SubItems.Add(SupeyTripTimes.FormatForSchedule(trip.PUTime));
 
             lvi.SubItems.Add(trip.PUStreet ?? "");
 
             lvi.SubItems.Add(trip.PUCity ?? "");
 
-            lvi.SubItems.Add(FormatTimeOnly(trip.DOTime));
+            lvi.SubItems.Add(SupeyTripTimes.FormatForSchedule(trip.DOTime));
 
             lvi.SubItems.Add(trip.DOStreet ?? "");
 
