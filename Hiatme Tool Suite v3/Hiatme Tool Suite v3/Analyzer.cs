@@ -190,6 +190,7 @@ namespace Hiatme_Tool_Suite_v3
                 RunAnalysisStep("CheckForEscorts", () => CheckForEscorts());
                 RunAnalysisStep("CheckForKids", () => CheckForKids());
                 RunAnalysisStep("CheckForWheelchair", () => CheckForWheelchair());
+                RunAnalysisStep("CheckForLBS", () => CheckForLBS());
                 RunAnalysisStep("CheckForMassTransit", () => CheckForMassTransit());
                 RunAnalysisStep("CheckForServiceDog", () => CheckForServiceDog());
                 RunAnalysisStep("CheckForWillCallsOnWrongPage", () => CheckForWillCallsOnWrongPage());
@@ -217,7 +218,12 @@ namespace Hiatme_Tool_Suite_v3
             if (builder == null)
                 throw new ArgumentNullException(nameof(builder));
 
-            modivcareDownloadedTrips = builder.MCTripList ?? new List<MCDownloadedTrip>();
+            ClearAlertsOnBuilderPreview(builder);
+
+            List<MCDownloadedTrip> downloaded = await DownloadModivcareTripsForAnalysisAsync(serviceDate).ConfigureAwait(false);
+            modivcareDownloadedTrips = downloaded != null && downloaded.Count > 0
+                ? downloaded
+                : (builder.MCTripList ?? new List<MCDownloadedTrip>());
             LastModivcareDownloadCount = modivcareDownloadedTrips.Count;
 
             await TryLoadWellRydeTripsAndDriversAsync(serviceDate).ConfigureAwait(false);
@@ -225,10 +231,28 @@ namespace Hiatme_Tool_Suite_v3
 
             loggedScheduleTrips = new List<MCDownloadedTrip>();
             drivertablist = BuildDriverTabListFromScheduleBuilder(builder);
-            ClearAlertsOnScheduledTrips(drivertablist);
 
             gradeList = new List<SubjectGrade>();
             AnalyzeTrips(serviceDate);
+        }
+
+        private async Task<List<MCDownloadedTrip>> DownloadModivcareTripsForAnalysisAsync(DateTime serviceDate)
+        {
+            if (modivcareloginHandler == null)
+                return new List<MCDownloadedTrip>();
+
+            try
+            {
+                var mctd = new MCTripDownloader();
+                List<MCDownloadedTrip> trips = await mctd.DownloadTripRecords(serviceDate, modivcareloginHandler)
+                    .ConfigureAwait(false);
+                LastModivcareRequestedIdCount = mctd.LastRequestedTripIdCount;
+                return trips ?? new List<MCDownloadedTrip>();
+            }
+            catch
+            {
+                return new List<MCDownloadedTrip>();
+            }
         }
 
         private static List<MCDriverTab> BuildDriverTabListFromScheduleBuilder(FullScheduleBuilder builder)
@@ -241,6 +265,8 @@ namespace Hiatme_Tool_Suite_v3
             foreach (KeyValuePair<string, List<ScheduleBuilderPreviewLine>> kv in preview)
             {
                 if (string.IsNullOrWhiteSpace(kv.Key))
+                    continue;
+                if (kv.Key.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
                     continue;
 
                 var tab = new MCDriverTab { driverName = kv.Key };
@@ -262,25 +288,116 @@ namespace Hiatme_Tool_Suite_v3
                     tabs.Add(tab);
             }
 
+            AppendReservesTabFromBuilder(builder, tabs);
             return tabs;
         }
 
-        private static void ClearAlertsOnScheduledTrips(IEnumerable<MCDriverTab> tabs)
+        /// <summary>Reserves bucket trips — same coverage as Analyzer <see cref="SplitFile"/> Reserves sheet.</summary>
+        private static void AppendReservesTabFromBuilder(FullScheduleBuilder builder, List<MCDriverTab> tabs)
         {
-            if (tabs == null)
+            if (builder == null || tabs == null)
                 return;
 
-            foreach (MCDriverTab tab in tabs)
-            {
-                if (tab?.scheduledTrips == null)
-                    continue;
+            var reserveTab = new MCDriverTab { driverName = "Reserves" };
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-                foreach (MCDownloadedTrip trip in tab.scheduledTrips)
+            void AddTrip(MCDownloadedTrip trip)
+            {
+                if (trip == null)
+                    return;
+
+                string key = ScheduleBuilderModivcareTripMatch.NormalizeTripNumber(trip.TripNumber);
+                if (string.IsNullOrWhiteSpace(key))
+                    key = (trip.TripNumber ?? "").Replace(" ", "");
+                if (key.Length > 0 && !seen.Add(key))
+                    return;
+
+                trip.DriverNameParsed = "Reserves";
+                reserveTab.scheduledTrips.Add(trip);
+            }
+
+            foreach (MCDownloadedTrip trip in builder.PreviewReservesWillCalls ?? Enumerable.Empty<MCDownloadedTrip>())
+                AddTrip(trip);
+            foreach (MCDownloadedTrip trip in builder.PreviewReserves ?? Enumerable.Empty<MCDownloadedTrip>())
+                AddTrip(trip);
+            foreach (MCDownloadedTrip trip in builder.PreviewReservesReroute ?? Enumerable.Empty<MCDownloadedTrip>())
+                AddTrip(trip);
+            foreach (MCDownloadedTrip trip in builder.PreviewReservesCancel ?? Enumerable.Empty<MCDownloadedTrip>())
+                AddTrip(trip);
+
+            if (reserveTab.scheduledTrips.Count > 0)
+                tabs.Add(reserveTab);
+        }
+
+        private static void ClearAlertsOnBuilderPreview(FullScheduleBuilder builder)
+        {
+            if (builder == null)
+                return;
+
+            ClearAlertsOnTripList(CollectAllBuilderPreviewTrips(builder));
+        }
+
+        private static List<MCDownloadedTrip> CollectAllBuilderPreviewTrips(FullScheduleBuilder builder)
+        {
+            var trips = new List<MCDownloadedTrip>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            void Add(MCDownloadedTrip trip)
+            {
+                if (trip == null)
+                    return;
+
+                string key = ScheduleBuilderModivcareTripMatch.NormalizeTripNumber(trip.TripNumber);
+                if (string.IsNullOrWhiteSpace(key))
+                    key = (trip.TripNumber ?? "").Replace(" ", "");
+                if (key.Length > 0 && !seen.Add(key))
+                    return;
+
+                trips.Add(trip);
+            }
+
+            IReadOnlyDictionary<string, List<ScheduleBuilderPreviewLine>> preview = builder.PreviewDriverLines;
+            if (preview != null)
+            {
+                foreach (KeyValuePair<string, List<ScheduleBuilderPreviewLine>> kv in preview)
                 {
-                    if (trip == null)
+                    IList<ScheduleBuilderPreviewLine> lines = kv.Value;
+                    if (lines == null)
                         continue;
-                    trip.Alerts = new List<string>();
+
+                    for (int i = 0; i < lines.Count; i++)
+                    {
+                        ScheduleBuilderPreviewLine line = lines[i];
+                        if (line?.Kind == ScheduleBuilderPreviewLine.LineKind.Trip)
+                            Add(line.Trip);
+                    }
                 }
+            }
+
+            foreach (MCDownloadedTrip trip in builder.PreviewReservesWillCalls ?? Enumerable.Empty<MCDownloadedTrip>())
+                Add(trip);
+            foreach (MCDownloadedTrip trip in builder.PreviewReserves ?? Enumerable.Empty<MCDownloadedTrip>())
+                Add(trip);
+            foreach (MCDownloadedTrip trip in builder.PreviewReservesReroute ?? Enumerable.Empty<MCDownloadedTrip>())
+                Add(trip);
+            foreach (MCDownloadedTrip trip in builder.PreviewReservesCancel ?? Enumerable.Empty<MCDownloadedTrip>())
+                Add(trip);
+            foreach (MCDownloadedTrip trip in builder.PreviewReservesBanned ?? Enumerable.Empty<MCDownloadedTrip>())
+                Add(trip);
+
+            return trips;
+        }
+
+        private static void ClearAlertsOnTripList(IEnumerable<MCDownloadedTrip> trips)
+        {
+            if (trips == null)
+                return;
+
+            foreach (MCDownloadedTrip trip in trips)
+            {
+                if (trip == null)
+                    continue;
+                trip.Alerts = new List<string>();
             }
         }
 
@@ -692,37 +809,26 @@ namespace Hiatme_Tool_Suite_v3
             //Console.WriteLine("rider is: " + age);
             return false;
         }
+        private static string CommentsLower(string comments) =>
+            string.IsNullOrEmpty(comments) ? "" : comments.ToLowerInvariant();
+
         private bool DoesCommentsContainKids(string comments)
         {
-            if (comments.ToLower().Contains("kid"))
-            {
+            string c = CommentsLower(comments);
+            if (c.Contains("kid"))
                 return true;
-            }
-            if (comments.ToLower().Contains("kids"))
-            {
+            if (c.Contains("kids"))
                 return true;
-            }
-            if (comments.ToLower().Contains("child"))
-            {
+            if (c.Contains("child"))
                 return true;
-            }
-            if (comments.ToLower().Contains("children"))
-            {
+            if (c.Contains("children"))
                 return true;
-            }
-            if (comments.ToLower().Contains("infant"))
-            {
+            if (c.Contains("infant"))
                 return true;
-            }
-            if (comments.ToLower().Contains("baby"))
-            {
+            if (c.Contains("baby"))
                 return true;
-            }
-            if (comments.ToLower().Contains("toddler"))
-            {
+            if (c.Contains("toddler"))
                 return true;
-            }
-
 
             return false;
         }
@@ -749,15 +855,8 @@ namespace Hiatme_Tool_Suite_v3
                 }
             }
         }
-        private bool DoesCommentsContainLBS(string comments)
-        {
-            if (comments.ToLower().Contains("lbs"))
-            {
-                return true;
-            }
-            return false;
-
-        }
+        private bool DoesCommentsContainLBS(string comments) =>
+            CommentsLower(comments).Contains("lbs");
         private void CheckForServiceDog()
         {
             if (drivertablist.Any() & modivcareDownloadedTrips.Any())
@@ -788,22 +887,15 @@ namespace Hiatme_Tool_Suite_v3
         }
         private bool DoesCommentsContainServiceDog(string comments)
         {
-            if (comments.ToLower().Contains("service dog"))
-            {
+            string c = CommentsLower(comments);
+            if (c.Contains("service dog"))
                 return true;
-            }
-            if (comments.ToLower().Contains("dog"))
-            {
+            if (c.Contains("dog"))
                 return true;
-            }
-            if (comments.ToLower().Contains("animal"))
-            {
+            if (c.Contains("animal"))
                 return true;
-            }
-            if (comments.ToLower().Contains("pet"))
-            {
+            if (c.Contains("pet"))
                 return true;
-            }
             return false;
         }
 
@@ -835,15 +927,8 @@ namespace Hiatme_Tool_Suite_v3
                 }
             }
         }
-        private bool DoesCommentsContainScooter(string comments)
-        {
-            if (comments.ToLower().Contains("scooter"))
-            {
-                return true;
-            }
-
-            return false;
-        }
+        private bool DoesCommentsContainScooter(string comments) =>
+            CommentsLower(comments).Contains("scooter");
 
         private void CheckForEscortComments()
         {
@@ -875,16 +960,11 @@ namespace Hiatme_Tool_Suite_v3
         }
         private bool DoesCommentsContainEscort(string comments)
         {
-            if (comments.ToLower().Contains("escort"))
-            {
+            string c = CommentsLower(comments);
+            if (c.Contains("escort"))
                 return true;
-            }
-
-            if (comments.ToLower().Contains("escorts"))
-            {
+            if (c.Contains("escorts"))
                 return true;
-            }
-
             return false;
         }
         private void CheckForMassTransit()
@@ -915,14 +995,8 @@ namespace Hiatme_Tool_Suite_v3
                 }
             }
         }
-        private bool DoesCommentsContainMassTransit(string comments)
-        {
-            if (comments.ToLower().Contains("mass transit"))
-            {
-                return true;
-            }
-            return false;
-        }
+        private bool DoesCommentsContainMassTransit(string comments) =>
+            CommentsLower(comments).Contains("mass transit");
         private void CheckForWheelchair()
         {
             if (drivertablist.Any() & modivcareDownloadedTrips.Any())
@@ -953,14 +1027,11 @@ namespace Hiatme_Tool_Suite_v3
         }
         private bool DoesCommentsContainWheelchair(string comments)
         {
-            if (comments.ToLower().Contains("mwc"))
-            {
+            string c = CommentsLower(comments);
+            if (c.Contains("mwc"))
                 return true;
-            }
-            if (comments.ToLower().Contains("wheelchair"))
-            {
+            if (c.Contains("wheelchair"))
                 return true;
-            }
             return false;
         }
         /// <summary>
@@ -1026,7 +1097,7 @@ namespace Hiatme_Tool_Suite_v3
                         {
                             if (dt.driverName != "Reserves")
                             {
-                                if (mcst.PUTime != null && mcst.PUTime.Replace(" ", "") == "00:00")
+                                if (SupeyWillCallPickup.IsPickupWillCall(mcst))
                                 {
                                     CheckIfTripIsAlreadyLogged(mcst, "WC Not in reserves!");
                                     mcst.Assignable = false;

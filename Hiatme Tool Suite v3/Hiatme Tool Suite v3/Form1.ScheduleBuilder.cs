@@ -2314,7 +2314,7 @@ namespace Hiatme_Tool_Suite_v3
                 if (!await EnsureModivcareSessionAsync().ConfigureAwait(true))
                     return;
 
-                AlertStatus("Checking trips for alerts…");
+                AlertStatus("Downloading Modivcare trips and checking alerts…");
                 analyzer.IntializeAnalyzer(mcLoginHandler);
                 await analyzer.ApplyAlertsToScheduleBuilderAsync(fsbuilder, serviceDate).ConfigureAwait(true);
 
@@ -2322,9 +2322,9 @@ namespace Hiatme_Tool_Suite_v3
                 if (_fsTripsLv != null && !_fsTripsLv.IsDisposed)
                     _fsTripsLv.Invalidate();
             }
-            catch (ScheduleAnalysisException)
+            catch (ScheduleAnalysisException ex)
             {
-                // Non-fatal — preview still usable without alert icons.
+                SetScheduleBuilderStatus("Trip alert check skipped — " + ex.Message);
             }
         }
 
