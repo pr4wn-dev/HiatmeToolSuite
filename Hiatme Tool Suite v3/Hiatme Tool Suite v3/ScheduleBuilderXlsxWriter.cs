@@ -462,7 +462,7 @@ namespace Hiatme_Tool_Suite_v3
             sb.Append("</fills>");
             sb.Append("<borders count=\"1\"><border/></borders>");
             sb.Append("<cellStyleXfs count=\"1\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\"/></cellStyleXfs>");
-            sb.Append("<cellXfs count=\"").Append(colors.Count * 2).Append("\">");
+            sb.Append("<cellXfs count=\"").Append(colors.Count * 3).Append("\">");
             for (int i = 0; i < colors.Count; i++)
             {
                 sb.Append("<xf numFmtId=\"0\" fontId=\"0\" fillId=\"");
@@ -475,6 +475,14 @@ namespace Hiatme_Tool_Suite_v3
                 sb.Append(i);
                 sb.Append("\" borderId=\"0\" xfId=\"0\" applyFill=\"1\" applyAlignment=\"1\">");
                 sb.Append("<alignment horizontal=\"right\"/>");
+                sb.Append("</xf>");
+            }
+            for (int i = 0; i < colors.Count; i++)
+            {
+                sb.Append("<xf numFmtId=\"0\" fontId=\"0\" fillId=\"");
+                sb.Append(i);
+                sb.Append("\" borderId=\"0\" xfId=\"0\" applyFill=\"1\" applyAlignment=\"1\">");
+                sb.Append("<alignment horizontal=\"center\"/>");
                 sb.Append("</xf>");
             }
             sb.Append("</cellXfs>");
@@ -532,6 +540,8 @@ namespace Hiatme_Tool_Suite_v3
                     int style = defaultStyle;
                     if (colorToStyle.TryGetValue(NormalizeColor(mergeBar.Color), out int styleIdx))
                         style = styleIdx;
+                    if (mergeBar.CenterText && fillStyleCount > 0)
+                        style += fillStyleCount * 2;
 
                     rowEl.Add(new XElement(Ns + "c",
                         new XAttribute("r", cellRef),

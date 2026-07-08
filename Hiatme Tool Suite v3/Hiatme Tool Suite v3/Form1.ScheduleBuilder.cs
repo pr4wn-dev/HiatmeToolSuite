@@ -1087,7 +1087,9 @@ namespace Hiatme_Tool_Suite_v3
                         : SupeyTheme.ListText);
                 string text = (noteTag.NoteText ?? "").Trim();
                 SupeyListViewHelpers.PaintMergedDetailsRow(
-                    g, rowBounds, bg, text, fg, _fsTripsLv.Font, boldText: text.Length > 0);
+                    g, rowBounds, bg, text, fg, _fsTripsLv.Font,
+                    boldText: text.Length > 0,
+                    centerText: noteTag.NoteTextCentered);
                 return;
             }
 
@@ -1104,7 +1106,9 @@ namespace Hiatme_Tool_Suite_v3
                         : SupeyTheme.ListText);
                 string text = (gapNoteTag.NoteText ?? "").Trim();
                 SupeyListViewHelpers.PaintMergedDetailsRow(
-                    g, rowBounds, bg, text, fg, _fsTripsLv.Font, boldText: text.Length > 0);
+                    g, rowBounds, bg, text, fg, _fsTripsLv.Font,
+                    boldText: text.Length > 0,
+                    centerText: gapNoteTag.NoteTextCentered);
                 return;
             }
 
@@ -3290,7 +3294,7 @@ namespace Hiatme_Tool_Suite_v3
                         lastHeaderGroup = null;
 
                         if (ScheduleBuilderGapNotes.HasNoteContent(line))
-                            AddFsPositionNoteRow(li, line.GapNoteText, line.GapNoteRowColor);
+                            AddFsPositionNoteRow(li, line.GapNoteText, line.GapNoteRowColor, line.GapNoteCenterText);
                         else if (line.TrailingPad || (FsShowGapsEnabled && sawTripRow))
                             AddFsTemplateGapRow(li, null, line.TrailingPad);
 
@@ -3312,7 +3316,7 @@ namespace Hiatme_Tool_Suite_v3
 
                             {
 
-                                AddFsGroupNoteRow(headerGroup, line.GroupNoteText, li, line.GroupNoteRowColor);
+                                AddFsGroupNoteRow(headerGroup, line.GroupNoteText, li, line.GroupNoteRowColor, line.GroupNoteCenterText);
 
                                 lastHeaderGroup = headerGroup;
 
@@ -3635,7 +3639,7 @@ namespace Hiatme_Tool_Suite_v3
 
         }
 
-        private void AddFsPositionNoteRow(int previewLineIndex, string noteText, Color? noteRowColor)
+        private void AddFsPositionNoteRow(int previewLineIndex, string noteText, Color? noteRowColor, bool centerText = false)
         {
             string note = (noteText ?? "").Trim();
             var lvi = new ListViewItem("");
@@ -3658,6 +3662,7 @@ namespace Hiatme_Tool_Suite_v3
                 PreviewLineIndex = previewLineIndex,
                 NoteText = note,
                 NoteRowColor = noteRowColor,
+                NoteTextCentered = centerText,
             };
 
             _fsTripsLv.Items.Add(lvi);
@@ -3665,7 +3670,7 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-        private void AddFsGroupNoteRow(SupeyTripCluster g, string noteText, int previewLineIndex, Color? noteRowColor)
+        private void AddFsGroupNoteRow(SupeyTripCluster g, string noteText, int previewLineIndex, Color? noteRowColor, bool centerText = false)
 
         {
 
@@ -3695,6 +3700,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 PreviewLineIndex = previewLineIndex,
                 NoteRowColor = noteRowColor,
+                NoteTextCentered = centerText,
             };
 
             _fsTripsLv.Items.Add(lvi);

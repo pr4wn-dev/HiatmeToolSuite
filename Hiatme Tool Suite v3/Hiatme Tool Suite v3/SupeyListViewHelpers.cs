@@ -353,7 +353,8 @@ namespace Hiatme_Tool_Suite_v3
             string text,
             Color textColor,
             Font font,
-            bool boldText = false)
+            bool boldText = false,
+            bool centerText = false)
         {
             if (g == null)
                 return;
@@ -375,6 +376,9 @@ namespace Hiatme_Tool_Suite_v3
                         Math.Max(0, mergedBounds.Width - 12),
                         mergedBounds.Height);
                     Font drawFont = boldText ? new Font(font, FontStyle.Bold) : font;
+                    var align = centerText
+                        ? TextFormatFlags.HorizontalCenter
+                        : TextFormatFlags.Left;
                     try
                     {
                         TextRenderer.DrawText(
@@ -383,7 +387,7 @@ namespace Hiatme_Tool_Suite_v3
                             drawFont,
                             textBounds,
                             textColor,
-                            TextFormatFlags.Left
+                            align
                                 | TextFormatFlags.SingleLine
                                 | TextFormatFlags.VerticalCenter
                                 | TextFormatFlags.EndEllipsis

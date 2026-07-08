@@ -53,6 +53,7 @@ namespace Hiatme_Tool_Suite_v3
                 public int StartCol { get; set; }
                 public int EndCol { get; set; }
                 public Color Color { get; set; }
+                public bool CenterText { get; set; }
             }
 
             public int AddRow(string[] cells)
@@ -81,7 +82,7 @@ namespace Hiatme_Tool_Suite_v3
                 CellFills[(rowIndex, col)] = color;
             }
 
-            public void AddMergeBar(int rowIndex, Color color, int startCol = 0, int endCol = ColumnCount - 1)
+            public void AddMergeBar(int rowIndex, Color color, int startCol = 0, int endCol = ColumnCount - 1, bool centerText = false)
             {
                 MergeBars.Add(new RowMergeBar
                 {
@@ -89,6 +90,7 @@ namespace Hiatme_Tool_Suite_v3
                     StartCol = startCol,
                     EndCol = endCol,
                     Color = color,
+                    CenterText = centerText,
                 });
             }
         }
@@ -195,9 +197,11 @@ namespace Hiatme_Tool_Suite_v3
                             continue;
                         if (ScheduleBuilderGapNotes.HasNoteContent(line))
                         {
-                            int noteRow = tab.AddRow(BuildNoteCells(line.GapNoteText ?? ""));
+                            int noteRow = tab.AddRow(BuildNoteCells(line.GapNoteText ?? "", line.GapNoteCenterText));
                             if (line.GapNoteRowColor.HasValue)
-                                tab.AddMergeBar(noteRow, line.GapNoteRowColor.Value, endCol: MergeBarLastCol);
+                                tab.AddMergeBar(noteRow, line.GapNoteRowColor.Value, endCol: MergeBarLastCol, centerText: line.GapNoteCenterText);
+                            else if (line.GapNoteCenterText)
+                                tab.AddMergeBar(noteRow, Color.Empty, endCol: MergeBarLastCol, centerText: true);
                             sawTripRow = true;
                         }
                         else if (options.IncludeGaps && sawTripRow)
@@ -231,9 +235,11 @@ namespace Hiatme_Tool_Suite_v3
                     if (!barColor.HasValue && options.IncludeGroupHeaders)
                         barColor = headerGroup?.DisplayColor ?? SupeyGroupPalette.For(line.GroupNumber);
 
-                    int noteRow = tab.AddRow(BuildGroupHeaderCells(line.GroupNumber, line.GroupNoteText ?? ""));
+                    int noteRow = tab.AddRow(BuildGroupHeaderCells(line.GroupNumber, line.GroupNoteText ?? "", line.GroupNoteCenterText));
                     if (barColor.HasValue)
-                        tab.AddMergeBar(noteRow, barColor.Value, endCol: MergeBarLastCol);
+                        tab.AddMergeBar(noteRow, barColor.Value, endCol: MergeBarLastCol, centerText: line.GroupNoteCenterText);
+                    else if (line.GroupNoteCenterText)
+                        tab.AddMergeBar(noteRow, Color.Empty, endCol: MergeBarLastCol, centerText: true);
                     lastHeaderGroup = headerGroup;
                     continue;
                 }
@@ -304,18 +310,19 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
-        private static string[] BuildNoteCells(string colAText)
+        private static string[] BuildNoteCells(string colAText, bool centerText = false)
         {
-            var cells = EmptyCells();
+            var cells = EmptyWorkbookRow();
             cells[0] = colAText ?? "";
+            cells[WorkbookMetaColumnIndex] = ScheduleBuilderNoteRowMeta.EncodeGapNote(centerText);
             return cells;
         }
 
-        private static string[] BuildGroupHeaderCells(int groupNumber, string noteText)
+        private static string[] BuildGroupHeaderCells(int groupNumber, string noteText, bool centerText = false)
         {
             var cells = EmptyWorkbookRow();
             cells[0] = noteText ?? "";
-            cells[WorkbookMetaColumnIndex] = ScheduleBuilderGroupHeaderMeta.Encode(groupNumber);
+            cells[WorkbookMetaColumnIndex] = ScheduleBuilderGroupHeaderMeta.Encode(groupNumber, centerText);
             return cells;
         }
 

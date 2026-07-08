@@ -22,6 +22,7 @@ namespace Hiatme_Tool_Suite_v3
                         Kind = ScheduleBuilderPreviewLine.LineKind.Gap,
                         GapNoteText = gapTag.NoteText ?? "",
                         GapNoteRowColor = gapTag.NoteRowColor,
+                        GapNoteCenterText = gapTag.NoteTextCentered,
                         TrailingPad = gapTag.TrailingPad,
                     });
                     continue;
@@ -35,6 +36,7 @@ namespace Hiatme_Tool_Suite_v3
                         GroupNumber = noteTag.Group?.GroupNumber ?? 0,
                         GroupNoteText = noteTag.NoteText ?? "",
                         GroupNoteRowColor = noteTag.NoteRowColor,
+                        GroupNoteCenterText = noteTag.NoteTextCentered,
                     });
                     continue;
                 }

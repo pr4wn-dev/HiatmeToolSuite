@@ -17,6 +17,8 @@ namespace Hiatme_Tool_Suite_v3
         public string GapNoteText { get; set; }
         /// <summary>Optional color bar for a user-placed note gap row.</summary>
         public Color? GapNoteRowColor { get; set; }
+        /// <summary>Center gap note text across the merged row.</summary>
+        public bool GapNoteCenterText { get; set; }
         public string SectionTitle { get; set; }
         /// <summary>User note on a route group header (merged cell in export).</summary>
         public string GroupNoteText { get; set; }
@@ -25,6 +27,8 @@ namespace Hiatme_Tool_Suite_v3
         public Color? GroupColorOverride { get; set; }
         /// <summary>Color for the note header row only — does not tint trips in the group.</summary>
         public Color? GroupNoteRowColor { get; set; }
+        /// <summary>Center group note text across the merged row.</summary>
+        public bool GroupNoteCenterText { get; set; }
         public MCDownloadedTrip Trip { get; set; }
         /// <summary>Trip was submitted for reroute on Modivcare; shown with a red row in the list.</summary>
         public bool ReroutedOnModivcare { get; set; }

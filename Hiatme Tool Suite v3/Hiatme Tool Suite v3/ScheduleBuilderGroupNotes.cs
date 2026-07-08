@@ -13,7 +13,8 @@ namespace Hiatme_Tool_Suite_v3
             IList<SupeyTripCluster> groups,
             SupeyTripCluster group,
             string noteText,
-            Color? noteRowColor)
+            Color? noteRowColor,
+            bool centerText = false)
         {
             if (lines == null || group == null)
                 return;
@@ -31,7 +32,8 @@ namespace Hiatme_Tool_Suite_v3
 
             if (!hasHeader
                 && string.IsNullOrEmpty(noteText)
-                && !noteRowColor.HasValue)
+                && !noteRowColor.HasValue
+                && !centerText)
             {
                 return;
             }
@@ -40,6 +42,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 lines[headerIdx].GroupNoteText = noteText;
                 lines[headerIdx].GroupNoteRowColor = noteRowColor;
+                lines[headerIdx].GroupNoteCenterText = centerText;
                 if (ShouldRemoveEmptyHeader(lines[headerIdx]))
                     lines.RemoveAt(headerIdx);
                 return;
@@ -51,7 +54,37 @@ namespace Hiatme_Tool_Suite_v3
                 GroupNumber = groupNumber,
                 GroupNoteText = noteText,
                 GroupNoteRowColor = noteRowColor,
+                GroupNoteCenterText = centerText,
             });
+        }
+
+        public static bool TryReadNote(
+            IList<ScheduleBuilderPreviewLine> lines,
+            int groupNumber,
+            out string noteText,
+            out Color? noteRowColor,
+            out bool centerText)
+        {
+            noteText = "";
+            noteRowColor = null;
+            centerText = false;
+            if (lines == null || groupNumber <= 0)
+                return false;
+
+            foreach (var line in lines)
+            {
+                if (line?.Kind != ScheduleBuilderPreviewLine.LineKind.GroupHeader)
+                    continue;
+                if (line.GroupNumber != groupNumber)
+                    continue;
+
+                noteText = line.GroupNoteText ?? "";
+                noteRowColor = line.GroupNoteRowColor;
+                centerText = line.GroupNoteCenterText;
+                return true;
+            }
+
+            return false;
         }
 
         public static string GetNote(
@@ -148,6 +181,7 @@ namespace Hiatme_Tool_Suite_v3
 
             line.GroupNoteText = "";
             line.GroupNoteRowColor = null;
+            line.GroupNoteCenterText = false;
             if (ShouldRemoveEmptyHeader(line))
                 lines.RemoveAt(previewLineIndex);
             return true;

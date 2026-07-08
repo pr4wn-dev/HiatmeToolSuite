@@ -30,6 +30,8 @@ namespace Hiatme_Tool_Suite_v3
         public string NoteText { get; set; } = "";
         /// <summary>Optional color bar for this note gap row.</summary>
         public Color? NoteRowColor { get; set; }
+        /// <summary>Center note text across the merged row.</summary>
+        public bool NoteTextCentered { get; set; }
 
         /// <summary>Bottom padding row — always shown; not deletable.</summary>
         public bool TrailingPad { get; set; }
@@ -54,6 +56,8 @@ namespace Hiatme_Tool_Suite_v3
         public string NoteText { get; set; }
         /// <summary>User-chosen color for this note row only; null uses group color when group colors are on.</summary>
         public Color? NoteRowColor { get; set; }
+        /// <summary>Center note text across the merged row.</summary>
+        public bool NoteTextCentered { get; set; }
         /// <summary>GroupHeader line index, or first trip line when the bar is auto-injected.</summary>
         public int PreviewLineIndex { get; set; } = -1;
 

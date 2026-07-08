@@ -33,7 +33,8 @@ namespace Hiatme_Tool_Suite_v3
             IList<ScheduleBuilderPreviewLine> lines,
             int insertBeforeLineIndex,
             string noteText,
-            Color? noteRowColor)
+            Color? noteRowColor,
+            bool centerText = false)
         {
             if (lines == null)
                 return;
@@ -48,6 +49,7 @@ namespace Hiatme_Tool_Suite_v3
                 Kind = ScheduleBuilderPreviewLine.LineKind.Gap,
                 GapNoteText = noteText,
                 GapNoteRowColor = noteRowColor,
+                GapNoteCenterText = centerText,
             });
         }
 
@@ -55,7 +57,8 @@ namespace Hiatme_Tool_Suite_v3
             IList<ScheduleBuilderPreviewLine> lines,
             int lineIndex,
             string noteText,
-            Color? noteRowColor)
+            Color? noteRowColor,
+            bool centerText = false)
         {
             if (lines == null || lineIndex < 0 || lineIndex >= lines.Count)
                 return;
@@ -72,6 +75,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 line.GapNoteText = noteText;
                 line.GapNoteRowColor = noteRowColor;
+                line.GapNoteCenterText = centerText;
                 if (!HasNoteContent(line))
                     lines.RemoveAt(lineIndex);
                 else
@@ -81,6 +85,7 @@ namespace Hiatme_Tool_Suite_v3
 
             line.GroupNoteText = noteText;
             line.GroupNoteRowColor = noteRowColor;
+            line.GroupNoteCenterText = centerText;
             if (string.IsNullOrWhiteSpace(line.GroupNoteText)
                 && !line.GroupNoteRowColor.HasValue
                 && !line.GroupColorOverride.HasValue)
@@ -94,9 +99,18 @@ namespace Hiatme_Tool_Suite_v3
             int lineIndex,
             out string noteText,
             out Color? noteRowColor)
+            => TryReadNoteAt(lines, lineIndex, out noteText, out noteRowColor, out _);
+
+        public static bool TryReadNoteAt(
+            IList<ScheduleBuilderPreviewLine> lines,
+            int lineIndex,
+            out string noteText,
+            out Color? noteRowColor,
+            out bool centerText)
         {
             noteText = "";
             noteRowColor = null;
+            centerText = false;
             if (lines == null || lineIndex < 0 || lineIndex >= lines.Count)
                 return false;
 
@@ -105,6 +119,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 noteText = line.GapNoteText ?? "";
                 noteRowColor = line.GapNoteRowColor;
+                centerText = line.GapNoteCenterText;
                 return true;
             }
 
@@ -112,6 +127,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 noteText = line.GroupNoteText ?? "";
                 noteRowColor = line.GroupNoteRowColor;
+                centerText = line.GroupNoteCenterText;
                 return !string.IsNullOrWhiteSpace(noteText) || noteRowColor.HasValue;
             }
 
@@ -127,10 +143,8 @@ namespace Hiatme_Tool_Suite_v3
             if (lineIndex < 0)
                 return false;
 
-            if (item?.Tag is FsPreviewNoteTag)
-                return lines != null
-                    && lineIndex < lines.Count
-                    && lines[lineIndex]?.Kind == ScheduleBuilderPreviewLine.LineKind.GroupHeader;
+            if (item?.Tag is FsPreviewNoteTag noteTag)
+                return noteTag.Group != null;
 
             if (item?.Tag is FsPreviewGapTag gapTag && GapTagHasNoteBar(gapTag))
                 return true;

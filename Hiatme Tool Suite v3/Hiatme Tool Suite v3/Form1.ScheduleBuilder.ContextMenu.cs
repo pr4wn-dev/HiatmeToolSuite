@@ -841,7 +841,7 @@ namespace Hiatme_Tool_Suite_v3
                     return;
                 }
 
-                var toRow = ScheduleGroupNoteForm.Prompt(this, dialogTitle, dialogIntro, "", null);
+                var toRow = ScheduleGroupNoteForm.Prompt(this, dialogTitle, dialogIntro, "", null, false);
                 if (toRow == null)
                     return;
 
@@ -851,7 +851,7 @@ namespace Hiatme_Tool_Suite_v3
                 FsRevealGapsForManualInsert();
                 FsPushUndoSnapshot(undoLabel);
                 ScheduleBuilderGapNotes.ApplyAt(
-                    lines, lineIndex, toRow.NoteText, toRow.NoteRowColor);
+                    lines, lineIndex, toRow.NoteText, toRow.NoteRowColor, toRow.CenterTextInRow);
             }
             else
             {
@@ -862,7 +862,7 @@ namespace Hiatme_Tool_Suite_v3
                     return;
                 }
 
-                var inserted = ScheduleGroupNoteForm.Prompt(this, dialogTitle, dialogIntro, "", null);
+                var inserted = ScheduleGroupNoteForm.Prompt(this, dialogTitle, dialogIntro, "", null, false);
                 if (inserted == null)
                     return;
 
@@ -872,7 +872,7 @@ namespace Hiatme_Tool_Suite_v3
                 FsRevealGapsForManualInsert();
                 FsPushUndoSnapshot(undoLabel);
                 ScheduleBuilderGapNotes.InsertAt(
-                    lines, insertBeforeLine, inserted.NoteText, inserted.NoteRowColor);
+                    lines, insertBeforeLine, inserted.NoteText, inserted.NoteRowColor, inserted.CenterTextInRow);
             }
 
             FsCommitPreviewLinesForTab(_fsActiveDriverTab, lines);
@@ -886,51 +886,84 @@ namespace Hiatme_Tool_Suite_v3
             if (string.IsNullOrWhiteSpace(_fsActiveDriverTab) || !_fsHasPreview)
                 return;
 
-            if (!ScheduleBuilderGapNotes.IsEditableNoteRow(
-                    FsResolveContextListItem(),
-                    _fsLinesByTab.TryGetValue(_fsActiveDriverTab, out var existing) ? existing : null,
-                    out int lineIndex))
-            {
-                return;
-            }
-
+            var item = FsResolveContextListItem();
             if (!_fsLinesByTab.TryGetValue(_fsActiveDriverTab, out var lines) || lines == null)
                 return;
 
-            string current = "";
-            Color? currentColor = null;
-            if (_fsTripsCtxHitItem?.Tag is FsPreviewGapTag gapTag)
+            if (item?.Tag is FsPreviewNoteTag groupNoteTag && groupNoteTag.Group != null)
             {
-                current = gapTag.NoteText ?? "";
-                currentColor = gapTag.NoteRowColor;
-            }
-            else if (_fsTripsCtxNoteTag != null)
-            {
-                current = _fsTripsCtxNoteTag.NoteText ?? "";
-                currentColor = _fsTripsCtxNoteTag.NoteRowColor;
+                int groupNumber = groupNoteTag.Group.GroupNumber;
+                string current = groupNoteTag.NoteText ?? "";
+                Color? currentColor = groupNoteTag.NoteRowColor;
+                bool currentCenter = groupNoteTag.NoteTextCentered;
+                ScheduleBuilderGroupNotes.TryReadNote(
+                    lines, groupNumber, out current, out currentColor, out currentCenter);
+
+                var edited = ScheduleGroupNoteForm.Prompt(
+                    this,
+                    "Edit group note",
+                    "Group note text is saved in the workbook. Pick a row color to override the group color on this row only.",
+                    current,
+                    currentColor,
+                    currentCenter);
+                if (edited == null)
+                    return;
+
+                _fsGroupsByTab.TryGetValue(_fsActiveDriverTab, out var groups);
+                FsPushUndoSnapshot("edit group note");
+                ScheduleBuilderGroupNotes.ApplyNote(
+                    lines,
+                    groups,
+                    groupNoteTag.Group,
+                    edited.NoteText,
+                    edited.NoteRowColor,
+                    edited.CenterTextInRow);
+                FsCommitPreviewLinesForTab(_fsActiveDriverTab, lines);
+                ShowFsTripsForTab(_fsActiveDriverTab);
+                SyncFsPreviewCsvsForExport();
+
+                bool hasContent = !string.IsNullOrWhiteSpace(edited.NoteText)
+                    || edited.NoteRowColor.HasValue
+                    || edited.CenterTextInRow;
+                SetScheduleBuilderStatus(hasContent ? "Group note saved." : "Group note cleared.");
+                return;
             }
 
-            ScheduleBuilderGapNotes.TryReadNoteAt(lines, lineIndex, out current, out currentColor);
+            if (!ScheduleBuilderGapNotes.IsEditableNoteRow(item, lines, out int lineIndex))
+                return;
 
-            var edited = ScheduleGroupNoteForm.Prompt(
+            string gapCurrent = "";
+            Color? gapColor = null;
+            bool gapCenter = false;
+            if (item?.Tag is FsPreviewGapTag gapTag)
+            {
+                gapCurrent = gapTag.NoteText ?? "";
+                gapColor = gapTag.NoteRowColor;
+                gapCenter = gapTag.NoteTextCentered;
+            }
+
+            ScheduleBuilderGapNotes.TryReadNoteAt(lines, lineIndex, out gapCurrent, out gapColor, out gapCenter);
+
+            var gapEdited = ScheduleGroupNoteForm.Prompt(
                 this,
                 "Edit note",
                 "Update note text and row color. Row color applies only to this note row.",
-                current,
-                currentColor);
-            if (edited == null)
+                gapCurrent,
+                gapColor,
+                gapCenter);
+            if (gapEdited == null)
                 return;
 
             FsPushUndoSnapshot("edit note");
             ScheduleBuilderGapNotes.ApplyAt(
-                lines, lineIndex, edited.NoteText, edited.NoteRowColor);
+                lines, lineIndex, gapEdited.NoteText, gapEdited.NoteRowColor, gapEdited.CenterTextInRow);
             FsCommitPreviewLinesForTab(_fsActiveDriverTab, lines);
             ShowFsTripsForTab(_fsActiveDriverTab);
             SyncFsPreviewCsvsForExport();
 
-            bool hasContent = !string.IsNullOrWhiteSpace(edited.NoteText)
-                || edited.NoteRowColor.HasValue;
-            SetScheduleBuilderStatus(hasContent ? "Note saved." : "Note cleared.");
+            bool gapHasContent = !string.IsNullOrWhiteSpace(gapEdited.NoteText)
+                || gapEdited.NoteRowColor.HasValue;
+            SetScheduleBuilderStatus(gapHasContent ? "Note saved." : "Note cleared.");
         }
 
         private void FsChangeGroupColorFromContext()
@@ -1218,6 +1251,7 @@ namespace Hiatme_Tool_Suite_v3
     {
         public string NoteText { get; set; } = "";
         public Color? NoteRowColor { get; set; }
+        public bool CenterTextInRow { get; set; }
     }
 
     /// <summary>Themed dialog for group notes — text plus optional note-row color (not whole-group color).</summary>
@@ -1229,9 +1263,10 @@ namespace Hiatme_Tool_Suite_v3
         private readonly TextBox _noteBox;
         private readonly Panel _swatch;
         private readonly Label _colorLabel;
+        private readonly CheckBox _centerCheck;
         private Color? _noteRowColor;
 
-        private ScheduleGroupNoteForm(string title, string introText, string initialNote, Color? initialRowColor)
+        private ScheduleGroupNoteForm(string title, string introText, string initialNote, Color? initialRowColor, bool initialCenterText)
         {
             _noteRowColor = initialRowColor;
 
@@ -1241,9 +1276,9 @@ namespace Hiatme_Tool_Suite_v3
             MinimizeBox = false;
             ShowInTaskbar = false;
             StartPosition = FormStartPosition.CenterParent;
-            ClientSize = new Size(DialogWidth, 320);
-            MinimumSize = new Size(DialogWidth, 320);
-            MaximumSize = new Size(DialogWidth, 320);
+            ClientSize = new Size(DialogWidth, 356);
+            MinimumSize = new Size(DialogWidth, 356);
+            MaximumSize = new Size(DialogWidth, 356);
             BackColor = SupeyTheme.Surface;
 
             var footer = new Panel
@@ -1301,11 +1336,12 @@ namespace Hiatme_Tool_Suite_v3
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 1,
-                RowCount = 3,
+                RowCount = 4,
                 BackColor = SupeyTheme.Surface,
             };
             stack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             stack.RowStyles.Add(new RowStyle(SizeType.Absolute, 88f));
+            stack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             stack.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
 
             var introLabel = new Label
@@ -1344,8 +1380,20 @@ namespace Hiatme_Tool_Suite_v3
             stack.Controls.Add(noteHost, 0, 1);
 
             var colorCard = BuildColorCard(out _swatch, out _colorLabel);
-            colorCard.Dock = DockStyle.Fill;
+            colorCard.Dock = DockStyle.Top;
             stack.Controls.Add(colorCard, 0, 2);
+
+            _centerCheck = new CheckBox
+            {
+                Text = "Center text in row",
+                AutoSize = true,
+                Checked = initialCenterText,
+                Margin = new Padding(0, 10, 0, 0),
+                Font = new Font("Segoe UI", 9f),
+                ForeColor = SupeyTheme.TextPrimary,
+                BackColor = SupeyTheme.Surface,
+            };
+            stack.Controls.Add(_centerCheck, 0, 3);
 
             body.Controls.Add(stack);
 
@@ -1488,9 +1536,10 @@ namespace Hiatme_Tool_Suite_v3
             string title,
             string introText,
             string initialNote,
-            Color? initialRowColor)
+            Color? initialRowColor,
+            bool initialCenterText = false)
         {
-            using (var form = new ScheduleGroupNoteForm(title, introText, initialNote, initialRowColor))
+            using (var form = new ScheduleGroupNoteForm(title, introText, initialNote, initialRowColor, initialCenterText))
             {
                 if (form.ShowDialog(owner) != DialogResult.OK)
                     return null;
@@ -1499,6 +1548,7 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     NoteText = form._noteBox.Text.Trim(),
                     NoteRowColor = form._noteRowColor,
+                    CenterTextInRow = form._centerCheck.Checked,
                 };
             }
         }

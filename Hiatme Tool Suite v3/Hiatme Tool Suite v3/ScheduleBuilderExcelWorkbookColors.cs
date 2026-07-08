@@ -211,7 +211,10 @@ namespace Hiatme_Tool_Suite_v3
                 endCell = (Range)worksheet.Cells[row, endCol];
                 mergeRange = worksheet.get_Range(startCell, endCell);
                 mergeRange.Merge();
-                mergeRange.Interior.Color = ColorTranslator.ToOle(bar.Color);
+                if (bar.Color != Color.Empty)
+                    mergeRange.Interior.Color = ColorTranslator.ToOle(bar.Color);
+                if (bar.CenterText)
+                    mergeRange.HorizontalAlignment = XlHAlign.xlHAlignCenter;
             }
             finally
             {

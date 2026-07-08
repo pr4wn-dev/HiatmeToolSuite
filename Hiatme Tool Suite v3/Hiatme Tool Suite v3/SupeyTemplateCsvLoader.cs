@@ -53,6 +53,7 @@ namespace Hiatme_Tool_Suite_v3
                         {
                             Kind = SupeyTemplateSlot.SlotKind.Gap,
                             NoteText = TripTemplateCsvValidator.ExtractInstructionText(rowValues),
+                            NoteCenterText = ParseNoteCenterFromRow(rowValues),
                         });
                     }
                     continue;
@@ -61,13 +62,15 @@ namespace Hiatme_Tool_Suite_v3
                 if (TripTemplateCsvValidator.IsLikelyHeaderRow(rowValues))
                     continue;
 
-                if (ScheduleBuilderGroupHeaderMeta.TryDecodeRow(rowValues, out int groupNumber, out string headerNote))
+                if (ScheduleBuilderGroupHeaderMeta.TryDecodeRow(
+                        rowValues, out int groupNumber, out string headerNote, out bool headerCenter))
                 {
                     slots.Add(new SupeyTemplateSlot
                     {
                         Kind = SupeyTemplateSlot.SlotKind.GroupHeader,
                         GroupNumber = groupNumber,
                         NoteText = headerNote ?? "",
+                        NoteCenterText = headerCenter,
                     });
                     continue;
                 }
@@ -78,6 +81,7 @@ namespace Hiatme_Tool_Suite_v3
                     {
                         Kind = SupeyTemplateSlot.SlotKind.Gap,
                         NoteText = TripTemplateCsvValidator.ExtractInstructionText(rowValues),
+                        NoteCenterText = ParseNoteCenterFromRow(rowValues),
                     });
                     continue;
                 }
@@ -94,6 +98,18 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             return slots;
+        }
+
+        private static bool ParseNoteCenterFromRow(string[] rowValues)
+        {
+            if (rowValues == null
+                || rowValues.Length <= ScheduleBuilderPreviewCsvExport.WorkbookMetaColumnIndex)
+            {
+                return false;
+            }
+
+            string colO = rowValues[ScheduleBuilderPreviewCsvExport.WorkbookMetaColumnIndex] ?? "";
+            return ScheduleBuilderNoteRowMeta.TryParseGapNoteMeta(colO, out bool center) && center;
         }
     }
 }

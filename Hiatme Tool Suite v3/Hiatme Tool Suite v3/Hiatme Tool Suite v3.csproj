@@ -191,6 +191,7 @@
     <Compile Include="ScheduleBuilderReroutedTripsRegistry.cs" />
     <Compile Include="MCTripRerouter.cs" />
     <Compile Include="ScheduleBuilderGroupHeaderMeta.cs" />
+    <Compile Include="ScheduleBuilderNoteRowMeta.cs" />
     <Compile Include="ScheduleBuilderGapMeta.cs" />
     <Compile Include="ScheduleBuilderGapRoundTripSmoke.cs" />
     <Compile Include="ScheduleBuilderGroupHeaderRestore.cs" />

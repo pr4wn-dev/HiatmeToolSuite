@@ -72,6 +72,7 @@ namespace Hiatme_Tool_Suite_v3
                     {
                         Kind = ScheduleBuilderPreviewLine.LineKind.Gap,
                         GapNoteText = slot.NoteText ?? "",
+                        GapNoteCenterText = slot.NoteCenterText,
                     });
                     continue;
                 }

@@ -71,6 +71,7 @@ namespace Hiatme_Tool_Suite_v3
                     {
                         Kind = ScheduleBuilderPreviewLine.LineKind.Gap,
                         GapNoteText = slot.NoteText ?? "",
+                        GapNoteCenterText = slot.NoteCenterText,
                     });
                     continue;
                 }
@@ -82,6 +83,7 @@ namespace Hiatme_Tool_Suite_v3
                         Kind = ScheduleBuilderPreviewLine.LineKind.GroupHeader,
                         GroupNumber = slot.GroupNumber,
                         GroupNoteText = slot.NoteText ?? "",
+                        GroupNoteCenterText = slot.NoteCenterText,
                     });
                     continue;
                 }

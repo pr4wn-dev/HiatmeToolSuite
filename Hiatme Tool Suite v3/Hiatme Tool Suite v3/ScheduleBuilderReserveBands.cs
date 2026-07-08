@@ -1100,8 +1100,10 @@ namespace Hiatme_Tool_Suite_v3
                 GroupNoteText = line.GroupNoteText,
                 GroupColorOverride = line.GroupColorOverride,
                 GroupNoteRowColor = line.GroupNoteRowColor,
+                GroupNoteCenterText = line.GroupNoteCenterText,
                 GapNoteText = line.GapNoteText,
                 GapNoteRowColor = line.GapNoteRowColor,
+                GapNoteCenterText = line.GapNoteCenterText,
             };
         }
 

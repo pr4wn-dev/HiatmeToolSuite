@@ -15,6 +15,8 @@ namespace Hiatme_Tool_Suite_v3
         public int GroupNumber { get; set; }
         /// <summary>Dispatcher note on a gap/instruction row (e.g. "6:50 PICK UP", "PICK UP TOGETHER").</summary>
         public string NoteText { get; set; }
+        /// <summary>When true, note text is centered across the row in preview and export.</summary>
+        public bool NoteCenterText { get; set; }
         /// <summary>Template row from CSV (trip slots only).</summary>
         public MCDownloadedTrip TemplateTrip { get; set; }
         /// <summary>Live Modivcare trip when template row matched (trip slots only).</summary>

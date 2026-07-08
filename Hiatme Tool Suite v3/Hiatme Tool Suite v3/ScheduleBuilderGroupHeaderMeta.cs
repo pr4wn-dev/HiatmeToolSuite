@@ -12,17 +12,22 @@ namespace Hiatme_Tool_Suite_v3
         private const string Prefix = "__FSGH:";
         private const char LegacyPrefix = '\u001E';
 
-        public static string Encode(int groupNumber)
+        public static string Encode(int groupNumber, bool centerText = false)
         {
             if (groupNumber <= 0)
                 return "";
-            return Prefix + groupNumber.ToString(CultureInfo.InvariantCulture);
+            string encoded = Prefix + groupNumber.ToString(CultureInfo.InvariantCulture);
+            return centerText ? encoded + ScheduleBuilderNoteRowMeta.CenterSuffix : encoded;
         }
 
         public static bool TryDecode(string columnN, out int groupNumber)
+            => TryDecode(columnN, out groupNumber, out _);
+
+        public static bool TryDecode(string columnN, out int groupNumber, out bool centerText)
         {
             groupNumber = 0;
-            columnN = (columnN ?? "").Trim();
+            centerText = false;
+            columnN = ScheduleBuilderNoteRowMeta.StripCenterSuffix(columnN, out centerText);
             if (columnN.Length == 0)
                 return false;
 
@@ -53,9 +58,13 @@ namespace Hiatme_Tool_Suite_v3
 
         /// <summary>Decode group number from hidden column O (legacy: column N or A).</summary>
         public static bool TryDecodeRow(string[] rowValues, out int groupNumber, out string noteText)
+            => TryDecodeRow(rowValues, out groupNumber, out noteText, out _);
+
+        public static bool TryDecodeRow(string[] rowValues, out int groupNumber, out string noteText, out bool centerText)
         {
             groupNumber = 0;
             noteText = "";
+            centerText = false;
             if (rowValues == null || rowValues.Length == 0)
                 return false;
 
@@ -67,9 +76,9 @@ namespace Hiatme_Tool_Suite_v3
                 ? (rowValues[ScheduleBuilderPreviewCsvExport.WorkbookMetaColumnIndex] ?? "").Trim()
                 : "";
 
-            if (!TryDecode(colO, out groupNumber)
-                && !TryDecode(colN, out groupNumber)
-                && !TryDecode(colA, out groupNumber))
+            if (!TryDecode(colO, out groupNumber, out centerText)
+                && !TryDecode(colN, out groupNumber, out centerText)
+                && !TryDecode(colA, out groupNumber, out centerText))
                 return false;
 
             noteText = colA;
