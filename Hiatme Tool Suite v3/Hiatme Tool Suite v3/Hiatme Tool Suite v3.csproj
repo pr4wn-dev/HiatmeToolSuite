@@ -186,6 +186,7 @@
     <Compile Include="ScheduleBuilderGapNotes.cs" />
     <Compile Include="ScheduleBuilderGroupColors.cs" />
     <Compile Include="ScheduleBuilderRerouteMeta.cs" />
+    <Compile Include="ScheduleBuilderCorruptTripRepair.cs" />
     <Compile Include="ScheduleBuilderDriverEmailsRegistry.cs" />
     <Compile Include="ScheduleBuilderReroutedTrips.cs" />
     <Compile Include="ScheduleBuilderReroutedTripsRegistry.cs" />

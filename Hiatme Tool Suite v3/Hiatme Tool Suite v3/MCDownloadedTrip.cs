@@ -305,6 +305,33 @@ namespace Hiatme_Tool_Suite_v3
             Comments = PreferScheduleComment(Comments, source.Comments);
         }
 
+        /// <summary>
+        /// Overwrite fields that the Modivcare fuzzy-header bug spilled into the wrong columns
+        /// (Date/Client/times/streets/cities). Keeps local comments/miles when present.
+        /// </summary>
+        internal void RepairCorruptScheduleFieldsFrom(MCDownloadedTrip source)
+        {
+            if (source == null)
+                return;
+
+            Date = (source.Date ?? "").Trim();
+            ClientFirstName = PreferNonEmpty(source.ClientFirstName, ClientFirstName);
+            ClientLastName = PreferNonEmpty(source.ClientLastName, ClientLastName);
+            ClientFullName = (source.ClientFullName ?? "").Trim();
+            PUStreet = (source.PUStreet ?? "").Trim();
+            PUCity = (source.PUCity ?? "").Trim();
+            PUTelephone = PreferNonEmpty(source.PUTelephone, PUTelephone);
+            PUTime = (source.PUTime ?? "").Trim();
+            DOStreet = (source.DOStreet ?? "").Trim();
+            DOCITY = (source.DOCITY ?? "").Trim();
+            DOTelephone = PreferNonEmpty(source.DOTelephone, DOTelephone);
+            DOTime = (source.DOTime ?? "").Trim();
+            SchedDOTime = PreferNonEmpty(source.SchedDOTime, SchedDOTime);
+            Age = PreferNonEmpty(source.Age, Age);
+            Miles = PreferNonEmpty(Miles, source.Miles);
+            Comments = PreferScheduleComment(Comments, source.Comments);
+        }
+
         private static string PreferNonEmpty(string keep, string add)
         {
             if (!string.IsNullOrWhiteSpace(keep))

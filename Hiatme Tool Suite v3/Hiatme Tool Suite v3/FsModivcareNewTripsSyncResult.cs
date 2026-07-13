@@ -25,6 +25,7 @@ namespace Hiatme_Tool_Suite_v3
         public int ModivcareTripCount { get; private set; }
         public int SkippedOnSchedule { get; private set; }
         public int SkippedRerouted { get; private set; }
+        public int RepairedCorruptTrips { get; private set; }
         public IReadOnlyList<FsModivcareNewTripsAddedEntry> Added { get; private set; }
             = Array.Empty<FsModivcareNewTripsAddedEntry>();
         public FsModivcareNewTripsSyncFailure Failure { get; private set; }
@@ -62,7 +63,8 @@ namespace Hiatme_Tool_Suite_v3
             int modivcareTripCount,
             int skippedOnSchedule,
             int skippedRerouted,
-            IReadOnlyList<FsModivcareNewTripsAddedEntry> added) =>
+            IReadOnlyList<FsModivcareNewTripsAddedEntry> added,
+            int repairedCorruptTrips = 0) =>
             new FsModivcareNewTripsSyncResult
             {
                 ServiceDate = serviceDate,
@@ -71,6 +73,7 @@ namespace Hiatme_Tool_Suite_v3
                 ModivcareTripCount = modivcareTripCount,
                 SkippedOnSchedule = skippedOnSchedule,
                 SkippedRerouted = skippedRerouted,
+                RepairedCorruptTrips = repairedCorruptTrips,
                 Added = added ?? Array.Empty<FsModivcareNewTripsAddedEntry>(),
             };
     }

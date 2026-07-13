@@ -37,8 +37,8 @@ namespace Hiatme_Tool_Suite_v3
 
             _fsSyncNewTripsTip = SupeyToolTip.Create(autoPopDelay: 12000, initialDelay: 400);
             _fsSyncNewTripsTip.SetToolTip(_fsSyncNewTripsBtn,
-                "Check Modivcare for new trips and add any missing ones to Reserves "
-                + "for the selected service date.");
+                "Check Modivcare for new trips and add any missing ones to Reserves. "
+                + "Also repairs trips whose fields were saved wrong (Age/State/Gender in date/time columns).");
 
             host.Controls.Add(_fsSyncNewTripsBtn);
             _fsSyncNewTripsBtn.BringToFront();
@@ -139,6 +139,15 @@ namespace Hiatme_Tool_Suite_v3
 
             ProbeStatus("Comparing Modivcare trips against the schedule…");
 
+            int repairedCorrupt = FsRepairCorruptTripsFromDownload(downloaded);
+            if (repairedCorrupt > 0)
+            {
+                ProbeStatus("Repaired " + repairedCorrupt + " corrupt trip"
+                    + (repairedCorrupt == 1 ? "" : "s")
+                    + " from Modivcare…");
+                SyncFsPreviewCsvsForExport();
+            }
+
             var scheduleTrips = FsCollectAllTripsOnSchedule();
             var knownTripNumbers = FsCollectKnownScheduleTripNumbers(scheduleTrips);
             var knownDetailKeys = FsCollectKnownScheduleDetailKeys(scheduleTrips);
@@ -191,6 +200,10 @@ namespace Hiatme_Tool_Suite_v3
             FsWriteNewTripsDebugLog(debugLog.ToString());
 
             string skipNote = BuildNewTripsSkipNote(skippedOnSchedule, skippedRerouted);
+            string repairNote = repairedCorrupt > 0
+                ? " Repaired " + repairedCorrupt + " corrupt trip"
+                    + (repairedCorrupt == 1 ? "" : "s") + " from Modivcare."
+                : "";
             int modivcareCount = downloaded.Count;
 
             if (newTrips.Count == 0)
@@ -198,11 +211,15 @@ namespace Hiatme_Tool_Suite_v3
                 FsHideNewTripsBar();
                 return FsModivcareNewTripsSyncResult.Completed(
                     serviceDate,
-                    " No new Modivcare trips" + skipNote + ".",
+                    (repairedCorrupt > 0
+                        ? repairNote.TrimStart()
+                        : " No new Modivcare trips")
+                        + skipNote + ".",
                     modivcareCount,
                     skippedOnSchedule,
                     skippedRerouted,
-                    Array.Empty<FsModivcareNewTripsAddedEntry>());
+                    Array.Empty<FsModivcareNewTripsAddedEntry>(),
+                    repairedCorrupt);
             }
 
             ProbeStatus("Adding " + newTrips.Count + " new trip"
@@ -239,11 +256,15 @@ namespace Hiatme_Tool_Suite_v3
                 FsHideNewTripsBar();
                 return FsModivcareNewTripsSyncResult.Completed(
                     serviceDate,
-                    " No new Modivcare trips" + skipNote + ".",
+                    (repairedCorrupt > 0
+                        ? repairNote.TrimStart()
+                        : " No new Modivcare trips")
+                        + skipNote + ".",
                     modivcareCount,
                     skippedOnSchedule,
                     skippedRerouted,
-                    Array.Empty<FsModivcareNewTripsAddedEntry>());
+                    Array.Empty<FsModivcareNewTripsAddedEntry>(),
+                    repairedCorrupt);
             }
 
             FsCommitReservePreviewLinesDirect(reserveLines);
@@ -254,11 +275,49 @@ namespace Hiatme_Tool_Suite_v3
             return FsModivcareNewTripsSyncResult.Completed(
                 serviceDate,
                 " New trips — " + actuallyAdded.Count + " added to Reserves from Modivcare"
-                    + skipNote + ".",
+                    + skipNote + "." + repairNote,
                 modivcareCount,
                 skippedOnSchedule,
                 skippedRerouted,
-                addedEntries);
+                addedEntries,
+                repairedCorrupt);
+        }
+
+        /// <summary>
+        /// After a Modivcare pull, fix saved trips whose Date/Client/times show Age/State/Gender
+        /// spill from the old header fuzzy-match bug.
+        /// </summary>
+        private int FsRepairCorruptTripsFromDownload(IList<MCDownloadedTrip> downloaded)
+        {
+            if (downloaded == null || downloaded.Count == 0 || _fsLinesByTab == null)
+                return 0;
+
+            var repairedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            int repaired = ScheduleBuilderCorruptTripRepair.RepairPreviewFromDownload(
+                _fsLinesByTab, downloaded, repairedKeys);
+
+            var buckets = new[]
+            {
+                fsbuilder?.PreviewReserves,
+                fsbuilder?.PreviewReservesReroute,
+                fsbuilder?.PreviewReservesWillCalls,
+                fsbuilder?.PreviewReservesCancel,
+                fsbuilder?.PreviewReservesBanned,
+                fsbuilder?.MCTripList,
+                fsbuilder?.TripsFound,
+            };
+            foreach (var bucket in buckets)
+            {
+                if (bucket == null)
+                    continue;
+                repaired += ScheduleBuilderCorruptTripRepair.RepairTripListFromDownload(
+                    bucket, downloaded, repairedKeys);
+            }
+
+            if (repaired > 0 && _fsHasPreview && !string.IsNullOrWhiteSpace(_fsActiveDriverTab))
+                ShowFsTripsForTab(_fsActiveDriverTab, preserveScroll: true);
+
+            return repaired;
         }
 
         private static string BuildNewTripsSkipNote(int skippedOnSchedule, int skippedRerouted)

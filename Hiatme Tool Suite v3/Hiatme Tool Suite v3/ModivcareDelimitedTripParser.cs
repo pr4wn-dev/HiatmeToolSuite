@@ -99,7 +99,7 @@ namespace Hiatme_Tool_Suite_v3
             return list;
         }
 
-        /// <summary>Union by normalized trip #; prefer header-aware row when both parsers yield the same trip.</summary>
+        /// <summary>Union by normalized trip #; prefer the healthier parse when both yield the same trip.</summary>
         public static List<MCDownloadedTrip> ParseDownloadTextMerged(string data)
         {
             var modern = ParseDownloadText(data);
@@ -107,6 +107,10 @@ namespace Hiatme_Tool_Suite_v3
             return MergeTripLists(modern, legacy);
         }
 
+        /// <summary>
+        /// Union by trip #. When both parsers have a trip, keep the one that looks like real
+        /// schedule fields — not Age/State/Gender spilled into Date/Time/City (fuzzy header bugs).
+        /// </summary>
         internal static List<MCDownloadedTrip> MergeTripLists(
             IReadOnlyList<MCDownloadedTrip> primary,
             IReadOnlyList<MCDownloadedTrip> fallback)
@@ -130,11 +134,108 @@ namespace Hiatme_Tool_Suite_v3
                     string key = NormalizeTripKey(trip?.TripNumber);
                     if (key.Length == 0)
                         continue;
-                    byTrip[key] = trip;
+
+                    if (!byTrip.TryGetValue(key, out MCDownloadedTrip existing))
+                    {
+                        byTrip[key] = trip;
+                        continue;
+                    }
+
+                    byTrip[key] = PreferHealthierTrip(trip, existing);
                 }
             }
 
             return new List<MCDownloadedTrip>(byTrip.Values);
+        }
+
+        /// <summary>
+        /// Header-aware rows can map State→PUTime ("ME"), Age→Date ("A"), Gender→DOCity ("F"/"M").
+        /// Prefer the alternate parse when the candidate looks like that corruption.
+        /// </summary>
+        internal static MCDownloadedTrip PreferHealthierTrip(MCDownloadedTrip preferred, MCDownloadedTrip alternate)
+        {
+            if (preferred == null)
+                return alternate;
+            if (alternate == null)
+                return preferred;
+
+            int preferredScore = TripFieldHealthScore(preferred);
+            int alternateScore = TripFieldHealthScore(alternate);
+            if (alternateScore > preferredScore)
+                return alternate;
+            return preferred;
+        }
+
+        /// <summary>Higher = more like a real Modivcare trip row (date/time/city vs Age/State/Gender).</summary>
+        internal static int TripFieldHealthScore(MCDownloadedTrip trip)
+        {
+            if (trip == null)
+                return int.MinValue;
+
+            int score = 0;
+            string date = (trip.Date ?? "").Trim();
+            if (ScheduleBuilderLoadDateResolver.TryParseTripServiceDate(date, out _))
+                score += 4;
+            else if (LooksLikeAgeOrGenderToken(date))
+                score -= 4;
+
+            string client = (trip.ClientFullName ?? "").Trim();
+            if (client.Length >= 3 && client.IndexOfAny(new[] { ' ', ',' }) >= 0)
+                score += 3;
+            else if (LooksLikeAgeOrGenderToken(client))
+                score -= 3;
+
+            string puTime = (trip.PUTime ?? "").Trim();
+            if (LooksLikeClockTime(puTime))
+                score += 3;
+            else if (LooksLikeUsStateCode(puTime))
+                score -= 3;
+
+            string doTime = (trip.DOTime ?? "").Trim();
+            if (LooksLikeClockTime(doTime) || string.IsNullOrWhiteSpace(doTime))
+                score += 1;
+            else if (LooksLikeAgeOrGenderToken(doTime) || LooksLikeUsStateCode(doTime))
+                score -= 2;
+
+            string puCity = (trip.PUCity ?? "").Trim();
+            if (puCity.Length >= 3 && !LooksLikeUsStateCode(puCity) && !LooksLikeAgeOrGenderToken(puCity))
+                score += 2;
+
+            string doCity = (trip.DOCITY ?? "").Trim();
+            if (doCity.Length >= 3 && !LooksLikeUsStateCode(doCity) && !LooksLikeAgeOrGenderToken(doCity))
+                score += 2;
+            else if (LooksLikeAgeOrGenderToken(doCity))
+                score -= 3;
+
+            string street = (trip.PUStreet ?? "").Trim();
+            if (street.Length >= 3 && !LooksLikeAgeOrGenderToken(street))
+                score += 2;
+            else if (LooksLikeAgeOrGenderToken(street))
+                score -= 2;
+
+            return score;
+        }
+
+        private static bool LooksLikeClockTime(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return false;
+            return SupeyTripTimes.TryParse(value.Trim()).HasValue;
+        }
+
+        internal static bool LooksLikeUsStateCode(string value)
+        {
+            string v = (value ?? "").Trim().ToUpperInvariant();
+            return v.Length == 2
+                && char.IsLetter(v[0])
+                && char.IsLetter(v[1]);
+        }
+
+        internal static bool LooksLikeAgeOrGenderToken(string value)
+        {
+            string v = (value ?? "").Trim().ToUpperInvariant();
+            return v == "A" || v == "C" || v == "M" || v == "F"
+                || v == "ADULT" || v == "CHILD";
         }
 
         /// <summary>Short schedule-style trip # — e.g. long MC/WR ids become <c>1-39032-A</c>.</summary>
@@ -285,14 +386,28 @@ namespace Hiatme_Tool_Suite_v3
 
                 if (headerMap.TryGetValue(key, out int exact))
                     return Get(fields, exact);
+            }
 
-                // Avoid matching bare "date" to the wrong column; multi-word needles only.
-                if (!key.Contains(" ") || key.Length < 5)
+            // Fuzzy: header must contain the full needle (or needle contain a long header).
+            // Never match short header tokens ("st", "a", "mi") as substrings of the needle —
+            // that mapped State→PUTime ("ME"), Age→Date ("A"), Gender→DOCity ("F"/"M").
+            foreach (var needle in headerNeedles)
+            {
+                string key = NormalizeHeader(needle);
+                if (key.Length < 5 || !key.Contains(" "))
                     continue;
 
                 foreach (var kv in headerMap)
                 {
-                    if (kv.Key.Contains(key) || key.Contains(kv.Key))
+                    string header = kv.Key;
+                    if (header.Length < 5)
+                        continue;
+
+                    if (header.Contains(key))
+                        return Get(fields, kv.Value);
+
+                    // Only allow needle-contains-header when the header is itself a long phrase.
+                    if (header.Contains(" ") && header.Length >= 8 && key.Contains(header))
                         return Get(fields, kv.Value);
                 }
             }
