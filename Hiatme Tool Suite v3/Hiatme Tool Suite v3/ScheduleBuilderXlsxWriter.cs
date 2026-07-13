@@ -140,6 +140,8 @@ namespace Hiatme_Tool_Suite_v3
 
             var colorToStyle = BuildColorStyleMap(sheets);
             int defaultStyle = colorToStyle.TryGetValue(Color.Empty, out int ds) ? ds : 0;
+            var fontToIndex = BuildFontColorMap(sheets);
+            var mergeTextStyles = BuildMergeTextStyleMap(sheets, colorToStyle, fontToIndex);
 
             if (File.Exists(outputPath))
                 File.Delete(outputPath);
@@ -151,7 +153,7 @@ namespace Hiatme_Tool_Suite_v3
                 WriteEntry(zip, "xl/workbook.xml", BuildWorkbookXml(sheets));
                 WriteEntry(zip, "xl/_rels/workbook.xml.rels", BuildWorkbookRels(sheets.Count));
                 WriteEntry(zip, "xl/sharedStrings.xml", BuildSharedStringsXml(sharedStrings));
-                WriteEntry(zip, "xl/styles.xml", BuildStylesXml(colorToStyle));
+                WriteEntry(zip, "xl/styles.xml", BuildStylesXml(colorToStyle, fontToIndex, mergeTextStyles));
 
                 for (int i = 0; i < sheets.Count; i++)
                 {
@@ -163,7 +165,9 @@ namespace Hiatme_Tool_Suite_v3
                         sharedIndex,
                         colorToStyle,
                         defaultStyle,
-                        preferredColumnWidths));
+                        preferredColumnWidths,
+                        fontToIndex,
+                        mergeTextStyles));
                 }
             }
         }
@@ -252,6 +256,68 @@ namespace Hiatme_Tool_Suite_v3
                         continue;
                     map[key] = colors.Count;
                     colors.Add(key);
+                }
+            }
+
+            return map;
+        }
+
+        private static Dictionary<Color, int> BuildFontColorMap(
+            IReadOnlyList<(string Name, List<List<string>> Rows, Dictionary<(int Row, int Col), Color> Fills, List<ScheduleBuilderPreviewCsvExport.WorkbookTab.RowMergeBar> MergeBars)> sheets)
+        {
+            var map = new Dictionary<Color, int> { [Color.Empty] = 0 };
+            if (sheets == null)
+                return map;
+
+            foreach (var sheet in sheets)
+            {
+                if (sheet.MergeBars == null)
+                    continue;
+                foreach (var bar in sheet.MergeBars)
+                {
+                    if (!bar.TextColor.HasValue)
+                        continue;
+                    Color key = NormalizeColor(bar.TextColor.Value);
+                    if (map.ContainsKey(key))
+                        continue;
+                    map[key] = map.Count;
+                }
+            }
+
+            return map;
+        }
+
+        private static Dictionary<(int Fill, bool Center, int Font), int> BuildMergeTextStyleMap(
+            IReadOnlyList<(string Name, List<List<string>> Rows, Dictionary<(int Row, int Col), Color> Fills, List<ScheduleBuilderPreviewCsvExport.WorkbookTab.RowMergeBar> MergeBars)> sheets,
+            IReadOnlyDictionary<Color, int> colorToStyle,
+            IReadOnlyDictionary<Color, int> fontToIndex)
+        {
+            var map = new Dictionary<(int Fill, bool Center, int Font), int>();
+            if (sheets == null || colorToStyle == null || fontToIndex == null)
+                return map;
+
+            int fillCount = colorToStyle.Count;
+            int nextStyle = fillCount * 3;
+
+            foreach (var sheet in sheets)
+            {
+                if (sheet.MergeBars == null)
+                    continue;
+                foreach (var bar in sheet.MergeBars)
+                {
+                    if (!bar.TextColor.HasValue)
+                        continue;
+                    if (!colorToStyle.TryGetValue(NormalizeColor(bar.Color), out int fillIdx))
+                        fillIdx = 0;
+                    if (!fontToIndex.TryGetValue(NormalizeColor(bar.TextColor.Value), out int fontIdx))
+                        continue;
+                    if (fontIdx <= 0)
+                        continue;
+
+                    var key = (fillIdx, bar.CenterText, fontIdx);
+                    if (map.ContainsKey(key))
+                        continue;
+                    map[key] = nextStyle++;
                 }
             }
 
@@ -443,13 +509,42 @@ namespace Hiatme_Tool_Suite_v3
                 || (c >= 0xE000 && c <= 0xFFFD);
         }
 
-        private static string BuildStylesXml(IReadOnlyDictionary<Color, int> colorToStyle)
+        private static string BuildStylesXml(
+            IReadOnlyDictionary<Color, int> colorToStyle,
+            IReadOnlyDictionary<Color, int> fontToIndex = null,
+            IReadOnlyDictionary<(int Fill, bool Center, int Font), int> mergeTextStyles = null)
         {
             var colors = colorToStyle.Keys.OrderBy(c => colorToStyle[c]).ToList();
+            var fonts = (fontToIndex ?? new Dictionary<Color, int> { [Color.Empty] = 0 })
+                .OrderBy(kv => kv.Value)
+                .Select(kv => kv.Key)
+                .ToList();
+            if (fonts.Count == 0)
+                fonts.Add(Color.Empty);
+
+            var extras = (mergeTextStyles ?? new Dictionary<(int Fill, bool Center, int Font), int>())
+                .OrderBy(kv => kv.Value)
+                .ToList();
+
             var sb = new StringBuilder();
             sb.Append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>");
             sb.Append("<styleSheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">");
-            sb.Append("<fonts count=\"1\"><font><sz val=\"11\"/><name val=\"Calibri\"/></font></fonts>");
+
+            sb.Append("<fonts count=\"").Append(fonts.Count).Append("\">");
+            for (int i = 0; i < fonts.Count; i++)
+            {
+                Color fc = fonts[i];
+                sb.Append("<font><sz val=\"11\"/><name val=\"Calibri\"/>");
+                if (i > 0 && fc != Color.Empty)
+                {
+                    sb.Append("<color rgb=\"");
+                    sb.Append(ColorToRgb(fc));
+                    sb.Append("\"/>");
+                }
+                sb.Append("</font>");
+            }
+            sb.Append("</fonts>");
+
             sb.Append("<fills count=\"").Append(colors.Count).Append("\">");
             sb.Append("<fill><patternFill patternType=\"none\"/></fill>");
             for (int i = 1; i < colors.Count; i++)
@@ -462,7 +557,9 @@ namespace Hiatme_Tool_Suite_v3
             sb.Append("</fills>");
             sb.Append("<borders count=\"1\"><border/></borders>");
             sb.Append("<cellStyleXfs count=\"1\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\"/></cellStyleXfs>");
-            sb.Append("<cellXfs count=\"").Append(colors.Count * 3).Append("\">");
+
+            int cellXfCount = colors.Count * 3 + extras.Count;
+            sb.Append("<cellXfs count=\"").Append(cellXfCount).Append("\">");
             for (int i = 0; i < colors.Count; i++)
             {
                 sb.Append("<xf numFmtId=\"0\" fontId=\"0\" fillId=\"");
@@ -485,6 +582,27 @@ namespace Hiatme_Tool_Suite_v3
                 sb.Append("<alignment horizontal=\"center\"/>");
                 sb.Append("</xf>");
             }
+            foreach (var kv in extras)
+            {
+                int fillId = kv.Key.Fill;
+                int fontId = kv.Key.Font;
+                bool center = kv.Key.Center;
+                sb.Append("<xf numFmtId=\"0\" fontId=\"");
+                sb.Append(fontId);
+                sb.Append("\" fillId=\"");
+                sb.Append(fillId);
+                sb.Append("\" borderId=\"0\" xfId=\"0\" applyFont=\"1\" applyFill=\"1\"");
+                if (center)
+                {
+                    sb.Append(" applyAlignment=\"1\">");
+                    sb.Append("<alignment horizontal=\"center\"/>");
+                    sb.Append("</xf>");
+                }
+                else
+                {
+                    sb.Append("/>");
+                }
+            }
             sb.Append("</cellXfs>");
             sb.Append("</styleSheet>");
             return sb.ToString();
@@ -504,6 +622,38 @@ namespace Hiatme_Tool_Suite_v3
             return baseStyle;
         }
 
+        private static int ResolveMergeBarStyle(
+            ScheduleBuilderPreviewCsvExport.WorkbookTab.RowMergeBar mergeBar,
+            IReadOnlyDictionary<Color, int> colorToStyle,
+            int defaultStyle,
+            int fillStyleCount,
+            IReadOnlyDictionary<Color, int> fontToIndex,
+            IReadOnlyDictionary<(int Fill, bool Center, int Font), int> mergeTextStyles)
+        {
+            int style = defaultStyle;
+            int fillIdx = 0;
+            if (colorToStyle != null
+                && colorToStyle.TryGetValue(NormalizeColor(mergeBar.Color), out int styleIdx))
+            {
+                style = styleIdx;
+                fillIdx = styleIdx;
+            }
+
+            if (mergeBar.TextColor.HasValue
+                && fontToIndex != null
+                && mergeTextStyles != null
+                && fontToIndex.TryGetValue(NormalizeColor(mergeBar.TextColor.Value), out int fontIdx)
+                && fontIdx > 0
+                && mergeTextStyles.TryGetValue((fillIdx, mergeBar.CenterText, fontIdx), out int textStyle))
+            {
+                return textStyle;
+            }
+
+            if (mergeBar.CenterText && fillStyleCount > 0)
+                style += fillStyleCount * 2;
+            return style;
+        }
+
         private static string BuildWorksheetXml(
             IReadOnlyList<List<string>> rows,
             IReadOnlyDictionary<(int Row, int Col), Color> fills,
@@ -511,7 +661,9 @@ namespace Hiatme_Tool_Suite_v3
             IReadOnlyDictionary<string, int> sharedIndex,
             IReadOnlyDictionary<Color, int> colorToStyle,
             int defaultStyle,
-            double[] preferredColumnWidths = null)
+            double[] preferredColumnWidths = null,
+            IReadOnlyDictionary<Color, int> fontToIndex = null,
+            IReadOnlyDictionary<(int Fill, bool Center, int Font), int> mergeTextStyles = null)
         {
             int fillStyleCount = colorToStyle?.Count ?? 0;
 
@@ -537,11 +689,8 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     string value = mergeBar.StartCol < row.Count ? (row[mergeBar.StartCol] ?? "") : "";
                     string cellRef = IndexToColumnLetters(mergeBar.StartCol + 1) + (r + 1);
-                    int style = defaultStyle;
-                    if (colorToStyle.TryGetValue(NormalizeColor(mergeBar.Color), out int styleIdx))
-                        style = styleIdx;
-                    if (mergeBar.CenterText && fillStyleCount > 0)
-                        style += fillStyleCount * 2;
+                    int style = ResolveMergeBarStyle(
+                        mergeBar, colorToStyle, defaultStyle, fillStyleCount, fontToIndex, mergeTextStyles);
 
                     rowEl.Add(new XElement(Ns + "c",
                         new XAttribute("r", cellRef),

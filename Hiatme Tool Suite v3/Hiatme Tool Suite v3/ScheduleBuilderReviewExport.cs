@@ -39,16 +39,24 @@ namespace Hiatme_Tool_Suite_v3
                 return sb.ToString();
             }
 
-            var tabOrder = linesByTab.Keys
-                .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-            int resIdx = tabOrder.FindIndex(n =>
-                string.Equals(n, "Reserves", StringComparison.OrdinalIgnoreCase));
-            if (resIdx > 0)
+            var tabOrder = linesByTab.Keys.ToList();
+            if (builder?.TabOrder != null && builder.TabOrder.Count > 0)
             {
-                string res = tabOrder[resIdx];
-                tabOrder.RemoveAt(resIdx);
-                tabOrder.Insert(0, res);
+                tabOrder = ScheduleBuilderTabOrder.NormalizeFullTabOrder(builder.TabOrder, linesByTab.Keys);
+            }
+            else
+            {
+                tabOrder = tabOrder
+                    .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                int resIdx = tabOrder.FindIndex(n =>
+                    string.Equals(n, "Reserves", StringComparison.OrdinalIgnoreCase));
+                if (resIdx > 0)
+                {
+                    string res = tabOrder[resIdx];
+                    tabOrder.RemoveAt(resIdx);
+                    tabOrder.Insert(0, res);
+                }
             }
 
             foreach (string tab in tabOrder)

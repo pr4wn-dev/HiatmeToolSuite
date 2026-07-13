@@ -1,10 +1,11 @@
 using System;
+using System.Drawing;
 using System.Globalization;
 
 namespace Hiatme_Tool_Suite_v3
 {
     /// <summary>
-    /// Column-N marker on exported group header rows (merged A–N — only col A is visible).
+    /// Column-O marker on exported group header rows (merged A–N — only col A is visible).
     /// Must use XML-safe text (no control characters) so xlsx shared strings validate.
     /// </summary>
     internal static class ScheduleBuilderGroupHeaderMeta
@@ -12,22 +13,44 @@ namespace Hiatme_Tool_Suite_v3
         private const string Prefix = "__FSGH:";
         private const char LegacyPrefix = '\u001E';
 
-        public static string Encode(int groupNumber, bool centerText = false)
+        public static string Encode(
+            int groupNumber,
+            bool centerText = false,
+            Color? textColor = null,
+            Color? rowColor = null)
         {
             if (groupNumber <= 0)
                 return "";
-            string encoded = Prefix + groupNumber.ToString(CultureInfo.InvariantCulture);
-            return centerText ? encoded + ScheduleBuilderNoteRowMeta.CenterSuffix : encoded;
+            return Prefix
+                + groupNumber.ToString(CultureInfo.InvariantCulture)
+                + ScheduleBuilderNoteRowMeta.EncodeOptions(centerText, textColor, rowColor);
         }
 
         public static bool TryDecode(string columnN, out int groupNumber)
-            => TryDecode(columnN, out groupNumber, out _);
+            => TryDecode(columnN, out groupNumber, out _, out _, out _);
 
         public static bool TryDecode(string columnN, out int groupNumber, out bool centerText)
+            => TryDecode(columnN, out groupNumber, out centerText, out _, out _);
+
+        public static bool TryDecode(
+            string columnN,
+            out int groupNumber,
+            out bool centerText,
+            out Color? textColor)
+            => TryDecode(columnN, out groupNumber, out centerText, out textColor, out _);
+
+        public static bool TryDecode(
+            string columnN,
+            out int groupNumber,
+            out bool centerText,
+            out Color? textColor,
+            out Color? rowColor)
         {
             groupNumber = 0;
             centerText = false;
-            columnN = ScheduleBuilderNoteRowMeta.StripCenterSuffix(columnN, out centerText);
+            textColor = null;
+            rowColor = null;
+            columnN = ScheduleBuilderNoteRowMeta.StripOptions(columnN, out centerText, out textColor, out rowColor);
             if (columnN.Length == 0)
                 return false;
 
@@ -56,15 +79,37 @@ namespace Hiatme_Tool_Suite_v3
             return false;
         }
 
-        /// <summary>Decode group number from hidden column O (legacy: column N or A).</summary>
         public static bool TryDecodeRow(string[] rowValues, out int groupNumber, out string noteText)
-            => TryDecodeRow(rowValues, out groupNumber, out noteText, out _);
+            => TryDecodeRow(rowValues, out groupNumber, out noteText, out _, out _, out _);
 
-        public static bool TryDecodeRow(string[] rowValues, out int groupNumber, out string noteText, out bool centerText)
+        public static bool TryDecodeRow(
+            string[] rowValues,
+            out int groupNumber,
+            out string noteText,
+            out bool centerText)
+            => TryDecodeRow(rowValues, out groupNumber, out noteText, out centerText, out _, out _);
+
+        public static bool TryDecodeRow(
+            string[] rowValues,
+            out int groupNumber,
+            out string noteText,
+            out bool centerText,
+            out Color? textColor)
+            => TryDecodeRow(rowValues, out groupNumber, out noteText, out centerText, out textColor, out _);
+
+        public static bool TryDecodeRow(
+            string[] rowValues,
+            out int groupNumber,
+            out string noteText,
+            out bool centerText,
+            out Color? textColor,
+            out Color? rowColor)
         {
             groupNumber = 0;
             noteText = "";
             centerText = false;
+            textColor = null;
+            rowColor = null;
             if (rowValues == null || rowValues.Length == 0)
                 return false;
 
@@ -76,9 +121,9 @@ namespace Hiatme_Tool_Suite_v3
                 ? (rowValues[ScheduleBuilderPreviewCsvExport.WorkbookMetaColumnIndex] ?? "").Trim()
                 : "";
 
-            if (!TryDecode(colO, out groupNumber, out centerText)
-                && !TryDecode(colN, out groupNumber, out centerText)
-                && !TryDecode(colA, out groupNumber, out centerText))
+            if (!TryDecode(colO, out groupNumber, out centerText, out textColor, out rowColor)
+                && !TryDecode(colN, out groupNumber, out centerText, out textColor, out rowColor)
+                && !TryDecode(colA, out groupNumber, out centerText, out textColor, out rowColor))
                 return false;
 
             noteText = colA;

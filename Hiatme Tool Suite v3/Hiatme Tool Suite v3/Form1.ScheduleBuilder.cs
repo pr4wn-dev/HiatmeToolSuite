@@ -1082,9 +1082,10 @@ namespace Hiatme_Tool_Suite_v3
                     : (barColor ?? SupeyTheme.ListBody);
                 Color fg = selected
                     ? SupeyTheme.ListSelectedText
-                    : (barColor.HasValue
-                        ? ScheduleBuilderPreviewStyle.ContrastText(barColor.Value)
-                        : SupeyTheme.ListText);
+                    : (noteTag.NoteTextColor
+                        ?? (barColor.HasValue
+                            ? ScheduleBuilderPreviewStyle.ContrastText(barColor.Value)
+                            : SupeyTheme.ListText));
                 string text = (noteTag.NoteText ?? "").Trim();
                 SupeyListViewHelpers.PaintMergedDetailsRow(
                     g, rowBounds, bg, text, fg, _fsTripsLv.Font,
@@ -1101,9 +1102,10 @@ namespace Hiatme_Tool_Suite_v3
                     : (barColor ?? SupeyTheme.ListBody);
                 Color fg = selected
                     ? SupeyTheme.ListSelectedText
-                    : (barColor.HasValue
-                        ? ScheduleBuilderPreviewStyle.ContrastText(barColor.Value)
-                        : SupeyTheme.ListText);
+                    : (gapNoteTag.NoteTextColor
+                        ?? (barColor.HasValue
+                            ? ScheduleBuilderPreviewStyle.ContrastText(barColor.Value)
+                            : SupeyTheme.ListText));
                 string text = (gapNoteTag.NoteText ?? "").Trim();
                 SupeyListViewHelpers.PaintMergedDetailsRow(
                     g, rowBounds, bg, text, fg, _fsTripsLv.Font,
@@ -2137,6 +2139,8 @@ namespace Hiatme_Tool_Suite_v3
 
                 fsbuilder.PreviewCsvExportOptions = MakeFsPreviewCsvExportOptions();
                 fsbuilder.PreserveMultiRowGaps = FsMultiRowGapsEnabled;
+                if (_fsDriverTabOrder != null && _fsDriverTabOrder.Count > 0)
+                    fsbuilder.PreferredTabOrder = _fsDriverTabOrder.ToList();
 
                 fsbuilder.UpdateLoadingScreen += OnBuildStatus;
 
@@ -3294,7 +3298,7 @@ namespace Hiatme_Tool_Suite_v3
                         lastHeaderGroup = null;
 
                         if (ScheduleBuilderGapNotes.HasNoteContent(line))
-                            AddFsPositionNoteRow(li, line.GapNoteText, line.GapNoteRowColor, line.GapNoteCenterText);
+                            AddFsPositionNoteRow(li, line.GapNoteText, line.GapNoteRowColor, line.GapNoteCenterText, line.GapNoteTextColor);
                         else if (line.TrailingPad || (FsShowGapsEnabled && sawTripRow))
                             AddFsTemplateGapRow(li, null, line.TrailingPad);
 
@@ -3311,12 +3315,14 @@ namespace Hiatme_Tool_Suite_v3
                         {
 
                             var headerGroup = FindFsGroupByNumber(groups, line.GroupNumber);
+                            if (headerGroup == null)
+                                headerGroup = FindFsGroupForLineAfter(groups, lines, li);
 
                             if (headerGroup != null)
 
                             {
 
-                                AddFsGroupNoteRow(headerGroup, line.GroupNoteText, li, line.GroupNoteRowColor, line.GroupNoteCenterText);
+                                AddFsGroupNoteRow(headerGroup, line.GroupNoteText, li, line.GroupNoteRowColor, line.GroupNoteCenterText, line.GroupNoteTextColor);
 
                                 lastHeaderGroup = headerGroup;
 
@@ -3565,6 +3571,34 @@ namespace Hiatme_Tool_Suite_v3
             return null;
         }
 
+        /// <summary>
+        /// When a header's stored group # is stale after renumbering, bind it to the next trip's group.
+        /// </summary>
+        private static SupeyTripCluster FindFsGroupForLineAfter(
+            List<SupeyTripCluster> groups,
+            IList<ScheduleBuilderPreviewLine> lines,
+            int headerLineIndex)
+        {
+            if (groups == null || lines == null)
+                return null;
+
+            for (int i = headerLineIndex + 1; i < lines.Count; i++)
+            {
+                var line = lines[i];
+                if (line?.Kind == ScheduleBuilderPreviewLine.LineKind.Gap
+                    || line?.Kind == ScheduleBuilderPreviewLine.LineKind.GroupHeader
+                    || line?.Kind == ScheduleBuilderPreviewLine.LineKind.SectionHeader)
+                {
+                    break;
+                }
+
+                if (line?.Kind == ScheduleBuilderPreviewLine.LineKind.Trip && line.Trip != null)
+                    return FindFsGroupForTrip(groups, line.Trip);
+            }
+
+            return null;
+        }
+
         private static int FindFsGroupIndex(List<SupeyTripCluster> groups, SupeyTripCluster group)
         {
             if (groups == null || group == null) return -1;
@@ -3639,7 +3673,7 @@ namespace Hiatme_Tool_Suite_v3
 
         }
 
-        private void AddFsPositionNoteRow(int previewLineIndex, string noteText, Color? noteRowColor, bool centerText = false)
+        private void AddFsPositionNoteRow(int previewLineIndex, string noteText, Color? noteRowColor, bool centerText = false, Color? textColor = null)
         {
             string note = (noteText ?? "").Trim();
             var lvi = new ListViewItem("");
@@ -3663,6 +3697,7 @@ namespace Hiatme_Tool_Suite_v3
                 NoteText = note,
                 NoteRowColor = noteRowColor,
                 NoteTextCentered = centerText,
+                NoteTextColor = textColor,
             };
 
             _fsTripsLv.Items.Add(lvi);
@@ -3670,7 +3705,7 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-        private void AddFsGroupNoteRow(SupeyTripCluster g, string noteText, int previewLineIndex, Color? noteRowColor, bool centerText = false)
+        private void AddFsGroupNoteRow(SupeyTripCluster g, string noteText, int previewLineIndex, Color? noteRowColor, bool centerText = false, Color? textColor = null)
 
         {
 
@@ -3701,6 +3736,7 @@ namespace Hiatme_Tool_Suite_v3
                 PreviewLineIndex = previewLineIndex,
                 NoteRowColor = noteRowColor,
                 NoteTextCentered = centerText,
+                NoteTextColor = textColor,
             };
 
             _fsTripsLv.Items.Add(lvi);

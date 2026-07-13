@@ -17,6 +17,10 @@ namespace Hiatme_Tool_Suite_v3
         public string NoteText { get; set; }
         /// <summary>When true, note text is centered across the row in preview and export.</summary>
         public bool NoteCenterText { get; set; }
+        /// <summary>Optional font color for note text.</summary>
+        public System.Drawing.Color? NoteTextColor { get; set; }
+        /// <summary>Optional note-row fill color (not whole-group color).</summary>
+        public System.Drawing.Color? NoteRowColor { get; set; }
         /// <summary>Template row from CSV (trip slots only).</summary>
         public MCDownloadedTrip TemplateTrip { get; set; }
         /// <summary>Live Modivcare trip when template row matched (trip slots only).</summary>

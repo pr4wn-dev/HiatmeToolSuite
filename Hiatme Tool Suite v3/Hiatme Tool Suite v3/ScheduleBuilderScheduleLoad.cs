@@ -95,6 +95,7 @@ namespace Hiatme_Tool_Suite_v3
 
             result.SourceDescription = folderPath;
             FinalizeAllTrips(result);
+            StabilizeLoadedTabOrder(result);
             return result;
         }
 
@@ -164,6 +165,7 @@ namespace Hiatme_Tool_Suite_v3
                 result.SourceDescription = workbookPath;
                 result.WorkbookColumnWidths = ScheduleBuilderXlsxReader.ReadTripGridColumnWidths(workbookPath);
                 FinalizeAllTrips(result);
+                // Workbook sheet order is the saved tab order — keep as-is.
             }
             finally
             {
@@ -400,6 +402,19 @@ namespace Hiatme_Tool_Suite_v3
                     continue;
                 result.AllTrips.Add(t);
             }
+        }
+
+        /// <summary>
+        /// CSV folder loads have no sheet order — keep GetFiles sequence, but pin Reserves first when present.
+        /// </summary>
+        private static void StabilizeLoadedTabOrder(ScheduleBuilderLoadResult result)
+        {
+            if (result?.TabOrder == null || result.TabOrder.Count == 0)
+                return;
+
+            var stabilized = ScheduleBuilderTabOrder.DefaultBuildTabOrder(result.TabOrder);
+            result.TabOrder.Clear();
+            result.TabOrder.AddRange(stabilized);
         }
 
         private static bool ShouldSkipDriverFile(string tabName)

@@ -23,6 +23,7 @@ namespace Hiatme_Tool_Suite_v3
                         GapNoteText = gapTag.NoteText ?? "",
                         GapNoteRowColor = gapTag.NoteRowColor,
                         GapNoteCenterText = gapTag.NoteTextCentered,
+                        GapNoteTextColor = gapTag.NoteTextColor,
                         TrailingPad = gapTag.TrailingPad,
                     });
                     continue;
@@ -37,6 +38,7 @@ namespace Hiatme_Tool_Suite_v3
                         GroupNoteText = noteTag.NoteText ?? "",
                         GroupNoteRowColor = noteTag.NoteRowColor,
                         GroupNoteCenterText = noteTag.NoteTextCentered,
+                        GroupNoteTextColor = noteTag.NoteTextColor,
                     });
                     continue;
                 }

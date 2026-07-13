@@ -7,10 +7,15 @@ namespace Hiatme_Tool_Suite_v3
     /// <summary>Preserves workbook / UI tab order for Schedule Builder load, preview, and save.</summary>
     internal static class ScheduleBuilderTabOrder
     {
-        /// <summary>Reserves first, then drivers in template or alphabetical order.</summary>
+        /// <summary>
+        /// Reserves first, then drivers in the given sequence (not A–Z).
+        /// Pass template / UI / workbook order here — do not alphabetize first.
+        /// </summary>
         public static List<string> DefaultBuildTabOrder(IEnumerable<string> driverNames)
         {
-            var drivers = OrderDriverNames(driverNames, null);
+            var drivers = DedupePreserveOrder(driverNames)
+                .Where(n => !n.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
+                .ToList();
             var tabs = new List<string>(drivers.Count + 1) { "Reserves" };
             tabs.AddRange(drivers);
             return tabs;
@@ -24,9 +29,8 @@ namespace Hiatme_Tool_Suite_v3
             if (driverNames == null)
                 return new List<string>();
 
-            var available = driverNames
-                .Where(n => !string.IsNullOrWhiteSpace(n)
-                    && !n.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
+            var available = DedupePreserveOrder(driverNames)
+                .Where(n => !n.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
             return NormalizeFullTabOrder(preferredOrder, available)
@@ -34,14 +38,15 @@ namespace Hiatme_Tool_Suite_v3
                 .ToList();
         }
 
-        /// <summary>Merge preferred order with available keys; append unseen keys A–Z.</summary>
+        /// <summary>
+        /// Merge preferred order with available keys.
+        /// Unknown preferred names are skipped; leftover keys keep their available order (not A–Z).
+        /// </summary>
         public static List<string> NormalizeFullTabOrder(
             IReadOnlyList<string> preferredOrder,
             IEnumerable<string> availableKeys)
         {
-            var available = (availableKeys ?? Array.Empty<string>())
-                .Where(n => !string.IsNullOrWhiteSpace(n))
-                .ToList();
+            var available = DedupePreserveOrder(availableKeys);
             if (available.Count == 0)
                 return new List<string>();
 
@@ -64,7 +69,7 @@ namespace Hiatme_Tool_Suite_v3
                 }
             }
 
-            foreach (var key in available.OrderBy(k => k, StringComparer.OrdinalIgnoreCase))
+            foreach (var key in available)
             {
                 if (seen.Add(key))
                     result.Add(key);
@@ -80,29 +85,8 @@ namespace Hiatme_Tool_Suite_v3
             if (dict == null || dict.Count == 0)
                 yield break;
 
-            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            if (tabOrder != null)
-            {
-                foreach (var name in tabOrder)
-                {
-                    if (string.IsNullOrWhiteSpace(name) || !seen.Add(name))
-                        continue;
-                    foreach (var key in dict.Keys)
-                    {
-                        if (key.Equals(name, StringComparison.OrdinalIgnoreCase))
-                        {
-                            yield return key;
-                            break;
-                        }
-                    }
-                }
-            }
-
-            foreach (var key in dict.Keys.OrderBy(k => k, StringComparer.OrdinalIgnoreCase))
-            {
-                if (seen.Add(key))
-                    yield return key;
-            }
+            foreach (var key in NormalizeFullTabOrder(tabOrder, dict.Keys))
+                yield return key;
         }
 
         public static int CompareByTabOrder(IReadOnlyList<string> order, string a, string b)
@@ -118,6 +102,23 @@ namespace Hiatme_Tool_Suite_v3
             if (ib >= 0)
                 return 1;
             return string.Compare(a, b, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static List<string> DedupePreserveOrder(IEnumerable<string> names)
+        {
+            var result = new List<string>();
+            if (names == null)
+                return result;
+
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var name in names)
+            {
+                if (string.IsNullOrWhiteSpace(name) || !seen.Add(name))
+                    continue;
+                result.Add(name);
+            }
+
+            return result;
         }
 
         private static int IndexOfTab(IReadOnlyList<string> order, string name)

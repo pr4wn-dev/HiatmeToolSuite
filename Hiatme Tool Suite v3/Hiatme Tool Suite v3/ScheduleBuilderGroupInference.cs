@@ -72,6 +72,8 @@ namespace Hiatme_Tool_Suite_v3
                         Kind = ScheduleBuilderPreviewLine.LineKind.Gap,
                         GapNoteText = slot.NoteText ?? "",
                         GapNoteCenterText = slot.NoteCenterText,
+                        GapNoteTextColor = slot.NoteTextColor,
+                        GapNoteRowColor = slot.NoteRowColor,
                     });
                     continue;
                 }
@@ -84,6 +86,8 @@ namespace Hiatme_Tool_Suite_v3
                         GroupNumber = slot.GroupNumber,
                         GroupNoteText = slot.NoteText ?? "",
                         GroupNoteCenterText = slot.NoteCenterText,
+                        GroupNoteTextColor = slot.NoteTextColor,
+                        GroupNoteRowColor = slot.NoteRowColor,
                     });
                     continue;
                 }

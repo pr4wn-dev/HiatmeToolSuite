@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.IO;
 using System.Text.RegularExpressions;
 
@@ -49,11 +50,14 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     if (TripTemplateCsvValidator.IsTemplateGapRow(rowValues))
                     {
+                        ParseNoteOptionsFromRow(rowValues, out bool center, out Color? textColor, out Color? rowColor);
                         slots.Add(new SupeyTemplateSlot
                         {
                             Kind = SupeyTemplateSlot.SlotKind.Gap,
                             NoteText = TripTemplateCsvValidator.ExtractInstructionText(rowValues),
-                            NoteCenterText = ParseNoteCenterFromRow(rowValues),
+                            NoteCenterText = center,
+                            NoteTextColor = textColor,
+                            NoteRowColor = rowColor,
                         });
                     }
                     continue;
@@ -63,7 +67,12 @@ namespace Hiatme_Tool_Suite_v3
                     continue;
 
                 if (ScheduleBuilderGroupHeaderMeta.TryDecodeRow(
-                        rowValues, out int groupNumber, out string headerNote, out bool headerCenter))
+                        rowValues,
+                        out int groupNumber,
+                        out string headerNote,
+                        out bool headerCenter,
+                        out Color? headerTextColor,
+                        out Color? headerRowColor))
                 {
                     slots.Add(new SupeyTemplateSlot
                     {
@@ -71,17 +80,22 @@ namespace Hiatme_Tool_Suite_v3
                         GroupNumber = groupNumber,
                         NoteText = headerNote ?? "",
                         NoteCenterText = headerCenter,
+                        NoteTextColor = headerTextColor,
+                        NoteRowColor = headerRowColor,
                     });
                     continue;
                 }
 
                 if (TripTemplateCsvValidator.IsTemplateGapRow(rowValues))
                 {
+                    ParseNoteOptionsFromRow(rowValues, out bool center, out Color? textColor, out Color? rowColor);
                     slots.Add(new SupeyTemplateSlot
                     {
                         Kind = SupeyTemplateSlot.SlotKind.Gap,
                         NoteText = TripTemplateCsvValidator.ExtractInstructionText(rowValues),
-                        NoteCenterText = ParseNoteCenterFromRow(rowValues),
+                        NoteCenterText = center,
+                        NoteTextColor = textColor,
+                        NoteRowColor = rowColor,
                     });
                     continue;
                 }
@@ -100,16 +114,23 @@ namespace Hiatme_Tool_Suite_v3
             return slots;
         }
 
-        private static bool ParseNoteCenterFromRow(string[] rowValues)
+        private static void ParseNoteOptionsFromRow(
+            string[] rowValues,
+            out bool centerText,
+            out Color? textColor,
+            out Color? rowColor)
         {
+            centerText = false;
+            textColor = null;
+            rowColor = null;
             if (rowValues == null
                 || rowValues.Length <= ScheduleBuilderPreviewCsvExport.WorkbookMetaColumnIndex)
             {
-                return false;
+                return;
             }
 
             string colO = rowValues[ScheduleBuilderPreviewCsvExport.WorkbookMetaColumnIndex] ?? "";
-            return ScheduleBuilderNoteRowMeta.TryParseGapNoteMeta(colO, out bool center) && center;
+            ScheduleBuilderNoteRowMeta.TryParseGapNoteMeta(colO, out centerText, out textColor, out rowColor);
         }
     }
 }

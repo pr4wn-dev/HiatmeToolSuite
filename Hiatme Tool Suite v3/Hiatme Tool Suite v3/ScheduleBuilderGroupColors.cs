@@ -71,7 +71,9 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     lines[headerIdx].GroupColorOverride = null;
                     if (string.IsNullOrWhiteSpace(lines[headerIdx].GroupNoteText)
-                        && !lines[headerIdx].GroupNoteRowColor.HasValue)
+                        && !lines[headerIdx].GroupNoteRowColor.HasValue
+                        && !lines[headerIdx].GroupNoteCenterText
+                        && !lines[headerIdx].GroupNoteTextColor.HasValue)
                         lines.RemoveAt(headerIdx);
                 }
                 return;

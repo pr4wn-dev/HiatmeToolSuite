@@ -54,6 +54,7 @@ namespace Hiatme_Tool_Suite_v3
                 public int EndCol { get; set; }
                 public Color Color { get; set; }
                 public bool CenterText { get; set; }
+                public Color? TextColor { get; set; }
             }
 
             public int AddRow(string[] cells)
@@ -82,7 +83,7 @@ namespace Hiatme_Tool_Suite_v3
                 CellFills[(rowIndex, col)] = color;
             }
 
-            public void AddMergeBar(int rowIndex, Color color, int startCol = 0, int endCol = ColumnCount - 1, bool centerText = false)
+            public void AddMergeBar(int rowIndex, Color color, int startCol = 0, int endCol = ColumnCount - 1, bool centerText = false, Color? textColor = null)
             {
                 MergeBars.Add(new RowMergeBar
                 {
@@ -91,6 +92,7 @@ namespace Hiatme_Tool_Suite_v3
                     EndCol = endCol,
                     Color = color,
                     CenterText = centerText,
+                    TextColor = textColor,
                 });
             }
         }
@@ -197,11 +199,15 @@ namespace Hiatme_Tool_Suite_v3
                             continue;
                         if (ScheduleBuilderGapNotes.HasNoteContent(line))
                         {
-                            int noteRow = tab.AddRow(BuildNoteCells(line.GapNoteText ?? "", line.GapNoteCenterText));
+                            int noteRow = tab.AddRow(BuildNoteCells(
+                                line.GapNoteText ?? "",
+                                line.GapNoteCenterText,
+                                line.GapNoteTextColor,
+                                line.GapNoteRowColor));
                             if (line.GapNoteRowColor.HasValue)
-                                tab.AddMergeBar(noteRow, line.GapNoteRowColor.Value, endCol: MergeBarLastCol, centerText: line.GapNoteCenterText);
-                            else if (line.GapNoteCenterText)
-                                tab.AddMergeBar(noteRow, Color.Empty, endCol: MergeBarLastCol, centerText: true);
+                                tab.AddMergeBar(noteRow, line.GapNoteRowColor.Value, endCol: MergeBarLastCol, centerText: line.GapNoteCenterText, textColor: line.GapNoteTextColor);
+                            else if (line.GapNoteCenterText || line.GapNoteTextColor.HasValue)
+                                tab.AddMergeBar(noteRow, Color.Empty, endCol: MergeBarLastCol, centerText: line.GapNoteCenterText, textColor: line.GapNoteTextColor);
                             sawTripRow = true;
                         }
                         else if (options.IncludeGaps && sawTripRow)
@@ -216,7 +222,9 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     bool exportNoteRow = options.IncludeGroupHeaders
                         || !string.IsNullOrWhiteSpace(line.GroupNoteText)
-                        || line.GroupNoteRowColor.HasValue;
+                        || line.GroupNoteRowColor.HasValue
+                        || line.GroupNoteCenterText
+                        || line.GroupNoteTextColor.HasValue;
 
                     if (!exportNoteRow)
                     {
@@ -235,11 +243,16 @@ namespace Hiatme_Tool_Suite_v3
                     if (!barColor.HasValue && options.IncludeGroupHeaders)
                         barColor = headerGroup?.DisplayColor ?? SupeyGroupPalette.For(line.GroupNumber);
 
-                    int noteRow = tab.AddRow(BuildGroupHeaderCells(line.GroupNumber, line.GroupNoteText ?? "", line.GroupNoteCenterText));
+                    int noteRow = tab.AddRow(BuildGroupHeaderCells(
+                        line.GroupNumber,
+                        line.GroupNoteText ?? "",
+                        line.GroupNoteCenterText,
+                        line.GroupNoteTextColor,
+                        line.GroupNoteRowColor));
                     if (barColor.HasValue)
-                        tab.AddMergeBar(noteRow, barColor.Value, endCol: MergeBarLastCol, centerText: line.GroupNoteCenterText);
-                    else if (line.GroupNoteCenterText)
-                        tab.AddMergeBar(noteRow, Color.Empty, endCol: MergeBarLastCol, centerText: true);
+                        tab.AddMergeBar(noteRow, barColor.Value, endCol: MergeBarLastCol, centerText: line.GroupNoteCenterText, textColor: line.GroupNoteTextColor);
+                    else if (line.GroupNoteCenterText || line.GroupNoteTextColor.HasValue)
+                        tab.AddMergeBar(noteRow, Color.Empty, endCol: MergeBarLastCol, centerText: line.GroupNoteCenterText, textColor: line.GroupNoteTextColor);
                     lastHeaderGroup = headerGroup;
                     continue;
                 }
@@ -310,19 +323,29 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
-        private static string[] BuildNoteCells(string colAText, bool centerText = false)
+        private static string[] BuildNoteCells(
+            string colAText,
+            bool centerText = false,
+            Color? textColor = null,
+            Color? rowColor = null)
         {
             var cells = EmptyWorkbookRow();
             cells[0] = colAText ?? "";
-            cells[WorkbookMetaColumnIndex] = ScheduleBuilderNoteRowMeta.EncodeGapNote(centerText);
+            cells[WorkbookMetaColumnIndex] = ScheduleBuilderNoteRowMeta.EncodeGapNote(centerText, textColor, rowColor);
             return cells;
         }
 
-        private static string[] BuildGroupHeaderCells(int groupNumber, string noteText, bool centerText = false)
+        private static string[] BuildGroupHeaderCells(
+            int groupNumber,
+            string noteText,
+            bool centerText = false,
+            Color? textColor = null,
+            Color? rowColor = null)
         {
             var cells = EmptyWorkbookRow();
             cells[0] = noteText ?? "";
-            cells[WorkbookMetaColumnIndex] = ScheduleBuilderGroupHeaderMeta.Encode(groupNumber, centerText);
+            cells[WorkbookMetaColumnIndex] = ScheduleBuilderGroupHeaderMeta.Encode(
+                groupNumber, centerText, textColor, rowColor);
             return cells;
         }
 

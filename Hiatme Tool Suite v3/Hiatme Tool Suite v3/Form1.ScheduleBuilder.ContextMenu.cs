@@ -841,7 +841,7 @@ namespace Hiatme_Tool_Suite_v3
                     return;
                 }
 
-                var toRow = ScheduleGroupNoteForm.Prompt(this, dialogTitle, dialogIntro, "", null, false);
+                var toRow = ScheduleGroupNoteForm.Prompt(this, dialogTitle, dialogIntro, "", null, false, null);
                 if (toRow == null)
                     return;
 
@@ -851,7 +851,7 @@ namespace Hiatme_Tool_Suite_v3
                 FsRevealGapsForManualInsert();
                 FsPushUndoSnapshot(undoLabel);
                 ScheduleBuilderGapNotes.ApplyAt(
-                    lines, lineIndex, toRow.NoteText, toRow.NoteRowColor, toRow.CenterTextInRow);
+                    lines, lineIndex, toRow.NoteText, toRow.NoteRowColor, toRow.CenterTextInRow, toRow.NoteTextColor);
             }
             else
             {
@@ -862,7 +862,7 @@ namespace Hiatme_Tool_Suite_v3
                     return;
                 }
 
-                var inserted = ScheduleGroupNoteForm.Prompt(this, dialogTitle, dialogIntro, "", null, false);
+                var inserted = ScheduleGroupNoteForm.Prompt(this, dialogTitle, dialogIntro, "", null, false, null);
                 if (inserted == null)
                     return;
 
@@ -872,7 +872,7 @@ namespace Hiatme_Tool_Suite_v3
                 FsRevealGapsForManualInsert();
                 FsPushUndoSnapshot(undoLabel);
                 ScheduleBuilderGapNotes.InsertAt(
-                    lines, insertBeforeLine, inserted.NoteText, inserted.NoteRowColor, inserted.CenterTextInRow);
+                    lines, insertBeforeLine, inserted.NoteText, inserted.NoteRowColor, inserted.CenterTextInRow, inserted.NoteTextColor);
             }
 
             FsCommitPreviewLinesForTab(_fsActiveDriverTab, lines);
@@ -896,8 +896,9 @@ namespace Hiatme_Tool_Suite_v3
                 string current = groupNoteTag.NoteText ?? "";
                 Color? currentColor = groupNoteTag.NoteRowColor;
                 bool currentCenter = groupNoteTag.NoteTextCentered;
+                Color? currentTextColor = groupNoteTag.NoteTextColor;
                 ScheduleBuilderGroupNotes.TryReadNote(
-                    lines, groupNumber, out current, out currentColor, out currentCenter);
+                    lines, groupNumber, out current, out currentColor, out currentCenter, out currentTextColor);
 
                 var edited = ScheduleGroupNoteForm.Prompt(
                     this,
@@ -905,7 +906,8 @@ namespace Hiatme_Tool_Suite_v3
                     "Group note text is saved in the workbook. Pick a row color to override the group color on this row only.",
                     current,
                     currentColor,
-                    currentCenter);
+                    currentCenter,
+                    currentTextColor);
                 if (edited == null)
                     return;
 
@@ -917,14 +919,16 @@ namespace Hiatme_Tool_Suite_v3
                     groupNoteTag.Group,
                     edited.NoteText,
                     edited.NoteRowColor,
-                    edited.CenterTextInRow);
+                    edited.CenterTextInRow,
+                    edited.NoteTextColor);
                 FsCommitPreviewLinesForTab(_fsActiveDriverTab, lines);
                 ShowFsTripsForTab(_fsActiveDriverTab);
                 SyncFsPreviewCsvsForExport();
 
                 bool hasContent = !string.IsNullOrWhiteSpace(edited.NoteText)
                     || edited.NoteRowColor.HasValue
-                    || edited.CenterTextInRow;
+                    || edited.CenterTextInRow
+                    || edited.NoteTextColor.HasValue;
                 SetScheduleBuilderStatus(hasContent ? "Group note saved." : "Group note cleared.");
                 return;
             }
@@ -935,28 +939,31 @@ namespace Hiatme_Tool_Suite_v3
             string gapCurrent = "";
             Color? gapColor = null;
             bool gapCenter = false;
+            Color? gapTextColor = null;
             if (item?.Tag is FsPreviewGapTag gapTag)
             {
                 gapCurrent = gapTag.NoteText ?? "";
                 gapColor = gapTag.NoteRowColor;
                 gapCenter = gapTag.NoteTextCentered;
+                gapTextColor = gapTag.NoteTextColor;
             }
 
-            ScheduleBuilderGapNotes.TryReadNoteAt(lines, lineIndex, out gapCurrent, out gapColor, out gapCenter);
+            ScheduleBuilderGapNotes.TryReadNoteAt(lines, lineIndex, out gapCurrent, out gapColor, out gapCenter, out gapTextColor);
 
             var gapEdited = ScheduleGroupNoteForm.Prompt(
                 this,
                 "Edit note",
-                "Update note text and row color. Row color applies only to this note row.",
+                "Update note text, row color, and font color. Row color applies only to this note row.",
                 gapCurrent,
                 gapColor,
-                gapCenter);
+                gapCenter,
+                gapTextColor);
             if (gapEdited == null)
                 return;
 
             FsPushUndoSnapshot("edit note");
             ScheduleBuilderGapNotes.ApplyAt(
-                lines, lineIndex, gapEdited.NoteText, gapEdited.NoteRowColor, gapEdited.CenterTextInRow);
+                lines, lineIndex, gapEdited.NoteText, gapEdited.NoteRowColor, gapEdited.CenterTextInRow, gapEdited.NoteTextColor);
             FsCommitPreviewLinesForTab(_fsActiveDriverTab, lines);
             ShowFsTripsForTab(_fsActiveDriverTab);
             SyncFsPreviewCsvsForExport();
@@ -1252,23 +1259,35 @@ namespace Hiatme_Tool_Suite_v3
         public string NoteText { get; set; } = "";
         public Color? NoteRowColor { get; set; }
         public bool CenterTextInRow { get; set; }
+        public Color? NoteTextColor { get; set; }
     }
 
-    /// <summary>Themed dialog for group notes — text plus optional note-row color (not whole-group color).</summary>
+    /// <summary>Themed dialog for notes — text, optional row color, optional font color.</summary>
     internal sealed class ScheduleGroupNoteForm : SupeyForm
     {
         private const int DialogWidth = 500;
         private const int ContentWidth = 452;
+        private const int DialogHeight = 468;
 
         private readonly TextBox _noteBox;
         private readonly Panel _swatch;
         private readonly Label _colorLabel;
+        private readonly Panel _textSwatch;
+        private readonly Label _textColorLabel;
         private readonly CheckBox _centerCheck;
         private Color? _noteRowColor;
+        private Color? _noteTextColor;
 
-        private ScheduleGroupNoteForm(string title, string introText, string initialNote, Color? initialRowColor, bool initialCenterText)
+        private ScheduleGroupNoteForm(
+            string title,
+            string introText,
+            string initialNote,
+            Color? initialRowColor,
+            bool initialCenterText,
+            Color? initialTextColor)
         {
             _noteRowColor = initialRowColor;
+            _noteTextColor = initialTextColor;
 
             Text = title ?? "Note";
             FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -1276,9 +1295,9 @@ namespace Hiatme_Tool_Suite_v3
             MinimizeBox = false;
             ShowInTaskbar = false;
             StartPosition = FormStartPosition.CenterParent;
-            ClientSize = new Size(DialogWidth, 356);
-            MinimumSize = new Size(DialogWidth, 356);
-            MaximumSize = new Size(DialogWidth, 356);
+            ClientSize = new Size(DialogWidth, DialogHeight);
+            MinimumSize = new Size(DialogWidth, DialogHeight);
+            MaximumSize = new Size(DialogWidth, DialogHeight);
             BackColor = SupeyTheme.Surface;
 
             var footer = new Panel
@@ -1336,18 +1355,19 @@ namespace Hiatme_Tool_Suite_v3
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 1,
-                RowCount = 4,
+                RowCount = 5,
                 BackColor = SupeyTheme.Surface,
             };
             stack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            stack.RowStyles.Add(new RowStyle(SizeType.Absolute, 88f));
+            stack.RowStyles.Add(new RowStyle(SizeType.Absolute, 72f));
+            stack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             stack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             stack.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
 
             var introLabel = new Label
             {
                 Text = string.IsNullOrWhiteSpace(introText)
-                    ? "Note text is saved in the workbook. Row color applies only to this note row."
+                    ? "Note text is saved in the workbook. Row color and font color apply only to this note row."
                     : introText,
                 Font = new Font("Segoe UI", 9f),
                 AutoSize = true,
@@ -1363,7 +1383,7 @@ namespace Hiatme_Tool_Suite_v3
                 Dock = DockStyle.Fill,
                 Padding = new Padding(1),
                 BackColor = SupeyTheme.BorderSubtle,
-                Margin = new Padding(0, 0, 0, 14),
+                Margin = new Padding(0, 0, 0, 10),
             };
             _noteBox = new TextBox
             {
@@ -1379,21 +1399,43 @@ namespace Hiatme_Tool_Suite_v3
             noteHost.Controls.Add(_noteBox);
             stack.Controls.Add(noteHost, 0, 1);
 
-            var colorCard = BuildColorCard(out _swatch, out _colorLabel);
+            var colorCard = BuildColorCard(
+                "Note row color",
+                "PICK COLOR…",
+                "NO COLOR",
+                () => _noteRowColor,
+                c => { _noteRowColor = c; RefreshRowSwatch(); },
+                out _swatch,
+                out _colorLabel,
+                fullSwatchFill: false);
             colorCard.Dock = DockStyle.Top;
+            colorCard.Margin = new Padding(0, 0, 0, 8);
             stack.Controls.Add(colorCard, 0, 2);
+
+            var textColorCard = BuildColorCard(
+                "Font color",
+                "PICK COLOR…",
+                "DEFAULT",
+                () => _noteTextColor,
+                c => { _noteTextColor = c; RefreshTextSwatch(); },
+                out _textSwatch,
+                out _textColorLabel,
+                fullSwatchFill: true);
+            textColorCard.Dock = DockStyle.Top;
+            textColorCard.Margin = new Padding(0, 0, 0, 4);
+            stack.Controls.Add(textColorCard, 0, 3);
 
             _centerCheck = new CheckBox
             {
                 Text = "Center text in row",
                 AutoSize = true,
                 Checked = initialCenterText,
-                Margin = new Padding(0, 10, 0, 0),
+                Margin = new Padding(0, 8, 0, 0),
                 Font = new Font("Segoe UI", 9f),
                 ForeColor = SupeyTheme.TextPrimary,
                 BackColor = SupeyTheme.Surface,
             };
-            stack.Controls.Add(_centerCheck, 0, 3);
+            stack.Controls.Add(_centerCheck, 0, 4);
 
             body.Controls.Add(stack);
 
@@ -1403,15 +1445,25 @@ namespace Hiatme_Tool_Suite_v3
             CancelButton = cancelBtn;
 
             SupeyDarkScrollBars.Apply(this);
-            RefreshSwatch();
+            RefreshRowSwatch();
+            RefreshTextSwatch();
         }
 
-        private Panel BuildColorCard(out Panel swatch, out Label colorLabel)
+        private Panel BuildColorCard(
+            string caption,
+            string pickText,
+            string clearText,
+            Func<Color?> getColor,
+            Action<Color?> setColor,
+            out Panel swatch,
+            out Label colorLabel,
+            bool fullSwatchFill)
         {
             var card = new Panel
             {
                 BackColor = SupeyTheme.SurfaceElevated,
-                Padding = new Padding(16, 14, 16, 14),
+                Padding = new Padding(16, 12, 16, 12),
+                Height = 86,
             };
             card.Paint += (s, e) =>
             {
@@ -1435,10 +1487,10 @@ namespace Hiatme_Tool_Suite_v3
 
             var colorCaption = new Label
             {
-                Text = "Note row color",
+                Text = caption,
                 Font = new Font("Segoe UI Semibold", 9.75f),
                 AutoSize = true,
-                Margin = new Padding(0, 0, 0, 10),
+                Margin = new Padding(0, 0, 0, 8),
                 ForeColor = SupeyTheme.TextPrimary,
                 BackColor = SupeyTheme.SurfaceElevated,
             };
@@ -1463,7 +1515,7 @@ namespace Hiatme_Tool_Suite_v3
                 Margin = new Padding(0, 2, 12, 0),
                 BackColor = SupeyTheme.Surface,
             };
-            swatchPanel.Paint += (s, e) => SwatchPaint(swatchPanel, e);
+            swatchPanel.Paint += (s, e) => SwatchPaint(swatchPanel, e, getColor(), fullSwatchFill);
             swatch = swatchPanel;
 
             var statusLabel = new Label
@@ -1479,17 +1531,27 @@ namespace Hiatme_Tool_Suite_v3
 
             var pickBtn = new SupeyMaterialButton
             {
-                Text = "PICK COLOR…",
+                Text = pickText,
                 AutoSize = false,
                 Type = SupeyMaterialButton.MaterialButtonType.Outlined,
                 Size = new Size(118, 34),
                 Margin = new Padding(0, 0, 6, 0),
             };
-            pickBtn.Click += (s, e) => PickColor();
+            pickBtn.Click += (s, e) =>
+            {
+                using (var dlg = new ColorDialog())
+                {
+                    dlg.FullOpen = true;
+                    dlg.Color = getColor() ?? Color.FromArgb(70, 130, 180);
+                    if (dlg.ShowDialog(this) != DialogResult.OK)
+                        return;
+                    setColor(dlg.Color);
+                }
+            };
 
             var clearBtn = new SupeyMaterialButton
             {
-                Text = "NO COLOR",
+                Text = clearText,
                 AutoSize = false,
                 Type = SupeyMaterialButton.MaterialButtonType.Text,
                 UseAccentColor = false,
@@ -1497,11 +1559,7 @@ namespace Hiatme_Tool_Suite_v3
                 Size = new Size(96, 34),
                 Margin = new Padding(0, 0, 0, 0),
             };
-            clearBtn.Click += (s, e) =>
-            {
-                _noteRowColor = null;
-                RefreshSwatch();
-            };
+            clearBtn.Click += (s, e) => setColor(null);
 
             colorRow.Controls.Add(swatch, 0, 0);
             colorRow.Controls.Add(colorLabel, 1, 0);
@@ -1512,7 +1570,7 @@ namespace Hiatme_Tool_Suite_v3
             return card;
         }
 
-        private void SwatchPaint(Panel swatch, PaintEventArgs e)
+        private static void SwatchPaint(Panel swatch, PaintEventArgs e, Color? color, bool fullFill)
         {
             var g = e.Graphics;
             var r = swatch.ClientRectangle;
@@ -1522,12 +1580,20 @@ namespace Hiatme_Tool_Suite_v3
             using (var pen = new Pen(SupeyTheme.BorderSubtle))
                 g.DrawRectangle(pen, r);
 
-            if (!_noteRowColor.HasValue)
+            if (!color.HasValue)
                 return;
+
+            if (fullFill)
+            {
+                var fill = new Rectangle(r.X + 1, r.Y + 1, r.Width - 1, r.Height - 1);
+                using (var brush = new SolidBrush(color.Value))
+                    g.FillRectangle(brush, fill);
+                return;
+            }
 
             int stripeW = Math.Max(6, r.Width / 5);
             var stripe = new Rectangle(r.X + 1, r.Y + 1, stripeW, r.Height - 1);
-            using (var brush = new SolidBrush(_noteRowColor.Value))
+            using (var brush = new SolidBrush(color.Value))
                 g.FillRectangle(brush, stripe);
         }
 
@@ -1537,9 +1603,11 @@ namespace Hiatme_Tool_Suite_v3
             string introText,
             string initialNote,
             Color? initialRowColor,
-            bool initialCenterText = false)
+            bool initialCenterText = false,
+            Color? initialTextColor = null)
         {
-            using (var form = new ScheduleGroupNoteForm(title, introText, initialNote, initialRowColor, initialCenterText))
+            using (var form = new ScheduleGroupNoteForm(
+                title, introText, initialNote, initialRowColor, initialCenterText, initialTextColor))
             {
                 if (form.ShowDialog(owner) != DialogResult.OK)
                     return null;
@@ -1549,25 +1617,12 @@ namespace Hiatme_Tool_Suite_v3
                     NoteText = form._noteBox.Text.Trim(),
                     NoteRowColor = form._noteRowColor,
                     CenterTextInRow = form._centerCheck.Checked,
+                    NoteTextColor = form._noteTextColor,
                 };
             }
         }
 
-        private void PickColor()
-        {
-            using (var dlg = new ColorDialog())
-            {
-                dlg.FullOpen = true;
-                dlg.Color = _noteRowColor ?? Color.FromArgb(70, 130, 180);
-                if (dlg.ShowDialog(this) != DialogResult.OK)
-                    return;
-
-                _noteRowColor = dlg.Color;
-                RefreshSwatch();
-            }
-        }
-
-        private void RefreshSwatch()
+        private void RefreshRowSwatch()
         {
             if (_noteRowColor.HasValue)
             {
@@ -1581,6 +1636,22 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             _swatch.Invalidate();
+        }
+
+        private void RefreshTextSwatch()
+        {
+            if (_noteTextColor.HasValue)
+            {
+                _textColorLabel.Text = "Custom font color";
+                _textColorLabel.ForeColor = SupeyTheme.TextPrimary;
+            }
+            else
+            {
+                _textColorLabel.Text = "Auto (contrast / default)";
+                _textColorLabel.ForeColor = SupeyTheme.TextSecondary;
+            }
+
+            _textSwatch.Invalidate();
         }
     }
 }

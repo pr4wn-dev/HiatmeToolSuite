@@ -123,6 +123,12 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>Full preview/export tab order including Reserves when present.</summary>
         public List<string> TabOrder { get; private set; } = new List<string>();
 
+        /// <summary>
+        /// Preferred sheet/tab order from the UI (or a previously loaded workbook).
+        /// Applied after build so rebuilds keep the user's arrangement.
+        /// </summary>
+        public IReadOnlyList<string> PreferredTabOrder { get; set; }
+
         /// <summary>How to write Template Temps CSV rows (gaps, group headers, reserve sections).</summary>
         public ScheduleBuilderPreviewCsvExport.Options PreviewCsvExportOptions { get; set; }
 
@@ -435,6 +441,19 @@ namespace Hiatme_Tool_Suite_v3
             TabOrder = load.TabOrder != null && load.TabOrder.Count > 0
                 ? new List<string>(load.TabOrder)
                 : ScheduleBuilderTabOrder.DefaultBuildTabOrder(load.DriverLines.Keys);
+        }
+
+        /// <summary>Reserves first, then drivers — prefer UI/workbook order when provided.</summary>
+        private void ApplyResolvedTabOrder(IEnumerable<string> driverNames)
+        {
+            var fallback = ScheduleBuilderTabOrder.DefaultBuildTabOrder(driverNames);
+            if (PreferredTabOrder == null || PreferredTabOrder.Count == 0)
+            {
+                TabOrder = fallback;
+                return;
+            }
+
+            TabOrder = ScheduleBuilderTabOrder.NormalizeFullTabOrder(PreferredTabOrder, fallback);
         }
 
         /// <summary>Banned-client trips belong in Reserves → Reroutes, not on driver tabs.</summary>
@@ -1465,6 +1484,15 @@ namespace Hiatme_Tool_Suite_v3
                 _driverTemplateSlotOrder.Clear();
                 driverTripList = null;
                 var filePaths = Directory.GetFiles(dayDir, "*.csv");
+                if (PreferredTabOrder != null && PreferredTabOrder.Count > 0)
+                {
+                    filePaths = filePaths
+                        .OrderBy(
+                            f => Path.GetFileNameWithoutExtension(f) ?? "",
+                            Comparer<string>.Create((a, b) =>
+                                ScheduleBuilderTabOrder.CompareByTabOrder(PreferredTabOrder, a, b)))
+                        .ToArray();
+                }
                 if (filePaths.Length == 0)
                 {
                     throw new ScheduleBuilderException(
@@ -1590,7 +1618,7 @@ namespace Hiatme_Tool_Suite_v3
 
                 RemoveRuleBlockedTripsFromDriverAssignments(previewByDriver, driverTripList);
                 PreviewDriverLines = previewByDriver;
-                TabOrder = ScheduleBuilderTabOrder.DefaultBuildTabOrder(_driverTemplateSlotOrder);
+                ApplyResolvedTabOrder(_driverTemplateSlotOrder);
                 SplitReserveBuckets();
                 RemoveWillCallsFromDriverPreview();
                 WriteAllPreviewCsvsFromBuilder();

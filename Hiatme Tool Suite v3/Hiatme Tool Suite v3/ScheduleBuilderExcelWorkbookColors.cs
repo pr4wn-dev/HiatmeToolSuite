@@ -215,6 +215,8 @@ namespace Hiatme_Tool_Suite_v3
                     mergeRange.Interior.Color = ColorTranslator.ToOle(bar.Color);
                 if (bar.CenterText)
                     mergeRange.HorizontalAlignment = XlHAlign.xlHAlignCenter;
+                if (bar.TextColor.HasValue)
+                    mergeRange.Font.Color = ColorTranslator.ToOle(bar.TextColor.Value);
             }
             finally
             {
