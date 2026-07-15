@@ -216,6 +216,10 @@
     <Compile Include="Form1.Designer.cs">
       <DependentUpon>Form1.cs</DependentUpon>
     </Compile>
+    <Compile Include="Form1.LateDrivers.cs">
+      <DependentUpon>Form1.cs</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="Form1.TripScoutLiveHud.cs">
       <DependentUpon>Form1.cs</DependentUpon>
       <SubType>Form</SubType>
@@ -771,6 +775,7 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="Resources\magnify.png" />
+    <None Include="Resources\late-drivers.png" />
     <None Include="Resources\modivcare-new-trips.png" />
     <None Include="Resources\supey-shield.png" />
   </ItemGroup>

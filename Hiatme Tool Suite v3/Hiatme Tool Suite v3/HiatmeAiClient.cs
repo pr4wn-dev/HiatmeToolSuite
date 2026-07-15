@@ -2200,5 +2200,341 @@ namespace Hiatme_Tool_Suite_v3
                 return new TripScoutDayChanges { Ok = false, Error = ex.Message };
             }
         }
+
+        // ── Late Drivers ─────────────────────────────────────────────────
+
+        public sealed class LateDriversStatus
+        {
+            public bool Ok { get; set; }
+            public bool Available { get; set; }
+
+            [JsonProperty("service_date")]
+            public string ServiceDate { get; set; }
+
+            [JsonProperty("open_count")]
+            public int OpenCount { get; set; }
+
+            [JsonProperty("event_count")]
+            public int EventCount { get; set; }
+
+            [JsonProperty("content_hash")]
+            public string ContentHash { get; set; }
+
+            public string Error { get; set; }
+        }
+
+        public sealed class LateDriversEventRow
+        {
+            [JsonProperty("event_id")]
+            public string EventId { get; set; }
+
+            [JsonProperty("service_date")]
+            public string ServiceDate { get; set; }
+
+            [JsonProperty("trip_no")]
+            public string TripNo { get; set; }
+
+            public string Side { get; set; }
+            public string Driver { get; set; }
+            public string Client { get; set; }
+
+            [JsonProperty("sched_iso")]
+            public string SchedIso { get; set; }
+
+            [JsonProperty("actual_iso")]
+            public string ActualIso { get; set; }
+
+            [JsonProperty("grace_minutes")]
+            public int GraceMinutes { get; set; }
+
+            [JsonProperty("detected_at")]
+            public double? DetectedAt { get; set; }
+
+            [JsonProperty("resolved_at")]
+            public double? ResolvedAt { get; set; }
+
+            public bool Open { get; set; }
+            public bool Excluded { get; set; }
+
+            [JsonProperty("minutes_late")]
+            public double MinutesLate { get; set; }
+
+            [JsonProperty("status_latest")]
+            public string StatusLatest { get; set; }
+
+            [JsonProperty("statuses_seen")]
+            public List<string> StatusesSeen { get; set; }
+        }
+
+        public sealed class LateDriversLiveDoc
+        {
+            public bool Ok { get; set; }
+            public string Mode { get; set; }
+
+            [JsonProperty("service_date")]
+            public string ServiceDate { get; set; }
+
+            public int Count { get; set; }
+
+            [JsonProperty("open_count")]
+            public int OpenCount { get; set; }
+
+            [JsonProperty("content_hash")]
+            public string ContentHash { get; set; }
+
+            public List<LateDriversEventRow> Events { get; set; }
+            public string Error { get; set; }
+        }
+
+        public sealed class LateDriversDayDoc
+        {
+            public bool Ok { get; set; }
+            public string Mode { get; set; }
+
+            [JsonProperty("service_date")]
+            public string ServiceDate { get; set; }
+
+            public int Count { get; set; }
+
+            [JsonProperty("open_count")]
+            public int OpenCount { get; set; }
+
+            [JsonProperty("content_hash")]
+            public string ContentHash { get; set; }
+
+            public List<LateDriversEventRow> Events { get; set; }
+            public string Error { get; set; }
+        }
+
+        public sealed class LateDriversDriverSummary
+        {
+            public string Driver { get; set; }
+
+            [JsonProperty("late_count")]
+            public int LateCount { get; set; }
+
+            [JsonProperty("pu_count")]
+            public int PuCount { get; set; }
+
+            [JsonProperty("do_count")]
+            public int DoCount { get; set; }
+
+            [JsonProperty("open_count")]
+            public int OpenCount { get; set; }
+
+            [JsonProperty("total_minutes")]
+            public double TotalMinutes { get; set; }
+
+            public List<LateDriversEventRow> Trips { get; set; }
+        }
+
+        public sealed class LateDriversPeriodDoc
+        {
+            public bool Ok { get; set; }
+            public string Mode { get; set; }
+
+            [JsonProperty("from_date")]
+            public string FromDate { get; set; }
+
+            [JsonProperty("to_date")]
+            public string ToDate { get; set; }
+
+            [JsonProperty("driver_count")]
+            public int DriverCount { get; set; }
+
+            [JsonProperty("event_count")]
+            public int EventCount { get; set; }
+
+            [JsonProperty("content_hash")]
+            public string ContentHash { get; set; }
+
+            public List<LateDriversDriverSummary> Drivers { get; set; }
+            public List<LateDriversEventRow> Events { get; set; }
+            public string Error { get; set; }
+        }
+
+        public static async Task<LateDriversStatus> GetLateDriversStatusAsync(
+            HiatmeAiSettings settings,
+            string serviceDateIso,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null)
+                return new LateDriversStatus { Ok = false, Error = "settings missing" };
+
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl))
+                return new LateDriversStatus { Ok = false, Error = "AI server URL not configured" };
+
+            string url = baseUrl + "/api/hiatme/late-drivers/status";
+            if (!string.IsNullOrWhiteSpace(serviceDateIso))
+                url += "?service_date=" + Uri.EscapeDataString(serviceDateIso.Trim());
+
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Get, url))
+                {
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken)
+                        .ConfigureAwait(false))
+                    {
+                        var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        if (!resp.IsSuccessStatusCode)
+                            return new LateDriversStatus
+                            {
+                                Ok = false,
+                                Error = "HTTP " + (int)resp.StatusCode + ": " + body,
+                            };
+                        return JsonConvert.DeserializeObject<LateDriversStatus>(body)
+                            ?? new LateDriversStatus { Ok = false, Error = "empty response" };
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                return new LateDriversStatus { Ok = false, Error = ex.Message };
+            }
+        }
+
+        public static async Task<LateDriversLiveDoc> GetLateDriversLiveAsync(
+            HiatmeAiSettings settings,
+            string serviceDateIso,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null)
+                return new LateDriversLiveDoc { Ok = false, Error = "settings missing" };
+
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl))
+                return new LateDriversLiveDoc { Ok = false, Error = "AI server URL not configured" };
+
+            string url = baseUrl + "/api/hiatme/late-drivers/live";
+            if (!string.IsNullOrWhiteSpace(serviceDateIso))
+                url += "?service_date=" + Uri.EscapeDataString(serviceDateIso.Trim());
+
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Get, url))
+                {
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken)
+                        .ConfigureAwait(false))
+                    {
+                        var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        if (!resp.IsSuccessStatusCode)
+                            return new LateDriversLiveDoc
+                            {
+                                Ok = false,
+                                Error = "HTTP " + (int)resp.StatusCode + ": " + body,
+                            };
+                        return JsonConvert.DeserializeObject<LateDriversLiveDoc>(body)
+                            ?? new LateDriversLiveDoc { Ok = false, Error = "empty response" };
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                return new LateDriversLiveDoc { Ok = false, Error = ex.Message };
+            }
+        }
+
+        public static async Task<LateDriversDayDoc> GetLateDriversDayAsync(
+            HiatmeAiSettings settings,
+            string serviceDateIso,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null || string.IsNullOrWhiteSpace(serviceDateIso))
+                return new LateDriversDayDoc { Ok = false, Error = "settings or date missing" };
+
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl))
+                return new LateDriversDayDoc { Ok = false, Error = "AI server URL not configured" };
+
+            string url = baseUrl + "/api/hiatme/late-drivers/day?service_date="
+                + Uri.EscapeDataString(serviceDateIso.Trim());
+
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Get, url))
+                {
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken)
+                        .ConfigureAwait(false))
+                    {
+                        var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        if (!resp.IsSuccessStatusCode)
+                            return new LateDriversDayDoc
+                            {
+                                Ok = false,
+                                Error = "HTTP " + (int)resp.StatusCode + ": " + body,
+                            };
+                        return JsonConvert.DeserializeObject<LateDriversDayDoc>(body)
+                            ?? new LateDriversDayDoc { Ok = false, Error = "empty response" };
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                return new LateDriversDayDoc { Ok = false, Error = ex.Message };
+            }
+        }
+
+        public static async Task<LateDriversPeriodDoc> GetLateDriversPeriodAsync(
+            HiatmeAiSettings settings,
+            string period,
+            string serviceDateIso = null,
+            string driver = null,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null)
+                return new LateDriversPeriodDoc { Ok = false, Error = "settings missing" };
+
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl))
+                return new LateDriversPeriodDoc { Ok = false, Error = "AI server URL not configured" };
+
+            var q = new List<string>
+            {
+                "period=" + Uri.EscapeDataString((period ?? "week").Trim()),
+            };
+            if (!string.IsNullOrWhiteSpace(serviceDateIso))
+                q.Add("service_date=" + Uri.EscapeDataString(serviceDateIso.Trim()));
+            if (!string.IsNullOrWhiteSpace(driver))
+                q.Add("driver=" + Uri.EscapeDataString(driver.Trim()));
+
+            string url = baseUrl + "/api/hiatme/late-drivers/period?" + string.Join("&", q);
+
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Get, url))
+                {
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken)
+                        .ConfigureAwait(false))
+                    {
+                        var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        if (!resp.IsSuccessStatusCode)
+                            return new LateDriversPeriodDoc
+                            {
+                                Ok = false,
+                                Error = "HTTP " + (int)resp.StatusCode + ": " + body,
+                            };
+                        return JsonConvert.DeserializeObject<LateDriversPeriodDoc>(body)
+                            ?? new LateDriversPeriodDoc { Ok = false, Error = "empty response" };
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                return new LateDriversPeriodDoc { Ok = false, Error = ex.Message };
+            }
+        }
     }
 }

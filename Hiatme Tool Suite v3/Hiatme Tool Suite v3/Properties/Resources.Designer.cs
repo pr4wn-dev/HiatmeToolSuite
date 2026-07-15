@@ -199,6 +199,16 @@ namespace Hiatme_Tool_Suite_v3.Properties {
         /// <summary>
         ///   Looks up a localized resource of type System.Drawing.Bitmap.
         /// </summary>
+        internal static System.Drawing.Bitmap late_drivers {
+            get {
+                object obj = ResourceManager.GetObject("late_drivers", resourceCulture);
+                return ((System.Drawing.Bitmap)(obj));
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized resource of type System.Drawing.Bitmap.
+        /// </summary>
         internal static System.Drawing.Bitmap modivcare_new_trips {
             get {
                 object obj = ResourceManager.GetObject("modivcare_new_trips", resourceCulture);

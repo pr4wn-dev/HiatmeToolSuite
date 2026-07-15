@@ -214,6 +214,7 @@ namespace Hiatme_Tool_Suite_v3
             ApplyAutoAssignVisualTheme();
             ApplyProductionVisualTheme();
             ApplyCameraVisualTheme();
+            InitializeLateDriversTab();
             ApplyLoginVisualTheme(layout: false);
             if (LoadingGifCard != null)
                 LoadingGifCard.Visible = false;
@@ -1895,6 +1896,7 @@ namespace Hiatme_Tool_Suite_v3
                 ApplyAutoAssignVisualTheme(layout: false);
                 ApplyProductionVisualTheme();
                 ApplyCameraVisualTheme(layout: false);
+                ApplyLateDriversVisualTheme(layout: false);
                 ApplyLoadingOverlayTheme();
                 SupeyListViewHelpers.RefreshThemeColors(this);
                 Invalidate(true);
@@ -2924,6 +2926,10 @@ namespace Hiatme_Tool_Suite_v3
                 if (tabImageList != null && !tabImageList.Images.ContainsKey("supey-shield.png"))
                 {
                     tabImageList.Images.Add("supey-shield.png", Properties.Resources.supey_shield);
+                }
+                if (tabImageList != null && !tabImageList.Images.ContainsKey("late-drivers.png"))
+                {
+                    tabImageList.Images.Add("late-drivers.png", Properties.Resources.late_drivers);
                 }
             }
             catch
@@ -9039,6 +9045,11 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     ScheduleTripScoutColumnFit();
                     EnsureTripScoutFirstUseLoad();
+                }
+                if (hiatmeTabControl.SelectedTab == tabPageLateDrivers)
+                {
+                    LayoutLateDriversTabPanels();
+                    EnsureLateDriversFirstUseLoad();
                 }
             }
             catch

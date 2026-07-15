@@ -177,6 +177,7 @@ namespace Hiatme_Tool_Suite_v3
             this.aadatepicker = new Hiatme_Tool_Suite_v3.RJDatePicker();
             this.tabPage8 = new System.Windows.Forms.TabPage();
             this.tabPage9 = new System.Windows.Forms.TabPage();
+            this.tabPageLateDrivers = new System.Windows.Forms.TabPage();
             this.tsmaterialCard = new SupeyCard();
             this.tslv = new SupeyListView();
             this.tsColStatus = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
@@ -283,6 +284,7 @@ namespace Hiatme_Tool_Suite_v3
             this.hiatmeTabControl.Controls.Add(this.tabPage7);
             this.hiatmeTabControl.Controls.Add(this.tabPage8);
             this.hiatmeTabControl.Controls.Add(this.tabPage9);
+            this.hiatmeTabControl.Controls.Add(this.tabPageLateDrivers);
             this.hiatmeTabControl.Controls.Add(this.tabPage3);
             this.hiatmeTabControl.Dock = System.Windows.Forms.DockStyle.Fill;
             this.hiatmeTabControl.Font = new System.Drawing.Font("Microsoft Sans Serif", 9.5F);
@@ -1949,6 +1951,16 @@ namespace Hiatme_Tool_Suite_v3
             this.tabPage9.Text = "Trip Scout";
             this.tabPage9.UseVisualStyleBackColor = true;
             // 
+            // tabPageLateDrivers
+            // 
+            this.tabPageLateDrivers.ImageKey = "late-drivers.png";
+            this.tabPageLateDrivers.Location = new System.Drawing.Point(4, 39);
+            this.tabPageLateDrivers.Name = "tabPageLateDrivers";
+            this.tabPageLateDrivers.Size = new System.Drawing.Size(1502, 777);
+            this.tabPageLateDrivers.TabIndex = 9;
+            this.tabPageLateDrivers.Text = "Late Drivers";
+            this.tabPageLateDrivers.UseVisualStyleBackColor = true;
+            // 
             // tsmaterialCard
             // 
             this.tsmaterialCard.Anchor = ((System.Windows.Forms.AnchorStyles)((((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Bottom) 
@@ -2732,6 +2744,7 @@ namespace Hiatme_Tool_Suite_v3
         private System.Windows.Forms.ColumnHeader columnHeader71;
         private System.Windows.Forms.TabPage tabPage8;
         private System.Windows.Forms.TabPage tabPage9;
+        private System.Windows.Forms.TabPage tabPageLateDrivers;
         private SupeyCard tsmaterialCard;
         private SupeyCard tsstatuspanel;
         private SupeyLabel tsstatuslbl;
