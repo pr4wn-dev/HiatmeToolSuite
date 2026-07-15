@@ -487,6 +487,62 @@ namespace Hiatme_Tool_Suite_v3
             return _supeyAiSettings;
         }
 
+        /// <summary>
+        /// If the panel has no Modivcare snapshot for this date, download once and PUT it.
+        /// </summary>
+        private async Task<(bool Ok, string Message, bool Downloaded)> EnsureModivcareDaySnapshotAsync(
+            HiatmeAiSettings settings,
+            string serviceDateIso)
+        {
+            if (settings == null || string.IsNullOrWhiteSpace(settings.BaseUrl))
+                return (false, "AI server not configured", false);
+            if (string.IsNullOrWhiteSpace(serviceDateIso))
+                return (false, "service date missing", false);
+
+            DateTime day;
+            if (!DateTime.TryParseExact(
+                    serviceDateIso.Trim(),
+                    "yyyy-MM-dd",
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.None,
+                    out day))
+            {
+                return (false, "bad service date", false);
+            }
+
+            var st = await HiatmeAiClient.GetModivcareDayStatusAsync(settings, serviceDateIso)
+                .ConfigureAwait(true);
+            if (st != null && st.Ok && st.Exists && st.TripCount > 0)
+                return (true, "Modivcare schedule on file (" + st.TripCount + " trips)", false);
+
+            SetLateDriversStatus("Status: Downloading Modivcare schedule for " + serviceDateIso + "…");
+            if (!await EnsureModivcareSessionAsync().ConfigureAwait(true))
+                return (false, "Need Modivcare login to load schedule for " + serviceDateIso, false);
+
+            List<MCDownloadedTrip> downloaded = null;
+            try
+            {
+                var dler = new MCTripDownloader();
+                downloaded = await dler.DownloadTripRecords(day, mcLoginHandler).ConfigureAwait(true);
+            }
+            catch (Exception ex)
+            {
+                return (false, "Modivcare download failed: " + ex.Message, false);
+            }
+
+            if (downloaded == null || downloaded.Count == 0)
+                return (false, "Need Modivcare schedule for " + serviceDateIso + " (empty download)", false);
+
+            var rows = HiatmeAiClient.ModivcareDayTripsFromDownloaded(downloaded);
+            var put = await HiatmeAiClient.PutModivcareDayAsync(
+                    settings, serviceDateIso, rows, source: "late-drivers")
+                .ConfigureAwait(true);
+            if (put == null || !put.Ok)
+                return (false, "Failed to store Modivcare schedule: " + (put?.Error ?? "unknown"), false);
+
+            return (true, "Stored Modivcare schedule (" + put.TripCount + " trips)", true);
+        }
+
         private void EnsureLateDriversFirstUseLoad()
         {
             if (!_ldBuilt || _ldFirstLoadDone)
@@ -643,6 +699,17 @@ namespace Hiatme_Tool_Suite_v3
                 string mode = LateDriversSelectedMode();
                 string sd = LateDriversSelectedServiceDateIso();
 
+                if (mode == "live" || mode == "day")
+                {
+                    var ensured = await EnsureModivcareDaySnapshotAsync(settings, sd)
+                        .ConfigureAwait(true);
+                    if (!ensured.Ok)
+                    {
+                        SetLateDriversStatus("Status: " + ensured.Message);
+                        return;
+                    }
+                }
+
                 if (!force && mode == "live" && !string.IsNullOrEmpty(_ldLastHash))
                 {
                     var st = await HiatmeAiClient.GetLateDriversStatusAsync(settings, sd)
@@ -668,6 +735,13 @@ namespace Hiatme_Tool_Suite_v3
                         SetLateDriversStatus("Status: " + (doc?.Error ?? "live load failed"));
                         return;
                     }
+                    if (!doc.ModivcareExists)
+                    {
+                        SetLateDriversStatus(
+                            "Status: Need Modivcare schedule for " + sd
+                            + " — scoring paused until schedule is stored.");
+                        return;
+                    }
                     _ldLastHash = doc.ContentHash ?? "";
                     _ldDriverRows = null;
                     _ldEventRows = doc.Events ?? new List<HiatmeAiClient.LateDriversEventRow>();
@@ -680,7 +754,8 @@ namespace Hiatme_Tool_Suite_v3
                     }
                     SetLateDriversStatus(
                         "Status: Live — " + _ldEventRows.Count + " late today ("
-                        + openN + " still open) · "
+                        + openN + " still open) · MC " + doc.ModivcareTripCount
+                        + " · "
                         + DateTime.Now.ToString("h:mm:ss tt", CultureInfo.CurrentCulture));
                 }
                 else if (mode == "day")
@@ -692,12 +767,18 @@ namespace Hiatme_Tool_Suite_v3
                         SetLateDriversStatus("Status: " + (doc?.Error ?? "day load failed"));
                         return;
                     }
+                    if (!doc.ModivcareExists)
+                    {
+                        SetLateDriversStatus("Status: Need Modivcare schedule for " + sd);
+                        return;
+                    }
                     _ldLastHash = doc.ContentHash ?? "";
                     _ldDriverRows = null;
                     _ldEventRows = doc.Events ?? new List<HiatmeAiClient.LateDriversEventRow>();
                     BindLateDriversEventList(_ldEventRows, showDate: false);
                     SetLateDriversStatus(
-                        "Status: Day " + sd + " — " + doc.Count + " late (" + doc.OpenCount + " still open)");
+                        "Status: Day " + sd + " — " + doc.Count + " late (" + doc.OpenCount
+                        + " still open) · MC " + doc.ModivcareTripCount);
                 }
                 else
                 {

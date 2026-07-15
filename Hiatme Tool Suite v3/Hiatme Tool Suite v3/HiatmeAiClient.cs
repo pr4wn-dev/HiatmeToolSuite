@@ -2221,6 +2221,12 @@ namespace Hiatme_Tool_Suite_v3
             public string ContentHash { get; set; }
 
             public string Error { get; set; }
+
+            [JsonProperty("modivcare_exists")]
+            public bool ModivcareExists { get; set; }
+
+            [JsonProperty("modivcare_trip_count")]
+            public int ModivcareTripCount { get; set; }
         }
 
         public sealed class LateDriversEventRow
@@ -2284,6 +2290,12 @@ namespace Hiatme_Tool_Suite_v3
 
             public List<LateDriversEventRow> Events { get; set; }
             public string Error { get; set; }
+
+            [JsonProperty("modivcare_exists")]
+            public bool ModivcareExists { get; set; }
+
+            [JsonProperty("modivcare_trip_count")]
+            public int ModivcareTripCount { get; set; }
         }
 
         public sealed class LateDriversDayDoc
@@ -2304,6 +2316,12 @@ namespace Hiatme_Tool_Suite_v3
 
             public List<LateDriversEventRow> Events { get; set; }
             public string Error { get; set; }
+
+            [JsonProperty("modivcare_exists")]
+            public bool ModivcareExists { get; set; }
+
+            [JsonProperty("modivcare_trip_count")]
+            public int ModivcareTripCount { get; set; }
         }
 
         public sealed class LateDriversDriverSummary
@@ -2535,6 +2553,170 @@ namespace Hiatme_Tool_Suite_v3
             {
                 return new LateDriversPeriodDoc { Ok = false, Error = ex.Message };
             }
+        }
+
+        // ── Modivcare day snapshot (Late Drivers sched source) ───────────
+
+        public sealed class ModivcareDayStatus
+        {
+            public bool Ok { get; set; }
+            public bool Exists { get; set; }
+
+            [JsonProperty("service_date")]
+            public string ServiceDate { get; set; }
+
+            [JsonProperty("trip_count")]
+            public int TripCount { get; set; }
+
+            [JsonProperty("content_hash")]
+            public string ContentHash { get; set; }
+
+            [JsonProperty("updated_at")]
+            public double? UpdatedAt { get; set; }
+
+            public string Source { get; set; }
+            public string Error { get; set; }
+        }
+
+        public sealed class ModivcareDayTripRow
+        {
+            [JsonProperty("trip_number")]
+            public string TripNumber { get; set; }
+
+            [JsonProperty("pu_time")]
+            public string PuTime { get; set; }
+
+            [JsonProperty("do_time")]
+            public string DoTime { get; set; }
+
+            [JsonProperty("sched_do_time")]
+            public string SchedDoTime { get; set; }
+
+            public string Client { get; set; }
+            public string Driver { get; set; }
+        }
+
+        public static async Task<ModivcareDayStatus> GetModivcareDayStatusAsync(
+            HiatmeAiSettings settings,
+            string serviceDateIso,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null)
+                return new ModivcareDayStatus { Ok = false, Error = "settings missing" };
+
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl))
+                return new ModivcareDayStatus { Ok = false, Error = "AI server URL not configured" };
+
+            string url = baseUrl + "/api/hiatme/modivcare/day";
+            if (!string.IsNullOrWhiteSpace(serviceDateIso))
+                url += "?service_date=" + Uri.EscapeDataString(serviceDateIso.Trim());
+
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Get, url))
+                {
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken)
+                        .ConfigureAwait(false))
+                    {
+                        var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        if (!resp.IsSuccessStatusCode)
+                            return new ModivcareDayStatus
+                            {
+                                Ok = false,
+                                Error = "HTTP " + (int)resp.StatusCode + ": " + body,
+                            };
+                        return JsonConvert.DeserializeObject<ModivcareDayStatus>(body)
+                            ?? new ModivcareDayStatus { Ok = false, Error = "empty response" };
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                return new ModivcareDayStatus { Ok = false, Error = ex.Message };
+            }
+        }
+
+        public static async Task<ModivcareDayStatus> PutModivcareDayAsync(
+            HiatmeAiSettings settings,
+            string serviceDateIso,
+            IList<ModivcareDayTripRow> trips,
+            string source = "",
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null)
+                return new ModivcareDayStatus { Ok = false, Error = "settings missing" };
+            if (string.IsNullOrWhiteSpace(serviceDateIso))
+                return new ModivcareDayStatus { Ok = false, Error = "service_date required" };
+
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl))
+                return new ModivcareDayStatus { Ok = false, Error = "AI server URL not configured" };
+
+            string url = baseUrl + "/api/hiatme/modivcare/day";
+            var payload = new
+            {
+                service_date = serviceDateIso.Trim(),
+                source = source ?? "",
+                trips = trips ?? new List<ModivcareDayTripRow>(),
+            };
+
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Put, url))
+                {
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    req.Content = new StringContent(
+                        JsonConvert.SerializeObject(payload),
+                        Encoding.UTF8,
+                        "application/json");
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken)
+                        .ConfigureAwait(false))
+                    {
+                        var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        if (!resp.IsSuccessStatusCode)
+                            return new ModivcareDayStatus
+                            {
+                                Ok = false,
+                                Error = "HTTP " + (int)resp.StatusCode + ": " + body,
+                            };
+                        return JsonConvert.DeserializeObject<ModivcareDayStatus>(body)
+                            ?? new ModivcareDayStatus { Ok = false, Error = "empty response" };
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                return new ModivcareDayStatus { Ok = false, Error = ex.Message };
+            }
+        }
+
+        public static List<ModivcareDayTripRow> ModivcareDayTripsFromDownloaded(
+            IEnumerable<MCDownloadedTrip> downloaded)
+        {
+            var rows = new List<ModivcareDayTripRow>();
+            if (downloaded == null)
+                return rows;
+            foreach (MCDownloadedTrip t in downloaded)
+            {
+                if (t == null || string.IsNullOrWhiteSpace(t.TripNumber))
+                    continue;
+                rows.Add(new ModivcareDayTripRow
+                {
+                    TripNumber = t.TripNumber.Trim(),
+                    PuTime = t.PUTime ?? "",
+                    DoTime = t.DOTime ?? "",
+                    SchedDoTime = t.SchedDOTime ?? "",
+                    Client = t.ClientFullName ?? "",
+                    Driver = t.DriverNameParsed ?? "",
+                });
+            }
+            return rows;
         }
     }
 }

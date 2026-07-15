@@ -9280,8 +9280,12 @@ namespace Hiatme_Tool_Suite_v3
                 if (bg == Color.Empty || bg == Color.Transparent)
                     bg = SupeyTheme.ListBody;
                 TripScoutPaintStatusCellIfBlinking(e, bg, out bg);
-                using (var rowBrush = new SolidBrush(bg))
-                    e.Graphics.FillRectangle(rowBrush, e.Bounds);
+                var fill = SupeyListViewHelpers.InsetBoundsForGrid(e.Bounds);
+                if (fill.Width > 0 && fill.Height > 0)
+                {
+                    using (var rowBrush = new SolidBrush(bg))
+                        e.Graphics.FillRectangle(rowBrush, fill);
+                }
             }
 
             Color textColor = themed

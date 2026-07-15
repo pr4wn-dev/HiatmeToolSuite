@@ -136,6 +136,8 @@ namespace Hiatme_Tool_Suite_v3
 
         private void OnAutoDrawCellGrid(object sender, DrawListViewSubItemEventArgs e)
         {
+            // Continuous overlay in WM_PAINT seals empty-area joins; per-cell strokes stay in the
+            // double-buffer so scroll/select repaints keep grids without waiting on CreateGraphics.
             if (!GridLines || View != View.Details || e?.Graphics == null || e.Item == null)
                 return;
             if (SupeyListViewHelpers.ShouldSkipCellGrid(e.Item))

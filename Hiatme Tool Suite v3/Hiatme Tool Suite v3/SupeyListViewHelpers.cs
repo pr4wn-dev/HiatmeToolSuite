@@ -420,8 +420,21 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (e == null) return;
             e.DrawDefault = false;
+            // Leave the right + bottom hairline free so the next column/row fill cannot
+            // wipe a grid stroke that was painted on the previous cell's shared edge.
+            var fill = InsetBoundsForGrid(bounds);
+            if (fill.Width <= 0 || fill.Height <= 0)
+                return;
             using (var brush = new SolidBrush(background))
-                e.Graphics.FillRectangle(brush, bounds);
+                e.Graphics.FillRectangle(brush, fill);
+        }
+
+        /// <summary>Shrink a cell rect so opaque fills do not cover 1px right/bottom grid channels.</summary>
+        public static Rectangle InsetBoundsForGrid(Rectangle bounds)
+        {
+            if (bounds.Width <= 0 || bounds.Height <= 0)
+                return Rectangle.Empty;
+            return new Rectangle(bounds.Left, bounds.Top, Math.Max(0, bounds.Width - 1), Math.Max(0, bounds.Height - 1));
         }
 
         /// <summary>True when <paramref name="listView"/> should paint themed grid lines.</summary>
@@ -460,13 +473,16 @@ namespace Hiatme_Tool_Suite_v3
             var saved = g.Save();
             try
             {
-                g.PixelOffsetMode = PixelOffsetMode.Half;
-                int right = bounds.Right - 1;
-                int bottom = bounds.Bottom - 1;
-                using (var pen = new Pen(ListGridLineColor, 1f))
+                // FillRectangle (not DrawLine): GDI+ hairlines with PixelOffsetMode.Half leave
+                // 1px holes at every intersection. Opaque 1px fills seal corners cleanly.
+                g.SmoothingMode = SmoothingMode.None;
+                g.PixelOffsetMode = PixelOffsetMode.None;
+                using (var brush = new SolidBrush(ListGridLineColor))
                 {
-                    g.DrawLine(pen, right, bounds.Top, right, bottom);
-                    g.DrawLine(pen, bounds.Left, bottom, right, bottom);
+                    // Right edge through the full cell height; bottom edge through the full width.
+                    // Shared corner pixels overlap (same color) so joints never notch.
+                    g.FillRectangle(brush, bounds.Right - 1, bounds.Top, 1, bounds.Height);
+                    g.FillRectangle(brush, bounds.Left, bounds.Bottom - 1, bounds.Width, 1);
                 }
             }
             finally
@@ -531,8 +547,8 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         /// <summary>
-        /// Extends column + row grid lines through the empty client area below the last item,
-        /// matching the billing list workbook look.
+        /// Continuous Details grid for the whole client body (populated rows + empty area).
+        /// Painted after WM_PAINT so background fills cannot wipe column/row joints.
         /// </summary>
         public static void PaintEmptyDetailsGrid(ListView listView, Graphics g)
         {
@@ -543,35 +559,144 @@ namespace Hiatme_Tool_Suite_v3
                 return;
 
             int headerH = GetDetailsHeaderHeight(listView);
+            int clientH = listView.ClientSize.Height;
+            int clientW = listView.ClientSize.Width;
+            if (clientH <= headerH || clientW <= 0)
+                return;
 
             int rowH = Math.Max(18, TextRenderer.MeasureText("Ag", listView.Font ?? ListViewOwnerDrawFonts.Cell).Height + 5);
             if (TryGetItemBounds(listView, 0, out Rectangle firstBounds) && firstBounds.Height > 0)
                 rowH = Math.Max(16, firstBounds.Height);
 
-            int contentW = 0;
-            foreach (ColumnHeader col in listView.Columns)
-                contentW += col.Width;
-            contentW = Math.Max(contentW, listView.ClientSize.Width);
-
-            int startY = headerH;
-            if (listView.Items.Count > 0
-                && TryGetItemBounds(listView, listView.Items.Count - 1, out Rectangle lastBounds))
+            // Column right edges from a live row when possible (respects horizontal scroll).
+            var colRights = new List<int>(listView.Columns.Count);
+            ListViewItem sample = listView.TopItem ?? (listView.Items.Count > 0 ? listView.Items[0] : null);
+            if (sample != null && sample.SubItems.Count > 0)
             {
-                startY = Math.Max(headerH, lastBounds.Bottom);
+                for (int c = 0; c < listView.Columns.Count; c++)
+                {
+                    if (c < sample.SubItems.Count)
+                        colRights.Add(sample.SubItems[c].Bounds.Right - 1);
+                    else
+                        break;
+                }
             }
-
-            using (var pen = new Pen(ListGridLineColor, 1f))
+            if (colRights.Count != listView.Columns.Count)
             {
-                int x = 0;
+                colRights.Clear();
+                int x = sample?.Bounds.Left ?? 0;
                 foreach (ColumnHeader col in listView.Columns)
                 {
                     x += col.Width;
-                    g.DrawLine(pen, x - 1, startY, x - 1, listView.ClientSize.Height - 1);
+                    colRights.Add(x - 1);
                 }
-
-                for (int y = startY + rowH - 1; y < listView.ClientSize.Height; y += rowH)
-                    g.DrawLine(pen, 0, y, contentW - 1, y);
             }
+
+            int contentLeft = 0;
+            int contentRight = clientW;
+            if (sample != null)
+            {
+                contentLeft = sample.Bounds.Left;
+                contentRight = Math.Max(contentLeft + 1, sample.Bounds.Right);
+                if (colRights.Count > 0)
+                    contentRight = Math.Max(contentRight, colRights[colRights.Count - 1] + 1);
+            }
+            else
+            {
+                int w = 0;
+                foreach (ColumnHeader col in listView.Columns)
+                    w += col.Width;
+                contentRight = Math.Max(clientW, w);
+            }
+
+            var skipBands = new List<Rectangle>();
+            var rowBottoms = new List<int>();
+            int lastBottom = headerH;
+            for (int i = 0; i < listView.Items.Count; i++)
+            {
+                if (!TryGetItemBounds(listView, i, out Rectangle ib) || ib.Height <= 0)
+                    continue;
+                if (ib.Bottom < headerH || ib.Top > clientH)
+                    continue;
+                lastBottom = Math.Max(lastBottom, ib.Bottom);
+                if (ShouldSkipCellGrid(listView.Items[i]))
+                {
+                    skipBands.Add(ib);
+                    continue;
+                }
+                rowBottoms.Add(ib.Bottom - 1);
+            }
+
+            // Phantom empty rows below the last item.
+            for (int y = lastBottom + rowH - 1; y < clientH; y += rowH)
+                rowBottoms.Add(y);
+
+            var saved = g.Save();
+            try
+            {
+                g.SmoothingMode = SmoothingMode.None;
+                g.PixelOffsetMode = PixelOffsetMode.None;
+                g.SetClip(new Rectangle(0, headerH, clientW, clientH - headerH));
+
+                using (var brush = new SolidBrush(ListGridLineColor))
+                {
+                    // Full-height verticals, interrupted only through merged/group bars.
+                    foreach (int x in colRights)
+                    {
+                        if (x < -2 || x > clientW)
+                            continue;
+                        PaintVerticalGridSegment(g, brush, x, headerH, clientH - 1, skipBands);
+                    }
+
+                    // Continuous horizontals across the full content width (sealed joins).
+                    int hx = Math.Min(contentLeft, 0);
+                    int hw = Math.Max(contentRight, clientW) - hx;
+                    foreach (int y in rowBottoms)
+                    {
+                        if (y < headerH || y >= clientH)
+                            continue;
+                        g.FillRectangle(brush, hx, y, hw, 1);
+                    }
+                }
+            }
+            finally
+            {
+                g.Restore(saved);
+            }
+        }
+
+        private static void PaintVerticalGridSegment(
+            Graphics g,
+            Brush brush,
+            int x,
+            int top,
+            int bottom,
+            List<Rectangle> skipBands)
+        {
+            if (bottom < top)
+                return;
+
+            if (skipBands == null || skipBands.Count == 0)
+            {
+                g.FillRectangle(brush, x, top, 1, bottom - top + 1);
+                return;
+            }
+
+            skipBands.Sort((a, b) => a.Top.CompareTo(b.Top));
+            int y = top;
+            foreach (var band in skipBands)
+            {
+                if (band.Bottom <= top || band.Top > bottom)
+                    continue;
+                int bandTop = Math.Max(top, band.Top);
+                int bandBottom = Math.Min(bottom + 1, band.Bottom);
+                if (bandTop > y)
+                    g.FillRectangle(brush, x, y, 1, bandTop - y);
+                if (bandBottom > y)
+                    y = bandBottom;
+            }
+            if (y <= bottom)
+                g.FillRectangle(brush, x, y, 1, bottom - y + 1);
         }
 
         /// <summary>
