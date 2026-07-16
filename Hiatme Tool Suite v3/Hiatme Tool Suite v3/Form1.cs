@@ -9048,6 +9048,8 @@ namespace Hiatme_Tool_Suite_v3
                 }
                 if (hiatmeTabControl.SelectedTab == tabPageLateDrivers)
                 {
+                    if (!_ldBuilt)
+                        InitializeLateDriversTab();
                     LayoutLateDriversTabPanels();
                     EnsureLateDriversFirstUseLoad();
                 }

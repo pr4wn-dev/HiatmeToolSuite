@@ -2507,6 +2507,8 @@ namespace Hiatme_Tool_Suite_v3
             string period,
             string serviceDateIso = null,
             string driver = null,
+            string fromDateIso = null,
+            string toDateIso = null,
             CancellationToken cancellationToken = default)
         {
             if (settings == null)
@@ -2524,6 +2526,10 @@ namespace Hiatme_Tool_Suite_v3
                 q.Add("service_date=" + Uri.EscapeDataString(serviceDateIso.Trim()));
             if (!string.IsNullOrWhiteSpace(driver))
                 q.Add("driver=" + Uri.EscapeDataString(driver.Trim()));
+            if (!string.IsNullOrWhiteSpace(fromDateIso))
+                q.Add("from_date=" + Uri.EscapeDataString(fromDateIso.Trim()));
+            if (!string.IsNullOrWhiteSpace(toDateIso))
+                q.Add("to_date=" + Uri.EscapeDataString(toDateIso.Trim()));
 
             string url = baseUrl + "/api/hiatme/late-drivers/period?" + string.Join("&", q);
 
