@@ -70,8 +70,7 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (IsDisposed)
                 return;
-
-            BackColor = SupeyTheme.Surface;
+            // Keep caller-chosen BackColor (e.g. SurfaceElevated next to a timer chip).
             Invalidate();
         }
 
@@ -81,14 +80,15 @@ namespace Hiatme_Tool_Suite_v3
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.PixelOffsetMode = PixelOffsetMode.HighQuality;
 
-            using (var bg = new SolidBrush(SupeyTheme.Surface))
+            Color fill = BackColor.IsEmpty ? SupeyTheme.Surface : BackColor;
+            using (var bg = new SolidBrush(fill))
                 g.FillRectangle(bg, ClientRectangle);
 
             var rect = new Rectangle(4, 4, Width - 9, Height - 9);
             if (rect.Width <= 0 || rect.Height <= 0)
                 return;
 
-            Color track = Blend(SupeyTheme.TextMuted, SupeyTheme.Surface, 0.45f);
+            Color track = Blend(SupeyTheme.TextMuted, fill, 0.45f);
             using (var trackPen = new Pen(track, 2f))
                 g.DrawEllipse(trackPen, rect);
 

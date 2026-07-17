@@ -16,6 +16,8 @@ namespace Hiatme_Tool_Suite_v3
         private SupeyCard ldStatusCard;
         private SupeyLabel ldStatusLbl;
         private Panel ldToolbar;
+        private SupeyCard ldToolbarCard;
+        private Panel ldToolbarInner;
         private RJDatePicker ldDatePicker;
         private FlowLayoutPanel ldPeriodStrip;
         private Label ldDateHintLbl;
@@ -37,6 +39,7 @@ namespace Hiatme_Tool_Suite_v3
 
         private const int LateDriversLivePollIntervalMs = 60_000;
         private const int LateDriversLiveScanMinVisibleMs = 1200;
+        private const int LateDriversToolbarInnerH = 42;
         private const int LateDriversDriverStripH = 114;
         private const int LateDriversHeroH = 96;
         private const int LateDriversDriverTileW = 148;
@@ -47,10 +50,9 @@ namespace Hiatme_Tool_Suite_v3
         private System.Windows.Forms.Timer _ldPollCountdownTimer;
         private DateTime _ldPollNextUtc;
         private DateTime _ldScanStartedUtc;
-        private SupeyCard _ldLiveChromeCard;
         private Panel _ldLiveChromeHost;
         private Panel _ldLiveDivider;
-        private SupeyCard _ldLiveScanCard;
+        private Panel _ldLiveScanCard;
         private SupeyCard _ldLiveTimerCard;
         private TripScoutLiveScanIndicator _ldLiveScan;
         private Label _ldLiveCountdown;
@@ -97,6 +99,8 @@ namespace Hiatme_Tool_Suite_v3
                     ldMainCard = null;
                     ldStatusCard = null;
                     ldToolbar = null;
+                    ldToolbarCard = null;
+                    ldToolbarInner = null;
                     ldStageHost = null;
                     ldTripLv = null;
                     ldPeriodStrip = null;
@@ -119,7 +123,6 @@ namespace Hiatme_Tool_Suite_v3
                     ldHeroCard = null;
                     ldScorecardHost = null;
                     ldHabitChipStrip = null;
-                    _ldLiveChromeCard = null;
                     _ldLiveChromeHost = null;
                     _ldPeriodButtons.Clear();
                     _ldHabitChipButtons.Clear();
@@ -292,30 +295,50 @@ namespace Hiatme_Tool_Suite_v3
 
         private void BuildLateDriversBodyChrome()
         {
-            // ── Top toolbar (period + date + live chrome) ─────────────────
+            // ── Top toolbar card (period + date + live chrome) ────────────
+            // Host padding matches hero / driver strip so the elevated card is full-width inset.
             ldToolbar = new Panel
             {
                 Name = "ldToolbar",
                 Dock = DockStyle.Top,
-                Height = 52,
-                Padding = new Padding(10, 8, 10, 8),
-                BackColor = SupeyTheme.SurfaceHeader,
+                Height = LateDriversToolbarInnerH + 16 + 8, // inner pad + host pad
+                Padding = new Padding(10, 4, 10, 4),
+                BackColor = Color.Transparent,
             };
-            ldToolbar.Resize += (_, __) => LayoutLateDriversToolbar();
+            ldToolbarCard = new SupeyCard
+            {
+                Name = "ldToolbarCard",
+                Dock = DockStyle.Fill,
+                SurfaceLevel = SupeyCard.Surface.Elevated,
+                ShowBorder = true,
+                CornerRadius = 8,
+                Padding = Padding.Empty,
+            };
+            ldToolbarInner = new Panel
+            {
+                Name = "ldToolbarInner",
+                Dock = DockStyle.Fill,
+                Padding = new Padding(12, 8, 12, 8),
+                BackColor = Color.Transparent,
+            };
+            ldToolbarInner.Resize += (_, __) => LayoutLateDriversToolbar();
 
             if (ldPeriodStrip != null)
-                ldToolbar.Controls.Add(ldPeriodStrip);
+                ldToolbarInner.Controls.Add(ldPeriodStrip);
             if (ldDateHintLbl != null)
-                ldToolbar.Controls.Add(ldDateHintLbl);
+                ldToolbarInner.Controls.Add(ldDateHintLbl);
             if (ldDatePicker != null)
-                ldToolbar.Controls.Add(ldDatePicker);
-            if (_ldLiveChromeCard != null)
-                ldToolbar.Controls.Add(_ldLiveChromeCard);
+                ldToolbarInner.Controls.Add(ldDatePicker);
+            if (_ldLiveChromeHost != null)
+                ldToolbarInner.Controls.Add(_ldLiveChromeHost);
+
+            ldToolbarCard.Controls.Add(ldToolbarInner);
+            ldToolbar.Controls.Add(ldToolbarCard);
 
             ldRangeCaptionLbl.Dock = DockStyle.Top;
-            ldRangeCaptionLbl.Height = 24;
-            ldRangeCaptionLbl.Padding = new Padding(12, 0, 12, 0);
-            ldRangeCaptionLbl.BackColor = SupeyTheme.Surface;
+            ldRangeCaptionLbl.Height = 22;
+            ldRangeCaptionLbl.Padding = new Padding(22, 0, 22, 0);
+            ldRangeCaptionLbl.BackColor = Color.Transparent;
 
             // ── Driver card strip (fixed height; ◀ ▶ pages when overflow) ─
             ldDriverStripHost = new Panel
@@ -634,18 +657,19 @@ namespace Hiatme_Tool_Suite_v3
 
         private void LayoutLateDriversToolbar()
         {
-            if (ldToolbar == null || ldToolbar.IsDisposed)
+            var box = ldToolbarInner;
+            if (box == null || box.IsDisposed)
                 return;
-            int padL = ldToolbar.Padding.Left;
-            int padR = ldToolbar.Padding.Right;
-            int y = ldToolbar.Padding.Top;
-            int innerH = Math.Max(28, ldToolbar.ClientSize.Height - ldToolbar.Padding.Vertical);
+            int padL = box.Padding.Left;
+            int padR = box.Padding.Right;
+            int y = box.Padding.Top;
+            int innerH = Math.Max(LateDriversToolbarInnerH, box.ClientSize.Height - box.Padding.Vertical);
             int x = padL;
 
             if (ldPeriodStrip != null && !ldPeriodStrip.IsDisposed)
             {
                 ldPeriodStrip.SetBounds(x, y + Math.Max(0, (innerH - 30) / 2), 380, 30);
-                x = ldPeriodStrip.Right + 10;
+                x = ldPeriodStrip.Right + 12;
             }
 
             if (ldDateHintLbl != null && !ldDateHintLbl.IsDisposed)
@@ -659,39 +683,38 @@ namespace Hiatme_Tool_Suite_v3
                     case "day": hintW = 40; break;
                 }
                 ldDateHintLbl.SetBounds(x, y + Math.Max(0, (innerH - 20) / 2), hintW, 20);
-                x = ldDateHintLbl.Right + 4;
+                x = ldDateHintLbl.Right + 6;
             }
 
             if (ldDatePicker != null && !ldDatePicker.IsDisposed)
             {
                 const int dateH = 34;
                 ldDatePicker.SetBounds(x, y + Math.Max(0, (innerH - dateH) / 2), 214, dateH);
-                x = ldDatePicker.Right + 10;
+                x = ldDatePicker.Right + 12;
             }
 
             EnsureLateDriversLiveChrome();
             bool liveMode = LateDriversSelectedMode() == "live";
-            if (_ldLiveChromeCard != null && !_ldLiveChromeCard.IsDisposed)
+            if (_ldLiveChromeHost != null && !_ldLiveChromeHost.IsDisposed)
             {
-                _ldLiveChromeCard.Visible = liveMode;
-                StyleLateDriversLiveChromeCard(liveMode);
+                _ldLiveChromeHost.Visible = liveMode;
                 if (liveMode)
                 {
                     int chromeW = MeasureLateDriversLiveChromeWidth();
-                    int chromeX = Math.Max(x + 8, ldToolbar.ClientSize.Width - padR - chromeW);
-                    _ldLiveChromeHost?.SuspendLayout();
+                    int chromeX = Math.Max(x + 8, box.ClientSize.Width - padR - chromeW);
+                    _ldLiveChromeHost.SuspendLayout();
                     try
                     {
-                        _ldLiveChromeCard.Parent = ldToolbar;
-                        _ldLiveChromeCard.SetBounds(chromeX, y + Math.Max(0, (innerH - TripScoutLiveCardHeight) / 2),
+                        _ldLiveChromeHost.Parent = box;
+                        _ldLiveChromeHost.SetBounds(chromeX, y + Math.Max(0, (innerH - TripScoutLiveCardHeight) / 2),
                             chromeW, TripScoutLiveCardHeight);
                         LayoutLateDriversLiveChromeHost();
                     }
                     finally
                     {
-                        _ldLiveChromeHost?.ResumeLayout(true);
+                        _ldLiveChromeHost.ResumeLayout(true);
                     }
-                    _ldLiveChromeCard.BringToFront();
+                    _ldLiveChromeHost.BringToFront();
                 }
             }
         }
@@ -852,44 +875,45 @@ namespace Hiatme_Tool_Suite_v3
 
         private void EnsureLateDriversLiveChrome()
         {
-            if (_ldLiveChromeCard == null || _ldLiveChromeCard.IsDisposed)
-            {
-                _ldLiveChromeCard = new SupeyCard
-                {
-                    Name = "ldLiveChromeCard",
-                    SurfaceLevel = SupeyCard.Surface.Elevated,
-                    ShowBorder = true,
-                    CornerRadius = 8,
-                    Size = new Size(140, TripScoutLiveCardHeight),
-                };
-            }
-
             if (_ldLiveChromeHost == null || _ldLiveChromeHost.IsDisposed)
             {
                 _ldLiveChromeHost = new Panel
                 {
                     Name = "ldLiveChromeHost",
-                    Dock = DockStyle.Fill,
                     BackColor = Color.Transparent,
+                    Size = new Size(140, TripScoutLiveCardHeight),
                 };
-                _ldLiveChromeCard.Controls.Add(_ldLiveChromeHost);
-            }
-
-            if (_ldLiveScanCard == null || _ldLiveScanCard.IsDisposed)
-            {
-                _ldLiveScanCard = MakeTripScoutLiveMiniCard("ldLiveScanCard");
-                _ldLiveChromeHost.Controls.Add(_ldLiveScanCard);
             }
 
             if (_ldLiveTimerCard == null || _ldLiveTimerCard.IsDisposed)
             {
                 _ldLiveTimerCard = MakeTripScoutLiveMiniCard("ldLiveTimerCard");
+                _ldLiveTimerCard.ShowBorder = true;
+                _ldLiveTimerCard.SurfaceLevel = SupeyCard.Surface.Elevated;
+                _ldLiveTimerCard.CornerRadius = 6;
                 _ldLiveChromeHost.Controls.Add(_ldLiveTimerCard);
+            }
+
+            if (_ldLiveScanCard == null || _ldLiveScanCard.IsDisposed)
+            {
+                // Inner slot inside the shared timer chip (not its own outer box).
+                _ldLiveScanCard = new Panel
+                {
+                    Name = "ldLiveScanCard",
+                    BackColor = Color.Transparent,
+                };
+                _ldLiveTimerCard.Controls.Add(_ldLiveScanCard);
+            }
+            else if (!ReferenceEquals(_ldLiveScanCard.Parent, _ldLiveTimerCard))
+            {
+                _ldLiveTimerCard.Controls.Add(_ldLiveScanCard);
+                _ldLiveScanCard.BackColor = Color.Transparent;
             }
 
             if (_ldLiveDivider == null || _ldLiveDivider.IsDisposed)
             {
                 _ldLiveDivider = MakeTripScoutLiveDivider("ldLiveDivider");
+                _ldLiveDivider.Visible = false;
                 _ldLiveChromeHost.Controls.Add(_ldLiveDivider);
             }
 
@@ -899,6 +923,7 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     Name = "ldLiveScan",
                     Dock = DockStyle.Fill,
+                    BackColor = SupeyTheme.SurfaceElevated,
                 };
                 _ldLiveScanCard.Controls.Add(_ldLiveScan);
             }
@@ -909,7 +934,6 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     Name = "ldLiveCountdown",
                     AutoSize = false,
-                    Dock = DockStyle.Fill,
                     TextAlign = ContentAlignment.MiddleCenter,
                     Font = new Font("Segoe UI Semibold", 10f, FontStyle.Bold),
                     Text = "60s",
@@ -918,23 +942,17 @@ namespace Hiatme_Tool_Suite_v3
                 };
                 _ldLiveTimerCard.Controls.Add(_ldLiveCountdown);
             }
-        }
-
-        private void StyleLateDriversLiveChromeCard(bool live)
-        {
-            if (_ldLiveChromeCard == null || _ldLiveChromeCard.IsDisposed)
-                return;
-            _ldLiveChromeCard.Accent = live
-                ? SupeyCard.AccentEdge.Left
-                : SupeyCard.AccentEdge.None;
+            else if (!ReferenceEquals(_ldLiveCountdown.Parent, _ldLiveTimerCard))
+            {
+                _ldLiveTimerCard.Controls.Add(_ldLiveCountdown);
+            }
         }
 
         private int MeasureLateDriversLiveChromeWidth()
         {
-            int width = TripScoutLiveCardPadH * 2;
-            width += TripScoutLiveScanSlot + TripScoutLiveCardGap;
-            width += TripScoutLiveTimerCardW + TripScoutLiveCardGap;
-            return width;
+            // Match toolbar/hero inset feel: 8px sides, 8px gap between loady and timer text.
+            const int padL = 8, padR = 8, gap = 8;
+            return padL + TripScoutLiveScanSlot + gap + TripScoutLiveTimerCardW + padR;
         }
 
         private void LayoutLateDriversLiveChromeHost()
@@ -943,22 +961,34 @@ namespace Hiatme_Tool_Suite_v3
                 return;
 
             int hostH = TripScoutLiveCardHeight;
-            int x = TripScoutLiveCardPadH;
+            // Fill the live chrome row so 8px vertical inset has room around the 28px loady.
+            int chipH = hostH;
+            int chipY = 0;
+            int chipW = MeasureLateDriversLiveChromeWidth();
 
-            if (_ldLiveScanCard != null && !_ldLiveScanCard.IsDisposed)
-                _ldLiveScanCard.Visible = true;
-            if (_ldLiveTimerCard != null && !_ldLiveTimerCard.IsDisposed)
-                _ldLiveTimerCard.Visible = true;
             if (_ldLiveDivider != null && !_ldLiveDivider.IsDisposed)
                 _ldLiveDivider.Visible = false;
+            if (_ldLiveTimerCard != null && !_ldLiveTimerCard.IsDisposed)
+            {
+                _ldLiveTimerCard.Visible = true;
+                _ldLiveTimerCard.Padding = Padding.Empty;
+                _ldLiveTimerCard.SetBounds(0, chipY, chipW, chipH);
 
-            int slotY = (hostH - TripScoutLiveScanSlot) / 2;
-            _ldLiveScanCard?.SetBounds(x, slotY, TripScoutLiveScanSlot, TripScoutLiveScanSlot);
-            x += TripScoutLiveScanSlot + TripScoutLiveCardGap;
-
-            int timerH = hostH - (TripScoutLiveCardPadV * 2);
-            int timerY = TripScoutLiveCardPadV;
-            _ldLiveTimerCard?.SetBounds(x, timerY, TripScoutLiveTimerCardW, timerH);
+                const int padL = 8, padR = 8, padV = 8, gap = 8;
+                int innerH = Math.Max(16, chipH - (padV * 2));
+                int scanY = padV + Math.Max(0, (innerH - TripScoutLiveScanSlot) / 2);
+                if (_ldLiveScanCard != null && !_ldLiveScanCard.IsDisposed)
+                {
+                    _ldLiveScanCard.Visible = true;
+                    _ldLiveScanCard.SetBounds(padL, scanY, TripScoutLiveScanSlot, TripScoutLiveScanSlot);
+                }
+                if (_ldLiveCountdown != null && !_ldLiveCountdown.IsDisposed)
+                {
+                    int textX = padL + TripScoutLiveScanSlot + gap;
+                    _ldLiveCountdown.SetBounds(textX, padV,
+                        Math.Max(24, chipW - textX - padR), innerH);
+                }
+            }
         }
 
         private void ApplyLateDriversVisualTheme(bool layout = true)
@@ -1006,9 +1036,16 @@ namespace Hiatme_Tool_Suite_v3
             StyleLateDriversCaption(ldDriverCaptionLbl, secondary: false);
             StyleLateDriversCaption(ldTripCaptionLbl, secondary: false);
             if (ldToolbar != null && !ldToolbar.IsDisposed)
-                ldToolbar.BackColor = SupeyTheme.SurfaceHeader;
+                ldToolbar.BackColor = Color.Transparent;
+            if (ldToolbarCard != null && !ldToolbarCard.IsDisposed)
+                StyleToolTabCard(ldToolbarCard, SupeyCard.Surface.Elevated);
+            if (ldToolbarInner != null && !ldToolbarInner.IsDisposed)
+            {
+                ldToolbarInner.Padding = new Padding(12, 8, 12, 8);
+                ldToolbarInner.BackColor = Color.Transparent;
+            }
             if (ldDriverStripHost != null && !ldDriverStripHost.IsDisposed)
-                ldDriverStripHost.BackColor = SupeyTheme.Surface;
+                ldDriverStripHost.BackColor = Color.Transparent;
             if (ldDriverStripRow != null && !ldDriverStripRow.IsDisposed)
                 ldDriverStripRow.BackColor = Color.Transparent;
             if (ldDriverStrip != null && !ldDriverStrip.IsDisposed)
@@ -1024,7 +1061,7 @@ namespace Hiatme_Tool_Suite_v3
             if (ldScorecardHost != null && !ldScorecardHost.IsDisposed)
                 ldScorecardHost.BackColor = Color.Transparent;
             if (ldStageHost != null && !ldStageHost.IsDisposed)
-                ldStageHost.BackColor = SupeyTheme.Surface;
+                ldStageHost.BackColor = Color.Transparent;
             if (ldHeroCard != null && !ldHeroCard.IsDisposed)
             {
                 StyleToolTabCard(ldHeroCard, SupeyCard.Surface.Elevated);
@@ -1036,15 +1073,17 @@ namespace Hiatme_Tool_Suite_v3
                 ldHeroInner.BackColor = Color.Transparent;
             }
             if (ldRangeCaptionLbl != null && !ldRangeCaptionLbl.IsDisposed)
-                ldRangeCaptionLbl.BackColor = SupeyTheme.Surface;
+                ldRangeCaptionLbl.BackColor = Color.Transparent;
             StyleLateDriversHabitChips();
             StyleLateDriversDriverTiles();
             StyleLateDriversList(ldTripLv);
-            if (_ldLiveChromeCard != null)
+            if (_ldLiveScanCard != null && !_ldLiveScanCard.IsDisposed)
+                _ldLiveScanCard.BackColor = Color.Transparent;
+            if (_ldLiveTimerCard != null && !_ldLiveTimerCard.IsDisposed)
             {
-                _ldLiveChromeCard.SurfaceLevel = SupeyCard.Surface.Elevated;
-                _ldLiveChromeCard.ShowBorder = true;
-                StyleLateDriversLiveChromeCard(LateDriversSelectedMode() == "live");
+                _ldLiveTimerCard.ShowBorder = true;
+                _ldLiveTimerCard.SurfaceLevel = SupeyCard.Surface.Elevated;
+                _ldLiveTimerCard.CornerRadius = 6;
             }
             if (_ldLiveCountdown != null && !_ldLiveCountdown.IsDisposed)
             {
@@ -1053,7 +1092,7 @@ namespace Hiatme_Tool_Suite_v3
                 _ldLiveCountdown.BackColor = Color.Transparent;
             }
             if (_ldLiveScan != null && !_ldLiveScan.IsDisposed)
-                _ldLiveScan.BackColor = SupeyTheme.Surface;
+                _ldLiveScan.BackColor = SupeyTheme.SurfaceElevated;
             if (_ldLiveDivider != null && !_ldLiveDivider.IsDisposed)
                 _ldLiveDivider.BackColor = SupeyTheme.BorderSubtle;
             SupeyDarkScrollBars.Apply(tabPageLateDrivers);
@@ -1245,9 +1284,8 @@ namespace Hiatme_Tool_Suite_v3
             _ldPollTimer?.Stop();
             _ldPollCountdownTimer?.Stop();
             StopLateDriversLiveScan();
-            if (_ldLiveChromeCard != null && !_ldLiveChromeCard.IsDisposed)
-                _ldLiveChromeCard.Visible = false;
-            StyleLateDriversLiveChromeCard(false);
+            if (_ldLiveChromeHost != null && !_ldLiveChromeHost.IsDisposed)
+                _ldLiveChromeHost.Visible = false;
             LateDriversUpdateLivePollCountdownLabel();
         }
 
@@ -1256,9 +1294,8 @@ namespace Hiatme_Tool_Suite_v3
             EnsureLateDriversLiveChrome();
             EnsureLateDriversLivePollTimer();
             EnsureLateDriversLivePollCountdownTimer();
-            if (_ldLiveChromeCard != null)
-                _ldLiveChromeCard.Visible = true;
-            StyleLateDriversLiveChromeCard(true);
+            if (_ldLiveChromeHost != null)
+                _ldLiveChromeHost.Visible = true;
             _ldPollTimer.Start();
             _ldPollCountdownTimer.Start();
             LateDriversScheduleNextLivePoll();
