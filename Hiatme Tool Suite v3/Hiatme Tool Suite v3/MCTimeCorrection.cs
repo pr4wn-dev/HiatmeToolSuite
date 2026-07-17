@@ -501,7 +501,7 @@ namespace Hiatme_Tool_Suite_v3
                 if (!tempbatchdetaillist.Contains(mcbd))
                     tempbatchdetaillist.Add(mcbd);
 
-                // Warm Late Drivers Modivcare day snapshot (once per day on panel; fire-and-forget).
+                // Warm Driver Habits Modivcare day snapshot (once per day on panel; fire-and-forget).
                 try
                 {
                     string sd = mcdate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);

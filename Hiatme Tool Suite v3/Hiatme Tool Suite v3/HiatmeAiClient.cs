@@ -2201,7 +2201,7 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
-        // ── Late Drivers ─────────────────────────────────────────────────
+        // ── Driver Habits (API path /driver-habits; late-drivers kept as alias) ─
 
         public sealed class LateDriversStatus
         {
@@ -2270,6 +2270,10 @@ namespace Hiatme_Tool_Suite_v3
 
             [JsonProperty("statuses_seen")]
             public List<string> StatusesSeen { get; set; }
+
+            // Habit kind when row is sourced from /habits (late_pu, early_do, unfinished_ticket, …)
+            public string Habit { get; set; }
+            public string Kind { get; set; }
         }
 
         public sealed class LateDriversLiveDoc
@@ -2343,6 +2347,21 @@ namespace Hiatme_Tool_Suite_v3
             [JsonProperty("total_minutes")]
             public double TotalMinutes { get; set; }
 
+            // Habit rollup (merged client-side from /driver-habits)
+            [JsonProperty("early_pu")]
+            public int EarlyPu { get; set; }
+
+            [JsonProperty("early_do")]
+            public int EarlyDo { get; set; }
+
+            [JsonProperty("early_count")]
+            public int EarlyCount { get; set; }
+
+            public int Unfinished { get; set; }
+
+            [JsonProperty("unfinished_open")]
+            public int UnfinishedOpen { get; set; }
+
             public List<LateDriversEventRow> Trips { get; set; }
         }
 
@@ -2383,7 +2402,7 @@ namespace Hiatme_Tool_Suite_v3
             if (string.IsNullOrEmpty(baseUrl))
                 return new LateDriversStatus { Ok = false, Error = "AI server URL not configured" };
 
-            string url = baseUrl + "/api/hiatme/late-drivers/status";
+            string url = baseUrl + "/api/hiatme/driver-habits/status";
             if (!string.IsNullOrWhiteSpace(serviceDateIso))
                 url += "?service_date=" + Uri.EscapeDataString(serviceDateIso.Trim());
 
@@ -2427,7 +2446,7 @@ namespace Hiatme_Tool_Suite_v3
             if (string.IsNullOrEmpty(baseUrl))
                 return new LateDriversLiveDoc { Ok = false, Error = "AI server URL not configured" };
 
-            string url = baseUrl + "/api/hiatme/late-drivers/live";
+            string url = baseUrl + "/api/hiatme/driver-habits/live";
             if (!string.IsNullOrWhiteSpace(serviceDateIso))
                 url += "?service_date=" + Uri.EscapeDataString(serviceDateIso.Trim());
 
@@ -2471,7 +2490,7 @@ namespace Hiatme_Tool_Suite_v3
             if (string.IsNullOrEmpty(baseUrl))
                 return new LateDriversDayDoc { Ok = false, Error = "AI server URL not configured" };
 
-            string url = baseUrl + "/api/hiatme/late-drivers/day?service_date="
+            string url = baseUrl + "/api/hiatme/driver-habits/day?service_date="
                 + Uri.EscapeDataString(serviceDateIso.Trim());
 
             try
@@ -2531,7 +2550,7 @@ namespace Hiatme_Tool_Suite_v3
             if (!string.IsNullOrWhiteSpace(toDateIso))
                 q.Add("to_date=" + Uri.EscapeDataString(toDateIso.Trim()));
 
-            string url = baseUrl + "/api/hiatme/late-drivers/period?" + string.Join("&", q);
+            string url = baseUrl + "/api/hiatme/driver-habits/period?" + string.Join("&", q);
 
             try
             {
@@ -2561,7 +2580,173 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
-        // ── Modivcare day snapshot (Late Drivers sched source) ───────────
+        // ── Driver Habits scorecard (early/late + unfinished + billed skip) ─
+
+        public sealed class LateDriversHabitEventRow
+        {
+            [JsonProperty("event_id")]
+            public string EventId { get; set; }
+
+            [JsonProperty("service_date")]
+            public string ServiceDate { get; set; }
+
+            [JsonProperty("trip_no")]
+            public string TripNo { get; set; }
+
+            public string Driver { get; set; }
+            public string Client { get; set; }
+            public string Kind { get; set; }
+            public string Habit { get; set; }
+            public string Side { get; set; }
+
+            public double Minutes { get; set; }
+
+            [JsonProperty("sched_iso")]
+            public string SchedIso { get; set; }
+
+            [JsonProperty("actual_iso")]
+            public string ActualIso { get; set; }
+
+            public string Status { get; set; }
+            public bool Open { get; set; }
+
+            [JsonProperty("detected_at")]
+            public double? DetectedAt { get; set; }
+
+            [JsonProperty("resolved_at")]
+            public double? ResolvedAt { get; set; }
+
+            public List<string> Tags { get; set; }
+        }
+
+        public sealed class LateDriversHabitDriverSummary
+        {
+            public string Driver { get; set; }
+
+            [JsonProperty("late_pu")]
+            public int LatePu { get; set; }
+
+            [JsonProperty("late_do")]
+            public int LateDo { get; set; }
+
+            [JsonProperty("early_pu")]
+            public int EarlyPu { get; set; }
+
+            [JsonProperty("early_do")]
+            public int EarlyDo { get; set; }
+
+            public int Unfinished { get; set; }
+
+            [JsonProperty("unfinished_open")]
+            public int UnfinishedOpen { get; set; }
+
+            [JsonProperty("billed_unfinished")]
+            public int BilledUnfinished { get; set; }
+
+            [JsonProperty("late_count")]
+            public int LateCount { get; set; }
+
+            [JsonProperty("early_count")]
+            public int EarlyCount { get; set; }
+
+            [JsonProperty("late_minutes")]
+            public double LateMinutes { get; set; }
+
+            [JsonProperty("early_minutes")]
+            public double EarlyMinutes { get; set; }
+
+            [JsonProperty("event_count")]
+            public int EventCount { get; set; }
+
+            [JsonProperty("trip_count")]
+            public int TripCount { get; set; }
+        }
+
+        public sealed class LateDriversHabitsDoc
+        {
+            public bool Ok { get; set; }
+            public string Mode { get; set; }
+
+            [JsonProperty("from_date")]
+            public string FromDate { get; set; }
+
+            [JsonProperty("to_date")]
+            public string ToDate { get; set; }
+
+            [JsonProperty("driver_count")]
+            public int DriverCount { get; set; }
+
+            [JsonProperty("event_count")]
+            public int EventCount { get; set; }
+
+            [JsonProperty("content_hash")]
+            public string ContentHash { get; set; }
+
+            public List<LateDriversHabitDriverSummary> Drivers { get; set; }
+            public List<LateDriversHabitEventRow> Events { get; set; }
+            public string Error { get; set; }
+        }
+
+        public static async Task<LateDriversHabitsDoc> GetLateDriversHabitsAsync(
+            HiatmeAiSettings settings,
+            string period,
+            string serviceDateIso = null,
+            string driver = null,
+            string fromDateIso = null,
+            string toDateIso = null,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null)
+                return new LateDriversHabitsDoc { Ok = false, Error = "settings missing" };
+
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl))
+                return new LateDriversHabitsDoc { Ok = false, Error = "AI server URL not configured" };
+
+            var q = new List<string>
+            {
+                "period=" + Uri.EscapeDataString((period ?? "day").Trim()),
+            };
+            if (!string.IsNullOrWhiteSpace(serviceDateIso))
+                q.Add("service_date=" + Uri.EscapeDataString(serviceDateIso.Trim()));
+            if (!string.IsNullOrWhiteSpace(driver))
+                q.Add("driver=" + Uri.EscapeDataString(driver.Trim()));
+            if (!string.IsNullOrWhiteSpace(fromDateIso))
+                q.Add("from_date=" + Uri.EscapeDataString(fromDateIso.Trim()));
+            if (!string.IsNullOrWhiteSpace(toDateIso))
+                q.Add("to_date=" + Uri.EscapeDataString(toDateIso.Trim()));
+
+            string url = baseUrl + "/api/hiatme/driver-habits?" + string.Join("&", q);
+
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Get, url))
+                {
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken)
+                        .ConfigureAwait(false))
+                    {
+                        var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        if (!resp.IsSuccessStatusCode)
+                            return new LateDriversHabitsDoc
+                            {
+                                Ok = false,
+                                Error = "HTTP " + (int)resp.StatusCode + ": " + body,
+                            };
+                        return JsonConvert.DeserializeObject<LateDriversHabitsDoc>(body)
+                            ?? new LateDriversHabitsDoc { Ok = false, Error = "empty response" };
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                return new LateDriversHabitsDoc { Ok = false, Error = ex.Message };
+            }
+        }
+
+        // ── Modivcare day snapshot (Driver Habits sched source) ───────────
 
         public sealed class ModivcareDayStatus
         {

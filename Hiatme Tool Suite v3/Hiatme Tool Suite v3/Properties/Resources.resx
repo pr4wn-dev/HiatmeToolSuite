@@ -187,6 +187,9 @@
   <data name="late_drivers" type="System.Resources.ResXFileRef, System.Windows.Forms">
     <value>..\Resources\late-drivers.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
   </data>
+  <data name="driver_habits" type="System.Resources.ResXFileRef, System.Windows.Forms">
+    <value>..\Resources\driver-habits.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
+  </data>
   <data name="modivcare_new_trips" type="System.Resources.ResXFileRef, System.Windows.Forms">
     <value>..\Resources\modivcare-new-trips.png;System.Drawing.Bitmap, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</value>
   </data>

@@ -1953,12 +1953,12 @@ namespace Hiatme_Tool_Suite_v3
             // 
             // tabPageLateDrivers
             // 
-            this.tabPageLateDrivers.ImageKey = "late-drivers.png";
+            this.tabPageLateDrivers.ImageKey = "driver-habits.png";
             this.tabPageLateDrivers.Location = new System.Drawing.Point(4, 39);
             this.tabPageLateDrivers.Name = "tabPageLateDrivers";
             this.tabPageLateDrivers.Size = new System.Drawing.Size(1502, 777);
             this.tabPageLateDrivers.TabIndex = 9;
-            this.tabPageLateDrivers.Text = "Late Drivers";
+            this.tabPageLateDrivers.Text = "Driver Habits";
             this.tabPageLateDrivers.UseVisualStyleBackColor = true;
             // 
             // tsmaterialCard

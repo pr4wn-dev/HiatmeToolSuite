@@ -2931,6 +2931,10 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     tabImageList.Images.Add("late-drivers.png", Properties.Resources.late_drivers);
                 }
+                if (tabImageList != null && !tabImageList.Images.ContainsKey("driver-habits.png"))
+                {
+                    tabImageList.Images.Add("driver-habits.png", Properties.Resources.driver_habits);
+                }
             }
             catch
             {

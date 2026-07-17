@@ -9,7 +9,7 @@ using System.Windows.Forms.DataVisualization.Charting;
 
 namespace Hiatme_Tool_Suite_v3
 {
-    /// <summary>Late Drivers — Live/Day/Week/Month/Year analytics with driver roster, trip detail, charts.</summary>
+    /// <summary>Driver Habits — Live/Day/Week/Month/Year scorecard with roster, trip detail, charts.</summary>
     partial class Form1
     {
         // tabPageLateDrivers is declared in Form1.Designer.cs (always under Trip Scout).
@@ -24,11 +24,17 @@ namespace Hiatme_Tool_Suite_v3
         private Label ldRangeCaptionLbl;
         private Label ldDriverCaptionLbl;
         private Label ldTripCaptionLbl;
-        private Panel ldDriverHeader;
+        private Label ldInsightsCaptionLbl;
+        private Label ldHeroTitleLbl;
+        private Panel ldDriverStripHost;
+        private Panel ldDriverStripHeader;
+        private FlowLayoutPanel ldDriverStrip;
         private Panel ldTripHeader;
         private Panel ldChartsHost;
-        private SplitContainer ldSplit;
-        private SupeyListView ldDriverLv;
+        private Panel ldStageHost;
+        private Panel ldHeroHost;
+        private Panel ldHeroInner;
+        private SupeyCard ldHeroCard;
         private SupeyListView ldTripLv;
         private SupeyCard ldChartMinutesCard;
         private SupeyCard ldChartSideCard;
@@ -37,8 +43,11 @@ namespace Hiatme_Tool_Suite_v3
 
         private const int LateDriversLivePollIntervalMs = 60_000;
         private const int LateDriversLiveScanMinVisibleMs = 1200;
-        private const int LateDriversChartH = 200;
-        private const int LateDriversDriverPaneW = 300;
+        private const int LateDriversChartH = 160;
+        private const int LateDriversDriverStripH = 118;
+        private const int LateDriversHeroH = 148;
+        private const int LateDriversDriverTileW = 148;
+        private const int LateDriversDriverTileH = 78;
         private System.Windows.Forms.Timer _ldPollTimer;
         private System.Windows.Forms.Timer _ldPollCountdownTimer;
         private DateTime _ldPollNextUtc;
@@ -51,6 +60,7 @@ namespace Hiatme_Tool_Suite_v3
         private TripScoutLiveScanIndicator _ldLiveScan;
         private Label _ldLiveCountdown;
         private string _ldLastHash;
+        private string _ldHabitsHash;
         private bool _ldLoadInFlight;
         private bool _ldBuilt;
         private bool _ldFirstLoadDone;
@@ -58,10 +68,17 @@ namespace Hiatme_Tool_Suite_v3
         private string _ldSelectedPeriod = "live";
         private string _ldSelectedDriver; // null = All drivers
         private string _ldFilter = "all";
+        private string _ldHabitChip = "all";
         private string _ldRangeLabel = "";
         private List<HiatmeAiClient.LateDriversEventRow> _ldEventRows;
         private List<HiatmeAiClient.LateDriversDriverSummary> _ldDriverRows;
         private readonly List<SupeyMaterialButton> _ldPeriodButtons = new List<SupeyMaterialButton>();
+        private readonly List<SupeyMaterialButton> _ldHabitChipButtons = new List<SupeyMaterialButton>();
+        private TableLayoutPanel ldScorecardHost;
+        private FlowLayoutPanel ldHabitChipStrip;
+        private readonly Dictionary<string, Label> _ldScoreValues =
+            new Dictionary<string, Label>(StringComparer.OrdinalIgnoreCase);
+        private readonly List<SupeyCard> _ldDriverTiles = new List<SupeyCard>();
 
         private void InitializeLateDriversTab()
         {
@@ -82,8 +99,7 @@ namespace Hiatme_Tool_Suite_v3
                     ldMainCard = null;
                     ldStatusCard = null;
                     ldToolbar = null;
-                    ldSplit = null;
-                    ldDriverLv = null;
+                    ldStageHost = null;
                     ldTripLv = null;
                     ldChartMinutesCard = null;
                     ldChartSideCard = null;
@@ -97,13 +113,27 @@ namespace Hiatme_Tool_Suite_v3
                     ldRangeCaptionLbl = null;
                     ldDriverCaptionLbl = null;
                     ldTripCaptionLbl = null;
-                    ldDriverHeader = null;
+                    ldInsightsCaptionLbl = null;
+                    ldHeroTitleLbl = null;
+                    ldDriverStripHost = null;
+                    ldDriverStripHeader = null;
+                    ldDriverStrip = null;
                     ldTripHeader = null;
+                    ldHeroHost = null;
+                    ldHeroInner = null;
+                    ldHeroCard = null;
+                    ldScorecardHost = null;
+                    ldHabitChipStrip = null;
                     _ldLiveChromeCard = null;
                     _ldLiveChromeHost = null;
                     _ldPeriodButtons.Clear();
+                    _ldHabitChipButtons.Clear();
+                    _ldScoreValues.Clear();
+                    _ldDriverTiles.Clear();
                 }
-                if (tabImageList != null && tabImageList.Images.ContainsKey("late-drivers.png"))
+                if (tabImageList != null && tabImageList.Images.ContainsKey("driver-habits.png"))
+                    tabPageLateDrivers.ImageKey = "driver-habits.png";
+                else if (tabImageList != null && tabImageList.Images.ContainsKey("late-drivers.png"))
                     tabPageLateDrivers.ImageKey = "late-drivers.png";
                 else if (tabImageList != null && tabImageList.Images.ContainsKey("magnify.png"))
                     tabPageLateDrivers.ImageKey = "magnify.png";
@@ -143,7 +173,7 @@ namespace Hiatme_Tool_Suite_v3
                 ldStatusLbl = new SupeyLabel
                 {
                     Name = "ldStatusLbl",
-                    Text = "Status: Late Drivers — idle",
+                    Text = "Status: Driver Habits — idle",
                     AutoSize = false,
                     Dock = DockStyle.Fill,
                     TextAlign = ContentAlignment.MiddleLeft,
@@ -192,7 +222,7 @@ namespace Hiatme_Tool_Suite_v3
                     AutoSize = false,
                     TextAlign = ContentAlignment.MiddleLeft,
                     BackColor = Color.Transparent,
-                    Text = "Showing: today’s late trips (auto-refresh)",
+                    Text = "Showing: today’s driver habits (auto-refresh)",
                 };
 
                 ldPeriodStrip = new FlowLayoutPanel
@@ -225,9 +255,11 @@ namespace Hiatme_Tool_Suite_v3
                 EnsureLateDriversLiveChrome();
                 BuildLateDriversBodyChrome();
 
-                // Dock order (Schedule Builder style): Fill first, then Bottom/Top so Fill gets remainder.
-                ldMainCard.Controls.Add(ldSplit);
+                // Dock: Fill first, then Bottom, then Tops (last Top = topmost).
+                ldMainCard.Controls.Add(ldStageHost);
                 ldMainCard.Controls.Add(ldChartsHost);
+                ldMainCard.Controls.Add(ldHeroHost);
+                ldMainCard.Controls.Add(ldDriverStripHost);
                 ldMainCard.Controls.Add(ldRangeCaptionLbl);
                 ldMainCard.Controls.Add(ldToolbar);
 
@@ -235,6 +267,7 @@ namespace Hiatme_Tool_Suite_v3
                 tabPageLateDrivers.Controls.Add(ldMainCard);
                 tabPageLateDrivers.Resize += (_, __) => LayoutLateDriversTabPanels();
 
+                tabPageLateDrivers.Text = "Driver Habits";
                 UpdateLateDriversToolbarHints();
                 ApplyLateDriversVisualTheme(layout: true);
                 _ldBuilt = true;
@@ -244,17 +277,17 @@ namespace Hiatme_Tool_Suite_v3
                 // Do NOT set _ldBuilt — allow a retry on next tab select.
                 try
                 {
-                    tabPageLateDrivers.Text = "Late Drivers";
-                    System.Diagnostics.Debug.WriteLine("Late Drivers UI failed: " + ex);
+                    tabPageLateDrivers.Text = "Driver Habits";
+                    System.Diagnostics.Debug.WriteLine("Driver Habits UI failed: " + ex);
                     if (ldStatusLbl != null && !ldStatusLbl.IsDisposed)
-                        ldStatusLbl.Text = "Status: Late Drivers UI failed — " + ex.Message;
+                        ldStatusLbl.Text = "Status: Driver Habits UI failed — " + ex.Message;
                     else if (tabPageLateDrivers.Controls.Count == 0)
                     {
                         tabPageLateDrivers.Controls.Add(new Label
                         {
                             Dock = DockStyle.Fill,
                             TextAlign = ContentAlignment.MiddleCenter,
-                            Text = "Late Drivers failed to build:\r\n" + ex.Message,
+                            Text = "Driver Habits failed to build:\r\n" + ex.Message,
                             ForeColor = Color.OrangeRed,
                         });
                     }
@@ -290,17 +323,148 @@ namespace Hiatme_Tool_Suite_v3
             ldRangeCaptionLbl.Padding = new Padding(12, 0, 12, 0);
             ldRangeCaptionLbl.BackColor = SupeyTheme.Surface;
 
-            // ── Charts strip (bottom) ─────────────────────────────────────
+            // ── Driver card strip ─────────────────────────────────────────
+            ldDriverStripHost = new Panel
+            {
+                Name = "ldDriverStripHost",
+                Dock = DockStyle.Top,
+                Height = LateDriversDriverStripH,
+                Padding = new Padding(10, 4, 10, 4),
+                BackColor = SupeyTheme.Surface,
+            };
+            ldDriverStripHeader = new Panel
+            {
+                Name = "ldDriverStripHeader",
+                Dock = DockStyle.Top,
+                Height = 32,
+                BackColor = Color.Transparent,
+            };
+            ldDriverCaptionLbl = new Label
+            {
+                Name = "ldDriverCaptionLbl",
+                AutoSize = false,
+                Text = "Drivers",
+                TextAlign = ContentAlignment.MiddleLeft,
+                Dock = DockStyle.Left,
+                Width = 90,
+                BackColor = Color.Transparent,
+            };
+            ldFilterCombo = new SupeyComboBox { Name = "ldFilterCombo" };
+            ConfigureToolbarSupeyCombo(ldFilterCombo, 150);
+            ldFilterCombo.Dock = DockStyle.Right;
+            ldFilterCombo.Width = 150;
+            ldFilterCombo.Items.AddRange(new object[]
+            {
+                "Show: All",
+                "Show: Open now",
+                "Show: Early",
+                "Show: Unfinished",
+                "Show: Repeat (2+)",
+            });
+            ldFilterCombo.SelectedIndex = 0;
+            ldFilterCombo.SelectedIndexChanged += (_, __) =>
+            {
+                _ldFilter = LateDriversFilterKey();
+                BindLateDriversDriverStrip();
+                RefreshLateDriversScorecard();
+                BindLateDriversTripPane();
+                RefreshLateDriversCharts();
+            };
+            ldDriverStripHeader.Controls.Add(ldFilterCombo);
+            ldDriverStripHeader.Controls.Add(ldDriverCaptionLbl);
+
+            ldDriverStrip = new FlowLayoutPanel
+            {
+                Name = "ldDriverStrip",
+                Dock = DockStyle.Fill,
+                WrapContents = false,
+                FlowDirection = FlowDirection.LeftToRight,
+                AutoScroll = true,
+                Padding = new Padding(0, 2, 0, 2),
+                BackColor = Color.Transparent,
+            };
+            ldDriverStripHost.Controls.Add(ldDriverStrip);
+            ldDriverStripHost.Controls.Add(ldDriverStripHeader);
+
+            // ── Scorecard hero (host adds side padding; docked Margin is ignored) ─
+            ldHeroHost = new Panel
+            {
+                Name = "ldHeroHost",
+                Dock = DockStyle.Top,
+                Height = LateDriversHeroH + 12,
+                Padding = new Padding(12, 4, 12, 10),
+                BackColor = Color.Transparent,
+            };
+            ldHeroCard = new SupeyCard
+            {
+                Name = "ldHeroCard",
+                Dock = DockStyle.Fill,
+                SurfaceLevel = SupeyCard.Surface.Elevated,
+                ShowBorder = true,
+                CornerRadius = 8,
+                // StyleToolTabCard clears SupeyCard.Padding — keep inset on an inner panel.
+                Padding = Padding.Empty,
+            };
+            ldHeroInner = new Panel
+            {
+                Name = "ldHeroInner",
+                Dock = DockStyle.Fill,
+                Padding = new Padding(20, 16, 20, 16),
+                BackColor = Color.Transparent,
+            };
+            ldHeroTitleLbl = new Label
+            {
+                Name = "ldHeroTitleLbl",
+                AutoSize = false,
+                Dock = DockStyle.Top,
+                Height = 28,
+                Text = "All drivers",
+                TextAlign = ContentAlignment.MiddleLeft,
+                Padding = new Padding(2, 0, 2, 6),
+                BackColor = Color.Transparent,
+                ForeColor = SupeyTheme.TextPrimary,
+                Font = SupeyTheme.SubHeaderFont,
+            };
+            ldScorecardHost = new TableLayoutPanel
+            {
+                Name = "ldScorecardHost",
+                Dock = DockStyle.Fill,
+                ColumnCount = 6,
+                RowCount = 1,
+                Padding = new Padding(0, 4, 0, 0),
+                Margin = Padding.Empty,
+                BackColor = Color.Transparent,
+            };
+            for (int i = 0; i < 6; i++)
+                ldScorecardHost.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f / 6f));
+            ldScorecardHost.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+            BuildLateDriversScorecardWidgets();
+            ldHeroInner.Controls.Add(ldScorecardHost);
+            ldHeroInner.Controls.Add(ldHeroTitleLbl);
+            ldHeroCard.Controls.Add(ldHeroInner);
+            ldHeroHost.Controls.Add(ldHeroCard);
+
+            // ── Insights (charts, bottom) ─────────────────────────────────
             ldChartsHost = new Panel
             {
                 Name = "ldChartsHost",
                 Dock = DockStyle.Bottom,
-                Height = LateDriversChartH,
-                Padding = new Padding(10, 0, 10, 10),
+                Height = LateDriversChartH + 28,
+                Padding = new Padding(10, 0, 10, 8),
                 BackColor = Color.Transparent,
             };
             ldChartsHost.Resize += (_, __) => LayoutLateDriversChartsHost();
-
+            ldInsightsCaptionLbl = new Label
+            {
+                Name = "ldInsightsCaptionLbl",
+                AutoSize = false,
+                Dock = DockStyle.Top,
+                Height = 22,
+                Text = "Insights",
+                TextAlign = ContentAlignment.MiddleLeft,
+                BackColor = Color.Transparent,
+                ForeColor = SupeyTheme.TextSecondary,
+            };
             ldChartMinutesCard = new SupeyCard
             {
                 Name = "ldChartMinutesCard",
@@ -314,7 +478,7 @@ namespace Hiatme_Tool_Suite_v3
                 ShowBorder = true,
             };
             ldChartMinutes = CreateLateDriversChart("ldChartMinutes", "Minutes");
-            ldChartSide = CreateLateDriversChart("ldChartSide", "PU / DO");
+            ldChartSide = CreateLateDriversChart("ldChartSide", "Habits");
             ldChartMinutes.Dock = DockStyle.Fill;
             ldChartSide.Dock = DockStyle.Fill;
             ldChartMinutesCard.Padding = new Padding(6);
@@ -323,187 +487,203 @@ namespace Hiatme_Tool_Suite_v3
             ldChartSideCard.Controls.Add(ldChartSide);
             ldChartsHost.Controls.Add(ldChartMinutesCard);
             ldChartsHost.Controls.Add(ldChartSideCard);
+            ldChartsHost.Controls.Add(ldInsightsCaptionLbl);
 
-            // ── Master/detail split (Fill) — sized before mins ────────────
-            ldSplit = new SplitContainer
+            // ── Stage: chips + trip list (Fill) ───────────────────────────
+            ldStageHost = new Panel
             {
-                Name = "ldSplit",
+                Name = "ldStageHost",
                 Dock = DockStyle.Fill,
-                Orientation = Orientation.Vertical,
-                SplitterWidth = 6,
-                Panel1MinSize = 0,
-                Panel2MinSize = 0,
-                FixedPanel = FixedPanel.Panel1,
-                Width = Math.Max(640, LateDriversDriverPaneW + 320),
-                Height = 400,
-                BackColor = SupeyTheme.Divider,
-                Padding = new Padding(10, 8, 10, 8),
+                Padding = new Padding(10, 4, 10, 4),
+                BackColor = SupeyTheme.Surface,
             };
-            ldSplit.Panel1.BackColor = SupeyTheme.Surface;
-            ldSplit.Panel2.BackColor = SupeyTheme.Surface;
-            ldSplit.SizeChanged += (_, __) => ApplyLateDriversSplitterMins();
 
-            // Driver pane: header Top + list Fill (same pattern as Schedule Builder trips)
-            ldDriverHeader = new Panel
+            ldHabitChipStrip = new FlowLayoutPanel
             {
-                Name = "ldDriverHeader",
+                Name = "ldHabitChipStrip",
                 Dock = DockStyle.Top,
-                Height = 40,
-                Padding = new Padding(8, 4, 8, 4),
-                BackColor = SupeyTheme.SurfaceHeader,
-            };
-            var driverDivider = new Panel
-            {
-                Dock = DockStyle.Bottom,
-                Height = 1,
-                BackColor = SupeyTheme.Divider,
-            };
-            var driverHeaderRow = new TableLayoutPanel
-            {
-                Name = "ldDriverHeaderRow",
-                Dock = DockStyle.Fill,
-                ColumnCount = 2,
-                RowCount = 1,
+                Height = 38,
+                WrapContents = false,
+                FlowDirection = FlowDirection.LeftToRight,
+                Padding = new Padding(0, 2, 0, 2),
                 BackColor = Color.Transparent,
-                Margin = Padding.Empty,
-                Padding = Padding.Empty,
+                AutoScroll = true,
             };
-            driverHeaderRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
-            driverHeaderRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 158f));
-            driverHeaderRow.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
-
-            ldDriverCaptionLbl = new Label
+            foreach (var pair in new[]
             {
-                Name = "ldDriverCaptionLbl",
-                AutoSize = false,
-                Text = "Drivers",
-                TextAlign = ContentAlignment.MiddleLeft,
-                Dock = DockStyle.Fill,
-                BackColor = Color.Transparent,
-                Margin = Padding.Empty,
-            };
-            ldFilterCombo = new SupeyComboBox { Name = "ldFilterCombo" };
-            ConfigureToolbarSupeyCombo(ldFilterCombo, 150);
-            ldFilterCombo.Dock = DockStyle.Fill;
-            ldFilterCombo.Margin = new Padding(6, 0, 0, 0);
-            ldFilterCombo.Items.AddRange(new object[]
+                ("All", "all"),
+                ("Late PU", "late_pu"),
+                ("Late DO", "late_do"),
+                ("Early PU", "early_pu"),
+                ("Early DO", "early_do"),
+                ("Unfinished", "unfinished_ticket"),
+                ("Billed skip", "billed_unfinished"),
+                ("Open now", "open"),
+            })
             {
-                "Show: All",
-                "Show: Open now",
-                "Show: PU-heavy",
-                "Show: DO-heavy",
-                "Show: Repeat (2+)",
-            });
-            ldFilterCombo.SelectedIndex = 0;
-            ldFilterCombo.SelectedIndexChanged += (_, __) =>
-            {
-                _ldFilter = LateDriversFilterKey();
-                BindLateDriversDriverRoster();
-                BindLateDriversTripPane();
-                RefreshLateDriversCharts();
-            };
-            driverHeaderRow.Controls.Add(ldDriverCaptionLbl, 0, 0);
-            driverHeaderRow.Controls.Add(ldFilterCombo, 1, 0);
-            ldDriverHeader.Controls.Add(driverHeaderRow);
-            ldDriverHeader.Controls.Add(driverDivider);
-
-            ldDriverLv = CreateLateDriversListView("ldDriverLv");
-            ldDriverLv.Columns.Add("Driver", 150);
-            ldDriverLv.Columns.Add("Lates", 50);
-            ldDriverLv.Columns.Add("PU", 40);
-            ldDriverLv.Columns.Add("DO", 40);
-            ldDriverLv.Columns.Add("Open", 44);
-            ldDriverLv.Columns.Add("Minutes", 64);
-            ldDriverLv.SelectedIndexChanged += (_, __) =>
-            {
-                if (ldDriverLv.SelectedItems.Count == 0)
-                    _ldSelectedDriver = null;
-                else
+                var btn = new SupeyMaterialButton
                 {
-                    var tag = ldDriverLv.SelectedItems[0].Tag as HiatmeAiClient.LateDriversDriverSummary;
-                    string name = tag?.Driver ?? ldDriverLv.SelectedItems[0].Text;
-                    _ldSelectedDriver = string.Equals(name, "(All drivers)", StringComparison.OrdinalIgnoreCase)
-                        ? null
-                        : name;
-                }
-                UpdateLateDriversTripCaption();
-                BindLateDriversTripPane();
-            };
+                    Name = "ldHabitChip_" + pair.Item2,
+                    Text = pair.Item1,
+                    Type = SupeyMaterialButton.MaterialButtonType.Outlined,
+                    Size = new Size(pair.Item1.Length <= 4 ? 56 : (pair.Item1.Length <= 8 ? 86 : 96), 28),
+                    Margin = new Padding(0, 2, 6, 2),
+                    Tag = pair.Item2,
+                };
+                btn.Click += LdHabitChip_Click;
+                _ldHabitChipButtons.Add(btn);
+                ldHabitChipStrip.Controls.Add(btn);
+            }
+            StyleLateDriversHabitChips();
 
-            // Fill first, then Top header (WinForms dock order)
-            ldSplit.Panel1.Controls.Add(ldDriverLv);
-            ldSplit.Panel1.Controls.Add(ldDriverHeader);
-
-            // Trip pane
             ldTripHeader = new Panel
             {
                 Name = "ldTripHeader",
                 Dock = DockStyle.Top,
-                Height = 40,
-                Padding = new Padding(8, 6, 8, 4),
-                BackColor = SupeyTheme.SurfaceHeader,
-            };
-            var tripDivider = new Panel
-            {
-                Dock = DockStyle.Bottom,
-                Height = 1,
-                BackColor = SupeyTheme.Divider,
+                Height = 30,
+                Padding = new Padding(0, 2, 0, 2),
+                BackColor = Color.Transparent,
             };
             ldTripCaptionLbl = new Label
             {
                 Name = "ldTripCaptionLbl",
                 AutoSize = false,
-                Text = "Late trips",
+                Text = "Trip habits",
                 TextAlign = ContentAlignment.MiddleLeft,
                 Dock = DockStyle.Fill,
                 BackColor = Color.Transparent,
             };
             ldTripHeader.Controls.Add(ldTripCaptionLbl);
-            ldTripHeader.Controls.Add(tripDivider);
 
             ldTripLv = CreateLateDriversListView("ldTripLv");
             ldTripLv.Columns.Add("Date", 90);
-            ldTripLv.Columns.Add("Side", 50);
-            ldTripLv.Columns.Add("Trip", 110);
-            ldTripLv.Columns.Add("Client", 140);
+            ldTripLv.Columns.Add("Habit", 96);
+            ldTripLv.Columns.Add("Trip", 120);
+            ldTripLv.Columns.Add("Client", 160);
             ldTripLv.Columns.Add("Sched", 90);
             ldTripLv.Columns.Add("Actual", 90);
-            ldTripLv.Columns.Add("Late", 70);
-            ldTripLv.Columns.Add("Status", 120);
+            ldTripLv.Columns.Add("Mins", 60);
+            ldTripLv.Columns.Add("Status", 130);
             ldTripLv.Columns.Add("State", 80);
             ldTripLv.DoubleClick += LdTripLv_DoubleClick;
 
-            ldSplit.Panel2.Controls.Add(ldTripLv);
-            ldSplit.Panel2.Controls.Add(ldTripHeader);
-
-            SupeyListViewHelpers.WireSplitContainerSmoothResize(ldSplit);
-            ApplyLateDriversSplitterMins();
+            ldStageHost.Controls.Add(ldTripLv);
+            ldStageHost.Controls.Add(ldTripHeader);
+            ldStageHost.Controls.Add(ldHabitChipStrip);
         }
 
-        private void ApplyLateDriversSplitterMins()
+        private void BuildLateDriversScorecardWidgets()
         {
-            if (ldSplit == null || ldSplit.IsDisposed || ldSplit.Width < 80)
+            if (ldScorecardHost == null)
                 return;
-            try
+            ldScorecardHost.Controls.Clear();
+            _ldScoreValues.Clear();
+            var metrics = new[]
             {
-                ldSplit.Panel1MinSize = 0;
-                ldSplit.Panel2MinSize = 0;
-                int bodyW = ldSplit.Width;
-                int min1 = Math.Min(160, Math.Max(80, bodyW / 5));
-                int min2 = Math.Min(200, Math.Max(80, bodyW / 5));
-                if (min1 + min2 + ldSplit.SplitterWidth > bodyW)
+                ("late_pu", "Late PU"),
+                ("late_do", "Late DO"),
+                ("early_pu", "Early PU"),
+                ("early_do", "Early DO"),
+                ("unfinished", "Unfin/Bill"),
+                ("late_minutes", "Late mins"),
+            };
+            for (int i = 0; i < metrics.Length; i++)
+            {
+                var pair = metrics[i];
+                var card = new SupeyCard
                 {
-                    min1 = Math.Max(40, (bodyW - ldSplit.SplitterWidth) / 3);
-                    min2 = Math.Max(40, (bodyW - ldSplit.SplitterWidth) / 3);
-                }
-                int want = Math.Min(LateDriversDriverPaneW, bodyW - min2 - ldSplit.SplitterWidth);
-                want = Math.Max(min1, want);
-                if (Math.Abs(ldSplit.SplitterDistance - want) > 8)
-                    ldSplit.SplitterDistance = want;
-                ldSplit.Panel1MinSize = min1;
-                ldSplit.Panel2MinSize = min2;
+                    Name = "ldScore_" + pair.Item1,
+                    SurfaceLevel = SupeyCard.Surface.Standard,
+                    ShowBorder = true,
+                    CornerRadius = 8,
+                    Dock = DockStyle.Fill,
+                    Margin = new Padding(i == 0 ? 0 : 4, 0, i == metrics.Length - 1 ? 0 : 4, 0),
+                    Padding = new Padding(10, 10, 10, 10),
+                    Tag = pair.Item1,
+                };
+
+                // Vertically center caption+value as one block (Dock Top/Fill left empty bottom).
+                var frame = new TableLayoutPanel
+                {
+                    Name = "ldScoreFrame_" + pair.Item1,
+                    Dock = DockStyle.Fill,
+                    ColumnCount = 1,
+                    RowCount = 3,
+                    Margin = Padding.Empty,
+                    Padding = Padding.Empty,
+                    BackColor = Color.Transparent,
+                };
+                frame.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+                frame.RowStyles.Add(new RowStyle(SizeType.Percent, 50f));
+                frame.RowStyles.Add(new RowStyle(SizeType.Absolute, 56f));
+                frame.RowStyles.Add(new RowStyle(SizeType.Percent, 50f));
+
+                var stack = new Panel
+                {
+                    Name = "ldScoreStack_" + pair.Item1,
+                    Dock = DockStyle.Fill,
+                    Margin = Padding.Empty,
+                    Padding = Padding.Empty,
+                    BackColor = Color.Transparent,
+                };
+                var caption = new Label
+                {
+                    Name = "ldScoreCap_" + pair.Item1,
+                    Text = pair.Item2,
+                    AutoSize = false,
+                    Dock = DockStyle.Top,
+                    Height = 22,
+                    TextAlign = ContentAlignment.MiddleCenter,
+                    ForeColor = SupeyTheme.TextSecondary,
+                    BackColor = Color.Transparent,
+                    Font = SupeyTheme.CaptionFont,
+                };
+                var value = new Label
+                {
+                    Name = "ldScoreVal_" + pair.Item1,
+                    Text = "0",
+                    AutoSize = false,
+                    Dock = DockStyle.Fill,
+                    TextAlign = ContentAlignment.MiddleCenter,
+                    ForeColor = SupeyTheme.TextPrimary,
+                    BackColor = Color.Transparent,
+                    Font = new Font("Segoe UI Semibold", 18f, FontStyle.Bold),
+                };
+                stack.Controls.Add(value);
+                stack.Controls.Add(caption);
+                frame.Controls.Add(new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent }, 0, 0);
+                frame.Controls.Add(stack, 0, 1);
+                frame.Controls.Add(new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent }, 0, 2);
+
+                card.Controls.Add(frame);
+                _ldScoreValues[pair.Item1] = value;
+                ldScorecardHost.Controls.Add(card, i, 0);
             }
-            catch { }
+        }
+
+        private void LdHabitChip_Click(object sender, EventArgs e)
+        {
+            var btn = sender as SupeyMaterialButton;
+            string key = (btn?.Tag as string ?? "all").Trim().ToLowerInvariant();
+            if (key == _ldHabitChip)
+                return;
+            _ldHabitChip = key;
+            StyleLateDriversHabitChips();
+            BindLateDriversTripPane();
+        }
+
+        private void StyleLateDriversHabitChips()
+        {
+            foreach (var btn in _ldHabitChipButtons)
+            {
+                if (btn == null || btn.IsDisposed)
+                    continue;
+                string key = (btn.Tag as string ?? "").Trim().ToLowerInvariant();
+                bool on = key == _ldHabitChip;
+                btn.Type = on
+                    ? SupeyMaterialButton.MaterialButtonType.Contained
+                    : SupeyMaterialButton.MaterialButtonType.Outlined;
+            }
         }
 
         private void LayoutLateDriversToolbar()
@@ -579,14 +759,21 @@ namespace Hiatme_Tool_Suite_v3
             int padT = ldChartsHost.Padding.Top;
             int padB = ldChartsHost.Padding.Bottom;
             int gap = 10;
+            int captionH = 0;
+            if (ldInsightsCaptionLbl != null && !ldInsightsCaptionLbl.IsDisposed)
+            {
+                captionH = ldInsightsCaptionLbl.Height;
+                ldInsightsCaptionLbl.SetBounds(padL, padT, Math.Max(40, ldChartsHost.ClientSize.Width - padL - padR), captionH);
+            }
+            int top = padT + captionH + 2;
             int w = Math.Max(40, ldChartsHost.ClientSize.Width - padL - padR);
-            int h = Math.Max(40, ldChartsHost.ClientSize.Height - padT - padB);
+            int h = Math.Max(40, ldChartsHost.ClientSize.Height - top - padB);
             int leftW = Math.Max(120, (w - gap) * 2 / 3);
             int rightW = Math.Max(100, w - gap - leftW);
             if (ldChartMinutesCard != null && !ldChartMinutesCard.IsDisposed)
-                ldChartMinutesCard.SetBounds(padL, padT, leftW, h);
+                ldChartMinutesCard.SetBounds(padL, top, leftW, h);
             if (ldChartSideCard != null && !ldChartSideCard.IsDisposed)
-                ldChartSideCard.SetBounds(padL + leftW + gap, padT, rightW, h);
+                ldChartSideCard.SetBounds(padL + leftW + gap, top, rightW, h);
         }
 
         private SupeyListView CreateLateDriversListView(string name)
@@ -741,9 +928,9 @@ namespace Hiatme_Tool_Suite_v3
             if (ldTripCaptionLbl == null || ldTripCaptionLbl.IsDisposed)
                 return;
             if (string.IsNullOrEmpty(_ldSelectedDriver))
-                ldTripCaptionLbl.Text = "Late trips — all drivers (click a driver to focus)";
+                ldTripCaptionLbl.Text = "Trip habits — all drivers";
             else
-                ldTripCaptionLbl.Text = "Late trips — " + _ldSelectedDriver + "  (All drivers to clear)";
+                ldTripCaptionLbl.Text = "Trip habits — " + _ldSelectedDriver;
         }
 
         private void StyleLateDriversPeriodButtons()
@@ -918,15 +1105,36 @@ namespace Hiatme_Tool_Suite_v3
             StyleLateDriversCaption(ldRangeCaptionLbl, secondary: true);
             StyleLateDriversCaption(ldDriverCaptionLbl, secondary: false);
             StyleLateDriversCaption(ldTripCaptionLbl, secondary: false);
+            StyleLateDriversCaption(ldInsightsCaptionLbl, secondary: true);
+            StyleLateDriversCaption(ldHeroTitleLbl, secondary: false);
             if (ldToolbar != null && !ldToolbar.IsDisposed)
                 ldToolbar.BackColor = SupeyTheme.SurfaceHeader;
-            if (ldDriverHeader != null && !ldDriverHeader.IsDisposed)
-                ldDriverHeader.BackColor = SupeyTheme.SurfaceHeader;
+            if (ldDriverStripHost != null && !ldDriverStripHost.IsDisposed)
+                ldDriverStripHost.BackColor = SupeyTheme.Surface;
+            if (ldDriverStrip != null && !ldDriverStrip.IsDisposed)
+                ldDriverStrip.BackColor = Color.Transparent;
             if (ldTripHeader != null && !ldTripHeader.IsDisposed)
-                ldTripHeader.BackColor = SupeyTheme.SurfaceHeader;
+                ldTripHeader.BackColor = Color.Transparent;
+            if (ldHabitChipStrip != null && !ldHabitChipStrip.IsDisposed)
+                ldHabitChipStrip.BackColor = Color.Transparent;
+            if (ldScorecardHost != null && !ldScorecardHost.IsDisposed)
+                ldScorecardHost.BackColor = Color.Transparent;
+            if (ldStageHost != null && !ldStageHost.IsDisposed)
+                ldStageHost.BackColor = SupeyTheme.Surface;
+            if (ldHeroCard != null && !ldHeroCard.IsDisposed)
+            {
+                StyleToolTabCard(ldHeroCard, SupeyCard.Surface.Elevated);
+                // StyleToolTabCard zeros Padding; inset lives on ldHeroInner.
+            }
+            if (ldHeroInner != null && !ldHeroInner.IsDisposed)
+            {
+                ldHeroInner.Padding = new Padding(20, 16, 20, 16);
+                ldHeroInner.BackColor = Color.Transparent;
+            }
             if (ldRangeCaptionLbl != null && !ldRangeCaptionLbl.IsDisposed)
                 ldRangeCaptionLbl.BackColor = SupeyTheme.Surface;
-            StyleLateDriversList(ldDriverLv);
+            StyleLateDriversHabitChips();
+            StyleLateDriversDriverTiles();
             StyleLateDriversList(ldTripLv);
             if (ldChartMinutesCard != null)
                 StyleToolTabCard(ldChartMinutesCard, SupeyCard.Surface.Elevated);
@@ -1013,7 +1221,6 @@ namespace Hiatme_Tool_Suite_v3
             // Inner chrome is Dock-based (toolbar Top / range Top / charts Bottom / split Fill).
             LayoutLateDriversToolbar();
             LayoutLateDriversChartsHost();
-            ApplyLateDriversSplitterMins();
         }
 
         private string LateDriversSelectedMode()
@@ -1029,10 +1236,10 @@ namespace Hiatme_Tool_Suite_v3
             string s = (ldFilterCombo?.SelectedItem as string ?? "Show: All").Trim().ToLowerInvariant();
             if (s.Contains("open"))
                 return "open";
-            if (s.Contains("pu-heavy") || s.Contains("pu heavy"))
-                return "pu";
-            if (s.Contains("do-heavy") || s.Contains("do heavy"))
-                return "do";
+            if (s.Contains("early"))
+                return "early";
+            if (s.Contains("unfinished"))
+                return "unfinished";
             if (s.Contains("repeat"))
                 return "repeat";
             return "all";
@@ -1272,10 +1479,18 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     var st = await HiatmeAiClient.GetLateDriversStatusAsync(settings, sd)
                         .ConfigureAwait(true);
-                    if (st != null && st.Ok && string.Equals(st.ContentHash, _ldLastHash, StringComparison.Ordinal))
+                    var habitsPeek = await HiatmeAiClient.GetLateDriversHabitsAsync(
+                            settings, "day", sd)
+                        .ConfigureAwait(true);
+                    string habitsHash = habitsPeek != null && habitsPeek.Ok
+                        ? (habitsPeek.ContentHash ?? "")
+                        : "";
+                    if (st != null && st.Ok
+                        && string.Equals(st.ContentHash, _ldLastHash, StringComparison.Ordinal)
+                        && string.Equals(habitsHash, _ldHabitsHash ?? "", StringComparison.Ordinal))
                     {
                         SetLateDriversStatus(
-                            "Status: Live — " + st.EventCount + " late today ("
+                            "Status: Live — " + st.EventCount + " habit signals today ("
                             + st.OpenCount + " still open) · unchanged · "
                             + DateTime.Now.ToString("h:mm:ss tt", CultureInfo.CurrentCulture));
                         return;
@@ -1283,6 +1498,10 @@ namespace Hiatme_Tool_Suite_v3
                 }
 
                 SetLateDriversStatus("Status: Loading " + mode + "…");
+
+                string habitPeriod = mode == "live" ? "day" : mode;
+                var habitsTask = HiatmeAiClient.GetLateDriversHabitsAsync(
+                    settings, habitPeriod, sd);
 
                 if (mode == "live" || mode == "day")
                 {
@@ -1302,13 +1521,15 @@ namespace Hiatme_Tool_Suite_v3
                                 + " — scoring paused until schedule is stored.");
                             return;
                         }
+                        var habits = await habitsTask.ConfigureAwait(true);
                         ApplyLateDriversEventPayload(
                             doc.Events,
                             doc.ContentHash,
                             sd,
                             sd,
                             doc.ModivcareTripCount,
-                            live: true);
+                            live: true,
+                            habits: habits);
                     }
                     else
                     {
@@ -1324,13 +1545,15 @@ namespace Hiatme_Tool_Suite_v3
                             SetLateDriversStatus("Status: Need Modivcare schedule for " + sd);
                             return;
                         }
+                        var habits = await habitsTask.ConfigureAwait(true);
                         ApplyLateDriversEventPayload(
                             doc.Events,
                             doc.ContentHash,
                             sd,
                             sd,
                             doc.ModivcareTripCount,
-                            live: false);
+                            live: false,
+                            habits: habits);
                     }
                 }
                 else
@@ -1346,21 +1569,29 @@ namespace Hiatme_Tool_Suite_v3
                     _ldLastHash = doc.ContentHash ?? "";
                     _ldEventRows = doc.Events ?? new List<HiatmeAiClient.LateDriversEventRow>();
                     _ldDriverRows = doc.Drivers ?? new List<HiatmeAiClient.LateDriversDriverSummary>();
-                    // Prefer minutes-then-count like Live/Day rollup (server may sort by count only).
                     if (_ldDriverRows.Count == 0 && _ldEventRows.Count > 0)
                         _ldDriverRows = BuildLateDriversRollup(_ldEventRows);
                     else
                         SortLateDriversByMinutes(_ldDriverRows);
                     _ldRangeLabel = (doc.FromDate ?? "") + " → " + (doc.ToDate ?? "");
-                    BindLateDriversDriverRoster();
+                    var habits = await habitsTask.ConfigureAwait(true);
+                    MergeLateDriversHabits(habits);
+                    BindLateDriversDriverStrip();
+                    RefreshLateDriversScorecard();
                     BindLateDriversTripPane();
                     RefreshLateDriversCharts();
                     UpdateLateDriversToolbarHints();
+                    int earlyN = (_ldDriverRows ?? new List<HiatmeAiClient.LateDriversDriverSummary>())
+                        .Sum(d => d?.EarlyCount ?? 0);
+                    int unfinN = (_ldDriverRows ?? new List<HiatmeAiClient.LateDriversDriverSummary>())
+                        .Sum(d => d?.Unfinished ?? 0);
                     SetLateDriversStatus(
                         "Status: " + CultureInfo.CurrentCulture.TextInfo.ToTitleCase(mode)
                         + " " + _ldRangeLabel
                         + " — " + (_ldDriverRows?.Count ?? 0) + " drivers · "
-                        + (_ldEventRows?.Count ?? 0) + " late events");
+                        + (_ldEventRows?.Count ?? 0) + " events"
+                        + (earlyN > 0 ? " · " + earlyN + " early" : "")
+                        + (unfinN > 0 ? " · " + unfinN + " unfinished" : ""));
                 }
             }
             catch (Exception ex)
@@ -1389,30 +1620,184 @@ namespace Hiatme_Tool_Suite_v3
             string fromDate,
             string toDate,
             int mcTripCount,
-            bool live)
+            bool live,
+            HiatmeAiClient.LateDriversHabitsDoc habits = null)
         {
             _ldLastHash = contentHash ?? "";
             _ldEventRows = events ?? new List<HiatmeAiClient.LateDriversEventRow>();
+            foreach (var e in _ldEventRows)
+            {
+                if (e == null || !string.IsNullOrWhiteSpace(e.Habit))
+                    continue;
+                e.Habit = string.Equals(e.Side, "do", StringComparison.OrdinalIgnoreCase)
+                    ? "late_do"
+                    : "late_pu";
+            }
             _ldDriverRows = BuildLateDriversRollup(_ldEventRows);
             _ldRangeLabel = fromDate == toDate ? fromDate : (fromDate + " → " + toDate);
-            BindLateDriversDriverRoster();
+            MergeLateDriversHabits(habits);
+            BindLateDriversDriverStrip();
+            RefreshLateDriversScorecard();
             BindLateDriversTripPane();
             RefreshLateDriversCharts();
             UpdateLateDriversToolbarHints();
             int openN = _ldEventRows.Count(e => e != null && e.Open);
+            int earlyN = (_ldDriverRows ?? new List<HiatmeAiClient.LateDriversDriverSummary>())
+                .Sum(d => d?.EarlyCount ?? 0);
+            int unfinOpen = (_ldDriverRows ?? new List<HiatmeAiClient.LateDriversDriverSummary>())
+                .Sum(d => d?.UnfinishedOpen ?? 0);
             if (live)
             {
                 SetLateDriversStatus(
-                    "Status: Live — " + _ldEventRows.Count + " late today ("
-                    + openN + " still open) · MC " + mcTripCount
+                    "Status: Live — " + _ldEventRows.Count + " events ("
+                    + openN + " open"
+                    + (earlyN > 0 ? ", " + earlyN + " early" : "")
+                    + (unfinOpen > 0 ? ", " + unfinOpen + " unfinished" : "")
+                    + ") · MC " + mcTripCount
                     + " · " + DateTime.Now.ToString("h:mm:ss tt", CultureInfo.CurrentCulture));
             }
             else
             {
                 SetLateDriversStatus(
-                    "Status: Day " + fromDate + " — " + _ldEventRows.Count + " late ("
-                    + openN + " still open) · MC " + mcTripCount);
+                    "Status: Day " + fromDate + " — " + _ldEventRows.Count + " events ("
+                    + openN + " open"
+                    + (earlyN > 0 ? ", " + earlyN + " early" : "")
+                    + (unfinOpen > 0 ? ", " + unfinOpen + " unfinished" : "")
+                    + ") · MC " + mcTripCount);
             }
+        }
+
+        private void MergeLateDriversHabits(HiatmeAiClient.LateDriversHabitsDoc habits)
+        {
+            if (habits == null || !habits.Ok)
+            {
+                _ldHabitsHash = "";
+                return;
+            }
+            _ldHabitsHash = habits.ContentHash ?? "";
+
+            var habitDrivers = habits.Drivers
+                ?? new List<HiatmeAiClient.LateDriversHabitDriverSummary>();
+            var byName = new Dictionary<string, HiatmeAiClient.LateDriversDriverSummary>(
+                StringComparer.OrdinalIgnoreCase);
+            foreach (var d in _ldDriverRows ?? new List<HiatmeAiClient.LateDriversDriverSummary>())
+            {
+                if (d == null || string.IsNullOrWhiteSpace(d.Driver))
+                    continue;
+                byName[d.Driver.Trim()] = d;
+            }
+
+            foreach (var h in habitDrivers)
+            {
+                if (h == null || string.IsNullOrWhiteSpace(h.Driver))
+                    continue;
+                string key = h.Driver.Trim();
+                if (!byName.TryGetValue(key, out var row))
+                {
+                    row = new HiatmeAiClient.LateDriversDriverSummary
+                    {
+                        Driver = key,
+                        Trips = new List<HiatmeAiClient.LateDriversEventRow>(),
+                    };
+                    byName[key] = row;
+                }
+                row.EarlyPu = h.EarlyPu;
+                row.EarlyDo = h.EarlyDo;
+                row.EarlyCount = h.EarlyCount > 0 ? h.EarlyCount : (h.EarlyPu + h.EarlyDo);
+                row.Unfinished = h.Unfinished;
+                row.UnfinishedOpen = h.UnfinishedOpen;
+                // Billed-skip counts are included in h.Unfinished; keep open separate.
+                // Prefer habit late minutes when present (includes closed lates from habits store)
+                if (h.LateMinutes > row.TotalMinutes)
+                    row.TotalMinutes = h.LateMinutes;
+                if (h.LateCount > row.LateCount)
+                {
+                    row.LateCount = h.LateCount;
+                    row.PuCount = Math.Max(row.PuCount, h.LatePu);
+                    row.DoCount = Math.Max(row.DoCount, h.LateDo);
+                }
+            }
+
+            var lateKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var e in _ldEventRows ?? new List<HiatmeAiClient.LateDriversEventRow>())
+            {
+                if (e == null) continue;
+                lateKeys.Add(LateDriversTripKey(e.ServiceDate, e.TripNo, e.Side));
+            }
+
+            var merged = new List<HiatmeAiClient.LateDriversEventRow>(
+                _ldEventRows ?? new List<HiatmeAiClient.LateDriversEventRow>());
+            foreach (var he in habits.Events ?? new List<HiatmeAiClient.LateDriversHabitEventRow>())
+            {
+                if (he == null) continue;
+                string kind = (he.Kind ?? he.Habit ?? "").Trim().ToLowerInvariant();
+                if (string.IsNullOrEmpty(kind))
+                    continue;
+                string side = (he.Side ?? "").Trim().ToLowerInvariant();
+                if (kind == "late_pu" || kind == "late_do")
+                {
+                    if (string.IsNullOrEmpty(side))
+                        side = kind.EndsWith("do") ? "do" : "pu";
+                    if (lateKeys.Contains(LateDriversTripKey(he.ServiceDate, he.TripNo, side)))
+                        continue;
+                }
+                merged.Add(HabitEventToLateRow(he, kind, side));
+            }
+            _ldEventRows = merged;
+
+            foreach (var row in byName.Values)
+            {
+                string driver = row.Driver ?? "";
+                row.Trips = _ldEventRows
+                    .Where(e => e != null
+                        && string.Equals(
+                            string.IsNullOrWhiteSpace(e.Driver) ? "(unassigned)" : e.Driver.Trim(),
+                            driver,
+                            StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                row.OpenCount = row.Trips.Count(t => t != null && t.Open);
+            }
+
+            _ldDriverRows = byName.Values.ToList();
+            SortLateDriversByMinutes(_ldDriverRows);
+        }
+
+        private static string LateDriversTripKey(string serviceDate, string tripNo, string side)
+        {
+            return (serviceDate ?? "").Trim() + "|"
+                + (tripNo ?? "").Trim() + "|"
+                + (side ?? "").Trim().ToLowerInvariant();
+        }
+
+        private static HiatmeAiClient.LateDriversEventRow HabitEventToLateRow(
+            HiatmeAiClient.LateDriversHabitEventRow he,
+            string kind,
+            string side)
+        {
+            if (string.IsNullOrEmpty(side))
+            {
+                if (kind.Contains("do")) side = "do";
+                else if (kind.Contains("pu")) side = "pu";
+                else side = "ticket";
+            }
+            return new HiatmeAiClient.LateDriversEventRow
+            {
+                EventId = he.EventId,
+                ServiceDate = he.ServiceDate,
+                TripNo = he.TripNo,
+                Driver = he.Driver,
+                Client = he.Client,
+                Side = side,
+                SchedIso = he.SchedIso,
+                ActualIso = he.ActualIso,
+                MinutesLate = he.Minutes,
+                Open = he.Open,
+                StatusLatest = he.Status,
+                DetectedAt = he.DetectedAt,
+                ResolvedAt = he.ResolvedAt,
+                Habit = kind,
+                Kind = kind,
+            };
         }
 
         private static List<HiatmeAiClient.LateDriversDriverSummary> BuildLateDriversRollup(
@@ -1462,9 +1847,13 @@ namespace Hiatme_Tool_Suite_v3
                 if (a == null && b == null) return 0;
                 if (a == null) return 1;
                 if (b == null) return -1;
-                int cmp = b.TotalMinutes.CompareTo(a.TotalMinutes);
+                int cmp = b.UnfinishedOpen.CompareTo(a.UnfinishedOpen);
                 if (cmp != 0) return cmp;
-                return b.LateCount.CompareTo(a.LateCount);
+                cmp = b.TotalMinutes.CompareTo(a.TotalMinutes);
+                if (cmp != 0) return cmp;
+                cmp = b.LateCount.CompareTo(a.LateCount);
+                if (cmp != 0) return cmp;
+                return b.EarlyCount.CompareTo(a.EarlyCount);
             });
         }
 
@@ -1474,67 +1863,263 @@ namespace Hiatme_Tool_Suite_v3
             switch (_ldFilter)
             {
                 case "open":
-                    return src.Where(d => d != null && d.OpenCount > 0).ToList();
-                case "pu":
-                    return src.Where(d => d != null && d.PuCount >= d.DoCount && d.LateCount > 0).ToList();
-                case "do":
-                    return src.Where(d => d != null && d.DoCount > d.PuCount).ToList();
+                    return src.Where(d => d != null && (d.OpenCount > 0 || d.UnfinishedOpen > 0)).ToList();
+                case "early":
+                    return src.Where(d => d != null && d.EarlyCount > 0).ToList();
+                case "unfinished":
+                    return src.Where(d => d != null && d.Unfinished > 0).ToList();
                 case "repeat":
-                    return src.Where(d => d != null && d.LateCount >= 2).ToList();
+                    return src.Where(d => d != null && (d.LateCount + d.EarlyCount) >= 2).ToList();
                 default:
                     return src.Where(d => d != null).ToList();
             }
         }
 
-        private void BindLateDriversDriverRoster()
+        private void BindLateDriversDriverStrip()
         {
-            if (ldDriverLv == null || ldDriverLv.IsDisposed)
+            if (ldDriverStrip == null || ldDriverStrip.IsDisposed)
                 return;
+
             var rows = FilteredLateDrivers();
             string keep = _ldSelectedDriver;
-            ldDriverLv.BeginUpdate();
+            // Drop selection if filtered out
+            if (!string.IsNullOrEmpty(keep)
+                && !rows.Any(d => string.Equals(d.Driver, keep, StringComparison.OrdinalIgnoreCase)))
+                keep = null;
+
+            ldDriverStrip.SuspendLayout();
             try
             {
-                ldDriverLv.Items.Clear();
-                int allLates = rows.Sum(d => d.LateCount);
-                int allPu = rows.Sum(d => d.PuCount);
-                int allDo = rows.Sum(d => d.DoCount);
-                int allOpen = rows.Sum(d => d.OpenCount);
-                double allMins = rows.Sum(d => d.TotalMinutes);
-                var allItem = new ListViewItem("(All drivers)");
-                allItem.SubItems.Add(allLates.ToString(CultureInfo.InvariantCulture));
-                allItem.SubItems.Add(allPu.ToString(CultureInfo.InvariantCulture));
-                allItem.SubItems.Add(allDo.ToString(CultureInfo.InvariantCulture));
-                allItem.SubItems.Add(allOpen.ToString(CultureInfo.InvariantCulture));
-                allItem.SubItems.Add(allMins.ToString("0", CultureInfo.InvariantCulture) + "m");
-                allItem.Tag = null;
-                allItem.Font = new Font(ldDriverLv.Font, FontStyle.Bold);
-                ldDriverLv.Items.Add(allItem);
+                ldDriverStrip.Controls.Clear();
+                _ldDriverTiles.Clear();
 
-                int selectAt = 0;
-                for (int i = 0; i < rows.Count; i++)
+                int allLates = rows.Sum(d => d.LateCount);
+                int allEarly = rows.Sum(d => d.EarlyCount);
+                int allUnfin = rows.Sum(d => d.Unfinished);
+                double allMins = rows.Sum(d => d.TotalMinutes);
+                var allTile = CreateLateDriversDriverTile(
+                    "All drivers",
+                    allLates,
+                    allEarly,
+                    allUnfin,
+                    allMins,
+                    summary: null);
+                ldDriverStrip.Controls.Add(allTile);
+                _ldDriverTiles.Add(allTile);
+
+                foreach (var d in rows)
                 {
-                    var d = rows[i];
-                    var item = new ListViewItem(d.Driver ?? "");
-                    item.SubItems.Add(d.LateCount.ToString(CultureInfo.InvariantCulture));
-                    item.SubItems.Add(d.PuCount.ToString(CultureInfo.InvariantCulture));
-                    item.SubItems.Add(d.DoCount.ToString(CultureInfo.InvariantCulture));
-                    item.SubItems.Add(d.OpenCount.ToString(CultureInfo.InvariantCulture));
-                    item.SubItems.Add(d.TotalMinutes.ToString("0", CultureInfo.InvariantCulture) + "m");
-                    item.Tag = d;
-                    if (d.OpenCount > 0)
-                        item.ForeColor = Color.FromArgb(200, 80, 60);
-                    ldDriverLv.Items.Add(item);
-                    if (!string.IsNullOrEmpty(keep)
-                        && string.Equals(d.Driver, keep, StringComparison.OrdinalIgnoreCase))
-                        selectAt = i + 1;
+                    var tile = CreateLateDriversDriverTile(
+                        d.Driver ?? "",
+                        d.LateCount,
+                        d.EarlyCount,
+                        d.Unfinished,
+                        d.TotalMinutes,
+                        summary: d);
+                    ldDriverStrip.Controls.Add(tile);
+                    _ldDriverTiles.Add(tile);
                 }
-                if (ldDriverLv.Items.Count > selectAt)
-                    ldDriverLv.Items[selectAt].Selected = true;
+
+                _ldSelectedDriver = keep;
+                StyleLateDriversDriverTiles();
             }
             finally
             {
-                ldDriverLv.EndUpdate();
+                ldDriverStrip.ResumeLayout(true);
+            }
+        }
+
+        private SupeyCard CreateLateDriversDriverTile(
+            string title,
+            int lates,
+            int early,
+            int unfin,
+            double minutes,
+            HiatmeAiClient.LateDriversDriverSummary summary)
+        {
+            var card = new SupeyCard
+            {
+                Name = "ldDriverTile_" + (summary?.Driver ?? "all").Replace(" ", "_"),
+                SurfaceLevel = SupeyCard.Surface.Elevated,
+                ShowBorder = true,
+                CornerRadius = 8,
+                Margin = new Padding(0, 0, 8, 0),
+                Padding = new Padding(10, 8, 10, 8),
+                Size = new Size(LateDriversDriverTileW, LateDriversDriverTileH),
+                Cursor = Cursors.Hand,
+                Tag = summary, // null = All drivers
+            };
+            var nameLbl = new Label
+            {
+                Name = "ldTileName",
+                AutoSize = false,
+                Dock = DockStyle.Top,
+                Height = 22,
+                Text = title ?? "",
+                TextAlign = ContentAlignment.MiddleLeft,
+                BackColor = Color.Transparent,
+                ForeColor = SupeyTheme.TextPrimary,
+                Font = new Font("Segoe UI Semibold", 9.5f, FontStyle.Bold),
+            };
+            var statsLbl = new Label
+            {
+                Name = "ldTileStats",
+                AutoSize = false,
+                Dock = DockStyle.Top,
+                Height = 18,
+                Text = "L " + lates + "   E " + early + "   U " + unfin,
+                TextAlign = ContentAlignment.MiddleLeft,
+                BackColor = Color.Transparent,
+                ForeColor = SupeyTheme.TextSecondary,
+                Font = SupeyTheme.CaptionFont,
+            };
+            var minsLbl = new Label
+            {
+                Name = "ldTileMins",
+                AutoSize = false,
+                Dock = DockStyle.Fill,
+                Text = minutes.ToString("0", CultureInfo.InvariantCulture) + "m late",
+                TextAlign = ContentAlignment.MiddleLeft,
+                BackColor = Color.Transparent,
+                ForeColor = SupeyTheme.TextPrimary,
+                Font = SupeyTheme.BodyFont,
+            };
+            card.Controls.Add(minsLbl);
+            card.Controls.Add(statsLbl);
+            card.Controls.Add(nameLbl);
+
+            void pick(object s, EventArgs e)
+            {
+                var chosen = card.Tag as HiatmeAiClient.LateDriversDriverSummary;
+                _ldSelectedDriver = chosen?.Driver;
+                StyleLateDriversDriverTiles();
+                UpdateLateDriversTripCaption();
+                RefreshLateDriversScorecard();
+                BindLateDriversTripPane();
+            }
+            card.Click += pick;
+            foreach (Control c in card.Controls)
+                c.Click += pick;
+
+            return card;
+        }
+
+        private void StyleLateDriversDriverTiles()
+        {
+            foreach (var tile in _ldDriverTiles)
+            {
+                if (tile == null || tile.IsDisposed)
+                    continue;
+                var summary = tile.Tag as HiatmeAiClient.LateDriversDriverSummary;
+                bool selected = summary == null
+                    ? string.IsNullOrEmpty(_ldSelectedDriver)
+                    : string.Equals(summary.Driver, _ldSelectedDriver, StringComparison.OrdinalIgnoreCase);
+                tile.Accent = selected ? SupeyCard.AccentEdge.Top : SupeyCard.AccentEdge.None;
+                tile.SurfaceLevel = selected ? SupeyCard.Surface.Elevated : SupeyCard.Surface.Standard;
+                tile.ShowBorder = true;
+            }
+        }
+
+        private void RefreshLateDriversScorecard()
+        {
+            if (_ldScoreValues.Count == 0)
+                return;
+
+            int latePu = 0, lateDo = 0, earlyPu = 0, earlyDo = 0, unfinished = 0;
+            double lateMins = 0;
+            string heroTitle = "All drivers";
+            if (!string.IsNullOrEmpty(_ldSelectedDriver))
+            {
+                var d = (_ldDriverRows ?? new List<HiatmeAiClient.LateDriversDriverSummary>())
+                    .FirstOrDefault(x => x != null
+                        && string.Equals(x.Driver, _ldSelectedDriver, StringComparison.OrdinalIgnoreCase));
+                if (d != null)
+                {
+                    heroTitle = d.Driver ?? _ldSelectedDriver;
+                    latePu = d.PuCount;
+                    lateDo = d.DoCount;
+                    earlyPu = d.EarlyPu;
+                    earlyDo = d.EarlyDo;
+                    unfinished = d.Unfinished;
+                    lateMins = d.TotalMinutes;
+                    if (latePu == 0 && lateDo == 0 && d.Trips != null)
+                    {
+                        latePu = d.Trips.Count(t => HabitKeyOf(t) == "late_pu");
+                        lateDo = d.Trips.Count(t => HabitKeyOf(t) == "late_do");
+                    }
+                }
+                else
+                {
+                    heroTitle = _ldSelectedDriver;
+                }
+            }
+            else
+            {
+                foreach (var d in FilteredLateDrivers())
+                {
+                    latePu += d.PuCount;
+                    lateDo += d.DoCount;
+                    earlyPu += d.EarlyPu;
+                    earlyDo += d.EarlyDo;
+                    unfinished += d.Unfinished;
+                    lateMins += d.TotalMinutes;
+                }
+            }
+
+            if (ldHeroTitleLbl != null && !ldHeroTitleLbl.IsDisposed)
+                ldHeroTitleLbl.Text = heroTitle;
+
+            SetLateDriversScoreValue("late_pu", latePu.ToString(CultureInfo.InvariantCulture));
+            SetLateDriversScoreValue("late_do", lateDo.ToString(CultureInfo.InvariantCulture));
+            SetLateDriversScoreValue("early_pu", earlyPu.ToString(CultureInfo.InvariantCulture));
+            SetLateDriversScoreValue("early_do", earlyDo.ToString(CultureInfo.InvariantCulture));
+            SetLateDriversScoreValue("unfinished", unfinished.ToString(CultureInfo.InvariantCulture));
+            SetLateDriversScoreValue("late_minutes", lateMins.ToString("0", CultureInfo.InvariantCulture));
+
+            Color valueColor = string.IsNullOrEmpty(_ldSelectedDriver)
+                ? SupeyTheme.TextPrimary
+                : SupeyTheme.AccentPrimary;
+            foreach (var lbl in _ldScoreValues.Values)
+            {
+                if (lbl != null && !lbl.IsDisposed)
+                    lbl.ForeColor = valueColor;
+            }
+            if (ldHeroCard != null && !ldHeroCard.IsDisposed)
+            {
+                ldHeroCard.Accent = string.IsNullOrEmpty(_ldSelectedDriver)
+                    ? SupeyCard.AccentEdge.None
+                    : SupeyCard.AccentEdge.Left;
+            }
+        }
+
+        private void SetLateDriversScoreValue(string key, string text)
+        {
+            if (_ldScoreValues.TryGetValue(key, out var lbl) && lbl != null && !lbl.IsDisposed)
+                lbl.Text = text ?? "0";
+        }
+
+        private static string HabitKeyOf(HiatmeAiClient.LateDriversEventRow e)
+        {
+            if (e == null) return "";
+            string h = (e.Habit ?? e.Kind ?? "").Trim().ToLowerInvariant();
+            if (!string.IsNullOrEmpty(h))
+                return h;
+            return string.Equals(e.Side, "do", StringComparison.OrdinalIgnoreCase)
+                ? "late_do"
+                : "late_pu";
+        }
+
+        private static string HabitLabelOf(string key)
+        {
+            switch ((key ?? "").Trim().ToLowerInvariant())
+            {
+                case "late_pu": return "Late PU";
+                case "late_do": return "Late DO";
+                case "early_pu": return "Early PU";
+                case "early_do": return "Early DO";
+                case "unfinished_ticket": return "Unfinished";
+                case "billed_unfinished": return "Billed skip";
+                default: return string.IsNullOrEmpty(key) ? "Late" : key;
             }
         }
 
@@ -1551,12 +2136,14 @@ namespace Hiatme_Tool_Suite_v3
                         && string.Equals(d.Driver, _ldSelectedDriver, StringComparison.OrdinalIgnoreCase));
                 trips = driver?.Trips ?? (_ldEventRows ?? new List<HiatmeAiClient.LateDriversEventRow>())
                     .Where(e => e != null
-                        && string.Equals(e.Driver ?? "(unassigned)", _ldSelectedDriver, StringComparison.OrdinalIgnoreCase))
+                        && string.Equals(
+                            string.IsNullOrWhiteSpace(e.Driver) ? "(unassigned)" : e.Driver.Trim(),
+                            _ldSelectedDriver,
+                            StringComparison.OrdinalIgnoreCase))
                     .ToList();
             }
             else
             {
-                // Respect roster filter for "All"
                 var filteredDrivers = new HashSet<string>(
                     FilteredLateDrivers().Select(d => d.Driver ?? ""),
                     StringComparer.OrdinalIgnoreCase);
@@ -1571,6 +2158,12 @@ namespace Hiatme_Tool_Suite_v3
                     .ToList();
             }
 
+            string chip = (_ldHabitChip ?? "all").Trim().ToLowerInvariant();
+            if (chip == "open")
+                trips = trips.Where(e => e != null && e.Open).ToList();
+            else if (chip != "all")
+                trips = trips.Where(e => HabitKeyOf(e) == chip).ToList();
+
             trips = trips
                 .OrderByDescending(e => e.Open)
                 .ThenByDescending(e => e.MinutesLate)
@@ -1584,19 +2177,24 @@ namespace Hiatme_Tool_Suite_v3
                 ldTripLv.Items.Clear();
                 foreach (var e in trips)
                 {
-                    string side = string.Equals(e.Side, "do", StringComparison.OrdinalIgnoreCase) ? "DO" : "PU";
+                    string habit = HabitLabelOf(HabitKeyOf(e));
                     var item = new ListViewItem(e.ServiceDate ?? "");
-                    item.SubItems.Add(side);
+                    item.SubItems.Add(habit);
                     item.SubItems.Add(e.TripNo ?? "");
                     item.SubItems.Add(e.Client ?? "");
                     item.SubItems.Add(FormatLateDriversTime(e.SchedIso));
                     item.SubItems.Add(FormatLateDriversTime(e.ActualIso, blank: "—"));
                     item.SubItems.Add(e.MinutesLate.ToString("0", CultureInfo.InvariantCulture) + "m");
                     item.SubItems.Add(e.StatusLatest ?? "");
-                    item.SubItems.Add(e.Open ? "Open" : "Resolved");
+                    item.SubItems.Add(e.Open ? "Open" : "Closed");
                     item.Tag = e;
+                    string hk = HabitKeyOf(e);
                     if (e.Open)
                         item.ForeColor = Color.FromArgb(200, 80, 60);
+                    else if (hk.StartsWith("early", StringComparison.Ordinal))
+                        item.ForeColor = Color.FromArgb(180, 120, 40);
+                    else if (hk == "unfinished_ticket" || hk == "billed_unfinished")
+                        item.ForeColor = Color.FromArgb(160, 90, 40);
                     ldTripLv.Items.Add(item);
                 }
             }
@@ -1624,7 +2222,7 @@ namespace Hiatme_Tool_Suite_v3
                     s.Points[idx].ToolTip = (d.Driver ?? "") + ": " + d.TotalMinutes.ToString("0") + "m late";
                 }
                 if (ldChartMinutes.Titles.Count > 0)
-                    ldChartMinutes.Titles[0].Text = "Top late drivers (minutes)";
+                    ldChartMinutes.Titles[0].Text = "Top late minutes by driver";
                 SupeyChartTheme.Apply(ldChartMinutes);
                 s.Color = SupeyTheme.AccentPrimary;
             }
@@ -1633,12 +2231,14 @@ namespace Hiatme_Tool_Suite_v3
             {
                 var s = ldChartSide.Series[0];
                 s.Points.Clear();
-                int pu = FilteredLateDrivers().Sum(d => d.PuCount);
-                int dO = FilteredLateDrivers().Sum(d => d.DoCount);
-                s.Points.AddXY("PU", pu);
-                s.Points.AddXY("DO", dO);
+                int late = FilteredLateDrivers().Sum(d => d.LateCount);
+                int early = FilteredLateDrivers().Sum(d => d.EarlyCount);
+                int unfin = FilteredLateDrivers().Sum(d => d.Unfinished);
+                s.Points.AddXY("Late", late);
+                s.Points.AddXY("Early", early);
+                s.Points.AddXY("Unfin", unfin);
                 if (ldChartSide.Titles.Count > 0)
-                    ldChartSide.Titles[0].Text = "PU vs DO late counts";
+                    ldChartSide.Titles[0].Text = "Early vs Late vs Unfinished";
                 SupeyChartTheme.Apply(ldChartSide);
                 s.Color = SupeyTheme.AccentPrimary;
             }
