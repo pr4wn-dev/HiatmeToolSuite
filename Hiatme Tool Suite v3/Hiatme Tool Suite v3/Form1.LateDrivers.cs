@@ -8,7 +8,7 @@ using System.Windows.Forms;
 
 namespace Hiatme_Tool_Suite_v3
 {
-    /// <summary>Driver Habits — Live/Day/Week/Month/Year scorecard with roster and trip detail.</summary>
+    /// <summary>Driver Habits — Day/Week/Month/Year scorecard with roster and trip detail.</summary>
     partial class Form1
     {
         // tabPageLateDrivers is declared in Form1.Designer.cs (always under Trip Scout).
@@ -20,6 +20,7 @@ namespace Hiatme_Tool_Suite_v3
         private Panel ldToolbarInner;
         private RJDatePicker ldDatePicker;
         private FlowLayoutPanel ldPeriodStrip;
+        private SupeyMaterialButton ldRefreshBtn;
         private Label ldDateHintLbl;
         private Label ldRangeCaptionLbl;
         private Label ldDriverCaptionLbl;
@@ -37,8 +38,6 @@ namespace Hiatme_Tool_Suite_v3
         private SupeyCard ldHeroCard;
         private SupeyListView ldTripLv;
 
-        private const int LateDriversLivePollIntervalMs = 60_000;
-        private const int LateDriversLiveScanMinVisibleMs = 1200;
         private const int LateDriversToolbarInnerH = 42;
         private const int LateDriversDriverStripH = 114;
         private const int LateDriversHeroH = 96;
@@ -46,23 +45,13 @@ namespace Hiatme_Tool_Suite_v3
         private const int LateDriversDriverTileH = 78;
         private const int LateDriversDriverTileGap = 8;
         private const int LateDriversDriverNavBtnW = 28;
-        private System.Windows.Forms.Timer _ldPollTimer;
-        private System.Windows.Forms.Timer _ldPollCountdownTimer;
-        private DateTime _ldPollNextUtc;
-        private DateTime _ldScanStartedUtc;
-        private Panel _ldLiveChromeHost;
-        private Panel _ldLiveDivider;
-        private Panel _ldLiveScanCard;
-        private SupeyCard _ldLiveTimerCard;
-        private TripScoutLiveScanIndicator _ldLiveScan;
-        private Label _ldLiveCountdown;
         private string _ldLastHash;
         private string _ldHabitsHash;
         private bool _ldLoadInFlight;
         private bool _ldBuilt;
         private bool _ldFirstLoadDone;
         private bool _ldSuppressDateChanged;
-        private string _ldSelectedPeriod = "live";
+        private string _ldSelectedPeriod = "day";
         private string _ldSelectedDriver; // null = All drivers
         private string _ldHabitChip = "all";
         private string _ldRangeLabel = "";
@@ -123,7 +112,7 @@ namespace Hiatme_Tool_Suite_v3
                     ldHeroCard = null;
                     ldScorecardHost = null;
                     ldHabitChipStrip = null;
-                    _ldLiveChromeHost = null;
+                    ldRefreshBtn = null;
                     _ldPeriodButtons.Clear();
                     _ldHabitChipButtons.Clear();
                     _ldScoreValues.Clear();
@@ -194,14 +183,6 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     if (_ldSuppressDateChanged || !_ldBuilt)
                         return;
-                    if (LateDriversSelectedMode() == "live")
-                    {
-                        _ldSuppressDateChanged = true;
-                        try { ldDatePicker.Value = DateTime.Today; } catch { }
-                        _ldSuppressDateChanged = false;
-                        UpdateLateDriversToolbarHints();
-                        return;
-                    }
                     UpdateLateDriversToolbarHints();
                     _ = LateDriversRefreshAsync(force: true);
                 };
@@ -220,7 +201,7 @@ namespace Hiatme_Tool_Suite_v3
                     AutoSize = false,
                     TextAlign = ContentAlignment.MiddleLeft,
                     BackColor = Color.Transparent,
-                    Text = "Showing: today’s driver habits (auto-refresh)",
+                    Text = "Pick a range, then Refresh to load driver habits",
                 };
 
                 ldPeriodStrip = new FlowLayoutPanel
@@ -233,7 +214,7 @@ namespace Hiatme_Tool_Suite_v3
                     Margin = Padding.Empty,
                     Padding = Padding.Empty,
                 };
-                foreach (string label in new[] { "Live", "Day", "Week", "Month", "Year" })
+                foreach (string label in new[] { "Day", "Week", "Month", "Year" })
                 {
                     var btn = new SupeyMaterialButton
                     {
@@ -250,7 +231,17 @@ namespace Hiatme_Tool_Suite_v3
                 }
                 StyleLateDriversPeriodButtons();
 
-                EnsureLateDriversLiveChrome();
+                ldRefreshBtn = new SupeyMaterialButton
+                {
+                    Name = "ldRefreshBtn",
+                    Text = "Refresh",
+                    Type = SupeyMaterialButton.MaterialButtonType.Contained,
+                    UseAccentColor = true,
+                    Size = new Size(88, 30),
+                    Margin = Padding.Empty,
+                };
+                ldRefreshBtn.Click += (_, __) => _ = LateDriversRefreshAsync(force: true);
+
                 BuildLateDriversBodyChrome();
 
                 // Dock: Fill first, then Tops (last Top = topmost).
@@ -295,7 +286,7 @@ namespace Hiatme_Tool_Suite_v3
 
         private void BuildLateDriversBodyChrome()
         {
-            // ── Top toolbar card (period + date + live chrome) ────────────
+            // ── Top toolbar card (period + date + Refresh) ────────────────
             // Host padding matches hero / driver strip so the elevated card is full-width inset.
             ldToolbar = new Panel
             {
@@ -329,8 +320,8 @@ namespace Hiatme_Tool_Suite_v3
                 ldToolbarInner.Controls.Add(ldDateHintLbl);
             if (ldDatePicker != null)
                 ldToolbarInner.Controls.Add(ldDatePicker);
-            if (_ldLiveChromeHost != null)
-                ldToolbarInner.Controls.Add(_ldLiveChromeHost);
+            if (ldRefreshBtn != null)
+                ldToolbarInner.Controls.Add(ldRefreshBtn);
 
             ldToolbarCard.Controls.Add(ldToolbarInner);
             ldToolbar.Controls.Add(ldToolbarCard);
@@ -668,7 +659,7 @@ namespace Hiatme_Tool_Suite_v3
 
             if (ldPeriodStrip != null && !ldPeriodStrip.IsDisposed)
             {
-                ldPeriodStrip.SetBounds(x, y + Math.Max(0, (innerH - 30) / 2), 380, 30);
+                ldPeriodStrip.SetBounds(x, y + Math.Max(0, (innerH - 30) / 2), 300, 30);
                 x = ldPeriodStrip.Right + 12;
             }
 
@@ -680,7 +671,7 @@ namespace Hiatme_Tool_Suite_v3
                     case "week": hintW = 118; break;
                     case "month": hintW = 128; break;
                     case "year": hintW = 118; break;
-                    case "day": hintW = 40; break;
+                    default: hintW = 40; break;
                 }
                 ldDateHintLbl.SetBounds(x, y + Math.Max(0, (innerH - 20) / 2), hintW, 20);
                 x = ldDateHintLbl.Right + 6;
@@ -693,29 +684,12 @@ namespace Hiatme_Tool_Suite_v3
                 x = ldDatePicker.Right + 12;
             }
 
-            EnsureLateDriversLiveChrome();
-            bool liveMode = LateDriversSelectedMode() == "live";
-            if (_ldLiveChromeHost != null && !_ldLiveChromeHost.IsDisposed)
+            if (ldRefreshBtn != null && !ldRefreshBtn.IsDisposed)
             {
-                _ldLiveChromeHost.Visible = liveMode;
-                if (liveMode)
-                {
-                    int chromeW = MeasureLateDriversLiveChromeWidth();
-                    int chromeX = Math.Max(x + 8, box.ClientSize.Width - padR - chromeW);
-                    _ldLiveChromeHost.SuspendLayout();
-                    try
-                    {
-                        _ldLiveChromeHost.Parent = box;
-                        _ldLiveChromeHost.SetBounds(chromeX, y + Math.Max(0, (innerH - TripScoutLiveCardHeight) / 2),
-                            chromeW, TripScoutLiveCardHeight);
-                        LayoutLateDriversLiveChromeHost();
-                    }
-                    finally
-                    {
-                        _ldLiveChromeHost.ResumeLayout(true);
-                    }
-                    _ldLiveChromeHost.BringToFront();
-                }
+                const int btnW = 88, btnH = 30;
+                int btnX = Math.Max(x + 8, box.ClientSize.Width - padR - btnW);
+                ldRefreshBtn.SetBounds(btnX, y + Math.Max(0, (innerH - btnH) / 2), btnW, btnH);
+                ldRefreshBtn.BringToFront();
             }
         }
 
@@ -746,20 +720,13 @@ namespace Hiatme_Tool_Suite_v3
         private void LdPeriodButton_Click(object sender, EventArgs e)
         {
             var btn = sender as SupeyMaterialButton;
-            string period = (btn?.Tag as string ?? "live").Trim().ToLowerInvariant();
+            string period = (btn?.Tag as string ?? "day").Trim().ToLowerInvariant();
             if (period == _ldSelectedPeriod)
                 return;
             _ldSelectedPeriod = period;
             StyleLateDriversPeriodButtons();
-            if (period == "live")
-            {
-                _ldSuppressDateChanged = true;
-                try { ldDatePicker.Value = DateTime.Today; } catch { }
-                _ldSuppressDateChanged = false;
-            }
             _ldSelectedDriver = null;
             UpdateLateDriversToolbarHints();
-            SyncLateDriversLivePollingForMode();
             _ = LateDriversRefreshAsync(force: true);
         }
 
@@ -778,9 +745,6 @@ namespace Hiatme_Tool_Suite_v3
             {
                 switch (mode)
                 {
-                    case "day":
-                        ldDateHintLbl.Text = "Day:";
-                        break;
                     case "week":
                         ldDateHintLbl.Text = "Any day in week:";
                         break;
@@ -791,59 +755,53 @@ namespace Hiatme_Tool_Suite_v3
                         ldDateHintLbl.Text = "Any day in year:";
                         break;
                     default:
-                        ldDateHintLbl.Text = "Today:";
+                        ldDateHintLbl.Text = "Day:";
                         break;
                 }
             }
 
             if (ldRangeCaptionLbl != null && !ldRangeCaptionLbl.IsDisposed)
             {
-                if (!string.IsNullOrWhiteSpace(_ldRangeLabel) && mode != "live")
+                if (!string.IsNullOrWhiteSpace(_ldRangeLabel))
                 {
                     ldRangeCaptionLbl.Text = "Loaded: " + CultureInfo.CurrentCulture.TextInfo.ToTitleCase(mode)
                         + "  " + _ldRangeLabel
-                        + "  — pick a different date to change the range";
+                        + "  — change date/period or Refresh to reload";
                 }
                 else
                 {
                     switch (mode)
                     {
-                        case "live":
-                            ldRangeCaptionLbl.Text = "Live = today only, refreshes every 60s";
-                            break;
-                        case "day":
-                            ldRangeCaptionLbl.Text = "Will load day " + anchor.ToString("ddd MMM d, yyyy", CultureInfo.CurrentCulture);
-                            break;
                         case "week":
                             {
                                 // Monday-start week (matches server _range_bounds).
                                 int offset = ((int)anchor.DayOfWeek + 6) % 7;
                                 var start = anchor.AddDays(-offset);
                                 var end = start.AddDays(6);
-                                ldRangeCaptionLbl.Text = "Will load week "
+                                ldRangeCaptionLbl.Text = "Week "
                                     + start.ToString("MMM d", CultureInfo.CurrentCulture)
                                     + " – " + end.ToString("MMM d, yyyy", CultureInfo.CurrentCulture)
-                                    + "  (change date, loads automatically)";
+                                    + "  — Refresh to load";
                                 break;
                             }
                         case "month":
-                            ldRangeCaptionLbl.Text = "Will load "
-                                + anchor.ToString("MMMM yyyy", CultureInfo.CurrentCulture)
-                                + "  (change date, loads automatically)";
+                            ldRangeCaptionLbl.Text = anchor.ToString("MMMM yyyy", CultureInfo.CurrentCulture)
+                                + "  — Refresh to load";
                             break;
                         case "year":
-                            ldRangeCaptionLbl.Text = "Will load year " + anchor.Year
-                                + "  (change date, loads automatically)";
+                            ldRangeCaptionLbl.Text = "Year " + anchor.Year + "  — Refresh to load";
                             break;
                         default:
-                            ldRangeCaptionLbl.Text = "";
+                            ldRangeCaptionLbl.Text = "Day "
+                                + anchor.ToString("ddd MMM d, yyyy", CultureInfo.CurrentCulture)
+                                + "  — Refresh to load";
                             break;
                     }
                 }
             }
 
             if (ldDatePicker != null && !ldDatePicker.IsDisposed)
-                ldDatePicker.Enabled = mode != "live";
+                ldDatePicker.Enabled = true;
 
             UpdateLateDriversTripCaption();
         }
@@ -870,124 +828,6 @@ namespace Hiatme_Tool_Suite_v3
                     ? SupeyMaterialButton.MaterialButtonType.Contained
                     : SupeyMaterialButton.MaterialButtonType.Outlined;
                 btn.UseAccentColor = on;
-            }
-        }
-
-        private void EnsureLateDriversLiveChrome()
-        {
-            if (_ldLiveChromeHost == null || _ldLiveChromeHost.IsDisposed)
-            {
-                _ldLiveChromeHost = new Panel
-                {
-                    Name = "ldLiveChromeHost",
-                    BackColor = Color.Transparent,
-                    Size = new Size(140, TripScoutLiveCardHeight),
-                };
-            }
-
-            if (_ldLiveTimerCard == null || _ldLiveTimerCard.IsDisposed)
-            {
-                _ldLiveTimerCard = MakeTripScoutLiveMiniCard("ldLiveTimerCard");
-                _ldLiveTimerCard.ShowBorder = true;
-                _ldLiveTimerCard.SurfaceLevel = SupeyCard.Surface.Elevated;
-                _ldLiveTimerCard.CornerRadius = 6;
-                _ldLiveChromeHost.Controls.Add(_ldLiveTimerCard);
-            }
-
-            if (_ldLiveScanCard == null || _ldLiveScanCard.IsDisposed)
-            {
-                // Inner slot inside the shared timer chip (not its own outer box).
-                _ldLiveScanCard = new Panel
-                {
-                    Name = "ldLiveScanCard",
-                    BackColor = Color.Transparent,
-                };
-                _ldLiveTimerCard.Controls.Add(_ldLiveScanCard);
-            }
-            else if (!ReferenceEquals(_ldLiveScanCard.Parent, _ldLiveTimerCard))
-            {
-                _ldLiveTimerCard.Controls.Add(_ldLiveScanCard);
-                _ldLiveScanCard.BackColor = Color.Transparent;
-            }
-
-            if (_ldLiveDivider == null || _ldLiveDivider.IsDisposed)
-            {
-                _ldLiveDivider = MakeTripScoutLiveDivider("ldLiveDivider");
-                _ldLiveDivider.Visible = false;
-                _ldLiveChromeHost.Controls.Add(_ldLiveDivider);
-            }
-
-            if (_ldLiveScan == null || _ldLiveScan.IsDisposed)
-            {
-                _ldLiveScan = new TripScoutLiveScanIndicator
-                {
-                    Name = "ldLiveScan",
-                    Dock = DockStyle.Fill,
-                    BackColor = SupeyTheme.SurfaceElevated,
-                };
-                _ldLiveScanCard.Controls.Add(_ldLiveScan);
-            }
-
-            if (_ldLiveCountdown == null || _ldLiveCountdown.IsDisposed)
-            {
-                _ldLiveCountdown = new Label
-                {
-                    Name = "ldLiveCountdown",
-                    AutoSize = false,
-                    TextAlign = ContentAlignment.MiddleCenter,
-                    Font = new Font("Segoe UI Semibold", 10f, FontStyle.Bold),
-                    Text = "60s",
-                    BackColor = Color.Transparent,
-                    ForeColor = SupeyTheme.TextPrimary,
-                };
-                _ldLiveTimerCard.Controls.Add(_ldLiveCountdown);
-            }
-            else if (!ReferenceEquals(_ldLiveCountdown.Parent, _ldLiveTimerCard))
-            {
-                _ldLiveTimerCard.Controls.Add(_ldLiveCountdown);
-            }
-        }
-
-        private int MeasureLateDriversLiveChromeWidth()
-        {
-            // Match toolbar/hero inset feel: 8px sides, 8px gap between loady and timer text.
-            const int padL = 8, padR = 8, gap = 8;
-            return padL + TripScoutLiveScanSlot + gap + TripScoutLiveTimerCardW + padR;
-        }
-
-        private void LayoutLateDriversLiveChromeHost()
-        {
-            if (_ldLiveChromeHost == null || _ldLiveChromeHost.IsDisposed)
-                return;
-
-            int hostH = TripScoutLiveCardHeight;
-            // Fill the live chrome row so 8px vertical inset has room around the 28px loady.
-            int chipH = hostH;
-            int chipY = 0;
-            int chipW = MeasureLateDriversLiveChromeWidth();
-
-            if (_ldLiveDivider != null && !_ldLiveDivider.IsDisposed)
-                _ldLiveDivider.Visible = false;
-            if (_ldLiveTimerCard != null && !_ldLiveTimerCard.IsDisposed)
-            {
-                _ldLiveTimerCard.Visible = true;
-                _ldLiveTimerCard.Padding = Padding.Empty;
-                _ldLiveTimerCard.SetBounds(0, chipY, chipW, chipH);
-
-                const int padL = 8, padR = 8, padV = 8, gap = 8;
-                int innerH = Math.Max(16, chipH - (padV * 2));
-                int scanY = padV + Math.Max(0, (innerH - TripScoutLiveScanSlot) / 2);
-                if (_ldLiveScanCard != null && !_ldLiveScanCard.IsDisposed)
-                {
-                    _ldLiveScanCard.Visible = true;
-                    _ldLiveScanCard.SetBounds(padL, scanY, TripScoutLiveScanSlot, TripScoutLiveScanSlot);
-                }
-                if (_ldLiveCountdown != null && !_ldLiveCountdown.IsDisposed)
-                {
-                    int textX = padL + TripScoutLiveScanSlot + gap;
-                    _ldLiveCountdown.SetBounds(textX, padV,
-                        Math.Max(24, chipW - textX - padR), innerH);
-                }
             }
         }
 
@@ -1074,31 +914,17 @@ namespace Hiatme_Tool_Suite_v3
             }
             if (ldRangeCaptionLbl != null && !ldRangeCaptionLbl.IsDisposed)
                 ldRangeCaptionLbl.BackColor = Color.Transparent;
+            if (ldRefreshBtn != null && !ldRefreshBtn.IsDisposed)
+            {
+                ldRefreshBtn.Type = SupeyMaterialButton.MaterialButtonType.Contained;
+                ldRefreshBtn.UseAccentColor = true;
+            }
             StyleLateDriversHabitChips();
             StyleLateDriversDriverTiles();
             StyleLateDriversList(ldTripLv);
-            if (_ldLiveScanCard != null && !_ldLiveScanCard.IsDisposed)
-                _ldLiveScanCard.BackColor = Color.Transparent;
-            if (_ldLiveTimerCard != null && !_ldLiveTimerCard.IsDisposed)
-            {
-                _ldLiveTimerCard.ShowBorder = true;
-                _ldLiveTimerCard.SurfaceLevel = SupeyCard.Surface.Elevated;
-                _ldLiveTimerCard.CornerRadius = 6;
-            }
-            if (_ldLiveCountdown != null && !_ldLiveCountdown.IsDisposed)
-            {
-                try { _ldLiveCountdown.Font = new Font("Segoe UI Semibold", 10f, FontStyle.Bold); } catch { }
-                _ldLiveCountdown.ForeColor = SupeyTheme.TextPrimary;
-                _ldLiveCountdown.BackColor = Color.Transparent;
-            }
-            if (_ldLiveScan != null && !_ldLiveScan.IsDisposed)
-                _ldLiveScan.BackColor = SupeyTheme.SurfaceElevated;
-            if (_ldLiveDivider != null && !_ldLiveDivider.IsDisposed)
-                _ldLiveDivider.BackColor = SupeyTheme.BorderSubtle;
             SupeyDarkScrollBars.Apply(tabPageLateDrivers);
             if (layout)
                 LayoutLateDriversTabPanels();
-            LateDriversUpdateLivePollCountdownLabel();
         }
 
         private static void StyleLateDriversCaption(Label lbl, bool secondary = true)
@@ -1159,16 +985,14 @@ namespace Hiatme_Tool_Suite_v3
 
         private string LateDriversSelectedMode()
         {
-            string s = (_ldSelectedPeriod ?? "live").Trim().ToLowerInvariant();
-            if (s == "day" || s == "week" || s == "month" || s == "year")
+            string s = (_ldSelectedPeriod ?? "day").Trim().ToLowerInvariant();
+            if (s == "week" || s == "month" || s == "year")
                 return s;
-            return "live";
+            return "day";
         }
 
         private string LateDriversSelectedServiceDateIso()
         {
-            if (LateDriversSelectedMode() == "live")
-                return DateTime.Today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
             try
             {
                 if (ldDatePicker != null)
@@ -1243,135 +1067,19 @@ namespace Hiatme_Tool_Suite_v3
             if (!_ldBuilt || _ldFirstLoadDone)
                 return;
             _ldFirstLoadDone = true;
-            SyncLateDriversLivePollingForMode();
             _ = LateDriversRefreshAsync(force: true);
-        }
-
-        private void SyncLateDriversLivePollingForMode()
-        {
-            if (LateDriversSelectedMode() == "live")
-                StartLateDriversLivePolling();
-            else
-                StopLateDriversLivePolling();
-            LayoutLateDriversTabPanels();
-        }
-
-        private void EnsureLateDriversLivePollTimer()
-        {
-            if (_ldPollTimer != null)
-                return;
-            _ldPollTimer = new System.Windows.Forms.Timer { Interval = LateDriversLivePollIntervalMs };
-            _ldPollTimer.Tick += (_, __) =>
-            {
-                if (hiatmeTabControl?.SelectedTab != tabPageLateDrivers)
-                    return;
-                if (LateDriversSelectedMode() != "live" || _ldLoadInFlight)
-                    return;
-                _ = LateDriversRefreshAsync(force: false);
-            };
-        }
-
-        private void EnsureLateDriversLivePollCountdownTimer()
-        {
-            if (_ldPollCountdownTimer != null)
-                return;
-            _ldPollCountdownTimer = new System.Windows.Forms.Timer { Interval = 1000 };
-            _ldPollCountdownTimer.Tick += (_, __) => LateDriversUpdateLivePollCountdownLabel();
-        }
-
-        private void StopLateDriversLivePolling()
-        {
-            _ldPollTimer?.Stop();
-            _ldPollCountdownTimer?.Stop();
-            StopLateDriversLiveScan();
-            if (_ldLiveChromeHost != null && !_ldLiveChromeHost.IsDisposed)
-                _ldLiveChromeHost.Visible = false;
-            LateDriversUpdateLivePollCountdownLabel();
-        }
-
-        private void StartLateDriversLivePolling()
-        {
-            EnsureLateDriversLiveChrome();
-            EnsureLateDriversLivePollTimer();
-            EnsureLateDriversLivePollCountdownTimer();
-            if (_ldLiveChromeHost != null)
-                _ldLiveChromeHost.Visible = true;
-            _ldPollTimer.Start();
-            _ldPollCountdownTimer.Start();
-            LateDriversScheduleNextLivePoll();
-        }
-
-        private void LateDriversScheduleNextLivePoll()
-        {
-            _ldPollNextUtc = DateTime.UtcNow.AddMilliseconds(LateDriversLivePollIntervalMs);
-            LateDriversUpdateLivePollCountdownLabel();
-        }
-
-        private void LateDriversUpdateLivePollCountdownLabel()
-        {
-            if (_ldLiveCountdown == null || _ldLiveCountdown.IsDisposed)
-                return;
-            if (LateDriversSelectedMode() != "live")
-            {
-                _ldLiveCountdown.Visible = false;
-                return;
-            }
-            _ldLiveCountdown.Visible = true;
-            if (_ldLoadInFlight)
-            {
-                _ldLiveCountdown.Text = "…";
-                _ldLiveCountdown.ForeColor = SupeyTheme.AccentPrimary;
-                return;
-            }
-            int seconds = Math.Max(0, (int)Math.Ceiling((_ldPollNextUtc - DateTime.UtcNow).TotalSeconds));
-            _ldLiveCountdown.Text = seconds + "s";
-            _ldLiveCountdown.ForeColor = seconds <= 5
-                ? SupeyTheme.AccentPrimary
-                : SupeyTheme.TextPrimary;
-        }
-
-        private void StartLateDriversLiveScan()
-        {
-            if (_ldLiveScan == null || _ldLiveScan.IsDisposed)
-                return;
-            _ldScanStartedUtc = DateTime.UtcNow;
-            _ldLiveScan.Scanning = true;
-            LateDriversUpdateLivePollCountdownLabel();
-        }
-
-        private async Task StopLateDriversLiveScanAfterMinimumAsync()
-        {
-            double elapsed = (DateTime.UtcNow - _ldScanStartedUtc).TotalMilliseconds;
-            if (elapsed < LateDriversLiveScanMinVisibleMs)
-            {
-                try
-                {
-                    await Task.Delay((int)(LateDriversLiveScanMinVisibleMs - elapsed)).ConfigureAwait(true);
-                }
-                catch { }
-            }
-            StopLateDriversLiveScan();
-        }
-
-        private void StopLateDriversLiveScan()
-        {
-            if (_ldLiveScan == null || _ldLiveScan.IsDisposed)
-                return;
-            if (_ldLiveScan.Scanning)
-                _ldLiveScan.Scanning = false;
         }
 
         private async Task LateDriversRefreshAsync(bool force)
         {
             if (!_ldBuilt || _ldLoadInFlight || IsDisposed)
                 return;
+            _ = force;
             _ldLoadInFlight = true;
-            bool liveMode = LateDriversSelectedMode() == "live";
+            if (ldRefreshBtn != null && !ldRefreshBtn.IsDisposed)
+                ldRefreshBtn.Enabled = false;
             try
             {
-                if (liveMode)
-                    StartLateDriversLiveScan();
-
                 var settings = LateDriversAiSettings();
                 if (settings == null || string.IsNullOrWhiteSpace(settings.BaseUrl))
                 {
@@ -1382,7 +1090,7 @@ namespace Hiatme_Tool_Suite_v3
                 string mode = LateDriversSelectedMode();
                 string sd = LateDriversSelectedServiceDateIso();
 
-                if (mode == "live" || mode == "day")
+                if (mode == "day")
                 {
                     var ensured = await EnsureModivcareDaySnapshotAsync(settings, sd)
                         .ConfigureAwait(true);
@@ -1393,86 +1101,32 @@ namespace Hiatme_Tool_Suite_v3
                     }
                 }
 
-                if (!force && mode == "live" && !string.IsNullOrEmpty(_ldLastHash))
-                {
-                    var st = await HiatmeAiClient.GetLateDriversStatusAsync(settings, sd)
-                        .ConfigureAwait(true);
-                    var habitsPeek = await HiatmeAiClient.GetLateDriversHabitsAsync(
-                            settings, "day", sd)
-                        .ConfigureAwait(true);
-                    string habitsHash = habitsPeek != null && habitsPeek.Ok
-                        ? (habitsPeek.ContentHash ?? "")
-                        : "";
-                    if (st != null && st.Ok
-                        && string.Equals(st.ContentHash, _ldLastHash, StringComparison.Ordinal)
-                        && string.Equals(habitsHash, _ldHabitsHash ?? "", StringComparison.Ordinal))
-                    {
-                        SetLateDriversStatus(
-                            "Status: Live — " + st.EventCount + " habit signals today ("
-                            + st.OpenCount + " still open) · unchanged · "
-                            + DateTime.Now.ToString("h:mm:ss tt", CultureInfo.CurrentCulture));
-                        return;
-                    }
-                }
-
                 SetLateDriversStatus("Status: Loading " + mode + "…");
 
-                string habitPeriod = mode == "live" ? "day" : mode;
-                var habitsTask = HiatmeAiClient.GetLateDriversHabitsAsync(
-                    settings, habitPeriod, sd);
+                var habitsTask = HiatmeAiClient.GetLateDriversHabitsAsync(settings, mode, sd);
 
-                if (mode == "live" || mode == "day")
+                if (mode == "day")
                 {
-                    if (mode == "live")
+                    var doc = await HiatmeAiClient.GetLateDriversDayAsync(settings, sd)
+                        .ConfigureAwait(true);
+                    if (doc == null || !doc.Ok)
                     {
-                        var doc = await HiatmeAiClient.GetLateDriversLiveAsync(settings, sd)
-                            .ConfigureAwait(true);
-                        if (doc == null || !doc.Ok)
-                        {
-                            SetLateDriversStatus("Status: " + (doc?.Error ?? "live load failed"));
-                            return;
-                        }
-                        if (!doc.ModivcareExists)
-                        {
-                            SetLateDriversStatus(
-                                "Status: Need Modivcare schedule for " + sd
-                                + " — scoring paused until schedule is stored.");
-                            return;
-                        }
-                        var habits = await habitsTask.ConfigureAwait(true);
-                        ApplyLateDriversEventPayload(
-                            doc.Events,
-                            doc.ContentHash,
-                            sd,
-                            sd,
-                            doc.ModivcareTripCount,
-                            live: true,
-                            habits: habits);
+                        SetLateDriversStatus("Status: " + (doc?.Error ?? "day load failed"));
+                        return;
                     }
-                    else
+                    if (!doc.ModivcareExists)
                     {
-                        var doc = await HiatmeAiClient.GetLateDriversDayAsync(settings, sd)
-                            .ConfigureAwait(true);
-                        if (doc == null || !doc.Ok)
-                        {
-                            SetLateDriversStatus("Status: " + (doc?.Error ?? "day load failed"));
-                            return;
-                        }
-                        if (!doc.ModivcareExists)
-                        {
-                            SetLateDriversStatus("Status: Need Modivcare schedule for " + sd);
-                            return;
-                        }
-                        var habits = await habitsTask.ConfigureAwait(true);
-                        ApplyLateDriversEventPayload(
-                            doc.Events,
-                            doc.ContentHash,
-                            sd,
-                            sd,
-                            doc.ModivcareTripCount,
-                            live: false,
-                            habits: habits);
+                        SetLateDriversStatus("Status: Need Modivcare schedule for " + sd);
+                        return;
                     }
+                    var habits = await habitsTask.ConfigureAwait(true);
+                    ApplyLateDriversEventPayload(
+                        doc.Events,
+                        doc.ContentHash,
+                        sd,
+                        sd,
+                        doc.ModivcareTripCount,
+                        habits: habits);
                 }
                 else
                 {
@@ -1518,26 +1172,18 @@ namespace Hiatme_Tool_Suite_v3
             finally
             {
                 _ldLoadInFlight = false;
-                if (liveMode)
-                {
-                    await StopLateDriversLiveScanAfterMinimumAsync().ConfigureAwait(true);
-                    LateDriversScheduleNextLivePoll();
-                }
-                else
-                {
-                    StopLateDriversLiveScan();
-                }
-                LateDriversUpdateLivePollCountdownLabel();
+                if (ldRefreshBtn != null && !ldRefreshBtn.IsDisposed)
+                    ldRefreshBtn.Enabled = true;
             }
         }
 
         private void ApplyLateDriversEventPayload(
+
             List<HiatmeAiClient.LateDriversEventRow> events,
             string contentHash,
             string fromDate,
             string toDate,
             int mcTripCount,
-            bool live,
             HiatmeAiClient.LateDriversHabitsDoc habits = null)
         {
             _ldLastHash = contentHash ?? "";
@@ -1562,25 +1208,12 @@ namespace Hiatme_Tool_Suite_v3
                 .Sum(d => d?.EarlyCount ?? 0);
             int unfinOpen = (_ldDriverRows ?? new List<HiatmeAiClient.LateDriversDriverSummary>())
                 .Sum(d => d?.UnfinishedOpen ?? 0);
-            if (live)
-            {
-                SetLateDriversStatus(
-                    "Status: Live — " + _ldEventRows.Count + " events ("
-                    + openN + " open"
-                    + (earlyN > 0 ? ", " + earlyN + " early" : "")
-                    + (unfinOpen > 0 ? ", " + unfinOpen + " unfinished" : "")
-                    + ") · MC " + mcTripCount
-                    + " · " + DateTime.Now.ToString("h:mm:ss tt", CultureInfo.CurrentCulture));
-            }
-            else
-            {
-                SetLateDriversStatus(
-                    "Status: Day " + fromDate + " — " + _ldEventRows.Count + " events ("
-                    + openN + " open"
-                    + (earlyN > 0 ? ", " + earlyN + " early" : "")
-                    + (unfinOpen > 0 ? ", " + unfinOpen + " unfinished" : "")
-                    + ") · MC " + mcTripCount);
-            }
+            SetLateDriversStatus(
+                "Status: Day " + fromDate + " — " + _ldEventRows.Count + " events ("
+                + openN + " open"
+                + (earlyN > 0 ? ", " + earlyN + " early" : "")
+                + (unfinOpen > 0 ? ", " + unfinOpen + " unfinished" : "")
+                + ") · MC " + mcTripCount);
         }
 
         private void MergeLateDriversHabits(HiatmeAiClient.LateDriversHabitsDoc habits)
