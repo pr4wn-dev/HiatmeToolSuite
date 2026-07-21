@@ -1,11 +1,15 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using NAudio.CoreAudioApi;
+using NAudio.Wave;
 
 namespace Hiatme_Tool_Suite_v3
 {
@@ -79,6 +83,14 @@ namespace Hiatme_Tool_Suite_v3
             new Dictionary<string, Label>(StringComparer.OrdinalIgnoreCase);
         private readonly List<SupeyCard> _ldScoreCards = new List<SupeyCard>();
         private readonly List<SupeyCard> _ldDriverTiles = new List<SupeyCard>();
+        private System.Windows.Forms.Timer _ldDriverAlertBlinkTimer;
+        private bool _ldDriverAlertBlinkOn;
+        /// <summary>Blink/chirp window after a late opens or an early actual lands.</summary>
+        private const int LateDriversAlertWindowSeconds = 75;
+        private const string LateDriversAlertSoundFileName = "law-and-order-alert.mp3";
+        /// <summary>Event keys we already dun-dunned for (so Live refresh doesn't spam).</summary>
+        private readonly HashSet<string> _ldAlertChirpKeys =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         private void InitializeLateDriversTab()
         {
@@ -2115,11 +2127,295 @@ namespace Hiatme_Tool_Suite_v3
                 }
 
                 StyleLateDriversDriverTiles();
+                SyncLateDriversDriverAlertBlink();
             }
             finally
             {
                 ldDriverStrip.ResumeLayout(true);
                 _ldDriverStripRendering = false;
+            }
+        }
+
+        private static bool LateDriversIsTimingHabitKey(string hk)
+        {
+            return hk == "late_pu" || hk == "late_do" || hk == "early_pu" || hk == "early_do";
+        }
+
+        /// <summary>
+        /// True when this driver should flash: late just opened, or early PU/DO
+        /// just landed — both only for <see cref="LateDriversAlertWindowSeconds"/>.
+        /// </summary>
+        private static double LateDriversUnixNow()
+        {
+            return (DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc))
+                .TotalSeconds;
+        }
+
+        private static bool LateDriversTsStillHot(double? unixTs)
+        {
+            if (!unixTs.HasValue || unixTs.Value <= 0)
+                return false;
+            double age = LateDriversUnixNow() - unixTs.Value;
+            return age >= 0 && age <= LateDriversAlertWindowSeconds;
+        }
+
+        /// <summary>
+        /// When the early PU/DO actually happened. Prefer ActualIso — habits rebuild
+        /// used to rewrite detected_at every poll.
+        /// </summary>
+        private static double? LateDriversEarlyEventTs(HiatmeAiClient.LateDriversEventRow e)
+        {
+            if (e == null) return null;
+            if (!string.IsNullOrWhiteSpace(e.ActualIso)
+                && (DateTime.TryParse(
+                        e.ActualIso.Trim(),
+                        CultureInfo.InvariantCulture,
+                        DateTimeStyles.RoundtripKind,
+                        out var dt)
+                    || DateTime.TryParse(e.ActualIso.Trim(), out dt)))
+            {
+                if (dt.Kind == DateTimeKind.Unspecified)
+                    dt = DateTime.SpecifyKind(dt, DateTimeKind.Local);
+                return (dt.ToUniversalTime()
+                    - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalSeconds;
+            }
+            if (e.DetectedAt.HasValue && e.DetectedAt.Value > 0)
+                return e.DetectedAt.Value;
+            if (e.ResolvedAt.HasValue && e.ResolvedAt.Value > 0)
+                return e.ResolvedAt.Value;
+            return null;
+        }
+
+        private static bool LateDriversEarlyStillHot(HiatmeAiClient.LateDriversEventRow e)
+        {
+            return LateDriversTsStillHot(LateDriversEarlyEventTs(e));
+        }
+
+        /// <summary>Late blink: only ~75s after the late first opened (or reopened).</summary>
+        private static bool LateDriversLateStillHot(HiatmeAiClient.LateDriversEventRow e)
+        {
+            if (e == null || !e.Open)
+                return false;
+            // Live late board keeps detected_at stable while open.
+            if (LateDriversTsStillHot(e.DetectedAt))
+                return true;
+            return false;
+        }
+
+        private static bool LateDriversEventNeedsCallAlert(HiatmeAiClient.LateDriversEventRow e)
+        {
+            if (e == null || e.Excluded)
+                return false;
+            string hk = HabitKeyOf(e);
+            if (!LateDriversIsTimingHabitKey(hk))
+                return false;
+            if (hk.StartsWith("early", StringComparison.Ordinal))
+                return LateDriversEarlyStillHot(e);
+            return LateDriversLateStillHot(e);
+        }
+
+        private static string LateDriversAlertEventKey(HiatmeAiClient.LateDriversEventRow e)
+        {
+            if (e == null) return "";
+            if (!string.IsNullOrWhiteSpace(e.EventId))
+                return e.EventId.Trim();
+            return (e.ServiceDate ?? "").Trim() + "|"
+                + (e.TripNo ?? "").Trim() + "|"
+                + (e.Side ?? "").Trim().ToLowerInvariant() + "|"
+                + HabitKeyOf(e);
+        }
+
+        private static bool LateDriversDriverNeedsCallAlert(
+            HiatmeAiClient.LateDriversDriverSummary summary)
+        {
+            if (summary?.Trips == null || summary.Trips.Count == 0)
+                return false;
+            return summary.Trips.Any(LateDriversEventNeedsCallAlert);
+        }
+
+        private HashSet<string> CollectLateDriversActiveAlertKeys()
+        {
+            var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var d in _ldDriverRows ?? new List<HiatmeAiClient.LateDriversDriverSummary>())
+            {
+                if (d?.Trips == null) continue;
+                foreach (var e in d.Trips)
+                {
+                    if (!LateDriversEventNeedsCallAlert(e))
+                        continue;
+                    string key = LateDriversAlertEventKey(e);
+                    if (!string.IsNullOrEmpty(key))
+                        keys.Add(key);
+                }
+            }
+            return keys;
+        }
+
+        private void MaybePlayLateDriversAlertChirp(HashSet<string> activeKeys)
+        {
+            if (activeKeys == null || activeKeys.Count == 0)
+            {
+                _ldAlertChirpKeys.Clear();
+                return;
+            }
+
+            bool fresh = false;
+            foreach (string key in activeKeys)
+            {
+                if (_ldAlertChirpKeys.Add(key))
+                    fresh = true;
+            }
+            // Drop keys that are no longer alerting so a later re-open can chirp again.
+            _ldAlertChirpKeys.RemoveWhere(k => !activeKeys.Contains(k));
+
+            if (fresh)
+                TryPlayLateDriversAlertSoundOnce();
+        }
+
+        private static void TryPlayLateDriversAlertSoundOnce()
+        {
+            try
+            {
+                string baseDir = AppDomain.CurrentDomain.BaseDirectory ?? "";
+                if (string.IsNullOrEmpty(baseDir))
+                    return;
+                string path = Path.Combine(baseDir, "Resources", LateDriversAlertSoundFileName);
+                if (!File.Exists(path))
+                    path = Path.Combine(baseDir, LateDriversAlertSoundFileName);
+                if (!File.Exists(path))
+                    return;
+
+                string fullPath = Path.GetFullPath(path);
+                var playThread = new Thread(() =>
+                {
+                    try
+                    {
+                        using (var reader = new MediaFoundationReader(fullPath))
+                        using (var output = new WasapiOut(AudioClientShareMode.Shared, 150))
+                        {
+                            output.Init(reader);
+                            output.Play();
+                            while (output.PlaybackState == PlaybackState.Playing)
+                                Thread.Sleep(25);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine("Driver Habits alert sound: " + ex);
+                    }
+                })
+                {
+                    IsBackground = true,
+                    Name = "LateDriversAlertSound",
+                };
+                playThread.SetApartmentState(ApartmentState.STA);
+                playThread.Start();
+            }
+            catch
+            {
+                /* optional audio */
+            }
+        }
+
+        private static bool LateDriversDriverAlertIsEarly(
+            HiatmeAiClient.LateDriversDriverSummary summary)
+        {
+            if (summary?.Trips == null)
+                return false;
+            bool anyEarly = false;
+            bool anyLateOpen = false;
+            foreach (var e in summary.Trips)
+            {
+                if (e == null || e.Excluded) continue;
+                string hk = HabitKeyOf(e);
+                if (hk == "late_pu" || hk == "late_do")
+                {
+                    if (LateDriversLateStillHot(e)) anyLateOpen = true;
+                }
+                else if (hk == "early_pu" || hk == "early_do")
+                {
+                    if (LateDriversEarlyStillHot(e))
+                        anyEarly = true;
+                }
+            }
+            // Prefer late (red) when both; early alone → amber.
+            return anyEarly && !anyLateOpen;
+        }
+
+        private void EnsureLateDriversDriverAlertBlinkTimer()
+        {
+            if (_ldDriverAlertBlinkTimer != null)
+                return;
+            _ldDriverAlertBlinkTimer = new System.Windows.Forms.Timer { Interval = 550 };
+            _ldDriverAlertBlinkTimer.Tick += (_, __) =>
+            {
+                _ldDriverAlertBlinkOn = !_ldDriverAlertBlinkOn;
+                ApplyLateDriversDriverAlertBlinkPhase();
+            };
+        }
+
+        private void SyncLateDriversDriverAlertBlink()
+        {
+            var activeKeys = CollectLateDriversActiveAlertKeys();
+            bool any = activeKeys.Count > 0;
+            MaybePlayLateDriversAlertChirp(activeKeys);
+
+            if (any)
+            {
+                EnsureLateDriversDriverAlertBlinkTimer();
+                if (!_ldDriverAlertBlinkTimer.Enabled)
+                {
+                    _ldDriverAlertBlinkOn = true;
+                    _ldDriverAlertBlinkTimer.Start();
+                }
+                ApplyLateDriversDriverAlertBlinkPhase();
+            }
+            else
+            {
+                _ldDriverAlertBlinkTimer?.Stop();
+                _ldDriverAlertBlinkOn = false;
+                ApplyLateDriversDriverAlertBlinkPhase();
+            }
+        }
+
+        private void ApplyLateDriversDriverAlertBlinkPhase()
+        {
+            foreach (var tile in _ldDriverTiles)
+            {
+                if (tile == null || tile.IsDisposed)
+                    continue;
+                var summary = tile.Tag as HiatmeAiClient.LateDriversDriverSummary;
+                bool alert = summary == null
+                    ? (_ldDriverRows ?? new List<HiatmeAiClient.LateDriversDriverSummary>())
+                        .Any(LateDriversDriverNeedsCallAlert)
+                    : LateDriversDriverNeedsCallAlert(summary);
+
+                var nameLbl = tile.Controls["ldTileName"] as Label;
+                bool selected = summary == null
+                    ? string.IsNullOrEmpty(_ldSelectedDriver)
+                    : string.Equals(summary.Driver, _ldSelectedDriver, StringComparison.OrdinalIgnoreCase);
+
+                if (!alert || !_ldDriverAlertBlinkOn)
+                {
+                    tile.BorderColorOverride = null;
+                    tile.AccentColorOverride = null;
+                    if (!selected)
+                        tile.Accent = SupeyCard.AccentEdge.None;
+                    if (nameLbl != null && !nameLbl.IsDisposed)
+                        nameLbl.ForeColor = SupeyTheme.TextPrimary;
+                    continue;
+                }
+
+                bool earlyOnly = summary != null && LateDriversDriverAlertIsEarly(summary);
+                Color flash = earlyOnly
+                    ? Color.FromArgb(210, 140, 40)
+                    : Color.FromArgb(220, 70, 55);
+                tile.BorderColorOverride = flash;
+                tile.AccentColorOverride = flash;
+                tile.Accent = SupeyCard.AccentEdge.Top;
+                tile.ShowBorder = true;
+                if (nameLbl != null && !nameLbl.IsDisposed)
+                    nameLbl.ForeColor = flash;
             }
         }
 
@@ -2220,6 +2516,7 @@ namespace Hiatme_Tool_Suite_v3
                 tile.SurfaceLevel = selected ? SupeyCard.Surface.Elevated : SupeyCard.Surface.Standard;
                 tile.ShowBorder = true;
             }
+            ApplyLateDriversDriverAlertBlinkPhase();
         }
 
         private void RefreshLateDriversScorecard()

@@ -37,6 +37,8 @@ namespace Hiatme_Tool_Suite_v3
         private bool _showBorder;
         private int _cornerRadius;
         private AccentEdge _accentEdge = AccentEdge.None;
+        private Color? _borderColorOverride;
+        private Color? _accentColorOverride;
 
         public SupeyCard()
         {
@@ -78,6 +80,20 @@ namespace Hiatme_Tool_Suite_v3
         {
             get => _accentEdge;
             set { _accentEdge = value; Invalidate(); }
+        }
+
+        /// <summary>When set, paints the border in this color instead of <see cref="SupeyTheme.BorderSubtle"/>.</summary>
+        public Color? BorderColorOverride
+        {
+            get => _borderColorOverride;
+            set { _borderColorOverride = value; Invalidate(); }
+        }
+
+        /// <summary>When set, paints the accent stripe in this color instead of <see cref="SupeyTheme.AccentPrimary"/>.</summary>
+        public Color? AccentColorOverride
+        {
+            get => _accentColorOverride;
+            set { _accentColorOverride = value; Invalidate(); }
         }
 
         /// <summary>Accepted for Designer compatibility (MaterialCard elevation); unused by the flat skin.</summary>
@@ -126,7 +142,7 @@ namespace Hiatme_Tool_Suite_v3
 
                 if (_showBorder)
                 {
-                    using (var p = new Pen(SupeyTheme.BorderSubtle))
+                    using (var p = new Pen(_borderColorOverride ?? SupeyTheme.BorderSubtle))
                         g.DrawRectangle(p, 0, 0, Width - 1, Height - 1);
                 }
             }
@@ -140,22 +156,23 @@ namespace Hiatme_Tool_Suite_v3
                         g.FillPath(b, path);
                     if (_showBorder)
                     {
-                        using (var p = new Pen(SupeyTheme.BorderSubtle))
+                        using (var p = new Pen(_borderColorOverride ?? SupeyTheme.BorderSubtle))
                             g.DrawPath(p, path);
                     }
                 }
                 g.SmoothingMode = SmoothingMode.None;
             }
 
+            Color accent = _accentColorOverride ?? SupeyTheme.AccentPrimary;
             if (_accentEdge == AccentEdge.Top)
             {
-                using (var b = new SolidBrush(SupeyTheme.AccentPrimary))
-                    g.FillRectangle(b, 0, 0, Width, 2);
+                using (var b = new SolidBrush(accent))
+                    g.FillRectangle(b, 0, 0, Width, 3);
             }
             else if (_accentEdge == AccentEdge.Left)
             {
-                using (var b = new SolidBrush(SupeyTheme.AccentPrimary))
-                    g.FillRectangle(b, 0, 0, 2, Height);
+                using (var b = new SolidBrush(accent))
+                    g.FillRectangle(b, 0, 0, 3, Height);
             }
         }
 

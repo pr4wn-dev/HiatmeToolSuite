@@ -795,6 +795,9 @@
     <Content Include="Resources\must-have-precious.mp3">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <Content Include="Resources\law-and-order-alert.mp3">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <None Include="Resources\MUSCPerc_Drum roll 3 m %28ID 2407%29_BSB.wav" />
     <None Include="Resources\fail.jpg" />
     <None Include="Resources\epic_fail.png" />
