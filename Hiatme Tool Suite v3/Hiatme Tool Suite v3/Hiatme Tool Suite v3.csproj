@@ -220,6 +220,12 @@
       <DependentUpon>Form1.cs</DependentUpon>
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="DashcamVideoLibrary.cs" />
+    <Compile Include="DashcamVideoStore.cs" />
+    <Compile Include="Form1.DashcamVideos.cs">
+      <DependentUpon>Form1.cs</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="Form1.TripScoutLiveHud.cs">
       <DependentUpon>Form1.cs</DependentUpon>
       <SubType>Form</SubType>

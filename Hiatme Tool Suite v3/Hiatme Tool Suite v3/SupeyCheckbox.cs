@@ -97,10 +97,17 @@ namespace Hiatme_Tool_Suite_v3
 
         private void SyncSurfaceBackColor()
         {
+            // WinForms Controls reject Transparent BackColor — if the parent is Transparent
+            // (common on docked chrome panels), fall back to the themed surface instead.
             if (Parent != null && !Parent.IsDisposed)
-                BackColor = Parent.BackColor;
+            {
+                Color parentBack = Parent.BackColor;
+                BackColor = parentBack.A == 0 ? SupeyTheme.Surface : parentBack;
+            }
             else
+            {
                 BackColor = SupeyTheme.SurfaceBase;
+            }
         }
 
         protected override void Dispose(bool disposing)

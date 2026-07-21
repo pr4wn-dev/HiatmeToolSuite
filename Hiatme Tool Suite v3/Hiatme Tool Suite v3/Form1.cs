@@ -215,6 +215,7 @@ namespace Hiatme_Tool_Suite_v3
             ApplyProductionVisualTheme();
             ApplyCameraVisualTheme();
             InitializeLateDriversTab();
+            // Dashcam Videos builds lazily on first open (needs a real ClientSize to lay out).
             ApplyLoginVisualTheme(layout: false);
             if (LoadingGifCard != null)
                 LoadingGifCard.Visible = false;
@@ -1897,6 +1898,7 @@ namespace Hiatme_Tool_Suite_v3
                 ApplyProductionVisualTheme();
                 ApplyCameraVisualTheme(layout: false);
                 ApplyLateDriversVisualTheme(layout: false);
+                ApplyDashcamVisualTheme(layout: false);
                 ApplyLoadingOverlayTheme();
                 SupeyListViewHelpers.RefreshThemeColors(this);
                 Invalidate(true);
@@ -9056,6 +9058,13 @@ namespace Hiatme_Tool_Suite_v3
                         InitializeLateDriversTab();
                     LayoutLateDriversTabPanels();
                     EnsureLateDriversFirstUseLoad();
+                }
+                if (hiatmeTabControl.SelectedTab == tabPageDashcamVideos)
+                {
+                    if (!_dcBuilt)
+                        InitializeDashcamVideosTab();
+                    LayoutDashcamTabPanels();
+                    EnsureDashcamFirstScan();
                 }
             }
             catch

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -20,6 +21,12 @@ namespace Hiatme_Tool_Suite_v3
         private Panel ldToolbarInner;
         private RJDatePicker ldDatePicker;
         private FlowLayoutPanel ldPeriodStrip;
+        private Panel ldWeekStrip;
+        private SupeyMaterialButton ldWeekPrevBtn;
+        private SupeyMaterialButton ldWeekNextBtn;
+        private Label ldWeekRangeLbl;
+        private SupeyComboBox ldMonthCombo;
+        private SupeyComboBox ldYearCombo;
         private SupeyMaterialButton ldRefreshBtn;
         private Label ldDateHintLbl;
         private Label ldRangeCaptionLbl;
@@ -51,7 +58,12 @@ namespace Hiatme_Tool_Suite_v3
         private bool _ldBuilt;
         private bool _ldFirstLoadDone;
         private bool _ldSuppressDateChanged;
+        private bool _ldSuppressPeriodPickerChanged;
         private string _ldSelectedPeriod = "day";
+        /// <summary>Day-mode date (date picker). Not overwritten when Week/Month/Year snap their unit.</summary>
+        private DateTime _ldDayDate = DateTime.Today;
+        /// <summary>Week/Month/Year focus date (unit start for API via LateDriversApiAnchorDate).</summary>
+        private DateTime _ldAnchorDate = DateTime.Today;
         private string _ldSelectedDriver; // null = All drivers
         private string _ldHabitChip = "all";
         private string _ldRangeLabel = "";
@@ -94,6 +106,12 @@ namespace Hiatme_Tool_Suite_v3
                     ldTripLv = null;
                     ldPeriodStrip = null;
                     ldDatePicker = null;
+                    ldWeekStrip = null;
+                    ldWeekPrevBtn = null;
+                    ldWeekNextBtn = null;
+                    ldWeekRangeLbl = null;
+                    ldMonthCombo = null;
+                    ldYearCombo = null;
                     ldDateHintLbl = null;
                     ldRangeCaptionLbl = null;
                     ldDriverCaptionLbl = null;
@@ -113,6 +131,8 @@ namespace Hiatme_Tool_Suite_v3
                     ldScorecardHost = null;
                     ldHabitChipStrip = null;
                     ldRefreshBtn = null;
+                    _ldDayDate = DateTime.Today;
+                    _ldAnchorDate = DateTime.Today;
                     _ldPeriodButtons.Clear();
                     _ldHabitChipButtons.Clear();
                     _ldScoreValues.Clear();
@@ -168,6 +188,8 @@ namespace Hiatme_Tool_Suite_v3
                 };
                 ldStatusCard.Controls.Add(ldStatusLbl);
 
+                _ldDayDate = DateTime.Today;
+                _ldAnchorDate = DateTime.Today;
                 ldDatePicker = new RJDatePicker
                 {
                     Name = "ldDatePicker",
@@ -178,11 +200,15 @@ namespace Hiatme_Tool_Suite_v3
                     TextColor = Color.White,
                     Font = new Font("Microsoft Sans Serif", 9.75F),
                 };
-                try { ldDatePicker.Value = DateTime.Today; } catch { }
+                try { ldDatePicker.Value = _ldDayDate; } catch { }
                 ldDatePicker.ValueChanged += (_, __) =>
                 {
                     if (_ldSuppressDateChanged || !_ldBuilt)
                         return;
+                    _ldDayDate = ldDatePicker.Value.Date;
+                    // Keep period focus aligned so Week/Month/Year open on the same neighborhood.
+                    _ldAnchorDate = _ldDayDate;
+                    SyncLateDriversPeriodPickersFromAnchor();
                     UpdateLateDriversToolbarHints();
                     _ = LateDriversRefreshAsync(force: true);
                 };
@@ -193,7 +219,7 @@ namespace Hiatme_Tool_Suite_v3
                     AutoSize = false,
                     TextAlign = ContentAlignment.MiddleLeft,
                     BackColor = Color.Transparent,
-                    Text = "Date:",
+                    Text = "Day:",
                 };
                 ldRangeCaptionLbl = new Label
                 {
@@ -231,6 +257,9 @@ namespace Hiatme_Tool_Suite_v3
                 }
                 StyleLateDriversPeriodButtons();
 
+                BuildLateDriversWeekStrip();
+                BuildLateDriversMonthYearCombos();
+
                 ldRefreshBtn = new SupeyMaterialButton
                 {
                     Name = "ldRefreshBtn",
@@ -256,6 +285,7 @@ namespace Hiatme_Tool_Suite_v3
                 tabPageLateDrivers.Resize += (_, __) => LayoutLateDriversTabPanels();
 
                 tabPageLateDrivers.Text = "Driver Habits";
+                UpdateLateDriversPeriodPickerChrome();
                 UpdateLateDriversToolbarHints();
                 ApplyLateDriversVisualTheme(layout: true);
                 _ldBuilt = true;
@@ -320,6 +350,12 @@ namespace Hiatme_Tool_Suite_v3
                 ldToolbarInner.Controls.Add(ldDateHintLbl);
             if (ldDatePicker != null)
                 ldToolbarInner.Controls.Add(ldDatePicker);
+            if (ldWeekStrip != null)
+                ldToolbarInner.Controls.Add(ldWeekStrip);
+            if (ldMonthCombo != null)
+                ldToolbarInner.Controls.Add(ldMonthCombo);
+            if (ldYearCombo != null)
+                ldToolbarInner.Controls.Add(ldYearCombo);
             if (ldRefreshBtn != null)
                 ldToolbarInner.Controls.Add(ldRefreshBtn);
 
@@ -646,6 +682,239 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        private void BuildLateDriversWeekStrip()
+        {
+            ldWeekStrip = new Panel
+            {
+                Name = "ldWeekStrip",
+                Size = new Size(280, 30),
+                BackColor = Color.Transparent,
+                Margin = Padding.Empty,
+                Visible = false,
+            };
+            ldWeekPrevBtn = new SupeyMaterialButton
+            {
+                Name = "ldWeekPrevBtn",
+                Text = "◀",
+                Type = SupeyMaterialButton.MaterialButtonType.Outlined,
+                Size = new Size(30, 30),
+                Margin = Padding.Empty,
+                Location = new Point(0, 0),
+            };
+            ldWeekPrevBtn.Click += (_, __) =>
+            {
+                if (!_ldBuilt) return;
+                SetLateDriversAnchorDate(LateDriversWeekStartMonday(_ldAnchorDate).AddDays(-7), refresh: true);
+            };
+            ldWeekNextBtn = new SupeyMaterialButton
+            {
+                Name = "ldWeekNextBtn",
+                Text = "▶",
+                Type = SupeyMaterialButton.MaterialButtonType.Outlined,
+                Size = new Size(30, 30),
+                Margin = Padding.Empty,
+                Location = new Point(250, 0),
+            };
+            ldWeekNextBtn.Click += (_, __) =>
+            {
+                if (!_ldBuilt) return;
+                SetLateDriversAnchorDate(LateDriversWeekStartMonday(_ldAnchorDate).AddDays(7), refresh: true);
+            };
+            ldWeekRangeLbl = new Label
+            {
+                Name = "ldWeekRangeLbl",
+                AutoSize = false,
+                TextAlign = ContentAlignment.MiddleCenter,
+                BackColor = Color.Transparent,
+                Location = new Point(34, 0),
+                Size = new Size(212, 30),
+                Text = "",
+            };
+            ldWeekStrip.Controls.Add(ldWeekPrevBtn);
+            ldWeekStrip.Controls.Add(ldWeekRangeLbl);
+            ldWeekStrip.Controls.Add(ldWeekNextBtn);
+            UpdateLateDriversWeekRangeLabel();
+        }
+
+        private void BuildLateDriversMonthYearCombos()
+        {
+            ldMonthCombo = new SupeyComboBox { Name = "ldMonthCombo", Visible = false };
+            ConfigureToolbarSupeyCombo(ldMonthCombo, 120);
+            for (int m = 1; m <= 12; m++)
+                ldMonthCombo.Items.Add(CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(m));
+            ldMonthCombo.SelectedIndexChanged += (_, __) =>
+            {
+                if (_ldSuppressPeriodPickerChanged || !_ldBuilt) return;
+                ApplyLateDriversMonthYearFromCombos(refresh: true);
+            };
+
+            ldYearCombo = new SupeyComboBox { Name = "ldYearCombo", Visible = false };
+            ConfigureToolbarSupeyCombo(ldYearCombo, 88);
+            int yNow = DateTime.Today.Year;
+            for (int y = yNow - 5; y <= yNow + 1; y++)
+                ldYearCombo.Items.Add(y.ToString(CultureInfo.InvariantCulture));
+            ldYearCombo.SelectedIndexChanged += (_, __) =>
+            {
+                if (_ldSuppressPeriodPickerChanged || !_ldBuilt) return;
+                ApplyLateDriversMonthYearFromCombos(refresh: true);
+            };
+
+            SyncLateDriversPeriodPickersFromAnchor();
+        }
+
+        private static DateTime LateDriversWeekStartMonday(DateTime d)
+        {
+            d = d.Date;
+            int offset = ((int)d.DayOfWeek - (int)DayOfWeek.Monday + 7) % 7;
+            return d.AddDays(-offset);
+        }
+
+        private DateTime LateDriversApiAnchorDate()
+        {
+            string mode = LateDriversSelectedMode();
+            if (mode == "day")
+                return _ldDayDate.Date;
+            DateTime d = _ldAnchorDate.Date;
+            if (mode == "week")
+                return LateDriversWeekStartMonday(d);
+            if (mode == "month")
+                return new DateTime(d.Year, d.Month, 1);
+            if (mode == "year")
+                return new DateTime(d.Year, 1, 1);
+            return d;
+        }
+
+        /// <summary>
+        /// Modivcare Trip Download only covers roughly current/next month and ~8 days back.
+        /// Calling the downloader outside that window pops a MessageBox — skip instead.
+        /// </summary>
+        private static bool LateDriversModivcareDownloadWindowOk(DateTime day)
+        {
+            day = day.Date;
+            DateTime today = DateTime.Today;
+            if (day < today.AddDays(-8) || day > today.AddDays(30))
+                return false;
+            DateTime monthStart = new DateTime(today.Year, today.Month, 1);
+            DateTime nextMonthEnd = monthStart.AddMonths(2).AddDays(-1);
+            return day >= monthStart && day <= nextMonthEnd;
+        }
+
+        private void SetLateDriversAnchorDate(DateTime date, bool refresh)
+        {
+            _ldAnchorDate = date.Date;
+            SyncLateDriversPeriodPickersFromAnchor();
+            UpdateLateDriversToolbarHints();
+            if (refresh && _ldBuilt)
+                _ = LateDriversRefreshAsync(force: true);
+        }
+
+        private void ApplyLateDriversMonthYearFromCombos(bool refresh)
+        {
+            int year = _ldAnchorDate.Year;
+            int month = _ldAnchorDate.Month;
+            if (ldYearCombo?.SelectedItem != null
+                && int.TryParse(
+                    Convert.ToString(ldYearCombo.SelectedItem),
+                    NumberStyles.Integer,
+                    CultureInfo.InvariantCulture,
+                    out int y))
+                year = y;
+            if (string.Equals(_ldSelectedPeriod, "year", StringComparison.OrdinalIgnoreCase))
+                month = 1;
+            else if (ldMonthCombo != null && ldMonthCombo.SelectedIndex >= 0)
+                month = ldMonthCombo.SelectedIndex + 1;
+            month = Math.Max(1, Math.Min(12, month));
+            SetLateDriversAnchorDate(new DateTime(year, month, 1), refresh);
+        }
+
+        private void SyncLateDriversPeriodPickersFromAnchor()
+        {
+            _ldSuppressDateChanged = true;
+            _ldSuppressPeriodPickerChanged = true;
+            try
+            {
+                if (ldDatePicker != null && !ldDatePicker.IsDisposed)
+                {
+                    try { ldDatePicker.Value = _ldDayDate; } catch { }
+                }
+                DateTime periodFocus = _ldAnchorDate.Date;
+                if (ldMonthCombo != null && !ldMonthCombo.IsDisposed && ldMonthCombo.Items.Count >= 12)
+                {
+                    int mi = Math.Max(0, Math.Min(11, periodFocus.Month - 1));
+                    if (ldMonthCombo.SelectedIndex != mi)
+                        ldMonthCombo.SelectedIndex = mi;
+                }
+                if (ldYearCombo != null && !ldYearCombo.IsDisposed && ldYearCombo.Items.Count > 0)
+                {
+                    string ys = periodFocus.Year.ToString(CultureInfo.InvariantCulture);
+                    int yi = ldYearCombo.Items.IndexOf(ys);
+                    if (yi < 0)
+                    {
+                        ldYearCombo.Items.Add(ys);
+                        yi = ldYearCombo.Items.IndexOf(ys);
+                    }
+                    if (yi >= 0 && ldYearCombo.SelectedIndex != yi)
+                        ldYearCombo.SelectedIndex = yi;
+                }
+                UpdateLateDriversWeekRangeLabel();
+            }
+            finally
+            {
+                _ldSuppressDateChanged = false;
+                _ldSuppressPeriodPickerChanged = false;
+            }
+        }
+
+        private void UpdateLateDriversWeekRangeLabel()
+        {
+            if (ldWeekRangeLbl == null || ldWeekRangeLbl.IsDisposed)
+                return;
+            DateTime start = LateDriversWeekStartMonday(_ldAnchorDate);
+            DateTime end = start.AddDays(6);
+            if (start.Year == end.Year)
+                ldWeekRangeLbl.Text = string.Format(
+                    CultureInfo.CurrentCulture,
+                    "{0:MMM d} – {1:MMM d, yyyy}",
+                    start,
+                    end);
+            else
+                ldWeekRangeLbl.Text = string.Format(
+                    CultureInfo.CurrentCulture,
+                    "{0:MMM d, yyyy} – {1:MMM d, yyyy}",
+                    start,
+                    end);
+        }
+
+        private void UpdateLateDriversPeriodPickerChrome()
+        {
+            string p = LateDriversSelectedMode();
+            bool day = p == "day";
+            bool week = p == "week";
+            bool month = p == "month";
+            bool year = p == "year";
+
+            if (ldDatePicker != null && !ldDatePicker.IsDisposed)
+                ldDatePicker.Visible = day;
+            if (ldWeekStrip != null && !ldWeekStrip.IsDisposed)
+                ldWeekStrip.Visible = week;
+            if (ldMonthCombo != null && !ldMonthCombo.IsDisposed)
+                ldMonthCombo.Visible = month;
+            if (ldYearCombo != null && !ldYearCombo.IsDisposed)
+                ldYearCombo.Visible = month || year;
+
+            if (ldDateHintLbl != null && !ldDateHintLbl.IsDisposed)
+            {
+                if (day) ldDateHintLbl.Text = "Day:";
+                else if (week) ldDateHintLbl.Text = "Week:";
+                else if (month) ldDateHintLbl.Text = "Month:";
+                else if (year) ldDateHintLbl.Text = "Year:";
+                else ldDateHintLbl.Text = "Period:";
+            }
+
+            SyncLateDriversPeriodPickersFromAnchor();
+            LayoutLateDriversToolbar();
+        }
+
         private void LayoutLateDriversToolbar()
         {
             var box = ldToolbarInner;
@@ -656,6 +925,7 @@ namespace Hiatme_Tool_Suite_v3
             int y = box.Padding.Top;
             int innerH = Math.Max(LateDriversToolbarInnerH, box.ClientSize.Height - box.Padding.Vertical);
             int x = padL;
+            string mode = LateDriversSelectedMode();
 
             if (ldPeriodStrip != null && !ldPeriodStrip.IsDisposed)
             {
@@ -665,23 +935,53 @@ namespace Hiatme_Tool_Suite_v3
 
             if (ldDateHintLbl != null && !ldDateHintLbl.IsDisposed)
             {
-                int hintW = 48;
-                switch (LateDriversSelectedMode())
+                int hintW = 52;
+                switch (mode)
                 {
-                    case "week": hintW = 118; break;
-                    case "month": hintW = 128; break;
-                    case "year": hintW = 118; break;
+                    case "week": hintW = 52; break;
+                    case "month": hintW = 58; break;
+                    case "year": hintW = 48; break;
                     default: hintW = 40; break;
                 }
                 ldDateHintLbl.SetBounds(x, y + Math.Max(0, (innerH - 20) / 2), hintW, 20);
                 x = ldDateHintLbl.Right + 6;
             }
 
-            if (ldDatePicker != null && !ldDatePicker.IsDisposed)
+            if (mode == "day" && ldDatePicker != null && !ldDatePicker.IsDisposed)
             {
                 const int dateH = 34;
                 ldDatePicker.SetBounds(x, y + Math.Max(0, (innerH - dateH) / 2), 214, dateH);
                 x = ldDatePicker.Right + 12;
+            }
+            else if (mode == "week" && ldWeekStrip != null && !ldWeekStrip.IsDisposed)
+            {
+                const int stripW = 280, stripH = 30;
+                ldWeekStrip.SetBounds(x, y + Math.Max(0, (innerH - stripH) / 2), stripW, stripH);
+                if (ldWeekPrevBtn != null) ldWeekPrevBtn.SetBounds(0, 0, 30, 30);
+                if (ldWeekRangeLbl != null) ldWeekRangeLbl.SetBounds(34, 0, 212, 30);
+                if (ldWeekNextBtn != null) ldWeekNextBtn.SetBounds(stripW - 30, 0, 30, 30);
+                x = ldWeekStrip.Right + 12;
+            }
+            else if (mode == "month")
+            {
+                if (ldMonthCombo != null && !ldMonthCombo.IsDisposed)
+                {
+                    const int h = 30;
+                    ldMonthCombo.SetBounds(x, y + Math.Max(0, (innerH - h) / 2), 120, h);
+                    x = ldMonthCombo.Right + 8;
+                }
+                if (ldYearCombo != null && !ldYearCombo.IsDisposed)
+                {
+                    const int h = 30;
+                    ldYearCombo.SetBounds(x, y + Math.Max(0, (innerH - h) / 2), 88, h);
+                    x = ldYearCombo.Right + 12;
+                }
+            }
+            else if (mode == "year" && ldYearCombo != null && !ldYearCombo.IsDisposed)
+            {
+                const int h = 30;
+                ldYearCombo.SetBounds(x, y + Math.Max(0, (innerH - h) / 2), 88, h);
+                x = ldYearCombo.Right + 12;
             }
 
             if (ldRefreshBtn != null && !ldRefreshBtn.IsDisposed)
@@ -723,9 +1023,18 @@ namespace Hiatme_Tool_Suite_v3
             string period = (btn?.Tag as string ?? "day").Trim().ToLowerInvariant();
             if (period == _ldSelectedPeriod)
                 return;
+            string prev = _ldSelectedPeriod;
             _ldSelectedPeriod = period;
+            // Seed Week/Month/Year from the day the user was viewing — do not overwrite _ldDayDate
+            // (snapping Day→Month to the 1st used to make Day→Modivcare download Jan 1 / month start).
+            if (string.Equals(prev, "day", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(period, "day", StringComparison.OrdinalIgnoreCase))
+            {
+                _ldAnchorDate = _ldDayDate.Date;
+            }
             StyleLateDriversPeriodButtons();
             _ldSelectedDriver = null;
+            UpdateLateDriversPeriodPickerChrome();
             UpdateLateDriversToolbarHints();
             _ = LateDriversRefreshAsync(force: true);
         }
@@ -733,26 +1042,20 @@ namespace Hiatme_Tool_Suite_v3
         private void UpdateLateDriversToolbarHints()
         {
             string mode = LateDriversSelectedMode();
-            DateTime anchor = DateTime.Today;
-            try
-            {
-                if (ldDatePicker != null)
-                    anchor = ldDatePicker.Value.Date;
-            }
-            catch { }
+            DateTime anchor = LateDriversApiAnchorDate();
 
             if (ldDateHintLbl != null && !ldDateHintLbl.IsDisposed)
             {
                 switch (mode)
                 {
                     case "week":
-                        ldDateHintLbl.Text = "Any day in week:";
+                        ldDateHintLbl.Text = "Week:";
                         break;
                     case "month":
-                        ldDateHintLbl.Text = "Any day in month:";
+                        ldDateHintLbl.Text = "Month:";
                         break;
                     case "year":
-                        ldDateHintLbl.Text = "Any day in year:";
+                        ldDateHintLbl.Text = "Year:";
                         break;
                     default:
                         ldDateHintLbl.Text = "Day:";
@@ -766,7 +1069,7 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     ldRangeCaptionLbl.Text = "Loaded: " + CultureInfo.CurrentCulture.TextInfo.ToTitleCase(mode)
                         + "  " + _ldRangeLabel
-                        + "  — change date/period or Refresh to reload";
+                        + "  — change period or Refresh to reload";
                 }
                 else
                 {
@@ -774,9 +1077,7 @@ namespace Hiatme_Tool_Suite_v3
                     {
                         case "week":
                             {
-                                // Monday-start week (matches server _range_bounds).
-                                int offset = ((int)anchor.DayOfWeek + 6) % 7;
-                                var start = anchor.AddDays(-offset);
+                                var start = LateDriversWeekStartMonday(anchor);
                                 var end = start.AddDays(6);
                                 ldRangeCaptionLbl.Text = "Week "
                                     + start.ToString("MMM d", CultureInfo.CurrentCulture)
@@ -785,7 +1086,8 @@ namespace Hiatme_Tool_Suite_v3
                                 break;
                             }
                         case "month":
-                            ldRangeCaptionLbl.Text = anchor.ToString("MMMM yyyy", CultureInfo.CurrentCulture)
+                            ldRangeCaptionLbl.Text = "Month "
+                                + anchor.ToString("MMMM yyyy", CultureInfo.CurrentCulture)
                                 + "  — Refresh to load";
                             break;
                         case "year":
@@ -799,9 +1101,6 @@ namespace Hiatme_Tool_Suite_v3
                     }
                 }
             }
-
-            if (ldDatePicker != null && !ldDatePicker.IsDisposed)
-                ldDatePicker.Enabled = true;
 
             UpdateLateDriversTripCaption();
         }
@@ -870,6 +1169,21 @@ namespace Hiatme_Tool_Suite_v3
                 ldDatePicker.BorderSize = 1;
                 ldDatePicker.Font = SupeyTheme.BodyFont;
             }
+            if (ldWeekPrevBtn != null && !ldWeekPrevBtn.IsDisposed)
+            {
+                ldWeekPrevBtn.Type = SupeyMaterialButton.MaterialButtonType.Outlined;
+                ldWeekPrevBtn.UseAccentColor = false;
+            }
+            if (ldWeekNextBtn != null && !ldWeekNextBtn.IsDisposed)
+            {
+                ldWeekNextBtn.Type = SupeyMaterialButton.MaterialButtonType.Outlined;
+                ldWeekNextBtn.UseAccentColor = false;
+            }
+            StyleLateDriversCaption(ldWeekRangeLbl, secondary: false);
+            if (ldMonthCombo != null && !ldMonthCombo.IsDisposed)
+                ConfigureToolbarSupeyCombo(ldMonthCombo, 120);
+            if (ldYearCombo != null && !ldYearCombo.IsDisposed)
+                ConfigureToolbarSupeyCombo(ldYearCombo, 88);
             StyleLateDriversPeriodButtons();
             StyleLateDriversCaption(ldDateHintLbl, secondary: true);
             StyleLateDriversCaption(ldRangeCaptionLbl, secondary: true);
@@ -995,8 +1309,8 @@ namespace Hiatme_Tool_Suite_v3
         {
             try
             {
-                if (ldDatePicker != null)
-                    return ldDatePicker.Value.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                return LateDriversApiAnchorDate()
+                    .ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
             }
             catch { }
             return DateTime.Today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
@@ -1034,6 +1348,15 @@ namespace Hiatme_Tool_Suite_v3
             if (st != null && st.Ok && st.Exists && st.TripCount > 0)
                 return (true, "Modivcare schedule on file (" + st.TripCount + " trips)", false);
 
+            // Avoid MCTripDownloader MessageBox ("Only current and next month…") for out-of-window days.
+            if (!LateDriversModivcareDownloadWindowOk(day))
+            {
+                return (false,
+                    "Need Modivcare schedule for " + serviceDateIso
+                    + " (outside download window — pick a recent day or Refresh after it is on file)",
+                    false);
+            }
+
             SetLateDriversStatus("Status: Downloading Modivcare schedule for " + serviceDateIso + "…");
             if (!await EnsureModivcareSessionAsync().ConfigureAwait(true))
                 return (false, "Need Modivcare login to load schedule for " + serviceDateIso, false);
@@ -1043,6 +1366,12 @@ namespace Hiatme_Tool_Suite_v3
             {
                 var dler = new MCTripDownloader();
                 downloaded = await dler.DownloadTripRecords(day, mcLoginHandler).ConfigureAwait(true);
+                if (dler.InvalidDate)
+                {
+                    return (false,
+                        "Need Modivcare schedule for " + serviceDateIso + " (date not available in portal)",
+                        false);
+                }
             }
             catch (Exception ex)
             {
@@ -1067,7 +1396,15 @@ namespace Hiatme_Tool_Suite_v3
             if (!_ldBuilt || _ldFirstLoadDone)
                 return;
             _ldFirstLoadDone = true;
-            _ = LateDriversRefreshAsync(force: true);
+            // Defer until after the tab finishes laying out (strip width / list bounds).
+            try
+            {
+                BeginInvoke(new Action(() => _ = LateDriversRefreshAsync(force: true)));
+            }
+            catch
+            {
+                _ = LateDriversRefreshAsync(force: true);
+            }
         }
 
         private async Task LateDriversRefreshAsync(bool force)
@@ -1107,26 +1444,31 @@ namespace Hiatme_Tool_Suite_v3
 
                 if (mode == "day")
                 {
-                    var doc = await HiatmeAiClient.GetLateDriversDayAsync(settings, sd)
-                        .ConfigureAwait(true);
-                    if (doc == null || !doc.Ok)
+                    // Habits is the scorecard source of truth; day late-events are merged in.
+                    var dayTask = HiatmeAiClient.GetLateDriversDayAsync(settings, sd);
+                    var habits = await habitsTask.ConfigureAwait(true);
+                    var doc = await dayTask.ConfigureAwait(true);
+
+                    if ((doc == null || !doc.Ok) && (habits == null || !habits.Ok))
                     {
-                        SetLateDriversStatus("Status: " + (doc?.Error ?? "day load failed"));
+                        SetLateDriversStatus("Status: " + (doc?.Error ?? habits?.Error ?? "day load failed"));
                         return;
                     }
-                    if (!doc.ModivcareExists)
+                    if (doc != null && doc.Ok && !doc.ModivcareExists
+                        && (habits == null || !habits.Ok || (habits.EventCount <= 0 && (habits.Events == null || habits.Events.Count == 0))))
                     {
                         SetLateDriversStatus("Status: Need Modivcare schedule for " + sd);
                         return;
                     }
-                    var habits = await habitsTask.ConfigureAwait(true);
-                    ApplyLateDriversEventPayload(
-                        doc.Events,
-                        doc.ContentHash,
-                        sd,
-                        sd,
-                        doc.ModivcareTripCount,
-                        habits: habits);
+
+                    var lateEvents = (doc != null && doc.Ok)
+                        ? (doc.Events ?? new List<HiatmeAiClient.LateDriversEventRow>())
+                        : new List<HiatmeAiClient.LateDriversEventRow>();
+                    int mcTrips = (doc != null && doc.Ok) ? doc.ModivcareTripCount : 0;
+                    string hash = (habits != null && habits.Ok && !string.IsNullOrEmpty(habits.ContentHash))
+                        ? habits.ContentHash
+                        : (doc?.ContentHash ?? "");
+                    ApplyLateDriversEventPayload(lateEvents, hash, sd, sd, mcTrips, habits: habits);
                 }
                 else
                 {
@@ -1139,7 +1481,8 @@ namespace Hiatme_Tool_Suite_v3
                         return;
                     }
                     _ldLastHash = doc.ContentHash ?? "";
-                    _ldEventRows = doc.Events ?? new List<HiatmeAiClient.LateDriversEventRow>();
+                    _ldEventRows = FilterLateDriversCountingEvents(
+                        doc.Events ?? new List<HiatmeAiClient.LateDriversEventRow>());
                     _ldDriverRows = doc.Drivers ?? new List<HiatmeAiClient.LateDriversDriverSummary>();
                     if (_ldDriverRows.Count == 0 && _ldEventRows.Count > 0)
                         _ldDriverRows = BuildLateDriversRollup(_ldEventRows);
@@ -1148,10 +1491,7 @@ namespace Hiatme_Tool_Suite_v3
                     _ldRangeLabel = (doc.FromDate ?? "") + " → " + (doc.ToDate ?? "");
                     var habits = await habitsTask.ConfigureAwait(true);
                     MergeLateDriversHabits(habits);
-                    BindLateDriversDriverStrip();
-                    RefreshLateDriversScorecard();
-                    BindLateDriversTripPane();
-                    UpdateLateDriversToolbarHints();
+                    PresentLateDriversLoadedData();
                     int earlyN = (_ldDriverRows ?? new List<HiatmeAiClient.LateDriversDriverSummary>())
                         .Sum(d => d?.EarlyCount ?? 0);
                     int unfinN = (_ldDriverRows ?? new List<HiatmeAiClient.LateDriversDriverSummary>())
@@ -1177,8 +1517,29 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
-        private void ApplyLateDriversEventPayload(
+        /// <summary>
+        /// B/C-leg dropoffs (early or late) do not count against the company
+        /// (return rides, no appointment). Driver Habits only surfaces habits that count.
+        /// </summary>
+        private static bool LateDriversEventCountsAgainstUs(HiatmeAiClient.LateDriversEventRow e)
+        {
+            if (e == null) return false;
+            string habit = (e.Habit ?? e.Kind ?? "").Trim().ToLowerInvariant();
+            bool bcDo = habit == "late_do" || habit == "early_do";
+            if (bcDo && !McTripTimingRules.IsALeg(e.TripNo))
+                return false;
+            return true;
+        }
 
+        private static List<HiatmeAiClient.LateDriversEventRow> FilterLateDriversCountingEvents(
+            List<HiatmeAiClient.LateDriversEventRow> events)
+        {
+            return (events ?? new List<HiatmeAiClient.LateDriversEventRow>())
+                .Where(LateDriversEventCountsAgainstUs)
+                .ToList();
+        }
+
+        private void ApplyLateDriversEventPayload(
             List<HiatmeAiClient.LateDriversEventRow> events,
             string contentHash,
             string fromDate,
@@ -1187,7 +1548,7 @@ namespace Hiatme_Tool_Suite_v3
             HiatmeAiClient.LateDriversHabitsDoc habits = null)
         {
             _ldLastHash = contentHash ?? "";
-            _ldEventRows = events ?? new List<HiatmeAiClient.LateDriversEventRow>();
+            _ldEventRows = FilterLateDriversCountingEvents(events);
             foreach (var e in _ldEventRows)
             {
                 if (e == null || !string.IsNullOrWhiteSpace(e.Habit))
@@ -1196,24 +1557,44 @@ namespace Hiatme_Tool_Suite_v3
                     ? "late_do"
                     : "late_pu";
             }
+            // Drop B/C late_do again after habit labels are assigned from Side.
+            _ldEventRows = FilterLateDriversCountingEvents(_ldEventRows);
             _ldDriverRows = BuildLateDriversRollup(_ldEventRows);
             _ldRangeLabel = fromDate == toDate ? fromDate : (fromDate + " → " + toDate);
             MergeLateDriversHabits(habits);
-            BindLateDriversDriverStrip();
-            RefreshLateDriversScorecard();
-            BindLateDriversTripPane();
-            UpdateLateDriversToolbarHints();
-            int openN = _ldEventRows.Count(e => e != null && e.Open);
+            PresentLateDriversLoadedData();
+            int openN = (_ldEventRows ?? new List<HiatmeAiClient.LateDriversEventRow>())
+                .Count(e => e != null && e.Open);
             int earlyN = (_ldDriverRows ?? new List<HiatmeAiClient.LateDriversDriverSummary>())
                 .Sum(d => d?.EarlyCount ?? 0);
             int unfinOpen = (_ldDriverRows ?? new List<HiatmeAiClient.LateDriversDriverSummary>())
                 .Sum(d => d?.UnfinishedOpen ?? 0);
             SetLateDriversStatus(
-                "Status: Day " + fromDate + " — " + _ldEventRows.Count + " events ("
+                "Status: Day " + fromDate + " — "
+                + (_ldEventRows?.Count ?? 0) + " events ("
                 + openN + " open"
                 + (earlyN > 0 ? ", " + earlyN + " early" : "")
                 + (unfinOpen > 0 ? ", " + unfinOpen + " unfinished" : "")
-                + ") · MC " + mcTripCount);
+                + ") · "
+                + (_ldDriverRows?.Count ?? 0) + " drivers"
+                + (mcTripCount > 0 ? " · MC " + mcTripCount : ""));
+        }
+
+        private void PresentLateDriversLoadedData()
+        {
+            LayoutLateDriversTabPanels();
+            LayoutLateDriversDriverStripRow();
+            BindLateDriversDriverStrip();
+            RefreshLateDriversScorecard();
+            BindLateDriversTripPane();
+            UpdateLateDriversToolbarHints();
+            try
+            {
+                ldTripLv?.Invalidate(true);
+                ldDriverStrip?.Invalidate(true);
+                ldScorecardHost?.Invalidate(true);
+            }
+            catch { }
         }
 
         private void MergeLateDriversHabits(HiatmeAiClient.LateDriversHabitsDoc habits)
@@ -1282,6 +1663,9 @@ namespace Hiatme_Tool_Suite_v3
                 string kind = (he.Kind ?? he.Habit ?? "").Trim().ToLowerInvariant();
                 if (string.IsNullOrEmpty(kind))
                     continue;
+                // B/C DO habits do not count — skip even if still present in stored habits.
+                if ((kind == "late_do" || kind == "early_do") && !McTripTimingRules.IsALeg(he.TripNo))
+                    continue;
                 string side = (he.Side ?? "").Trim().ToLowerInvariant();
                 if (kind == "late_pu" || kind == "late_do")
                 {
@@ -1292,7 +1676,7 @@ namespace Hiatme_Tool_Suite_v3
                 }
                 merged.Add(HabitEventToLateRow(he, kind, side));
             }
-            _ldEventRows = merged;
+            _ldEventRows = FilterLateDriversCountingEvents(merged);
 
             foreach (var row in byName.Values)
             {
@@ -1305,6 +1689,28 @@ namespace Hiatme_Tool_Suite_v3
                             StringComparison.OrdinalIgnoreCase))
                     .ToList();
                 row.OpenCount = row.Trips.Count(t => t != null && t.Open);
+                // Recompute late/early from filtered trips so B/C DO never inflates the scorecard.
+                int pu = 0, doN = 0, earlyPu = 0, earlyDo = 0;
+                double lateMins = 0;
+                foreach (var t in row.Trips)
+                {
+                    if (t == null) continue;
+                    string k = (t.Habit ?? t.Kind ?? "").Trim().ToLowerInvariant();
+                    string side = (t.Side ?? "").Trim().ToLowerInvariant();
+                    bool latePu = k == "late_pu" || (string.IsNullOrEmpty(k) && side == "pu");
+                    bool lateDo = k == "late_do" || (string.IsNullOrEmpty(k) && side == "do");
+                    if (latePu) { pu++; lateMins += Math.Max(0, t.MinutesLate); }
+                    else if (lateDo) { doN++; lateMins += Math.Max(0, t.MinutesLate); }
+                    else if (k == "early_pu") earlyPu++;
+                    else if (k == "early_do") earlyDo++;
+                }
+                row.PuCount = pu;
+                row.DoCount = doN;
+                row.LateCount = pu + doN;
+                row.TotalMinutes = lateMins;
+                row.EarlyPu = earlyPu;
+                row.EarlyDo = earlyDo;
+                row.EarlyCount = earlyPu + earlyDo;
             }
 
             _ldDriverRows = byName.Values.ToList();
@@ -1606,9 +2012,15 @@ namespace Hiatme_Tool_Suite_v3
             double minutes,
             HiatmeAiClient.LateDriversDriverSummary summary)
         {
+            string tileKey = (summary?.Driver ?? "all").Trim();
+            foreach (char c in Path.GetInvalidFileNameChars())
+                tileKey = tileKey.Replace(c, '_');
+            tileKey = tileKey.Replace(' ', '_');
+            if (string.IsNullOrEmpty(tileKey))
+                tileKey = "all";
             var card = new SupeyCard
             {
-                Name = "ldDriverTile_" + (summary?.Driver ?? "all").Replace(" ", "_"),
+                Name = "ldDriverTile_" + tileKey,
                 SurfaceLevel = SupeyCard.Surface.Elevated,
                 ShowBorder = true,
                 CornerRadius = 8,
@@ -1728,6 +2140,23 @@ namespace Hiatme_Tool_Suite_v3
                     earlyDo += d.EarlyDo;
                     unfinished += d.Unfinished;
                     lateMins += d.TotalMinutes;
+                }
+                // Fallback if rollup counts stayed at zero but trip rows exist.
+                if (latePu == 0 && lateDo == 0 && earlyPu == 0 && earlyDo == 0 && unfinished == 0
+                    && _ldEventRows != null && _ldEventRows.Count > 0)
+                {
+                    foreach (var e in _ldEventRows)
+                    {
+                        if (e == null) continue;
+                        string hk = HabitKeyOf(e);
+                        if (hk == "late_pu") latePu++;
+                        else if (hk == "late_do") lateDo++;
+                        else if (hk == "early_pu") earlyPu++;
+                        else if (hk == "early_do") earlyDo++;
+                        else if (hk == "unfinished_ticket" || hk == "billed_unfinished") unfinished++;
+                        if (hk.StartsWith("late", StringComparison.Ordinal))
+                            lateMins += e.MinutesLate;
+                    }
                 }
             }
 

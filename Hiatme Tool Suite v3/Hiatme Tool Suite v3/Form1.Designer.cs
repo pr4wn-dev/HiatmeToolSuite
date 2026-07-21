@@ -178,6 +178,7 @@ namespace Hiatme_Tool_Suite_v3
             this.tabPage8 = new System.Windows.Forms.TabPage();
             this.tabPage9 = new System.Windows.Forms.TabPage();
             this.tabPageLateDrivers = new System.Windows.Forms.TabPage();
+            this.tabPageDashcamVideos = new System.Windows.Forms.TabPage();
             this.tsmaterialCard = new SupeyCard();
             this.tslv = new SupeyListView();
             this.tsColStatus = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
@@ -285,6 +286,7 @@ namespace Hiatme_Tool_Suite_v3
             this.hiatmeTabControl.Controls.Add(this.tabPage8);
             this.hiatmeTabControl.Controls.Add(this.tabPage9);
             this.hiatmeTabControl.Controls.Add(this.tabPageLateDrivers);
+            this.hiatmeTabControl.Controls.Add(this.tabPageDashcamVideos);
             this.hiatmeTabControl.Controls.Add(this.tabPage3);
             this.hiatmeTabControl.Dock = System.Windows.Forms.DockStyle.Fill;
             this.hiatmeTabControl.Font = new System.Drawing.Font("Microsoft Sans Serif", 9.5F);
@@ -1961,6 +1963,16 @@ namespace Hiatme_Tool_Suite_v3
             this.tabPageLateDrivers.Text = "Driver Habits";
             this.tabPageLateDrivers.UseVisualStyleBackColor = true;
             // 
+            // tabPageDashcamVideos
+            // 
+            this.tabPageDashcamVideos.ImageKey = "cctv-custom.png";
+            this.tabPageDashcamVideos.Location = new System.Drawing.Point(4, 39);
+            this.tabPageDashcamVideos.Name = "tabPageDashcamVideos";
+            this.tabPageDashcamVideos.Size = new System.Drawing.Size(1502, 777);
+            this.tabPageDashcamVideos.TabIndex = 12;
+            this.tabPageDashcamVideos.Text = "Dashcam Videos";
+            this.tabPageDashcamVideos.UseVisualStyleBackColor = true;
+            // 
             // tsmaterialCard
             // 
             this.tsmaterialCard.Anchor = ((System.Windows.Forms.AnchorStyles)((((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Bottom) 
@@ -2745,6 +2757,7 @@ namespace Hiatme_Tool_Suite_v3
         private System.Windows.Forms.TabPage tabPage8;
         private System.Windows.Forms.TabPage tabPage9;
         private System.Windows.Forms.TabPage tabPageLateDrivers;
+        private System.Windows.Forms.TabPage tabPageDashcamVideos;
         private SupeyCard tsmaterialCard;
         private SupeyCard tsstatuspanel;
         private SupeyLabel tsstatuslbl;
