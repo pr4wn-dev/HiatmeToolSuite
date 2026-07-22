@@ -15,9 +15,13 @@ namespace Hiatme_Tool_Suite_v3
     /// </summary>
     partial class Form1
     {
-        private const int DdToolbarH = 48;
+        // Shared inset so toolbar card and section cards share the same left/right edges.
+        private const int DdHostPadX = 10;
+        private const int DdCardPadX = 16; // matches MakeDdSectionCard + toolbar button inset
+        private const int DdToolbarInnerH = 72; // host height = this + 12
         private const int DdCardGap = 14;
-        private const int DdContentPad = 20;
+        private const int DdToolbarBtnH = 32;
+        private const int DdToolbarBtnGap = 8;
 
         private SupeyCard ddMainCard;
         private SupeyCard ddStatusCard;
@@ -181,12 +185,13 @@ namespace Hiatme_Tool_Suite_v3
 
         private void BuildDriverDisciplineToolbar()
         {
+            // Host pad matches body host pad so this card lines up with section cards below.
             ddToolbar = new Panel
             {
                 Name = "ddToolbar",
                 Dock = DockStyle.Top,
-                Height = DdToolbarH + 12,
-                Padding = new Padding(10, 6, 10, 4),
+                Height = DdToolbarInnerH + 12,
+                Padding = new Padding(DdHostPadX, 6, DdHostPadX, 4),
                 BackColor = SupeyTheme.Surface,
             };
             ddToolbarCard = new SupeyCard
@@ -198,68 +203,37 @@ namespace Hiatme_Tool_Suite_v3
                 CornerRadius = 8,
                 Padding = Padding.Empty,
             };
+            // Absolute Location ignores Padding — Layout uses DisplayRectangle instead.
             ddToolbarInner = new Panel
             {
                 Name = "ddToolbarInner",
                 Dock = DockStyle.Fill,
-                Padding = new Padding(12, 8, 12, 8),
+                Padding = new Padding(DdCardPadX, 16, DdCardPadX, 16),
                 BackColor = SupeyTheme.SurfaceElevated,
             };
 
-            ddGenerateBtn = new SupeyMaterialButton
-            {
-                Name = "ddGenerateBtn",
-                Text = "Generate Word",
-                Type = SupeyMaterialButton.MaterialButtonType.Contained,
-                UseAccentColor = true,
-                Size = new Size(130, 32),
-                Anchor = AnchorStyles.Left | AnchorStyles.Top,
-                Location = new Point(0, 2),
-            };
+            ddGenerateBtn = MakeDdToolbarButton("ddGenerateBtn", "Generate Word", 138,
+                SupeyMaterialButton.MaterialButtonType.Contained, accent: true);
             ddGenerateBtn.Click += (_, __) => GenerateDriverDisciplineWord();
 
-            ddFromDashcamBtn = new SupeyMaterialButton
-            {
-                Name = "ddFromDashcamBtn",
-                Text = "From Dashcam",
-                Type = SupeyMaterialButton.MaterialButtonType.Outlined,
-                Size = new Size(120, 32),
-                Location = new Point(146, 2),
-            };
+            ddFromDashcamBtn = MakeDdToolbarButton("ddFromDashcamBtn", "From Dashcam", 124,
+                SupeyMaterialButton.MaterialButtonType.Outlined);
             ddFromDashcamBtn.Click += (_, __) => PrefillDriverDisciplineFromDashcam();
 
-            ddOpenDashcamBtn = new SupeyMaterialButton
-            {
-                Name = "ddOpenDashcamBtn",
-                Text = "Open Dashcam",
-                Type = SupeyMaterialButton.MaterialButtonType.Outlined,
-                Size = new Size(120, 32),
-                Location = new Point(274, 2),
-            };
+            ddOpenDashcamBtn = MakeDdToolbarButton("ddOpenDashcamBtn", "Open Dashcam", 124,
+                SupeyMaterialButton.MaterialButtonType.Outlined);
             ddOpenDashcamBtn.Click += (_, __) =>
             {
                 if (tabPageDashcamVideos != null)
                     hiatmeTabControl.SelectedTab = tabPageDashcamVideos;
             };
 
-            ddAddClipsBtn = new SupeyMaterialButton
-            {
-                Name = "ddAddClipsBtn",
-                Text = "Add clips…",
-                Type = SupeyMaterialButton.MaterialButtonType.Outlined,
-                Size = new Size(110, 32),
-                Location = new Point(402, 2),
-            };
+            ddAddClipsBtn = MakeDdToolbarButton("ddAddClipsBtn", "Add clips…", 112,
+                SupeyMaterialButton.MaterialButtonType.Outlined);
             ddAddClipsBtn.Click += (_, __) => AddDriverDisciplineClipsManual();
 
-            ddClearBtn = new SupeyMaterialButton
-            {
-                Name = "ddClearBtn",
-                Text = "Clear form",
-                Type = SupeyMaterialButton.MaterialButtonType.Text,
-                Size = new Size(100, 32),
-                Anchor = AnchorStyles.Top | AnchorStyles.Right,
-            };
+            ddClearBtn = MakeDdToolbarButton("ddClearBtn", "Clear form", 104,
+                SupeyMaterialButton.MaterialButtonType.Text);
             ddClearBtn.Click += (_, __) =>
             {
                 if (MessageBox.Show(
@@ -275,43 +249,85 @@ namespace Hiatme_Tool_Suite_v3
                 }
             };
 
-            ddToolbarInner.Resize += (_, __) =>
-            {
-                if (ddClearBtn != null)
-                    ddClearBtn.Location = new Point(
-                        Math.Max(520, ddToolbarInner.ClientSize.Width - ddClearBtn.Width - 4),
-                        2);
-            };
-
             ddToolbarInner.Controls.Add(ddGenerateBtn);
             ddToolbarInner.Controls.Add(ddFromDashcamBtn);
             ddToolbarInner.Controls.Add(ddOpenDashcamBtn);
             ddToolbarInner.Controls.Add(ddAddClipsBtn);
             ddToolbarInner.Controls.Add(ddClearBtn);
+            ddToolbarInner.Resize += (_, __) =>
+            {
+                LayoutDriverDisciplineToolbar();
+                LayoutDriverDisciplineStack();
+            };
+
             ddToolbarCard.Controls.Add(ddToolbarInner);
             ddToolbar.Controls.Add(ddToolbarCard);
+            LayoutDriverDisciplineToolbar();
+        }
+
+        private void LayoutDriverDisciplineToolbar()
+        {
+            if (ddToolbarInner == null) return;
+
+            // Padding does not apply to absolute Location — use DisplayRectangle.
+            Rectangle r = ddToolbarInner.DisplayRectangle;
+            int y = r.Top + Math.Max(0, (r.Height - DdToolbarBtnH) / 2);
+            int x = r.Left;
+
+            void Place(SupeyMaterialButton btn, int width, int gapAfter)
+            {
+                if (btn == null) return;
+                btn.Size = new Size(width, DdToolbarBtnH);
+                btn.Location = new Point(x, y);
+                x += width + gapAfter;
+            }
+
+            Place(ddGenerateBtn, 138, DdToolbarBtnGap * 2);
+            Place(ddFromDashcamBtn, 124, DdToolbarBtnGap);
+            Place(ddOpenDashcamBtn, 124, DdToolbarBtnGap);
+            Place(ddAddClipsBtn, 112, DdToolbarBtnGap);
+
+            if (ddClearBtn != null)
+            {
+                ddClearBtn.Size = new Size(104, DdToolbarBtnH);
+                ddClearBtn.Location = new Point(r.Right - ddClearBtn.Width, y);
+            }
+        }
+
+        private static SupeyMaterialButton MakeDdToolbarButton(
+            string name, string text, int width, SupeyMaterialButton.MaterialButtonType type, bool accent = false)
+        {
+            return new SupeyMaterialButton
+            {
+                Name = name,
+                Text = text,
+                Type = type,
+                UseAccentColor = accent,
+                Size = new Size(width, DdToolbarBtnH),
+            };
         }
 
         private void BuildDriverDisciplineBody()
         {
             _ddSectionCards.Clear();
 
+            // Same horizontal host pad as the toolbar so section cards share its left/right edges.
             ddBodyHost = new Panel
             {
                 Name = "ddBodyHost",
                 Dock = DockStyle.Fill,
                 BackColor = SupeyTheme.Surface,
-                Padding = new Padding(0),
+                Padding = new Padding(DdHostPadX, 0, DdHostPadX, 8),
             };
 
-            // FlowLayout owns vertical stacking; parent panel scrolls.
+            // FlowLayout owns vertical stacking; parent panel scrolls (no extra X pad — host owns inset).
             ddScrollBody = new Panel
             {
                 Name = "ddScrollBody",
                 Dock = DockStyle.Fill,
                 AutoScroll = true,
                 BackColor = SupeyTheme.Surface,
-                Padding = new Padding(DdContentPad, 12, DdContentPad, 24),
+                Padding = new Padding(0, 8, 0, 16),
             };
 
             ddStack = new FlowLayoutPanel
@@ -410,7 +426,17 @@ namespace Hiatme_Tool_Suite_v3
         private void LayoutDriverDisciplineStack()
         {
             if (ddStack == null || ddScrollBody == null) return;
-            int w = Math.Max(640, ddScrollBody.ClientSize.Width - SystemInformation.VerticalScrollBarWidth - 8);
+
+            // Prefer the toolbar card width so left/right edges stay locked together.
+            int w = 0;
+            if (ddToolbarCard != null && ddToolbarCard.Width > 100)
+                w = ddToolbarCard.Width;
+            else if (ddBodyHost != null)
+                w = ddBodyHost.DisplayRectangle.Width;
+            else
+                w = ddScrollBody.ClientSize.Width;
+            w = Math.Max(640, w);
+
             ddStack.SuspendLayout();
             try
             {
@@ -437,7 +463,6 @@ namespace Hiatme_Tool_Suite_v3
 
         private SupeyCard MakeDdSectionCard(string title, string subtitle, Control content, int contentHeight)
         {
-            const int padX = 16;
             const int padTop = 12;
             const int padBottom = 14;
             int headerH = string.IsNullOrEmpty(subtitle) ? 26 : 44;
@@ -447,8 +472,8 @@ namespace Hiatme_Tool_Suite_v3
             {
                 SurfaceLevel = SupeyCard.Surface.Elevated,
                 ShowBorder = true,
-                CornerRadius = 10,
-                Padding = new Padding(padX, padTop, padX, padBottom),
+                CornerRadius = 8,
+                Padding = new Padding(DdCardPadX, padTop, DdCardPadX, padBottom),
                 Margin = new Padding(0, 0, 0, DdCardGap),
                 AutoSize = false,
                 Height = cardH,
