@@ -5,6 +5,7 @@ using System.Drawing;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace Hiatme_Tool_Suite_v3
@@ -34,11 +35,17 @@ namespace Hiatme_Tool_Suite_v3
         private SupeyMaterialButton ddOpenDashcamBtn;
         private SupeyMaterialButton ddAddClipsBtn;
         private SupeyMaterialButton ddGenerateBtn;
+        private SupeyMaterialButton ddExportBtn;
+        private SupeyMaterialButton ddRefreshHistoryBtn;
+        private Label ddPriorsLbl;
+        private SupeyListView ddHistoryLv;
 
         private Panel ddBodyHost;
         private Panel ddScrollBody;
         private FlowLayoutPanel ddStack;
         private readonly List<SupeyCard> _ddSectionCards = new List<SupeyCard>();
+        private string _ddPriorsDriverKey = "";
+        private bool _ddHistoryLoading;
 
         private SupeyTextBox ddCaseTb;
         private SupeyTextBox ddPreparedTb;
@@ -115,7 +122,7 @@ namespace Hiatme_Tool_Suite_v3
                 ddStatusLbl = new SupeyLabel
                 {
                     Name = "ddStatusLbl",
-                    Text = "Status: ready — fill the form, then Generate Word document.",
+                    Text = "Status: ready — fill the form, then Save to the library.",
                     AutoSize = false,
                     Dock = DockStyle.Fill,
                     TextAlign = ContentAlignment.MiddleLeft,
@@ -212,9 +219,13 @@ namespace Hiatme_Tool_Suite_v3
                 BackColor = SupeyTheme.SurfaceElevated,
             };
 
-            ddGenerateBtn = MakeDdToolbarButton("ddGenerateBtn", "Generate Word", 138,
+            ddGenerateBtn = MakeDdToolbarButton("ddGenerateBtn", "Save", 90,
                 SupeyMaterialButton.MaterialButtonType.Contained, accent: true);
-            ddGenerateBtn.Click += (_, __) => GenerateDriverDisciplineWord();
+            ddGenerateBtn.Click += async (_, __) => await SaveDriverDisciplineToLibraryAsync();
+
+            ddExportBtn = MakeDdToolbarButton("ddExportBtn", "Export copy…", 120,
+                SupeyMaterialButton.MaterialButtonType.Outlined);
+            ddExportBtn.Click += (_, __) => ExportDriverDisciplineCopy();
 
             ddFromDashcamBtn = MakeDdToolbarButton("ddFromDashcamBtn", "From Dashcam", 124,
                 SupeyMaterialButton.MaterialButtonType.Outlined);
@@ -236,20 +247,24 @@ namespace Hiatme_Tool_Suite_v3
                 SupeyMaterialButton.MaterialButtonType.Text);
             ddClearBtn.Click += (_, __) =>
             {
-                if (MessageBox.Show(
+                if (SupeyMessageDialog.Confirm(
                         this,
-                        "Clear all fields on this write-up?",
+                        SupeyMessageDialog.Kind.Warning,
                         "Driver Discipline",
-                        MessageBoxButtons.YesNo,
-                        MessageBoxIcon.Question,
-                        MessageBoxDefaultButton.Button2) == DialogResult.Yes)
+                        "Clear this write-up?",
+                        "All fields on the form will be reset. Saved library write-ups are not deleted.",
+                        "Clear form",
+                        "Keep editing") == DialogResult.Yes)
                 {
                     ResetDriverDisciplineForm(seedCase: true);
                     SetDriverDisciplineStatus("Form cleared.");
+                    _ = RefreshDriverDisciplinePriorsAsync();
+                    _ = RefreshDriverDisciplineHistoryAsync();
                 }
             };
 
             ddToolbarInner.Controls.Add(ddGenerateBtn);
+            ddToolbarInner.Controls.Add(ddExportBtn);
             ddToolbarInner.Controls.Add(ddFromDashcamBtn);
             ddToolbarInner.Controls.Add(ddOpenDashcamBtn);
             ddToolbarInner.Controls.Add(ddAddClipsBtn);
@@ -282,7 +297,8 @@ namespace Hiatme_Tool_Suite_v3
                 x += width + gapAfter;
             }
 
-            Place(ddGenerateBtn, 138, DdToolbarBtnGap * 2);
+            Place(ddGenerateBtn, 90, DdToolbarBtnGap);
+            Place(ddExportBtn, 120, DdToolbarBtnGap * 2);
             Place(ddFromDashcamBtn, 124, DdToolbarBtnGap);
             Place(ddOpenDashcamBtn, 124, DdToolbarBtnGap);
             Place(ddAddClipsBtn, 112, DdToolbarBtnGap);
@@ -352,9 +368,15 @@ namespace Hiatme_Tool_Suite_v3
 
             ddStack.Controls.Add(MakeDdSectionCard(
                 "Corrective action write-up",
-                "Work top to bottom: who & when → what happened → evidence → action.",
+                "Work top to bottom: who & when → what happened → evidence → action. Save stores Word + meta under F:\\Write ups.",
                 BuildDdAccentStripe(),
                 contentHeight: 6));
+
+            ddStack.Controls.Add(MakeDdSectionCard(
+                "Library history",
+                "Saved write-ups (local cache + AI panel). Double-click to open Word · right-click for more.",
+                BuildDdHistoryPanel(),
+                contentHeight: 200));
 
             ddStack.Controls.Add(MakeDdSectionCard(
                 "1 · Case & notice",
@@ -366,7 +388,7 @@ namespace Hiatme_Tool_Suite_v3
                 "2 · Employee",
                 "Driver and supervisor on the notice.",
                 BuildDdEmployeeGrid(fieldRow),
-                contentHeight: fieldRow * 2 + 4));
+                contentHeight: fieldRow * 2 + 28));
 
             ddStack.Controls.Add(MakeDdSectionCard(
                 "3 · Incident",
@@ -421,6 +443,134 @@ namespace Hiatme_Tool_Suite_v3
 
             ddScrollBody.Resize += (_, __) => LayoutDriverDisciplineStack();
             LayoutDriverDisciplineStack();
+
+            _ = RefreshDriverDisciplineHistoryAsync();
+            _ = RefreshDriverDisciplinePriorsAsync();
+        }
+
+        private Panel BuildDdHistoryPanel()
+        {
+            var host = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = SupeyTheme.SurfaceElevated,
+                Padding = new Padding(0),
+            };
+
+            ddRefreshHistoryBtn = new SupeyMaterialButton
+            {
+                Name = "ddRefreshHistoryBtn",
+                Text = "Refresh",
+                Type = SupeyMaterialButton.MaterialButtonType.Text,
+                Size = new Size(80, 28),
+                Dock = DockStyle.Right,
+            };
+            ddRefreshHistoryBtn.Click += async (_, __) =>
+            {
+                await RefreshDriverDisciplineHistoryAsync();
+                await RefreshDriverDisciplinePriorsAsync();
+            };
+
+            var top = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 28,
+                BackColor = SupeyTheme.SurfaceElevated,
+            };
+            top.Controls.Add(ddRefreshHistoryBtn);
+
+            ddHistoryLv = new SupeyListView
+            {
+                Name = "ddHistoryLv",
+                Dock = DockStyle.Fill,
+                View = View.Details,
+                FullRowSelect = true,
+                HideSelection = false,
+                HeaderStyle = ColumnHeaderStyle.Nonclickable,
+                BorderStyle = BorderStyle.None,
+                MultiSelect = false,
+                BackColor = SupeyTheme.ListBody,
+                ForeColor = SupeyTheme.ListText,
+            };
+            try { ddHistoryLv.Font = ListViewOwnerDrawFonts.Cell; } catch { }
+            ddHistoryLv.Columns.Add("Date", 90);
+            ddHistoryLv.Columns.Add("Driver", 140);
+            ddHistoryLv.Columns.Add("Action", 140);
+            ddHistoryLv.Columns.Add("Case", 130);
+            ddHistoryLv.Columns.Add("Violations", 220);
+            ddHistoryLv.DrawColumnHeader += listView_DrawColumnHeader;
+            ddHistoryLv.DrawItem += listView_DrawItem;
+            ddHistoryLv.DrawSubItem += listView_DrawSubItem;
+            ListViewHeaderEmptyAreaPainter.Attach(ddHistoryLv);
+            SupeyListViewHelpers.EnableDoubleBufferRecursively(ddHistoryLv);
+            ddHistoryLv.DoubleClick += async (_, __) => await OpenSelectedDriverDisciplineAsync();
+
+            var ctx = new ContextMenuStrip
+            {
+                Renderer = new DarkContextMenuRenderer(),
+                BackColor = DarkContextMenuRenderer.Background,
+                ForeColor = DarkContextMenuRenderer.ForeColor,
+                Font = SupeyTheme.BodyFont,
+                ShowImageMargin = true,
+                ShowCheckMargin = false,
+                Padding = new Padding(2, 4, 2, 4),
+            };
+
+            ToolStripMenuItem MakeItem(string text, Image image, EventHandler onClick)
+            {
+                var item = new ToolStripMenuItem(text)
+                {
+                    BackColor = DarkContextMenuRenderer.Background,
+                    ForeColor = DarkContextMenuRenderer.ForeColor,
+                    Image = image,
+                    ImageScaling = ToolStripItemImageScaling.None,
+                    Padding = new Padding(6, 6, 12, 6),
+                    Margin = new Padding(0, 1, 0, 1),
+                };
+                if (onClick != null) item.Click += onClick;
+                return item;
+            }
+
+            var openItem = MakeItem("Open Word document", MenuIconFactory.GetOpenDocIcon(),
+                async (_, __) => await OpenSelectedDriverDisciplineAsync());
+            var loadItem = MakeItem("Load into form", MenuIconFactory.GetLoadFormIcon(),
+                async (_, __) => await LoadSelectedDriverDisciplineAsync());
+            var filterItem = MakeItem("Show this driver’s write-ups", MenuIconFactory.GetFilterDriverIcon(),
+                async (_, __) =>
+                {
+                    var it = SelectedDriverDisciplineItem();
+                    if (it == null || string.IsNullOrWhiteSpace(it.DriverName)) return;
+                    if (ddDriverTb != null) ddDriverTb.Text = it.DriverName;
+                    await RefreshDriverDisciplineHistoryAsync(it.DriverName);
+                    await RefreshDriverDisciplinePriorsAsync();
+                });
+
+            ctx.Items.Add(openItem);
+            ctx.Items.Add(loadItem);
+            ctx.Items.Add(new ToolStripSeparator());
+            ctx.Items.Add(filterItem);
+            ctx.Opening += (_, e) =>
+            {
+                // Select the row under the cursor so right-click without a prior selection still works.
+                var pt = ddHistoryLv.PointToClient(Cursor.Position);
+                var hit = ddHistoryLv.HitTest(pt);
+                if (hit.Item != null)
+                {
+                    ddHistoryLv.SelectedItems.Clear();
+                    hit.Item.Selected = true;
+                    hit.Item.Focused = true;
+                }
+                bool has = SelectedDriverDisciplineItem() != null;
+                openItem.Enabled = has;
+                loadItem.Enabled = has;
+                filterItem.Enabled = has;
+                if (!has) e.Cancel = true;
+            };
+            ddHistoryLv.ContextMenuStrip = ctx;
+
+            host.Controls.Add(ddHistoryLv);
+            host.Controls.Add(top);
+            return host;
         }
 
         private void LayoutDriverDisciplineStack()
@@ -572,19 +722,54 @@ namespace Hiatme_Tool_Suite_v3
             return grid;
         }
 
-        private TableLayoutPanel BuildDdEmployeeGrid(int rowH)
+        private Panel BuildDdEmployeeGrid(int rowH)
         {
+            var host = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = SupeyTheme.SurfaceElevated,
+                Padding = new Padding(0),
+            };
+
             var grid = MakeDdTwoColGrid(2, rowH);
+            grid.Dock = DockStyle.Top;
+            grid.Height = rowH * 2 + 4;
+
             ddDriverTb = MakeDdText("ddDriverTb", "Driver name");
             ddEmployeeIdTb = MakeDdText("ddEmployeeIdTb", "Employee ID");
             ddVehicleTb = MakeDdText("ddVehicleTb", "Vehicle");
             ddSupervisorTb = MakeDdText("ddSupervisorTb", "Supervisor");
+            ddDriverTb.Leave += async (_, __) => await RefreshDriverDisciplinePriorsAsync();
+            ddEmployeeIdTb.Leave += async (_, __) => await RefreshDriverDisciplinePriorsAsync();
 
             grid.Controls.Add(LabeledDd("Driver name", ddDriverTb), 0, 0);
             grid.Controls.Add(LabeledDd("Employee ID", ddEmployeeIdTb), 1, 0);
             grid.Controls.Add(LabeledDd("Vehicle", ddVehicleTb), 0, 1);
             grid.Controls.Add(LabeledDd("Supervisor", ddSupervisorTb), 1, 1);
-            return grid;
+
+            ddPriorsLbl = new Label
+            {
+                Name = "ddPriorsLbl",
+                Dock = DockStyle.Bottom,
+                Height = 24,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Text = "No prior write-ups loaded yet.",
+                Font = SupeyTheme.CaptionFont,
+                ForeColor = SupeyTheme.TextMuted,
+                BackColor = SupeyTheme.SurfaceElevated,
+                Cursor = Cursors.Hand,
+                Padding = new Padding(0, 2, 0, 0),
+            };
+            ddPriorsLbl.Click += async (_, __) =>
+            {
+                string name = T(ddDriverTb);
+                if (!string.IsNullOrWhiteSpace(name))
+                    await RefreshDriverDisciplineHistoryAsync(name);
+            };
+
+            host.Controls.Add(grid);
+            host.Controls.Add(ddPriorsLbl);
+            return host;
         }
 
         private TableLayoutPanel BuildDdIncidentGrid(int rowH)
@@ -972,27 +1157,107 @@ namespace Hiatme_Tool_Suite_v3
 
         private static string T(SupeyTextBox tb) => (tb?.Text ?? "").Trim();
 
-        private void GenerateDriverDisciplineWord()
+        private bool ValidateDriverDisciplineRecord(DriverDisciplineRecord record)
+        {
+            if (record == null) return false;
+            if (string.IsNullOrWhiteSpace(record.DriverName))
+            {
+                SupeyMessageDialog.ShowWarning(this, "Driver Discipline",
+                    "Driver name required",
+                    "Enter the driver’s name before saving this write-up.");
+                ddDriverTb?.Focus();
+                return false;
+            }
+            if (record.Violations == null || record.Violations.Count == 0)
+            {
+                SupeyMessageDialog.ShowWarning(this, "Driver Discipline",
+                    "Select a violation",
+                    "Check at least one violation type that applies to this write-up.");
+                return false;
+            }
+            return true;
+        }
+
+        private async Task SaveDriverDisciplineToLibraryAsync()
         {
             if (!_ddBuilt)
                 InitializeDriverDisciplineTab();
 
             var record = CollectDriverDisciplineRecord();
-            if (string.IsNullOrWhiteSpace(record.DriverName))
-            {
-                SupeyMessageForm.Show(this, "Driver Discipline",
-                    "Enter a driver name before generating the Word document.",
-                    SupeyMessageKind.Warning, "Missing driver");
-                ddDriverTb?.Focus();
+            if (!ValidateDriverDisciplineRecord(record))
                 return;
-            }
-            if (record.Violations.Count == 0)
+
+            SetDriverDisciplineStatus("Saving write-up to library…");
+            try
             {
-                SupeyMessageForm.Show(this, "Driver Discipline",
-                    "Select at least one violation type.",
-                    SupeyMessageKind.Warning, "Missing violation");
-                return;
+                byte[] bytes = await Task.Run(() => DriverDisciplineDocument.ToBytes(record))
+                    .ConfigureAwait(true);
+                var settings = HiatmeAiSettings.Load();
+                var result = await DriverDisciplineStore.SaveAndSyncAsync(record, bytes, settings)
+                    .ConfigureAwait(true);
+
+                string msg;
+                if (result.LocalOk && result.ServerOk)
+                    msg = "Saved locally + AI panel"
+                        + (string.IsNullOrEmpty(result.ServerPath) ? "" : " · " + result.ServerPath);
+                else if (result.LocalOk)
+                    msg = "Saved locally (panel sync failed"
+                        + (string.IsNullOrEmpty(result.Error) ? ")" : ": " + result.Error + ")");
+                else
+                {
+                    SetDriverDisciplineStatus("Save failed.");
+                    SupeyMessageDialog.ShowWarning(this, "Driver Discipline",
+                        "Save failed",
+                        "Could not save the write-up.",
+                        result.Error);
+                    return;
+                }
+
+                SetDriverDisciplineStatus(msg);
+                await RefreshDriverDisciplineHistoryAsync().ConfigureAwait(true);
+                await RefreshDriverDisciplinePriorsAsync().ConfigureAwait(true);
+
+                string openPath = null;
+                if (!string.IsNullOrEmpty(result.LocalFolder) && result.Meta != null)
+                {
+                    openPath = Path.Combine(result.LocalFolder, result.Meta.DocxFilename ?? "");
+                    if (!File.Exists(openPath)) openPath = null;
+                }
+
+                string where = !string.IsNullOrEmpty(result.ServerPath)
+                    ? result.ServerPath
+                    : (result.LocalFolder ?? @"F:\Write ups");
+                var ask = SupeyMessageDialog.Ask(
+                    this,
+                    SupeyMessageDialog.Kind.Success,
+                    "Driver Discipline",
+                    "Write-up saved",
+                    openPath != null
+                        ? "It’s in the library and ready to print or attach."
+                        : "Saved to the library.",
+                    openPath != null ? "Open Word" : "OK",
+                    openPath != null ? "Done" : null,
+                    details: where);
+
+                if (openPath != null && ask == DialogResult.Yes)
+                    Process.Start(new ProcessStartInfo(openPath) { UseShellExecute = true });
             }
+            catch (Exception ex)
+            {
+                SetDriverDisciplineStatus("Save failed.");
+                SupeyMessageDialog.ShowWarning(this, "Driver Discipline", "Save failed",
+                    "Could not save the write-up.", ex.Message);
+            }
+        }
+
+        private void ExportDriverDisciplineCopy()
+        {
+            if (!_ddBuilt)
+                InitializeDriverDisciplineTab();
+
+            var record = CollectDriverDisciplineRecord();
+            if (!ValidateDriverDisciplineRecord(record))
+                return;
 
             string safeDriver = string.Join("_", record.DriverName.Split(Path.GetInvalidFileNameChars()));
             string suggested = "CorrectiveAction_" + safeDriver + "_" +
@@ -1000,7 +1265,7 @@ namespace Hiatme_Tool_Suite_v3
 
             using (var dlg = new SaveFileDialog
             {
-                Title = "Save corrective action Word document",
+                Title = "Export corrective action Word copy",
                 Filter = "Word document (*.docx)|*.docx",
                 FileName = suggested,
                 OverwritePrompt = true,
@@ -1012,25 +1277,267 @@ namespace Hiatme_Tool_Suite_v3
                 try
                 {
                     DriverDisciplineDocument.Save(dlg.FileName, record);
-                    SetDriverDisciplineStatus("Saved: " + dlg.FileName);
-                    if (MessageBox.Show(
+                    SetDriverDisciplineStatus("Exported copy: " + dlg.FileName);
+                    if (SupeyMessageDialog.Ask(
                             this,
-                            "Word document saved.\r\n\r\nOpen it now for printing?",
+                            SupeyMessageDialog.Kind.Success,
                             "Driver Discipline",
-                            MessageBoxButtons.YesNo,
-                            MessageBoxIcon.Information) == DialogResult.Yes)
+                            "Copy exported",
+                            "A Word copy was saved outside the library.",
+                            "Open Word",
+                            "Done",
+                            details: dlg.FileName) == DialogResult.Yes)
                     {
                         Process.Start(new ProcessStartInfo(dlg.FileName) { UseShellExecute = true });
                     }
                 }
                 catch (Exception ex)
                 {
-                    SetDriverDisciplineStatus("Save failed.");
-                    SupeyMessageForm.Show(this, "Driver Discipline",
-                        "Could not create Word document:\r\n\r\n" + ex.Message,
-                        SupeyMessageKind.Warning, "Save failed");
+                    SetDriverDisciplineStatus("Export failed.");
+                    SupeyMessageDialog.ShowWarning(this, "Driver Discipline", "Export failed",
+                        "Could not export the Word document.", ex.Message);
                 }
             }
+        }
+
+        private async Task RefreshDriverDisciplinePriorsAsync()
+        {
+            if (ddPriorsLbl == null) return;
+            string name = T(ddDriverTb);
+            string emp = T(ddEmployeeIdTb);
+            string key = name + "|" + emp;
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                ddPriorsLbl.Text = "Enter a driver name to check prior write-ups.";
+                ddPriorsLbl.ForeColor = SupeyTheme.TextMuted;
+                _ddPriorsDriverKey = "";
+                return;
+            }
+
+            // Avoid hammering the API for the same driver mid-typing leave cycles
+            if (string.Equals(key, _ddPriorsDriverKey, StringComparison.OrdinalIgnoreCase)
+                && ddPriorsLbl.Text.IndexOf("prior", StringComparison.OrdinalIgnoreCase) >= 0)
+                return;
+            _ddPriorsDriverKey = key;
+
+            try
+            {
+                var settings = HiatmeAiSettings.Load();
+                var priors = await HiatmeAiClient.GetDriverDisciplinePriorsAsync(settings, name, emp)
+                    .ConfigureAwait(true);
+                if (priors != null && priors.Ok && priors.Count > 0)
+                {
+                    ddPriorsLbl.Text = string.IsNullOrWhiteSpace(priors.Summary)
+                        ? priors.Count + " prior write-up(s) on file. Click to filter history."
+                        : priors.Summary + " · click to filter history";
+                    ddPriorsLbl.ForeColor = SupeyTheme.WarnText;
+                    if (ddPriorTb != null
+                        && string.IsNullOrWhiteSpace(ddPriorTb.Text)
+                        && !string.IsNullOrWhiteSpace(priors.PriorHistoryText))
+                    {
+                        ddPriorTb.Text = priors.PriorHistoryText;
+                    }
+                }
+                else
+                {
+                    // Fall back to local index
+                    var local = await DriverDisciplineStore.ListMergedAsync(settings, name)
+                        .ConfigureAwait(true);
+                    if (local != null && local.Count > 0)
+                    {
+                        var last = local[0];
+                        string date = PrettyDdDate(last.IncidentDate ?? last.CreatedAt);
+                        ddPriorsLbl.Text = local.Count + " prior write-up(s) · last "
+                            + (last.ActionLevel ?? "write-up") + " on " + date
+                            + " · click to filter history";
+                        ddPriorsLbl.ForeColor = SupeyTheme.WarnText;
+                    }
+                    else
+                    {
+                        ddPriorsLbl.Text = "No prior write-ups on file for this driver.";
+                        ddPriorsLbl.ForeColor = SupeyTheme.TextMuted;
+                    }
+                }
+            }
+            catch
+            {
+                ddPriorsLbl.Text = "Could not check prior write-ups (panel offline?).";
+                ddPriorsLbl.ForeColor = SupeyTheme.TextMuted;
+            }
+        }
+
+        private static string PrettyDdDate(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return "—";
+            string s = raw.Trim();
+            if (s.Length >= 10 && s[4] == '-' && s[7] == '-')
+                return s.Substring(5, 2) + "/" + s.Substring(8, 2) + "/" + s.Substring(0, 4);
+            DateTime dt;
+            if (DateTime.TryParse(s, out dt))
+                return dt.ToString("MM/dd/yyyy", CultureInfo.InvariantCulture);
+            return s.Length > 10 ? s.Substring(0, 10) : s;
+        }
+
+        private async Task RefreshDriverDisciplineHistoryAsync(string driverFilter = null)
+        {
+            if (ddHistoryLv == null || _ddHistoryLoading) return;
+            _ddHistoryLoading = true;
+            try
+            {
+                var settings = HiatmeAiSettings.Load();
+                string filter = driverFilter;
+                if (filter == null)
+                    filter = null; // show all by default
+                var items = await DriverDisciplineStore.ListMergedAsync(settings, filter)
+                    .ConfigureAwait(true);
+
+                ddHistoryLv.BeginUpdate();
+                try
+                {
+                    ddHistoryLv.Items.Clear();
+                    foreach (var it in items ?? new List<DriverDisciplineIndexItem>())
+                    {
+                        var row = new ListViewItem(PrettyDdDate(it.IncidentDate ?? it.CreatedAt));
+                        row.SubItems.Add(it.DriverName ?? "");
+                        row.SubItems.Add(it.ActionLevel ?? "");
+                        row.SubItems.Add(it.CaseNumber ?? it.Id ?? "");
+                        string viol = it.Violations != null
+                            ? string.Join("; ", it.Violations.Take(3))
+                            : "";
+                        row.SubItems.Add(viol);
+                        row.Tag = it;
+                        ddHistoryLv.Items.Add(row);
+                    }
+                }
+                finally { ddHistoryLv.EndUpdate(); }
+            }
+            finally { _ddHistoryLoading = false; }
+        }
+
+        private DriverDisciplineIndexItem SelectedDriverDisciplineItem()
+        {
+            if (ddHistoryLv == null || ddHistoryLv.SelectedItems.Count == 0)
+                return null;
+            return ddHistoryLv.SelectedItems[0].Tag as DriverDisciplineIndexItem;
+        }
+
+        private async Task OpenSelectedDriverDisciplineAsync()
+        {
+            var it = SelectedDriverDisciplineItem();
+            if (it == null || string.IsNullOrWhiteSpace(it.Id)) return;
+
+            // Prefer local file
+            string localFolder = DriverDisciplineStore.CaseFolder(it.DriverName, it.Id);
+            if (Directory.Exists(localFolder))
+            {
+                var localDocx = Directory.GetFiles(localFolder, "*.docx").FirstOrDefault();
+                if (localDocx != null)
+                {
+                    Process.Start(new ProcessStartInfo(localDocx) { UseShellExecute = true });
+                    return;
+                }
+            }
+
+            try
+            {
+                var settings = HiatmeAiSettings.Load();
+                byte[] bytes = await HiatmeAiClient.DownloadDriverDisciplineDocxAsync(settings, it.Id)
+                    .ConfigureAwait(true);
+                if (bytes == null || bytes.Length == 0)
+                {
+                    SupeyMessageDialog.ShowWarning(this, "Driver Discipline",
+                        "Couldn’t open Word",
+                        "The document wasn’t found locally and the AI panel didn’t return a copy.");
+                    return;
+                }
+                string tmp = Path.Combine(Path.GetTempPath(),
+                    (it.CaseNumber ?? it.Id) + ".docx");
+                File.WriteAllBytes(tmp, bytes);
+                Process.Start(new ProcessStartInfo(tmp) { UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                SupeyMessageDialog.ShowWarning(this, "Driver Discipline",
+                    "Couldn’t open Word",
+                    "Something went wrong opening the document.",
+                    ex.Message);
+            }
+        }
+
+        private async Task LoadSelectedDriverDisciplineAsync()
+        {
+            var it = SelectedDriverDisciplineItem();
+            if (it == null || string.IsNullOrWhiteSpace(it.Id)) return;
+
+            DriverDisciplineMeta meta = null;
+            string localMeta = Path.Combine(
+                DriverDisciplineStore.CaseFolder(it.DriverName, it.Id), "meta.json");
+            try
+            {
+                if (File.Exists(localMeta))
+                    meta = Newtonsoft.Json.JsonConvert.DeserializeObject<DriverDisciplineMeta>(
+                        File.ReadAllText(localMeta));
+            }
+            catch { /* try server */ }
+
+            if (meta == null)
+            {
+                var settings = HiatmeAiSettings.Load();
+                meta = await HiatmeAiClient.GetDriverDisciplineMetaAsync(settings, it.Id)
+                    .ConfigureAwait(true);
+            }
+            if (meta == null)
+            {
+                SupeyMessageDialog.ShowWarning(this, "Driver Discipline",
+                    "Couldn’t load write-up",
+                    "Metadata for this case wasn’t found locally or on the AI panel.");
+                return;
+            }
+
+            ApplyDriverDisciplineRecord(DriverDisciplineStore.ToRecord(meta));
+            SetDriverDisciplineStatus("Loaded " + (meta.CaseNumber ?? meta.Id) + " into the form for review.");
+            await RefreshDriverDisciplinePriorsAsync().ConfigureAwait(true);
+        }
+
+        private void ApplyDriverDisciplineRecord(DriverDisciplineRecord r)
+        {
+            if (r == null) return;
+            if (ddCaseTb != null) ddCaseTb.Text = r.CaseNumber ?? "";
+            if (ddPreparedTb != null) ddPreparedTb.Text = r.PreparedBy ?? "";
+            if (ddDeptTb != null) ddDeptTb.Text = r.Department ?? "Operations";
+            if (ddDriverTb != null) ddDriverTb.Text = r.DriverName ?? "";
+            if (ddEmployeeIdTb != null) ddEmployeeIdTb.Text = r.EmployeeId ?? "";
+            if (ddVehicleTb != null) ddVehicleTb.Text = r.Vehicle ?? "";
+            if (ddSupervisorTb != null) ddSupervisorTb.Text = r.SupervisorName ?? "";
+            if (ddNoticeDate != null) ddNoticeDate.Value = r.NoticeDate == default ? DateTime.Today : r.NoticeDate;
+            if (ddIncidentDate != null) ddIncidentDate.Value = r.IncidentDate == default ? DateTime.Today : r.IncidentDate;
+            if (ddIncidentTimeTb != null) ddIncidentTimeTb.Text = r.IncidentTime ?? "";
+            if (ddTripRefTb != null) ddTripRefTb.Text = r.TripOrClientRef ?? "";
+            if (ddLocationTb != null) ddLocationTb.Text = r.Location ?? "";
+            if (ddActionCombo != null && !string.IsNullOrWhiteSpace(r.ActionLevel))
+            {
+                if (ddActionCombo.Items.Contains(r.ActionLevel))
+                    ddActionCombo.SelectedItem = r.ActionLevel;
+                else
+                {
+                    ddActionCombo.Items.Add(r.ActionLevel);
+                    ddActionCombo.SelectedItem = r.ActionLevel;
+                }
+            }
+            var set = new HashSet<string>(r.Violations ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
+            foreach (var chk in _ddViolationChecks)
+                chk.Checked = set.Contains(chk.Text);
+            if (ddFootageSummaryTb != null) ddFootageSummaryTb.Text = r.FootageSummary ?? "";
+            if (ddNarrativeTb != null) ddNarrativeTb.Text = r.Narrative ?? "";
+            if (ddPolicyTb != null) ddPolicyTb.Text = r.PolicyCited ?? "";
+            if (ddPriorTb != null) ddPriorTb.Text = r.PriorHistory ?? "";
+            if (ddCorrectiveTb != null) ddCorrectiveTb.Text = r.CorrectiveAction ?? "";
+            if (ddFollowUpTb != null) ddFollowUpTb.Text = r.FollowUpDate ?? "";
+            if (ddDriverStatementTb != null) ddDriverStatementTb.Text = r.DriverStatement ?? "";
+            if (ddFolderTb != null) ddFolderTb.Text = r.FootageFolder ?? "";
+            _ddClipPaths.Clear();
+            if (r.ClipPaths != null) _ddClipPaths.AddRange(r.ClipPaths);
+            RefreshDriverDisciplineClipList();
         }
 
         /// <summary>Prefill from the currently selected Dashcam Videos driver (and optional issue row).</summary>
@@ -1048,9 +1555,9 @@ namespace Hiatme_Tool_Suite_v3
             var driver = _dcSelected;
             if (driver == null)
             {
-                SupeyMessageForm.Show(this, "Driver Discipline",
-                    "Select a driver on the Dashcam Videos tab first, then use From Dashcam.",
-                    SupeyMessageKind.Information, "No Dashcam selection");
+                SupeyMessageDialog.ShowInfo(this, "Driver Discipline",
+                    "No Dashcam selection",
+                    "Select a driver on the Dashcam Videos tab first, then use From Dashcam.");
                 if (tabPageDashcamVideos != null)
                     hiatmeTabControl.SelectedTab = tabPageDashcamVideos;
                 return;
@@ -1120,6 +1627,9 @@ namespace Hiatme_Tool_Suite_v3
             SetDriverDisciplineStatus(
                 "Prefilled from Dashcam: " + driver.Driver +
                 (clips.Count > 0 ? " · " + clips.Count + " nearby clip(s)" : " · no nearby clips found"));
+            _ddPriorsDriverKey = "";
+            _ = RefreshDriverDisciplinePriorsAsync();
+            _ = RefreshDriverDisciplineHistoryAsync(driver.Driver);
         }
 
         private void AddDriverDisciplineClipsManual()
@@ -1218,6 +1728,16 @@ namespace Hiatme_Tool_Suite_v3
                 if (ddViolationHost != null) ddViolationHost.BackColor = SupeyTheme.SurfaceElevated;
                 foreach (var chk in _ddViolationChecks)
                     chk.BackColor = SupeyTheme.SurfaceElevated;
+                if (ddPriorsLbl != null)
+                {
+                    ddPriorsLbl.BackColor = SupeyTheme.SurfaceElevated;
+                    ddPriorsLbl.Font = SupeyTheme.CaptionFont;
+                }
+                if (ddHistoryLv != null)
+                {
+                    ddHistoryLv.BackColor = SupeyTheme.ListBody;
+                    ddHistoryLv.ForeColor = SupeyTheme.ListText;
+                }
 
                 if (layout)
                     LayoutDriverDisciplineStack();

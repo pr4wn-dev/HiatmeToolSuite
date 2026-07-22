@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -3198,6 +3199,232 @@ namespace Hiatme_Tool_Suite_v3
             catch (Exception ex)
             {
                 return new ModivcareMarketPullResult { Ok = false, Error = ex.Message };
+            }
+        }
+
+        // ── Driver Discipline library ────────────────────────────────────
+
+        public static async Task<DriverDisciplineListResult> ListDriverDisciplineAsync(
+            HiatmeAiSettings settings,
+            string driver = null,
+            string employeeId = null,
+            int limit = 200,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null)
+                return new DriverDisciplineListResult { Ok = false, Error = "settings missing" };
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl))
+                return new DriverDisciplineListResult { Ok = false, Error = "AI server URL not configured" };
+
+            var qs = new List<string>();
+            if (!string.IsNullOrWhiteSpace(driver))
+                qs.Add("driver=" + Uri.EscapeDataString(driver.Trim()));
+            if (!string.IsNullOrWhiteSpace(employeeId))
+                qs.Add("employee_id=" + Uri.EscapeDataString(employeeId.Trim()));
+            if (limit > 0)
+                qs.Add("limit=" + limit.ToString(CultureInfo.InvariantCulture));
+            string url = baseUrl + "/api/hiatme/driver-discipline"
+                + (qs.Count > 0 ? "?" + string.Join("&", qs) : "");
+
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Get, url))
+                {
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
+                    {
+                        var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        if (!resp.IsSuccessStatusCode)
+                            return new DriverDisciplineListResult
+                            {
+                                Ok = false,
+                                Error = "HTTP " + (int)resp.StatusCode + ": " + body,
+                            };
+                        var doc = JsonConvert.DeserializeObject<DriverDisciplineListResult>(body)
+                            ?? new DriverDisciplineListResult { Ok = false, Error = "empty" };
+                        doc.Ok = true;
+                        if (doc.Items == null) doc.Items = new List<DriverDisciplineIndexItem>();
+                        return doc;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                return new DriverDisciplineListResult { Ok = false, Error = ex.Message };
+            }
+        }
+
+        public static async Task<DriverDisciplinePriorsResult> GetDriverDisciplinePriorsAsync(
+            HiatmeAiSettings settings,
+            string driverName,
+            string employeeId = null,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null || string.IsNullOrWhiteSpace(driverName))
+                return new DriverDisciplinePriorsResult { Ok = false, Error = "driver required" };
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl))
+                return new DriverDisciplinePriorsResult { Ok = false, Error = "AI server URL not configured" };
+
+            string url = baseUrl + "/api/hiatme/driver-discipline/driver/"
+                + Uri.EscapeDataString(driverName.Trim());
+            if (!string.IsNullOrWhiteSpace(employeeId))
+                url += "?employee_id=" + Uri.EscapeDataString(employeeId.Trim());
+
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Get, url))
+                {
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
+                    {
+                        var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        if (!resp.IsSuccessStatusCode)
+                            return new DriverDisciplinePriorsResult
+                            {
+                                Ok = false,
+                                Error = "HTTP " + (int)resp.StatusCode + ": " + body,
+                            };
+                        var doc = JsonConvert.DeserializeObject<DriverDisciplinePriorsResult>(body)
+                            ?? new DriverDisciplinePriorsResult { Ok = false, Error = "empty" };
+                        doc.Ok = true;
+                        if (doc.Items == null) doc.Items = new List<DriverDisciplineIndexItem>();
+                        return doc;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                return new DriverDisciplinePriorsResult { Ok = false, Error = ex.Message };
+            }
+        }
+
+        public static async Task<DriverDisciplineMeta> GetDriverDisciplineMetaAsync(
+            HiatmeAiSettings settings,
+            string caseId,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null || string.IsNullOrWhiteSpace(caseId))
+                return null;
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl))
+                return null;
+            string url = baseUrl + "/api/hiatme/driver-discipline/"
+                + Uri.EscapeDataString(caseId.Trim());
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Get, url))
+                {
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
+                    {
+                        if (!resp.IsSuccessStatusCode) return null;
+                        var root = JObject.Parse(await resp.Content.ReadAsStringAsync().ConfigureAwait(false));
+                        var meta = root["meta"];
+                        if (meta == null) return null;
+                        return meta.ToObject<DriverDisciplineMeta>();
+                    }
+                }
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        public static async Task<byte[]> DownloadDriverDisciplineDocxAsync(
+            HiatmeAiSettings settings,
+            string caseId,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null || string.IsNullOrWhiteSpace(caseId))
+                return null;
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl))
+                return null;
+            string url = baseUrl + "/api/hiatme/driver-discipline/"
+                + Uri.EscapeDataString(caseId.Trim()) + "/docx";
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Get, url))
+                {
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
+                    {
+                        if (!resp.IsSuccessStatusCode) return null;
+                        return await resp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
+                    }
+                }
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        public static async Task<DriverDisciplineServerSaveResult> SaveDriverDisciplineAsync(
+            HiatmeAiSettings settings,
+            DriverDisciplineMeta meta,
+            byte[] docxBytes,
+            string updatedBy = "",
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null)
+                return new DriverDisciplineServerSaveResult { Ok = false, Error = "settings missing" };
+            if (meta == null || docxBytes == null || docxBytes.Length == 0)
+                return new DriverDisciplineServerSaveResult { Ok = false, Error = "meta/docx required" };
+
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl))
+                return new DriverDisciplineServerSaveResult { Ok = false, Error = "AI server URL not configured" };
+
+            string url = baseUrl + "/api/hiatme/driver-discipline";
+            try
+            {
+                var payload = new JObject
+                {
+                    ["updated_by"] = updatedBy ?? "",
+                    ["meta"] = JObject.FromObject(meta),
+                    ["docx_base64"] = Convert.ToBase64String(docxBytes),
+                };
+                using (var req = new HttpRequestMessage(HttpMethod.Post, url))
+                {
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    req.Content = new StringContent(
+                        payload.ToString(Formatting.None), Encoding.UTF8, "application/json");
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
+                    {
+                        var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        if (!resp.IsSuccessStatusCode)
+                            return new DriverDisciplineServerSaveResult
+                            {
+                                Ok = false,
+                                Error = "HTTP " + (int)resp.StatusCode + ": " + body,
+                            };
+                        var root = JObject.Parse(body);
+                        return new DriverDisciplineServerSaveResult
+                        {
+                            Ok = root.Value<bool?>("ok") ?? true,
+                            Id = root.Value<string>("id"),
+                            Path = root.Value<string>("path"),
+                        };
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                return new DriverDisciplineServerSaveResult { Ok = false, Error = ex.Message };
             }
         }
     }

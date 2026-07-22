@@ -38,6 +38,21 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        /// <summary>Build .docx bytes in a temp file (for library upload without SaveFileDialog).</summary>
+        public static byte[] ToBytes(DriverDisciplineRecord r)
+        {
+            string tmp = Path.Combine(Path.GetTempPath(), "dd_" + Guid.NewGuid().ToString("N") + ".docx");
+            try
+            {
+                Save(tmp, r);
+                return File.ReadAllBytes(tmp);
+            }
+            finally
+            {
+                try { if (File.Exists(tmp)) File.Delete(tmp); } catch { /* ignore */ }
+            }
+        }
+
         private static void WriteEntry(ZipArchive zip, string name, string xml)
         {
             var entry = zip.CreateEntry(name, CompressionLevel.Optimal);

@@ -6,7 +6,7 @@ namespace Hiatme_Tool_Suite_v3
 {
     /// <summary>
     /// Themed replacement for MessageBox: dark surface, accent stripe by severity,
-    /// heading + wrapping body, optional monospace detail block (e.g. failure lists).
+    /// heading + wrapping body, optional monospace detail block, OK or two-action footer.
     /// </summary>
     internal sealed class SupeyMessageDialog : SupeyForm
     {
@@ -23,7 +23,16 @@ namespace Hiatme_Tool_Suite_v3
         private const int ContentWidth = DialogWidth - ContentPad * 2 - 3; // minus accent stripe
         private const int FooterHeight = 56;
 
-        private SupeyMessageDialog(Kind kind, string title, string heading, string body, string details)
+        private SupeyMessageDialog(
+            Kind kind,
+            string title,
+            string heading,
+            string body,
+            string details,
+            string primaryText,
+            string secondaryText,
+            DialogResult primaryResult,
+            DialogResult secondaryResult)
         {
             Text = title ?? "Hiatme Tool Suite";
             FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -44,7 +53,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 Dock = DockStyle.Bottom,
                 Height = FooterHeight,
-                BackColor = SupeyTheme.Surface,
+                BackColor = SupeyTheme.SurfaceElevated,
             };
 
             var footerButtons = new FlowLayoutPanel
@@ -52,20 +61,38 @@ namespace Hiatme_Tool_Suite_v3
                 Dock = DockStyle.Fill,
                 FlowDirection = FlowDirection.RightToLeft,
                 WrapContents = false,
-                Padding = new Padding(0, 8, 20, 12),
-                BackColor = SupeyTheme.Surface,
+                Padding = new Padding(0, 10, 18, 10),
+                BackColor = SupeyTheme.SurfaceElevated,
             };
 
-            var okBtn = new DarkOnAccentMaterialButton
+            bool hasSecondary = !string.IsNullOrWhiteSpace(secondaryText);
+            var primaryBtn = new DarkOnAccentMaterialButton
             {
-                Text = "OK",
+                Text = string.IsNullOrWhiteSpace(primaryText) ? "OK" : primaryText.Trim(),
                 AutoSize = false,
                 Type = SupeyMaterialButton.MaterialButtonType.Contained,
                 UseAccentColor = true,
-                Size = new Size(96, 36),
-                DialogResult = DialogResult.OK,
+                Size = new Size(Math.Max(96, MeasureBtnWidth(primaryText ?? "OK")), 36),
+                DialogResult = primaryResult,
+                Margin = new Padding(0, 0, 0, 0),
             };
-            footerButtons.Controls.Add(okBtn);
+            footerButtons.Controls.Add(primaryBtn);
+
+            SupeyMaterialButton secondaryBtn = null;
+            if (hasSecondary)
+            {
+                secondaryBtn = new SupeyMaterialButton
+                {
+                    Text = secondaryText.Trim(),
+                    AutoSize = false,
+                    Type = SupeyMaterialButton.MaterialButtonType.Outlined,
+                    Size = new Size(Math.Max(96, MeasureBtnWidth(secondaryText)), 36),
+                    DialogResult = secondaryResult,
+                    Margin = new Padding(0, 0, 8, 0),
+                };
+                footerButtons.Controls.Add(secondaryBtn);
+            }
+
             footer.Controls.Add(footerButtons);
 
             var body_ = new Panel
@@ -87,7 +114,7 @@ namespace Hiatme_Tool_Suite_v3
             var headingLbl = new Label
             {
                 Text = heading ?? "",
-                Font = new Font("Segoe UI Semibold", 11f),
+                Font = new Font("Segoe UI Semibold", 12f),
                 ForeColor = HeadingColorFor(kind),
                 AutoSize = true,
                 MaximumSize = new Size(ContentWidth, 0),
@@ -101,7 +128,7 @@ namespace Hiatme_Tool_Suite_v3
                 stack.Controls.Add(new Label
                 {
                     Text = body,
-                    Font = new Font("Segoe UI", 9.25f),
+                    Font = new Font("Segoe UI", 9.5f),
                     ForeColor = SupeyTheme.TextSecondary,
                     AutoSize = true,
                     MaximumSize = new Size(ContentWidth, 0),
@@ -138,16 +165,21 @@ namespace Hiatme_Tool_Suite_v3
             Controls.Add(footer);
             Controls.Add(accent);
 
-            AcceptButton = okBtn;
-            CancelButton = okBtn;
+            AcceptButton = primaryBtn;
+            CancelButton = (IButtonControl)secondaryBtn ?? primaryBtn;
 
-            // Size the dialog to its content — no dead space, no clipped text.
             stack.PerformLayout();
             int contentHeight = stack.GetPreferredSize(new Size(ContentWidth, 0)).Height;
             int clientHeight = TitleBarHeight + 14 + contentHeight + 16 + FooterHeight;
-            ClientSize = new Size(DialogWidth, Math.Min(clientHeight, 620));
+            ClientSize = new Size(DialogWidth, Math.Min(Math.Max(clientHeight, 200), 620));
 
             SupeyDarkScrollBars.Apply(this);
+        }
+
+        private static int MeasureBtnWidth(string text)
+        {
+            int len = (text ?? "").Trim().Length;
+            return Math.Min(160, 28 + len * 8);
         }
 
         private static Color AccentFor(Kind kind)
@@ -165,6 +197,7 @@ namespace Hiatme_Tool_Suite_v3
         {
             switch (kind)
             {
+                case Kind.Success: return SupeyTheme.SuccessText;
                 case Kind.Warning: return SupeyTheme.WarnText;
                 case Kind.Error: return SupeyTheme.ErrorText;
                 default: return SupeyTheme.TextPrimary;
@@ -179,14 +212,65 @@ namespace Hiatme_Tool_Suite_v3
             string body,
             string details = null)
         {
-            using (var dlg = new SupeyMessageDialog(kind, title, heading, body, details))
+            using (var dlg = new SupeyMessageDialog(
+                kind, title, heading, body, details,
+                "OK", null, DialogResult.OK, DialogResult.Cancel))
                 dlg.ShowDialog(owner);
         }
 
         public static void ShowInfo(IWin32Window owner, string title, string heading, string body)
             => Show(owner, Kind.Info, title, heading, body);
 
+        public static void ShowSuccess(IWin32Window owner, string title, string heading, string body, string details = null)
+            => Show(owner, Kind.Success, title, heading, body, details);
+
         public static void ShowWarning(IWin32Window owner, string title, string heading, string body, string details = null)
             => Show(owner, Kind.Warning, title, heading, body, details);
+
+        /// <summary>Yes/No style confirm. Returns <see cref="DialogResult.Yes"/> or <see cref="DialogResult.No"/>.</summary>
+        public static DialogResult Confirm(
+            IWin32Window owner,
+            Kind kind,
+            string title,
+            string heading,
+            string body,
+            string yesText = "Yes",
+            string noText = "No")
+        {
+            using (var dlg = new SupeyMessageDialog(
+                kind, title, heading, body, null,
+                yesText, noText, DialogResult.Yes, DialogResult.No))
+            {
+                var result = dlg.ShowDialog(owner);
+                if (result == DialogResult.Yes || result == DialogResult.No)
+                    return result;
+                return DialogResult.No;
+            }
+        }
+
+        /// <summary>
+        /// Two-action prompt. Primary returns <see cref="DialogResult.Yes"/>,
+        /// secondary returns <see cref="DialogResult.No"/>.
+        /// </summary>
+        public static DialogResult Ask(
+            IWin32Window owner,
+            Kind kind,
+            string title,
+            string heading,
+            string body,
+            string primaryText,
+            string secondaryText,
+            string details = null)
+        {
+            using (var dlg = new SupeyMessageDialog(
+                kind, title, heading, body, details,
+                primaryText, secondaryText, DialogResult.Yes, DialogResult.No))
+            {
+                var result = dlg.ShowDialog(owner);
+                if (result == DialogResult.Yes || result == DialogResult.No)
+                    return result;
+                return DialogResult.No;
+            }
+        }
     }
 }

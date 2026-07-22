@@ -13,6 +13,12 @@ namespace Hiatme_Tool_Suite_v3
     /// </summary>
     partial class Form1
     {
+        private const int MpHostPadX = 10;
+        private const int MpCardPadX = 16;
+        private const int MpToolbarInnerH = 72; // host height = this + 12
+        private const int MpToolbarBtnH = 32;
+        private const int MpToolbarBtnGap = 8;
+
         private SupeyCard mpMainCard;
         private SupeyCard mpStatusCard;
         private SupeyLabel mpStatusLbl;
@@ -175,12 +181,13 @@ namespace Hiatme_Tool_Suite_v3
 
         private void BuildMarketPerformanceToolbar()
         {
+            // Same chrome as Driver Discipline: host pad → card → DisplayRectangle button layout.
             mpToolbar = new Panel
             {
                 Name = "mpToolbar",
                 Dock = DockStyle.Top,
-                Height = 56,
-                Padding = new Padding(10, 6, 10, 4),
+                Height = MpToolbarInnerH + 12,
+                Padding = new Padding(MpHostPadX, 6, MpHostPadX, 4),
                 BackColor = SupeyTheme.Surface,
             };
             mpToolbarCard = new SupeyCard
@@ -196,7 +203,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 Name = "mpToolbarInner",
                 Dock = DockStyle.Fill,
-                Padding = new Padding(12, 8, 12, 8),
+                Padding = new Padding(MpCardPadX, 16, MpCardPadX, 16),
                 BackColor = SupeyTheme.SurfaceElevated,
             };
 
@@ -206,8 +213,7 @@ namespace Hiatme_Tool_Suite_v3
                 Text = "Refresh",
                 Type = SupeyMaterialButton.MaterialButtonType.Contained,
                 UseAccentColor = true,
-                Size = new Size(100, 32),
-                Location = new Point(0, 2),
+                Size = new Size(100, MpToolbarBtnH),
             };
             mpRefreshBtn.Click += async (_, __) => await MarketPerformanceRefreshAsync(pull: false);
 
@@ -216,8 +222,7 @@ namespace Hiatme_Tool_Suite_v3
                 Name = "mpPullBtn",
                 Text = "Pull from panel",
                 Type = SupeyMaterialButton.MaterialButtonType.Outlined,
-                Size = new Size(130, 32),
-                Location = new Point(112, 2),
+                Size = new Size(130, MpToolbarBtnH),
             };
             mpPullBtn.Click += async (_, __) => await MarketPerformanceRefreshAsync(pull: true);
 
@@ -226,8 +231,7 @@ namespace Hiatme_Tool_Suite_v3
                 Name = "mpHabitsBtn",
                 Text = "Open Driver Habits",
                 Type = SupeyMaterialButton.MaterialButtonType.Outlined,
-                Size = new Size(150, 32),
-                Location = new Point(252, 2),
+                Size = new Size(150, MpToolbarBtnH),
             };
             mpHabitsBtn.Click += (_, __) =>
             {
@@ -238,8 +242,36 @@ namespace Hiatme_Tool_Suite_v3
             mpToolbarInner.Controls.Add(mpRefreshBtn);
             mpToolbarInner.Controls.Add(mpPullBtn);
             mpToolbarInner.Controls.Add(mpHabitsBtn);
+            mpToolbarInner.Resize += (_, __) =>
+            {
+                LayoutMarketPerformanceToolbar();
+                LayoutMarketPerformanceBody();
+            };
+
             mpToolbarCard.Controls.Add(mpToolbarInner);
             mpToolbar.Controls.Add(mpToolbarCard);
+            LayoutMarketPerformanceToolbar();
+        }
+
+        private void LayoutMarketPerformanceToolbar()
+        {
+            if (mpToolbarInner == null) return;
+
+            Rectangle r = mpToolbarInner.DisplayRectangle;
+            int y = r.Top + Math.Max(0, (r.Height - MpToolbarBtnH) / 2);
+            int x = r.Left;
+
+            void Place(SupeyMaterialButton btn, int width, int gapAfter)
+            {
+                if (btn == null) return;
+                btn.Size = new Size(width, MpToolbarBtnH);
+                btn.Location = new Point(x, y);
+                x += width + gapAfter;
+            }
+
+            Place(mpRefreshBtn, 100, MpToolbarBtnGap);
+            Place(mpPullBtn, 130, MpToolbarBtnGap);
+            Place(mpHabitsBtn, 150, MpToolbarBtnGap);
         }
 
         private void BuildMarketPerformanceBody()
@@ -248,7 +280,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 Name = "mpBodyHost",
                 Dock = DockStyle.Fill,
-                Padding = new Padding(12, 8, 12, 8),
+                Padding = new Padding(MpHostPadX, 0, MpHostPadX, 8),
                 BackColor = SupeyTheme.Surface,
                 AutoScroll = true,
             };
@@ -264,17 +296,18 @@ namespace Hiatme_Tool_Suite_v3
             mpHeroCard = new SupeyCard
             {
                 Name = "mpHeroCard",
-                Location = new Point(8, 4),
-                Size = new Size(900, 84),
+                Location = new Point(0, 4),
+                Size = new Size(900, 96),
                 SurfaceLevel = SupeyCard.Surface.Elevated,
                 ShowBorder = true,
                 CornerRadius = 8,
                 Padding = Padding.Empty,
             };
+            // Absolute Location ignores Padding — LayoutMarketPerformanceHero uses DisplayRectangle.
             mpHeroInner = new Panel
             {
                 Dock = DockStyle.Fill,
-                Padding = new Padding(12, 10, 12, 10),
+                Padding = new Padding(16, 14, 16, 14),
                 BackColor = SupeyTheme.SurfaceElevated,
             };
             mpHeroGrade = new Label
@@ -282,8 +315,8 @@ namespace Hiatme_Tool_Suite_v3
                 Name = "mpHeroGrade",
                 Text = "—",
                 AutoSize = false,
-                Size = new Size(64, 64),
-                Location = new Point(0, 0),
+                Size = new Size(68, 68),
+                Location = new Point(16, 14),
                 TextAlign = ContentAlignment.MiddleCenter,
                 Font = new Font("Segoe UI", 20f, FontStyle.Bold),
                 ForeColor = SupeyTheme.AccentPrimary,
@@ -294,7 +327,7 @@ namespace Hiatme_Tool_Suite_v3
                 Name = "mpHeroTitle",
                 Text = "TP Performance",
                 AutoSize = false,
-                Location = new Point(80, 4),
+                Location = new Point(100, 18),
                 Size = new Size(700, 26),
                 Font = new Font("Segoe UI Semibold", 14f),
                 ForeColor = SupeyTheme.TextPrimary,
@@ -305,7 +338,7 @@ namespace Hiatme_Tool_Suite_v3
                 Name = "mpHeroSub",
                 Text = "Loading scorecard from AI panel…",
                 AutoSize = false,
-                Location = new Point(80, 34),
+                Location = new Point(100, 48),
                 Size = new Size(780, 36),
                 Font = SupeyTheme.BodyFont,
                 ForeColor = SupeyTheme.TextSecondary,
@@ -315,11 +348,12 @@ namespace Hiatme_Tool_Suite_v3
             mpHeroInner.Controls.Add(mpHeroTitle);
             mpHeroInner.Controls.Add(mpHeroSub);
             mpHeroCard.Controls.Add(mpHeroInner);
+            mpHeroInner.Resize += (_, __) => LayoutMarketPerformanceHero();
 
             mpMeterGrid = new TableLayoutPanel
             {
                 Name = "mpMeterGrid",
-                Location = new Point(8, 100),
+                Location = new Point(0, 112),
                 Size = new Size(900, 300),
                 ColumnCount = 3,
                 RowCount = 2,
@@ -358,7 +392,7 @@ namespace Hiatme_Tool_Suite_v3
                 Name = "mpPulseTitle",
                 Text = "Peer pulse — how each meter sits vs ME / US",
                 AutoSize = false,
-                Location = new Point(8, 414),
+                Location = new Point(0, 426),
                 Size = new Size(700, 22),
                 Font = new Font("Segoe UI Semibold", 11f),
                 ForeColor = SupeyTheme.TextPrimary,
@@ -369,7 +403,7 @@ namespace Hiatme_Tool_Suite_v3
                 Name = "mpPulseSub",
                 Text = "Bars animate when the scorecard refreshes. Live On-time pressure lives on Driver Habits.",
                 AutoSize = false,
-                Location = new Point(8, 438),
+                Location = new Point(0, 450),
                 Size = new Size(900, 22),
                 Font = SupeyTheme.CaptionFont,
                 ForeColor = SupeyTheme.TextSecondary,
@@ -379,7 +413,7 @@ namespace Hiatme_Tool_Suite_v3
             mpPulseGrid = new TableLayoutPanel
             {
                 Name = "mpPulseGrid",
-                Location = new Point(8, 466),
+                Location = new Point(0, 478),
                 Size = new Size(900, 190),
                 ColumnCount = 3,
                 RowCount = 2,
@@ -421,20 +455,78 @@ namespace Hiatme_Tool_Suite_v3
             mpBodyHost.Controls.Add(mpScrollBody);
 
             mpBodyHost.Resize += (_, __) => LayoutMarketPerformanceBody();
+            LayoutMarketPerformanceBody();
         }
 
         private void LayoutMarketPerformanceBody()
         {
             if (mpBodyHost == null || mpScrollBody == null) return;
-            int w = Math.Max(640, mpBodyHost.ClientSize.Width - 28);
-            mpScrollBody.Width = w + 8;
-            if (mpHeroCard != null) mpHeroCard.Width = w;
-            if (mpHeroSub != null) mpHeroSub.Width = Math.Max(280, w - 100);
-            if (mpHeroTitle != null) mpHeroTitle.Width = mpHeroSub?.Width ?? w;
-            if (mpMeterGrid != null) mpMeterGrid.Width = w;
-            if (mpPulseSub != null) mpPulseSub.Width = w;
-            if (mpPulseGrid != null) mpPulseGrid.Width = w;
+
+            // Lock content width to the toolbar card so left/right edges match.
+            int w = 0;
+            if (mpToolbarCard != null && mpToolbarCard.Width > 100)
+                w = mpToolbarCard.Width;
+            else
+                w = mpBodyHost.DisplayRectangle.Width;
+            w = Math.Max(640, w);
+            mpScrollBody.Width = w;
+            if (mpHeroCard != null)
+            {
+                mpHeroCard.Location = new Point(0, 4);
+                mpHeroCard.Width = w;
+                mpHeroCard.Height = 96;
+            }
+            LayoutMarketPerformanceHero();
+
+            int y = (mpHeroCard?.Bottom ?? 100) + 12;
+            if (mpMeterGrid != null)
+            {
+                mpMeterGrid.Location = new Point(0, y);
+                mpMeterGrid.Width = w;
+                y = mpMeterGrid.Bottom + 14;
+            }
+            if (mpPulseTitle != null)
+            {
+                mpPulseTitle.Location = new Point(0, y);
+                mpPulseTitle.Width = w;
+                y = mpPulseTitle.Bottom + 2;
+            }
+            if (mpPulseSub != null)
+            {
+                mpPulseSub.Location = new Point(0, y);
+                mpPulseSub.Width = w;
+                y = mpPulseSub.Bottom + 8;
+            }
+            if (mpPulseGrid != null)
+            {
+                mpPulseGrid.Location = new Point(0, y);
+                mpPulseGrid.Width = w;
+            }
             mpScrollBody.Height = (mpPulseGrid?.Bottom ?? 640) + 16;
+        }
+
+        private void LayoutMarketPerformanceHero()
+        {
+            if (mpHeroInner == null || mpHeroGrade == null) return;
+
+            Rectangle r = mpHeroInner.DisplayRectangle;
+            const int gradeSize = 68;
+            int gradeY = r.Top + Math.Max(0, (r.Height - gradeSize) / 2);
+            mpHeroGrade.Size = new Size(gradeSize, gradeSize);
+            mpHeroGrade.Location = new Point(r.Left, gradeY);
+
+            int textLeft = mpHeroGrade.Right + 16;
+            int textWidth = Math.Max(200, r.Right - textLeft);
+            if (mpHeroTitle != null)
+            {
+                mpHeroTitle.Location = new Point(textLeft, r.Top + 4);
+                mpHeroTitle.Size = new Size(textWidth, 26);
+            }
+            if (mpHeroSub != null)
+            {
+                mpHeroSub.Location = new Point(textLeft, r.Top + 34);
+                mpHeroSub.Size = new Size(textWidth, Math.Max(28, r.Bottom - (r.Top + 34)));
+            }
         }
 
         private async Task MarketPerformanceRefreshAsync(bool pull)

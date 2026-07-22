@@ -232,6 +232,7 @@
     </Compile>
     <Compile Include="DriverDisciplineModels.cs" />
     <Compile Include="DriverDisciplineDocument.cs" />
+    <Compile Include="DriverDisciplineStore.cs" />
     <Compile Include="Form1.DriverDiscipline.cs">
       <DependentUpon>Form1.cs</DependentUpon>
       <SubType>Form</SubType>

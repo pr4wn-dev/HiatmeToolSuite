@@ -19,6 +19,9 @@ namespace Hiatme_Tool_Suite_v3
         private static Bitmap _copyIcon;
         private static Bitmap _copyAllIcon;
         private static Bitmap _clearIcon;
+        private static Bitmap _openDocIcon;
+        private static Bitmap _loadFormIcon;
+        private static Bitmap _filterDriverIcon;
 
         private const int IconSize = 20;
         private static readonly Color PersonColor = Color.FromArgb(220, 220, 220);
@@ -78,6 +81,148 @@ namespace Hiatme_Tool_Suite_v3
             if (_clearIcon == null)
                 _clearIcon = BuildClearIcon();
             return _clearIcon;
+        }
+
+        /// <summary>Word-style document glyph for "Open Word document".</summary>
+        public static Bitmap GetOpenDocIcon()
+        {
+            if (_openDocIcon == null)
+                _openDocIcon = BuildOpenDocIcon();
+            return _openDocIcon;
+        }
+
+        /// <summary>Form + arrow glyph for "Load into form".</summary>
+        public static Bitmap GetLoadFormIcon()
+        {
+            if (_loadFormIcon == null)
+                _loadFormIcon = BuildLoadFormIcon();
+            return _loadFormIcon;
+        }
+
+        /// <summary>Person + filter glyph for "Show this driver’s write-ups".</summary>
+        public static Bitmap GetFilterDriverIcon()
+        {
+            if (_filterDriverIcon == null)
+                _filterDriverIcon = BuildFilterDriverIcon();
+            return _filterDriverIcon;
+        }
+
+        private static Bitmap BuildOpenDocIcon()
+        {
+            var bmp = new Bitmap(IconSize, IconSize);
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                g.Clear(Color.Transparent);
+
+                var paper = new Rectangle(3, 2, 12, 16);
+                using (var fill = new SolidBrush(CopyPaperFill))
+                using (var edge = new Pen(CopyPaperEdge, 1.2f))
+                {
+                    g.FillRectangle(fill, paper);
+                    g.DrawRectangle(edge, paper);
+                    // Folded corner
+                    using (var path = new GraphicsPath())
+                    {
+                        path.AddPolygon(new[]
+                        {
+                            new PointF(11f, 2f),
+                            new PointF(15f, 2f),
+                            new PointF(15f, 6f),
+                        });
+                        using (var fold = new SolidBrush(Color.FromArgb(190, 190, 190)))
+                            g.FillPath(fold, path);
+                        g.DrawPath(edge, path);
+                    }
+                }
+                // Blue "W" badge (Word cue)
+                using (var badge = new SolidBrush(LocateBadge))
+                    g.FillEllipse(badge, 8, 9, 9, 9);
+                using (var outline = new Pen(BadgeOutline, 1f))
+                    g.DrawEllipse(outline, 8, 9, 9, 9);
+                using (var font = new Font("Segoe UI", 6f, FontStyle.Bold, GraphicsUnit.Pixel))
+                using (var textBrush = new SolidBrush(BadgeGlyph))
+                {
+                    var sf = new StringFormat
+                    {
+                        Alignment = StringAlignment.Center,
+                        LineAlignment = StringAlignment.Center,
+                    };
+                    g.DrawString("W", font, textBrush, new RectangleF(8, 9, 9, 9), sf);
+                }
+            }
+            return bmp;
+        }
+
+        private static Bitmap BuildLoadFormIcon()
+        {
+            var bmp = new Bitmap(IconSize, IconSize);
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                g.Clear(Color.Transparent);
+
+                using (var fill = new SolidBrush(CopyPaperFill))
+                using (var edge = new Pen(CopyPaperEdge, 1.2f))
+                using (var lines = new Pen(CopyPaperLine, 1f))
+                {
+                    var form = new Rectangle(2, 3, 10, 14);
+                    g.FillRectangle(fill, form);
+                    g.DrawRectangle(edge, form);
+                    g.DrawLine(lines, 4, 7, 10, 7);
+                    g.DrawLine(lines, 4, 10, 10, 10);
+                    g.DrawLine(lines, 4, 13, 8, 13);
+                }
+                // Arrow pointing into the form
+                using (var arrow = new Pen(AssignBadge, 1.8f)
+                {
+                    StartCap = LineCap.Round,
+                    EndCap = LineCap.Round,
+                })
+                {
+                    g.DrawLine(arrow, 17f, 10f, 11f, 10f);
+                    g.DrawLine(arrow, 13f, 7.5f, 11f, 10f);
+                    g.DrawLine(arrow, 13f, 12.5f, 11f, 10f);
+                }
+            }
+            return bmp;
+        }
+
+        private static Bitmap BuildFilterDriverIcon()
+        {
+            var bmp = new Bitmap(IconSize, IconSize);
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                g.Clear(Color.Transparent);
+
+                using (var brush = new SolidBrush(PersonColor))
+                {
+                    g.FillEllipse(brush, 2, 2, 7, 7);
+                    g.FillEllipse(brush, new Rectangle(-1, 10, 13, 12));
+                }
+                // Funnel (filter) badge
+                using (var funnel = new SolidBrush(LocateBadge))
+                using (var outline = new Pen(BadgeOutline, 1.1f))
+                using (var path = new GraphicsPath())
+                {
+                    path.AddPolygon(new[]
+                    {
+                        new PointF(11f, 9f),
+                        new PointF(19f, 9f),
+                        new PointF(16f, 13f),
+                        new PointF(16f, 17f),
+                        new PointF(14f, 17f),
+                        new PointF(14f, 13f),
+                    });
+                    g.FillPath(funnel, path);
+                    g.DrawPath(outline, path);
+                }
+            }
+            return bmp;
         }
 
         private static Bitmap BuildCopyIcon(bool stacked)
