@@ -466,5 +466,40 @@ namespace Hiatme_Tool_Suite_v3
             int mid = values.Count / 2;
             return values.Count % 2 == 1 ? values[mid] : (values[mid - 1] + values[mid]) / 2.0;
         }
+
+        /// <summary>
+        /// Finds clip full paths under a driver folder near <paramref name="around"/>
+        /// (useful for discipline write-ups linked from the Dashcam Videos tool).
+        /// </summary>
+        public static List<string> FindClipPathsNear(string driverFolder, DateTime around, TimeSpan window, int maxResults = 12)
+        {
+            var hits = new List<Tuple<DateTime, string>>();
+            if (string.IsNullOrWhiteSpace(driverFolder) || !Directory.Exists(driverFolder))
+                return new List<string>();
+
+            DateTime lo = around - window;
+            DateTime hi = around + window;
+            try
+            {
+                foreach (string path in Directory.EnumerateFiles(driverFolder, "*.MP4", SearchOption.AllDirectories))
+                {
+                    string fn = Path.GetFileName(path);
+                    if (!TryParse(fn, out DateTime ts, out _, out _, out _)) continue;
+                    if (ts < lo || ts > hi) continue;
+                    hits.Add(Tuple.Create(ts, path));
+                }
+            }
+            catch
+            {
+                return new List<string>();
+            }
+
+            return hits
+                .OrderBy(h => Math.Abs((h.Item1 - around).TotalSeconds))
+                .ThenBy(h => h.Item1)
+                .Take(Math.Max(1, maxResults))
+                .Select(h => h.Item2)
+                .ToList();
+        }
     }
 }

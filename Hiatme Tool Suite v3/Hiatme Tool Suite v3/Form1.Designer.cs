@@ -178,7 +178,9 @@ namespace Hiatme_Tool_Suite_v3
             this.tabPage8 = new System.Windows.Forms.TabPage();
             this.tabPage9 = new System.Windows.Forms.TabPage();
             this.tabPageLateDrivers = new System.Windows.Forms.TabPage();
+            this.tabPageMarketPerformance = new System.Windows.Forms.TabPage();
             this.tabPageDashcamVideos = new System.Windows.Forms.TabPage();
+            this.tabPageDriverDiscipline = new System.Windows.Forms.TabPage();
             this.tsmaterialCard = new SupeyCard();
             this.tslv = new SupeyListView();
             this.tsColStatus = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
@@ -286,7 +288,9 @@ namespace Hiatme_Tool_Suite_v3
             this.hiatmeTabControl.Controls.Add(this.tabPage8);
             this.hiatmeTabControl.Controls.Add(this.tabPage9);
             this.hiatmeTabControl.Controls.Add(this.tabPageLateDrivers);
+            this.hiatmeTabControl.Controls.Add(this.tabPageMarketPerformance);
             this.hiatmeTabControl.Controls.Add(this.tabPageDashcamVideos);
+            this.hiatmeTabControl.Controls.Add(this.tabPageDriverDiscipline);
             this.hiatmeTabControl.Controls.Add(this.tabPage3);
             this.hiatmeTabControl.Dock = System.Windows.Forms.DockStyle.Fill;
             this.hiatmeTabControl.Font = new System.Drawing.Font("Microsoft Sans Serif", 9.5F);
@@ -1963,6 +1967,16 @@ namespace Hiatme_Tool_Suite_v3
             this.tabPageLateDrivers.Text = "Driver Habits";
             this.tabPageLateDrivers.UseVisualStyleBackColor = true;
             // 
+            // tabPageMarketPerformance
+            // 
+            this.tabPageMarketPerformance.ImageKey = "market-performance.png";
+            this.tabPageMarketPerformance.Location = new System.Drawing.Point(4, 39);
+            this.tabPageMarketPerformance.Name = "tabPageMarketPerformance";
+            this.tabPageMarketPerformance.Size = new System.Drawing.Size(1502, 777);
+            this.tabPageMarketPerformance.TabIndex = 13;
+            this.tabPageMarketPerformance.Text = "Market Performance";
+            this.tabPageMarketPerformance.UseVisualStyleBackColor = true;
+            // 
             // tabPageDashcamVideos
             // 
             this.tabPageDashcamVideos.ImageKey = "cctv-custom.png";
@@ -1972,6 +1986,16 @@ namespace Hiatme_Tool_Suite_v3
             this.tabPageDashcamVideos.TabIndex = 12;
             this.tabPageDashcamVideos.Text = "Dashcam Videos";
             this.tabPageDashcamVideos.UseVisualStyleBackColor = true;
+            // 
+            // tabPageDriverDiscipline
+            // 
+            this.tabPageDriverDiscipline.ImageKey = "driver-discipline.png";
+            this.tabPageDriverDiscipline.Location = new System.Drawing.Point(4, 39);
+            this.tabPageDriverDiscipline.Name = "tabPageDriverDiscipline";
+            this.tabPageDriverDiscipline.Size = new System.Drawing.Size(1502, 777);
+            this.tabPageDriverDiscipline.TabIndex = 14;
+            this.tabPageDriverDiscipline.Text = "Driver Discipline";
+            this.tabPageDriverDiscipline.UseVisualStyleBackColor = true;
             // 
             // tsmaterialCard
             // 
@@ -2757,7 +2781,9 @@ namespace Hiatme_Tool_Suite_v3
         private System.Windows.Forms.TabPage tabPage8;
         private System.Windows.Forms.TabPage tabPage9;
         private System.Windows.Forms.TabPage tabPageLateDrivers;
+        private System.Windows.Forms.TabPage tabPageMarketPerformance;
         private System.Windows.Forms.TabPage tabPageDashcamVideos;
+        private System.Windows.Forms.TabPage tabPageDriverDiscipline;
         private SupeyCard tsmaterialCard;
         private SupeyCard tsstatuspanel;
         private SupeyLabel tsstatuslbl;

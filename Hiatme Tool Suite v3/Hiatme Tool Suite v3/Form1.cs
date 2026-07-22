@@ -215,6 +215,7 @@ namespace Hiatme_Tool_Suite_v3
             ApplyProductionVisualTheme();
             ApplyCameraVisualTheme();
             InitializeLateDriversTab();
+            // Market Performance builds lazily on first open (needs panel scorecard).
             // Dashcam Videos builds lazily on first open (needs a real ClientSize to lay out).
             ApplyLoginVisualTheme(layout: false);
             if (LoadingGifCard != null)
@@ -1899,6 +1900,8 @@ namespace Hiatme_Tool_Suite_v3
                 ApplyCameraVisualTheme(layout: false);
                 ApplyLateDriversVisualTheme(layout: false);
                 ApplyDashcamVisualTheme(layout: false);
+                ApplyDriverDisciplineVisualTheme(layout: false);
+                ApplyMarketPerformanceVisualTheme(layout: false);
                 ApplyLoadingOverlayTheme();
                 SupeyListViewHelpers.RefreshThemeColors(this);
                 Invalidate(true);
@@ -2936,6 +2939,14 @@ namespace Hiatme_Tool_Suite_v3
                 if (tabImageList != null && !tabImageList.Images.ContainsKey("driver-habits.png"))
                 {
                     tabImageList.Images.Add("driver-habits.png", Properties.Resources.driver_habits);
+                }
+                if (tabImageList != null && !tabImageList.Images.ContainsKey("driver-discipline.png"))
+                {
+                    tabImageList.Images.Add("driver-discipline.png", Properties.Resources.driver_discipline);
+                }
+                if (tabImageList != null && !tabImageList.Images.ContainsKey("market-performance.png"))
+                {
+                    tabImageList.Images.Add("market-performance.png", Properties.Resources.market_performance);
                 }
             }
             catch
@@ -9059,12 +9070,23 @@ namespace Hiatme_Tool_Suite_v3
                     LayoutLateDriversTabPanels();
                     EnsureLateDriversFirstUseLoad();
                 }
+                if (hiatmeTabControl.SelectedTab == tabPageMarketPerformance)
+                {
+                    if (!_mpBuilt)
+                        InitializeMarketPerformanceTab();
+                    EnsureMarketPerformanceFirstLoad();
+                }
                 if (hiatmeTabControl.SelectedTab == tabPageDashcamVideos)
                 {
                     if (!_dcBuilt)
                         InitializeDashcamVideosTab();
                     LayoutDashcamTabPanels();
                     EnsureDashcamFirstScan();
+                }
+                if (hiatmeTabControl.SelectedTab == tabPageDriverDiscipline)
+                {
+                    if (!_ddBuilt)
+                        InitializeDriverDisciplineTab();
                 }
             }
             catch
@@ -9289,11 +9311,16 @@ namespace Hiatme_Tool_Suite_v3
                 ? (e.Item.Selected && listView.Focused)
                 : ((e.ItemState & ListViewItemStates.Selected) != 0 && listView.Focused);
 
+            bool alertFlashRow = false;
             if (isSupey)
             {
                 Color bg = selected ? SupeyTheme.ListSelected : e.Item.BackColor;
                 if (bg == Color.Empty || bg == Color.Transparent)
                     bg = SupeyTheme.ListBody;
+                else if (!selected
+                    && ReferenceEquals(listView, ldTripLv)
+                    && bg != SupeyTheme.ListBody)
+                    alertFlashRow = true;
                 TripScoutPaintStatusCellIfBlinking(e, bg, out bg);
                 var fill = SupeyListViewHelpers.InsetBoundsForGrid(e.Bounds);
                 if (fill.Width > 0 && fill.Height > 0)
@@ -9304,7 +9331,9 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             Color textColor = themed
-                ? (selected ? SupeyTheme.ListSelectedText : SupeyTheme.ListText)
+                ? (selected
+                    ? SupeyTheme.ListSelectedText
+                    : (alertFlashRow ? Color.White : SupeyTheme.ListText))
                 : Color.White;
             TextRenderer.DrawText(e.Graphics,
                 SupeyListViewHelpers.GetCellDisplayText(listView, e.ColumnIndex, e.SubItem.Text),

@@ -2276,6 +2276,28 @@ namespace Hiatme_Tool_Suite_v3
             public string Kind { get; set; }
         }
 
+        public sealed class LateDriversDayPerformance
+        {
+            [JsonProperty("service_date")]
+            public string ServiceDate { get; set; }
+
+            public int Scored { get; set; }
+
+            [JsonProperty("on_time")]
+            public int OnTime { get; set; }
+
+            public int Late { get; set; }
+            public int Pending { get; set; }
+            public int Excluded { get; set; }
+            public double? Pct { get; set; }
+
+            [JsonProperty("wellryde_trips")]
+            public int WellrydeTrips { get; set; }
+
+            [JsonProperty("modivcare_trips")]
+            public int ModivcareTrips { get; set; }
+        }
+
         public sealed class LateDriversLiveDoc
         {
             public bool Ok { get; set; }
@@ -2300,6 +2322,9 @@ namespace Hiatme_Tool_Suite_v3
 
             [JsonProperty("modivcare_trip_count")]
             public int ModivcareTripCount { get; set; }
+
+            [JsonProperty("day_performance")]
+            public LateDriversDayPerformance DayPerformance { get; set; }
         }
 
         public sealed class LateDriversDayDoc
@@ -2326,6 +2351,9 @@ namespace Hiatme_Tool_Suite_v3
 
             [JsonProperty("modivcare_trip_count")]
             public int ModivcareTripCount { get; set; }
+
+            [JsonProperty("day_performance")]
+            public LateDriversDayPerformance DayPerformance { get; set; }
         }
 
         public sealed class LateDriversDriverSummary
@@ -2908,6 +2936,269 @@ namespace Hiatme_Tool_Suite_v3
                 });
             }
             return rows;
+        }
+
+        // ── ModivCare Market TP scorecard (panel-cached) ──────────────────
+
+        public sealed class ModivcareMarketScoreSummary
+        {
+            [JsonProperty("tp_code")]
+            public object TpCode { get; set; }
+
+            public string State { get; set; }
+
+            [JsonProperty("tp_score")]
+            public double? TpScore { get; set; }
+
+            public string Grade { get; set; }
+
+            public double? Otp { get; set; }
+
+            [JsonProperty("digital_level")]
+            public double? DigitalLevel { get; set; }
+
+            [JsonProperty("reroute_24h")]
+            public double? Reroute24h { get; set; }
+
+            [JsonProperty("driver_no_shows")]
+            public double? DriverNoShows { get; set; }
+
+            [JsonProperty("member_complaints")]
+            public double? MemberComplaints { get; set; }
+
+            [JsonProperty("serious_injury")]
+            public double? SeriousInjury { get; set; }
+
+            [JsonProperty("total_rides")]
+            public int? TotalRides { get; set; }
+
+            [JsonProperty("period_start")]
+            public string PeriodStart { get; set; }
+
+            [JsonProperty("period_end")]
+            public string PeriodEnd { get; set; }
+
+            [JsonProperty("regional_peers")]
+            public double? RegionalPeers { get; set; }
+
+            [JsonProperty("national_peers")]
+            public double? NationalPeers { get; set; }
+
+            [JsonProperty("otp_regional_peers")]
+            public double? OtpRegionalPeers { get; set; }
+
+            [JsonProperty("otp_national_peers")]
+            public double? OtpNationalPeers { get; set; }
+
+            [JsonProperty("digital_regional_peers")]
+            public double? DigitalRegionalPeers { get; set; }
+
+            [JsonProperty("digital_national_peers")]
+            public double? DigitalNationalPeers { get; set; }
+
+            [JsonProperty("reroute_regional_peers")]
+            public double? RerouteRegionalPeers { get; set; }
+
+            [JsonProperty("reroute_national_peers")]
+            public double? RerouteNationalPeers { get; set; }
+
+            [JsonProperty("created_dttm")]
+            public string CreatedDttm { get; set; }
+        }
+
+        public sealed class ModivcareMarketScorecard
+        {
+            public bool Ok { get; set; } = true;
+
+            [JsonProperty("has_data")]
+            public bool HasData { get; set; }
+
+            [JsonProperty("pull_date")]
+            public string PullDate { get; set; }
+
+            [JsonProperty("pulled_at")]
+            public double? PulledAt { get; set; }
+
+            [JsonProperty("pulled_at_iso")]
+            public string PulledAtIso { get; set; }
+
+            [JsonProperty("tp_code")]
+            public object TpCode { get; set; }
+
+            public string Source { get; set; }
+
+            public ModivcareMarketScoreSummary Summary { get; set; }
+
+            public string Error { get; set; }
+        }
+
+        public sealed class ModivcareMarketStatus
+        {
+            public bool Ok { get; set; } = true;
+
+            public bool Enabled { get; set; } = true;
+
+            [JsonProperty("scheduled_hours")]
+            public List<int> ScheduledHours { get; set; }
+
+            public string Today { get; set; }
+
+            [JsonProperty("last_pull")]
+            public JObject LastPull { get; set; }
+
+            public ModivcareMarketScorecard Scorecard { get; set; }
+
+            public string Error { get; set; }
+        }
+
+        public sealed class ModivcareMarketPullResult
+        {
+            public bool Ok { get; set; }
+
+            [JsonProperty("pull_date")]
+            public string PullDate { get; set; }
+
+            [JsonProperty("tp_score")]
+            public double? TpScore { get; set; }
+
+            public string Grade { get; set; }
+
+            public double? Otp { get; set; }
+
+            [JsonProperty("total_rides")]
+            public int? TotalRides { get; set; }
+
+            [JsonProperty("elapsed_ms")]
+            public int? ElapsedMs { get; set; }
+
+            public string Error { get; set; }
+
+            public ModivcareMarketStatus Status { get; set; }
+        }
+
+        public static async Task<ModivcareMarketScorecard> GetModivcareMarketScorecardAsync(
+            HiatmeAiSettings settings,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null)
+                return new ModivcareMarketScorecard { Ok = false, Error = "settings missing" };
+
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl))
+                return new ModivcareMarketScorecard { Ok = false, Error = "AI server URL not configured" };
+
+            string url = baseUrl + "/api/hiatme/modivcare/market/scorecard";
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Get, url))
+                {
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken)
+                        .ConfigureAwait(false))
+                    {
+                        var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        if (!resp.IsSuccessStatusCode)
+                            return new ModivcareMarketScorecard
+                            {
+                                Ok = false,
+                                Error = "HTTP " + (int)resp.StatusCode + ": " + body,
+                            };
+                        var doc = JsonConvert.DeserializeObject<ModivcareMarketScorecard>(body)
+                            ?? new ModivcareMarketScorecard { Ok = false, Error = "empty response" };
+                        doc.Ok = true;
+                        return doc;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                return new ModivcareMarketScorecard { Ok = false, Error = ex.Message };
+            }
+        }
+
+        public static async Task<ModivcareMarketStatus> GetModivcareMarketStatusAsync(
+            HiatmeAiSettings settings,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null)
+                return new ModivcareMarketStatus { Ok = false, Error = "settings missing" };
+
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl))
+                return new ModivcareMarketStatus { Ok = false, Error = "AI server URL not configured" };
+
+            string url = baseUrl + "/api/hiatme/modivcare/market/status";
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Get, url))
+                {
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken)
+                        .ConfigureAwait(false))
+                    {
+                        var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        if (!resp.IsSuccessStatusCode)
+                            return new ModivcareMarketStatus
+                            {
+                                Ok = false,
+                                Error = "HTTP " + (int)resp.StatusCode + ": " + body,
+                            };
+                        var doc = JsonConvert.DeserializeObject<ModivcareMarketStatus>(body)
+                            ?? new ModivcareMarketStatus { Ok = false, Error = "empty response" };
+                        doc.Ok = true;
+                        return doc;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                return new ModivcareMarketStatus { Ok = false, Error = ex.Message };
+            }
+        }
+
+        public static async Task<ModivcareMarketPullResult> PostModivcareMarketPullAsync(
+            HiatmeAiSettings settings,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null)
+                return new ModivcareMarketPullResult { Ok = false, Error = "settings missing" };
+
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl))
+                return new ModivcareMarketPullResult { Ok = false, Error = "AI server URL not configured" };
+
+            string url = baseUrl + "/api/hiatme/modivcare/market/pull";
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Post, url))
+                {
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    req.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken)
+                        .ConfigureAwait(false))
+                    {
+                        var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        if (!resp.IsSuccessStatusCode)
+                            return new ModivcareMarketPullResult
+                            {
+                                Ok = false,
+                                Error = "HTTP " + (int)resp.StatusCode + ": " + body,
+                            };
+                        return JsonConvert.DeserializeObject<ModivcareMarketPullResult>(body)
+                            ?? new ModivcareMarketPullResult { Ok = false, Error = "empty response" };
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                return new ModivcareMarketPullResult { Ok = false, Error = ex.Message };
+            }
         }
     }
 }

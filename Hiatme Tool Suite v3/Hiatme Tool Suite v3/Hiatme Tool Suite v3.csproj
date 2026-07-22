@@ -230,6 +230,22 @@
       <DependentUpon>Form1.cs</DependentUpon>
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="DriverDisciplineModels.cs" />
+    <Compile Include="DriverDisciplineDocument.cs" />
+    <Compile Include="Form1.DriverDiscipline.cs">
+      <DependentUpon>Form1.cs</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="MarketMeterControl.cs">
+      <SubType>Component</SubType>
+    </Compile>
+    <Compile Include="MarketPeerPulseControl.cs">
+      <SubType>Component</SubType>
+    </Compile>
+    <Compile Include="Form1.MarketPerformance.cs">
+      <DependentUpon>Form1.cs</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="Form1.TripScoutLiveHud.cs">
       <DependentUpon>Form1.cs</DependentUpon>
       <SubType>Form</SubType>
@@ -786,6 +802,8 @@
   <ItemGroup>
     <None Include="Resources\magnify.png" />
     <None Include="Resources\late-drivers.png" />
+    <None Include="Resources\driver-discipline.png" />
+    <None Include="Resources\market-performance.png" />
     <None Include="Resources\modivcare-new-trips.png" />
     <None Include="Resources\supey-shield.png" />
   </ItemGroup>

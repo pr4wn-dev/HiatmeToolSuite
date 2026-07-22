@@ -36,6 +36,7 @@ namespace Hiatme_Tool_Suite_v3
         private SupeyMaterialButton dcCap512Btn;
         private SupeyMaterialButton dcIgnoreGapBtn;
         private SupeyMaterialButton dcOpenFolderBtn;
+        private SupeyMaterialButton dcWriteUpBtn;
         private SupeyListView dcIssuesLv;
 
         private const int DashcamToolbarH = 48;
@@ -321,7 +322,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 Name = "dcDetailBtnRow",
                 Dock = DockStyle.Top,
-                Height = 42,
+                Height = 78,
                 Padding = new Padding(0, 4, 0, 6),
                 BackColor = SupeyTheme.Surface,
             };
@@ -329,18 +330,29 @@ namespace Hiatme_Tool_Suite_v3
             dcCap512Btn = MakeDashcamButton("dcCap512Btn", "Chip: 512 GB", 108);
             dcIgnoreGapBtn = MakeDashcamButton("dcIgnoreGapBtn", "Ignore selected gap", 148);
             dcOpenFolderBtn = MakeDashcamButton("dcOpenFolderBtn", "Open folder", 104);
+            dcWriteUpBtn = new SupeyMaterialButton
+            {
+                Name = "dcWriteUpBtn",
+                Text = "Create discipline write-up",
+                Type = SupeyMaterialButton.MaterialButtonType.Contained,
+                UseAccentColor = true,
+                Size = new Size(200, 30),
+            };
             dcCap256Btn.Location = new Point(0, 6);
             dcCap512Btn.Location = new Point(116, 6);
             dcIgnoreGapBtn.Location = new Point(232, 6);
             dcOpenFolderBtn.Location = new Point(388, 6);
+            dcWriteUpBtn.Location = new Point(0, 42);
             dcCap256Btn.Click += (_, __) => SetSelectedDashcamCapacity(256);
             dcCap512Btn.Click += (_, __) => SetSelectedDashcamCapacity(512);
             dcIgnoreGapBtn.Click += (_, __) => IgnoreSelectedDashcamGap();
             dcOpenFolderBtn.Click += (_, __) => OpenSelectedDashcamFolder();
+            dcWriteUpBtn.Click += (_, __) => PrefillDriverDisciplineFromDashcam();
             dcDetailBtnRow.Controls.Add(dcCap256Btn);
             dcDetailBtnRow.Controls.Add(dcCap512Btn);
             dcDetailBtnRow.Controls.Add(dcIgnoreGapBtn);
             dcDetailBtnRow.Controls.Add(dcOpenFolderBtn);
+            dcDetailBtnRow.Controls.Add(dcWriteUpBtn);
 
             dcIssuesLv = CreateDashcamListView("dcIssuesLv");
             dcIssuesLv.Columns.Add("Issue", 130);

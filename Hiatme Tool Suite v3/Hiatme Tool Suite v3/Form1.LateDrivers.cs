@@ -47,11 +47,15 @@ namespace Hiatme_Tool_Suite_v3
         private Panel ldHeroHost;
         private Panel ldHeroInner;
         private SupeyCard ldHeroCard;
+        private Panel ldOtpHost;
+        private MarketMeterControl ldOtpMeter;
+        private HiatmeAiClient.LateDriversDayPerformance _ldDayPerf;
         private SupeyListView ldTripLv;
 
         private const int LateDriversToolbarInnerH = 42;
         private const int LateDriversDriverStripH = 114;
-        private const int LateDriversHeroH = 96;
+        private const int LateDriversHeroH = 118;
+        private const int LateDriversOtpMeterW = 148;
         private const int LateDriversDriverTileW = 148;
         private const int LateDriversDriverTileH = 78;
         private const int LateDriversDriverTileGap = 8;
@@ -73,6 +77,7 @@ namespace Hiatme_Tool_Suite_v3
         private string _ldRangeLabel = "";
         private List<HiatmeAiClient.LateDriversEventRow> _ldEventRows;
         private List<HiatmeAiClient.LateDriversDriverSummary> _ldDriverRows;
+        private int _ldMcTripCount;
         private List<HiatmeAiClient.LateDriversDriverSummary> _ldStripDrivers =
             new List<HiatmeAiClient.LateDriversDriverSummary>();
         private int _ldDriverScrollOffset;
@@ -139,6 +144,8 @@ namespace Hiatme_Tool_Suite_v3
                     ldHeroHost = null;
                     ldHeroInner = null;
                     ldHeroCard = null;
+                    ldOtpHost = null;
+                    ldOtpMeter = null;
                     ldScorecardHost = null;
                     ldRefreshBtn = null;
                     ldLiveSwitch = null;
@@ -503,7 +510,30 @@ namespace Hiatme_Tool_Suite_v3
                 ldScorecardHost.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f / 8f));
             ldScorecardHost.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
             BuildLateDriversScorecardWidgets();
+
+            // Live day-performance meter — ModivCare + WellRyde scored trips (not Market OTP).
+            ldOtpHost = new Panel
+            {
+                Name = "ldOtpHost",
+                Dock = DockStyle.Right,
+                Width = LateDriversOtpMeterW,
+                Padding = new Padding(8, 0, 0, 0),
+                BackColor = Color.Transparent,
+            };
+            ldOtpMeter = new MarketMeterControl
+            {
+                Name = "ldOtpMeter",
+                Dock = DockStyle.Fill,
+                Compact = true,
+                Caption = "Today",
+                InvertGood = false,
+                DetailText = "day performance",
+            };
+            ldOtpMeter.SetValue(null, "—", "waiting for WR trips", animate: false);
+            ldOtpHost.Controls.Add(ldOtpMeter);
+
             ldHeroInner.Controls.Add(ldScorecardHost);
+            ldHeroInner.Controls.Add(ldOtpHost);
             ldHeroCard.Controls.Add(ldHeroInner);
             ldHeroHost.Controls.Add(ldHeroCard);
 
@@ -1288,6 +1318,15 @@ namespace Hiatme_Tool_Suite_v3
                 ldHeroInner.Padding = new Padding(8, 6, 8, 6);
                 ldHeroInner.BackColor = Color.Transparent;
             }
+            if (ldOtpHost != null && !ldOtpHost.IsDisposed)
+            {
+                ldOtpHost.BackColor = Color.Transparent;
+                ldOtpHost.Width = LateDriversOtpMeterW;
+            }
+            if (ldOtpMeter != null && !ldOtpMeter.IsDisposed)
+            {
+                ldOtpMeter.Invalidate();
+            }
             if (ldRangeCaptionLbl != null && !ldRangeCaptionLbl.IsDisposed)
                 ldRangeCaptionLbl.BackColor = Color.Transparent;
             if (ldRefreshBtn != null && !ldRefreshBtn.IsDisposed)
@@ -1464,12 +1503,39 @@ namespace Hiatme_Tool_Suite_v3
             // Defer until after the tab finishes laying out (strip width / list bounds).
             try
             {
-                BeginInvoke(new Action(() => _ = LateDriversRefreshAsync(force: true)));
+                BeginInvoke(new Action(() =>
+                {
+                    _ = EnsureMarketScorecardCachedAsync();
+                    _ = LateDriversRefreshAsync(force: true);
+                }));
             }
             catch
             {
+                _ = EnsureMarketScorecardCachedAsync();
                 _ = LateDriversRefreshAsync(force: true);
             }
+        }
+
+        /// <summary>Warm Market OTP cache so the Habits On-time meter has a period baseline.</summary>
+        private async Task EnsureMarketScorecardCachedAsync()
+        {
+            if (_mpLastScorecard != null && _mpLastScorecard.HasData)
+            {
+                PushMarketOtpToDriverHabits();
+                return;
+            }
+            try
+            {
+                var settings = HiatmeAiSettings.Load();
+                var card = await HiatmeAiClient.GetModivcareMarketScorecardAsync(settings)
+                    .ConfigureAwait(true);
+                if (card != null && card.Ok && card.HasData)
+                {
+                    _mpLastScorecard = card;
+                    PushMarketOtpToDriverHabits();
+                }
+            }
+            catch { /* optional baseline */ }
         }
 
         private async Task LateDriversRefreshAsync(bool force)
@@ -1552,6 +1618,7 @@ namespace Hiatme_Tool_Suite_v3
                             return;
                         }
                         var habits = await habitsTask.ConfigureAwait(true);
+                        _ldDayPerf = doc.DayPerformance;
                         ApplyLateDriversEventPayload(
                             doc.Events ?? new List<HiatmeAiClient.LateDriversEventRow>(),
                             doc.ContentHash,
@@ -1590,6 +1657,8 @@ namespace Hiatme_Tool_Suite_v3
                         string hash = (habits != null && habits.Ok && !string.IsNullOrEmpty(habits.ContentHash))
                             ? habits.ContentHash
                             : (doc?.ContentHash ?? "");
+                        if (doc != null && doc.Ok)
+                            _ldDayPerf = doc.DayPerformance;
                         ApplyLateDriversEventPayload(lateEvents, hash, sd, sd, mcTrips, habits: habits);
                     }
                 }
@@ -1647,15 +1716,19 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         /// <summary>
-        /// B/C-leg dropoffs (early or late) do not count against the company
-        /// (return rides, no appointment). Driver Habits only surfaces habits that count.
+        /// B/C DO (early or late) does not count — return ride, no appointment deadline.
+        /// Only habits that count against us are shown in Driver Habits.
         /// </summary>
         private static bool LateDriversEventCountsAgainstUs(HiatmeAiClient.LateDriversEventRow e)
         {
             if (e == null) return false;
             string habit = (e.Habit ?? e.Kind ?? "").Trim().ToLowerInvariant();
-            bool bcDo = habit == "late_do" || habit == "early_do";
-            if (bcDo && !McTripTimingRules.IsALeg(e.TripNo))
+            // Live late rows often only have Side until Habit is filled in below.
+            if (string.IsNullOrEmpty(habit)
+                && string.Equals(e.Side, "do", StringComparison.OrdinalIgnoreCase))
+                habit = "late_do";
+            if ((habit == "early_do" || habit == "late_do")
+                && !McTripTimingRules.IsALeg(e.TripNo))
                 return false;
             return true;
         }
@@ -1677,6 +1750,7 @@ namespace Hiatme_Tool_Suite_v3
             HiatmeAiClient.LateDriversHabitsDoc habits = null)
         {
             _ldLastHash = contentHash ?? "";
+            _ldMcTripCount = Math.Max(0, mcTripCount);
             _ldEventRows = FilterLateDriversCountingEvents(events);
             foreach (var e in _ldEventRows)
             {
@@ -1715,6 +1789,7 @@ namespace Hiatme_Tool_Suite_v3
             LayoutLateDriversDriverStripRow();
             BindLateDriversDriverStrip();
             RefreshLateDriversScorecard();
+            RefreshLateDriversOtpMeter();
             BindLateDriversTripPane();
             UpdateLateDriversToolbarHints();
             try
@@ -1722,8 +1797,47 @@ namespace Hiatme_Tool_Suite_v3
                 ldTripLv?.Invalidate(true);
                 ldDriverStrip?.Invalidate(true);
                 ldScorecardHost?.Invalidate(true);
+                ldOtpMeter?.Invalidate();
             }
             catch { }
+        }
+
+        /// <summary>
+        /// Day performance from panel (ModivCare + WellRyde scored trips).
+        /// Big number is clean/scored; ring fills with on-time ratio and flashes on drops.
+        /// </summary>
+        private void RefreshLateDriversOtpMeter()
+        {
+            if (ldOtpMeter == null || ldOtpMeter.IsDisposed)
+                return;
+
+            var perf = _ldDayPerf;
+            if (perf == null || perf.Scored <= 0)
+            {
+                int pending = perf?.Pending ?? 0;
+                ldOtpMeter.SetValue(
+                    null,
+                    "—",
+                    pending > 0
+                        ? pending + " trips waiting on WR"
+                        : "waiting for WR trips");
+                return;
+            }
+
+            double pct = perf.Pct ?? (perf.OnTime * 100.0 / Math.Max(1, perf.Scored));
+            string value = pct.ToString("0.0", CultureInfo.InvariantCulture) + "%";
+            string detail = perf.OnTime.ToString(CultureInfo.InvariantCulture)
+                + "/" + perf.Scored.ToString(CultureInfo.InvariantCulture)
+                + " clean"
+                + (perf.Late > 0 ? " · " + perf.Late + " late" : "")
+                + (perf.Pending > 0 ? " · " + perf.Pending + " left" : "");
+            ldOtpMeter.SetValue(Math.Min(100, Math.Max(0, pct)), value, detail);
+        }
+
+        /// <summary>Market scorecard refresh no longer drives the day meter — keep hook for theme/load.</summary>
+        private void PushMarketOtpToDriverHabits()
+        {
+            // Intentionally empty: Habits meter is day performance from live/day APIs.
         }
 
         private void MergeLateDriversHabits(HiatmeAiClient.LateDriversHabitsDoc habits)
@@ -1792,8 +1906,9 @@ namespace Hiatme_Tool_Suite_v3
                 string kind = (he.Kind ?? he.Habit ?? "").Trim().ToLowerInvariant();
                 if (string.IsNullOrEmpty(kind))
                     continue;
-                // B/C DO habits do not count — skip even if still present in stored habits.
-                if ((kind == "late_do" || kind == "early_do") && !McTripTimingRules.IsALeg(he.TripNo))
+                // B/C DO (early or late) does not count against us — skip merge.
+                if ((kind == "early_do" || kind == "late_do")
+                    && !McTripTimingRules.IsALeg(he.TripNo))
                     continue;
                 string side = (he.Side ?? "").Trim().ToLowerInvariant();
                 if (kind == "late_pu" || kind == "late_do")
@@ -2191,15 +2306,21 @@ namespace Hiatme_Tool_Suite_v3
             return LateDriversTsStillHot(LateDriversEarlyEventTs(e));
         }
 
-        /// <summary>Late blink: only ~75s after the late first opened (or reopened).</summary>
+        /// <summary>
+        /// Late blink: ~75s after open detect, or right after a late actual/resolve
+        /// so a just-completed late still flashes once.
+        /// </summary>
         private static bool LateDriversLateStillHot(HiatmeAiClient.LateDriversEventRow e)
         {
-            if (e == null || !e.Open)
+            if (e == null || e.Excluded)
                 return false;
-            // Live late board keeps detected_at stable while open.
-            if (LateDriversTsStillHot(e.DetectedAt))
+            if (e.Open)
+                return LateDriversTsStillHot(e.DetectedAt);
+            // Closed late: flash from actual (or resolve) so we don't miss quick completes.
+            if (!string.IsNullOrWhiteSpace(e.ActualIso)
+                && LateDriversTsStillHot(LateDriversEarlyEventTs(e)))
                 return true;
-            return false;
+            return LateDriversTsStillHot(e.ResolvedAt);
         }
 
         private static bool LateDriversEventNeedsCallAlert(HiatmeAiClient.LateDriversEventRow e)
@@ -2351,6 +2472,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 _ldDriverAlertBlinkOn = !_ldDriverAlertBlinkOn;
                 ApplyLateDriversDriverAlertBlinkPhase();
+                ApplyLateDriversTripAlertBlinkPhase();
             };
         }
 
@@ -2369,13 +2491,22 @@ namespace Hiatme_Tool_Suite_v3
                     _ldDriverAlertBlinkTimer.Start();
                 }
                 ApplyLateDriversDriverAlertBlinkPhase();
+                ApplyLateDriversTripAlertBlinkPhase();
             }
             else
             {
                 _ldDriverAlertBlinkTimer?.Stop();
                 _ldDriverAlertBlinkOn = false;
                 ApplyLateDriversDriverAlertBlinkPhase();
+                ApplyLateDriversTripAlertBlinkPhase();
             }
+        }
+
+        private static Color LateDriversAlertFlashColor(bool earlyOnly)
+        {
+            return earlyOnly
+                ? Color.FromArgb(210, 140, 40)
+                : Color.FromArgb(220, 70, 55);
         }
 
         private void ApplyLateDriversDriverAlertBlinkPhase()
@@ -2407,15 +2538,51 @@ namespace Hiatme_Tool_Suite_v3
                 }
 
                 bool earlyOnly = summary != null && LateDriversDriverAlertIsEarly(summary);
-                Color flash = earlyOnly
-                    ? Color.FromArgb(210, 140, 40)
-                    : Color.FromArgb(220, 70, 55);
+                Color flash = LateDriversAlertFlashColor(earlyOnly);
                 tile.BorderColorOverride = flash;
                 tile.AccentColorOverride = flash;
                 tile.Accent = SupeyCard.AccentEdge.Top;
                 tile.ShowBorder = true;
                 if (nameLbl != null && !nameLbl.IsDisposed)
                     nameLbl.ForeColor = flash;
+            }
+        }
+
+        /// <summary>
+        /// Flash hot late/early rows in the trip grid (same window as driver tiles).
+        /// Uses item BackColor — Supey owner-draw honors that for the row fill.
+        /// </summary>
+        private void ApplyLateDriversTripAlertBlinkPhase()
+        {
+            if (ldTripLv == null || ldTripLv.IsDisposed)
+                return;
+
+            bool anyHot = false;
+            foreach (ListViewItem item in ldTripLv.Items)
+            {
+                if (item == null)
+                    continue;
+                var row = item.Tag as HiatmeAiClient.LateDriversEventRow;
+                bool alert = LateDriversEventNeedsCallAlert(row);
+                if (!alert || !_ldDriverAlertBlinkOn)
+                {
+                    if (item.BackColor != Color.Empty)
+                        item.BackColor = Color.Empty;
+                    continue;
+                }
+
+                anyHot = true;
+                string hk = HabitKeyOf(row);
+                bool early = hk.StartsWith("early", StringComparison.Ordinal);
+                Color flash = LateDriversAlertFlashColor(early);
+                if (item.BackColor != flash)
+                    item.BackColor = flash;
+            }
+
+            if (anyHot || !_ldDriverAlertBlinkOn)
+            {
+                try { ldTripLv.Invalidate(true); }
+                catch { }
             }
         }
 
@@ -2517,6 +2684,7 @@ namespace Hiatme_Tool_Suite_v3
                 tile.ShowBorder = true;
             }
             ApplyLateDriversDriverAlertBlinkPhase();
+            ApplyLateDriversTripAlertBlinkPhase();
         }
 
         private void RefreshLateDriversScorecard()
@@ -2686,6 +2854,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 ldTripLv.EndUpdate();
             }
+            ApplyLateDriversTripAlertBlinkPhase();
         }
 
         private static string FormatLateDriversTime(string iso, string blank = "")
