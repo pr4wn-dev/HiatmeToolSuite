@@ -46,6 +46,10 @@ namespace Hiatme_Tool_Suite_v3
         private readonly List<SupeyCard> _ddSectionCards = new List<SupeyCard>();
         private string _ddPriorsDriverKey = "";
         private bool _ddHistoryLoading;
+        private int _ddHistoryLoadGen;
+        private List<DriverDisciplineIndexItem> _ddHistoryCache = new List<DriverDisciplineIndexItem>();
+        private System.Windows.Forms.Timer _ddDriverFilterTimer;
+        private bool _ddDriverFilterSuppress;
 
         private SupeyTextBox ddCaseTb;
         private SupeyTextBox ddPreparedTb;
@@ -739,6 +743,8 @@ namespace Hiatme_Tool_Suite_v3
             ddEmployeeIdTb = MakeDdText("ddEmployeeIdTb", "Employee ID");
             ddVehicleTb = MakeDdText("ddVehicleTb", "Vehicle");
             ddSupervisorTb = MakeDdText("ddSupervisorTb", "Supervisor");
+            EnsureDdDriverFilterTimer();
+            ddDriverTb.TextChanged += (_, __) => OnDdDriverNameTextChanged();
             ddDriverTb.Leave += async (_, __) => await RefreshDriverDisciplinePriorsAsync();
             ddEmployeeIdTb.Leave += async (_, __) => await RefreshDriverDisciplinePriorsAsync();
 
@@ -760,12 +766,7 @@ namespace Hiatme_Tool_Suite_v3
                 Cursor = Cursors.Hand,
                 Padding = new Padding(0, 2, 0, 0),
             };
-            ddPriorsLbl.Click += async (_, __) =>
-            {
-                string name = T(ddDriverTb);
-                if (!string.IsNullOrWhiteSpace(name))
-                    await RefreshDriverDisciplineHistoryAsync(name);
-            };
+            ddPriorsLbl.Click += (_, __) => ApplyDdHistoryFilterFromDriverBox();
 
             host.Controls.Add(grid);
             host.Controls.Add(ddPriorsLbl);
@@ -1095,10 +1096,15 @@ namespace Hiatme_Tool_Suite_v3
                     : "";
             if (ddPreparedTb != null) ddPreparedTb.Text = Environment.UserName ?? "";
             if (ddDeptTb != null) ddDeptTb.Text = "Operations";
-            if (ddDriverTb != null) ddDriverTb.Text = "";
-            if (ddEmployeeIdTb != null) ddEmployeeIdTb.Text = "";
-            if (ddVehicleTb != null) ddVehicleTb.Text = "";
-            if (ddSupervisorTb != null) ddSupervisorTb.Text = "";
+            _ddDriverFilterSuppress = true;
+            try
+            {
+                if (ddDriverTb != null) ddDriverTb.Text = "";
+                if (ddEmployeeIdTb != null) ddEmployeeIdTb.Text = "";
+                if (ddVehicleTb != null) ddVehicleTb.Text = "";
+                if (ddSupervisorTb != null) ddSupervisorTb.Text = "";
+            }
+            finally { _ddDriverFilterSuppress = false; }
             if (ddNoticeDate != null) ddNoticeDate.Value = DateTime.Today;
             if (ddIncidentDate != null) ddIncidentDate.Value = DateTime.Today;
             if (ddIncidentTimeTb != null) ddIncidentTimeTb.Text = "";
@@ -1117,6 +1123,8 @@ namespace Hiatme_Tool_Suite_v3
             if (ddFolderTb != null) ddFolderTb.Text = "";
             _ddClipPaths.Clear();
             RefreshDriverDisciplineClipList();
+            _ddPriorsDriverKey = "";
+            ApplyDdHistoryFilterFromDriverBox();
         }
 
         private DriverDisciplineRecord CollectDriverDisciplineRecord()
@@ -1378,40 +1386,98 @@ namespace Hiatme_Tool_Suite_v3
             return s.Length > 10 ? s.Substring(0, 10) : s;
         }
 
+        private void EnsureDdDriverFilterTimer()
+        {
+            if (_ddDriverFilterTimer != null) return;
+            _ddDriverFilterTimer = new System.Windows.Forms.Timer { Interval = 280 };
+            _ddDriverFilterTimer.Tick += async (_, __) =>
+            {
+                _ddDriverFilterTimer.Stop();
+                await RefreshDriverDisciplinePriorsAsync().ConfigureAwait(true);
+            };
+        }
+
+        private void OnDdDriverNameTextChanged()
+        {
+            if (_ddDriverFilterSuppress) return;
+            ApplyDdHistoryFilterFromDriverBox();
+            EnsureDdDriverFilterTimer();
+            _ddDriverFilterTimer.Stop();
+            _ddDriverFilterTimer.Start();
+        }
+
+        /// <summary>
+        /// Instantly filter the cached library list to the driver name being typed.
+        /// Empty name shows everyone.
+        /// </summary>
+        private void ApplyDdHistoryFilterFromDriverBox()
+        {
+            if (ddHistoryLv == null) return;
+            BindDdHistoryRows(FilterDdHistoryCache(T(ddDriverTb)));
+        }
+
+        private List<DriverDisciplineIndexItem> FilterDdHistoryCache(string driverFilter)
+        {
+            var src = _ddHistoryCache ?? new List<DriverDisciplineIndexItem>();
+            if (string.IsNullOrWhiteSpace(driverFilter))
+                return src.OrderByDescending(i => i.CreatedAt ?? "").ToList();
+            return src
+                .Where(i => DriverDisciplineStore.MatchesDriverFilter(i, driverFilter))
+                .OrderByDescending(i => i.CreatedAt ?? "")
+                .ToList();
+        }
+
+        private void BindDdHistoryRows(IList<DriverDisciplineIndexItem> items)
+        {
+            if (ddHistoryLv == null) return;
+            ddHistoryLv.BeginUpdate();
+            try
+            {
+                ddHistoryLv.Items.Clear();
+                foreach (var it in items ?? Array.Empty<DriverDisciplineIndexItem>())
+                {
+                    if (it == null) continue;
+                    var row = new ListViewItem(PrettyDdDate(it.IncidentDate ?? it.CreatedAt));
+                    row.SubItems.Add(it.DriverName ?? "");
+                    row.SubItems.Add(it.ActionLevel ?? "");
+                    row.SubItems.Add(it.CaseNumber ?? it.Id ?? "");
+                    string viol = it.Violations != null
+                        ? string.Join("; ", it.Violations.Take(3))
+                        : "";
+                    row.SubItems.Add(viol);
+                    row.Tag = it;
+                    ddHistoryLv.Items.Add(row);
+                }
+            }
+            finally { ddHistoryLv.EndUpdate(); }
+        }
+
+        /// <param name="driverFilter">
+        /// Optional display filter. Null = use the Driver name box. Pass "" to show all
+        /// regardless of the box (cache still reloads the full library).
+        /// </param>
         private async Task RefreshDriverDisciplineHistoryAsync(string driverFilter = null)
         {
-            if (ddHistoryLv == null || _ddHistoryLoading) return;
+            if (ddHistoryLv == null) return;
+            int gen = ++_ddHistoryLoadGen;
             _ddHistoryLoading = true;
             try
             {
                 var settings = HiatmeAiSettings.Load();
-                string filter = driverFilter;
-                if (filter == null)
-                    filter = null; // show all by default
-                var items = await DriverDisciplineStore.ListMergedAsync(settings, filter)
+                // Always pull the full library into cache; filter locally so typing stays snappy.
+                var items = await DriverDisciplineStore.ListMergedAsync(settings, null)
                     .ConfigureAwait(true);
+                if (gen != _ddHistoryLoadGen) return;
 
-                ddHistoryLv.BeginUpdate();
-                try
-                {
-                    ddHistoryLv.Items.Clear();
-                    foreach (var it in items ?? new List<DriverDisciplineIndexItem>())
-                    {
-                        var row = new ListViewItem(PrettyDdDate(it.IncidentDate ?? it.CreatedAt));
-                        row.SubItems.Add(it.DriverName ?? "");
-                        row.SubItems.Add(it.ActionLevel ?? "");
-                        row.SubItems.Add(it.CaseNumber ?? it.Id ?? "");
-                        string viol = it.Violations != null
-                            ? string.Join("; ", it.Violations.Take(3))
-                            : "";
-                        row.SubItems.Add(viol);
-                        row.Tag = it;
-                        ddHistoryLv.Items.Add(row);
-                    }
-                }
-                finally { ddHistoryLv.EndUpdate(); }
+                _ddHistoryCache = items ?? new List<DriverDisciplineIndexItem>();
+                string filter = driverFilter ?? T(ddDriverTb);
+                BindDdHistoryRows(FilterDdHistoryCache(filter));
             }
-            finally { _ddHistoryLoading = false; }
+            finally
+            {
+                if (gen == _ddHistoryLoadGen)
+                    _ddHistoryLoading = false;
+            }
         }
 
         private DriverDisciplineIndexItem SelectedDriverDisciplineItem()

@@ -293,16 +293,10 @@ namespace Hiatme_Tool_Suite_v3
 
             if (server == null)
             {
+                IEnumerable<DriverDisciplineIndexItem> localQ = local;
                 if (!string.IsNullOrWhiteSpace(driverFilter))
-                {
-                    string slug = DriverSlug(driverFilter);
-                    return local.Where(i =>
-                            string.Equals(i.DriverSlug, slug, StringComparison.OrdinalIgnoreCase)
-                            || string.Equals(i.DriverName, driverFilter, StringComparison.OrdinalIgnoreCase))
-                        .OrderByDescending(i => i.CreatedAt ?? "")
-                        .ToList();
-                }
-                return local.OrderByDescending(i => i.CreatedAt ?? "").ToList();
+                    localQ = localQ.Where(i => MatchesDriverFilter(i, driverFilter));
+                return localQ.OrderByDescending(i => i.CreatedAt ?? "").ToList();
             }
 
             // Prefer server index; fill gaps from local
@@ -320,13 +314,34 @@ namespace Hiatme_Tool_Suite_v3
 
             IEnumerable<DriverDisciplineIndexItem> q = map.Values;
             if (!string.IsNullOrWhiteSpace(driverFilter))
-            {
-                string slug = DriverSlug(driverFilter);
-                q = q.Where(i =>
-                    string.Equals(i.DriverSlug, slug, StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(i.DriverName, driverFilter, StringComparison.OrdinalIgnoreCase));
-            }
+                q = q.Where(i => MatchesDriverFilter(i, driverFilter));
             return q.OrderByDescending(i => i.CreatedAt ?? "").ToList();
+        }
+
+        /// <summary>
+        /// Soft match for live typing: name contains filter, or slug contains filter slug.
+        /// </summary>
+        public static bool MatchesDriverFilter(DriverDisciplineIndexItem item, string driverFilter)
+        {
+            if (item == null) return false;
+            if (string.IsNullOrWhiteSpace(driverFilter)) return true;
+
+            string f = driverFilter.Trim();
+            string name = item.DriverName ?? "";
+            if (name.IndexOf(f, StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+
+            string slug = string.IsNullOrWhiteSpace(item.DriverSlug)
+                ? DriverSlug(name)
+                : item.DriverSlug;
+            string filterSlug = DriverSlug(f);
+            if (!string.IsNullOrEmpty(filterSlug)
+                && !string.Equals(filterSlug, "unknown", StringComparison.OrdinalIgnoreCase)
+                && slug.IndexOf(filterSlug, StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+
+            return string.Equals(name, f, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(slug, filterSlug, StringComparison.OrdinalIgnoreCase);
         }
     }
 
