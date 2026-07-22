@@ -1,10 +1,9 @@
-﻿using MaterialSkin;
-using MaterialSkin.Controls;
-using System;
+﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Drawing;
 using System.IO;
 using System.IO.Compression;
-using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -12,90 +11,84 @@ using System.Windows.Forms;
 namespace Update
 {
     /// <summary>
-    /// The actual updater UI. Behavior depends on the constructor used:
+    /// Updater UI. Behavior depends on the constructor used:
     ///   * <see cref="Form1()"/> — informational placeholder for the legacy double-click case.
     ///   * <see cref="Form1(UpdateArgs)"/> — drives the wait → extract → restart pipeline.
     ///
+    /// Plain WinForms only (no MaterialSkin) so a missing theming DLL can never kill the install.
     /// User data preservation: we ONLY overwrite files contained in the zip, and we never copy
     /// weekday template folders or Template Temps from the zip even if a bad package includes them.
-    /// Saved login creds live in a versioned user.config under %LOCALAPPDATA%; the main app migrates
-    /// those on first launch after a version bump (see UserSettingsMigration).
     /// </summary>
-    public partial class Form1 : MaterialForm
+    public partial class Form1 : Form
     {
-        readonly MaterialSkinManager materialSkinManager;
         private readonly UpdateArgs _opts;
 
         public Form1()
         {
             InitializeComponent();
-            TryApplyTheme(out materialSkinManager);
+            ApplyUpdaterChrome();
         }
 
         public Form1(UpdateArgs opts)
         {
             InitializeComponent();
-            TryApplyTheme(out materialSkinManager);
+            ApplyUpdaterChrome();
             _opts = opts ?? throw new ArgumentNullException(nameof(opts));
 
             SetupWorkerUi();
             Shown += async (_, __) => await RunUpdatePipelineAsync();
         }
 
-        /// <summary>
-        /// Theming is *cosmetic*. If MaterialSkin.dll didn't make it into the relocated temp folder (or is
-        /// version-skewed against our reference), we must still complete the update pipeline. So we swallow
-        /// any TypeInitialization / FileNotFound failure and proceed with the default WinForms look.
-        /// </summary>
-        private void TryApplyTheme(out MaterialSkinManager mgr)
+        private void ApplyUpdaterChrome()
         {
-            mgr = null;
-            try
-            {
-                mgr = MaterialSkinManager.Instance;
-                mgr.EnforceBackcolorOnAllComponents = false;
-                mgr.AddFormToManage(this);
-                mgr.Theme = MaterialSkinManager.Themes.DARK;
-                mgr.ColorScheme = new ColorScheme(Primary.Grey900, Primary.Grey800, Primary.BlueGrey500, Accent.Lime700, TextShade.WHITE);
-            }
-            catch (Exception ex)
-            {
-                Program.Log("Theme init failed (continuing without MaterialSkin theming): " + ex.Message);
-            }
+            BackColor = Color.FromArgb(32, 32, 36);
+            ForeColor = Color.Gainsboro;
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            MaximizeBox = false;
+            MinimizeBox = false;
+            StartPosition = FormStartPosition.CenterScreen;
+            ShowInTaskbar = true;
         }
+
+        private Label _statusLabel;
+        private Button _launchButton;
 
         private void SetupWorkerUi()
         {
             Text = "Hiatme Tool Suite — installing update";
-            _startupHintLabel.TextAlign = System.Drawing.ContentAlignment.TopLeft;
+            _startupHintLabel.TextAlign = ContentAlignment.TopLeft;
             _startupHintLabel.Padding = new Padding(28, 28, 28, 28);
             _startupHintLabel.Text =
                 "Installing update — please don't close this window.\r\n\r\n" +
                 "Your saved login and templates will be kept.\r\n\r\n" +
-                "When installation finishes, use the launch button to reopen the app.";
-            // Replace the static hint with a simple status line at the bottom.
+                "The app will reopen when installation finishes.";
             _statusLabel = new Label
             {
                 Dock = DockStyle.Bottom,
                 Height = 80,
                 Padding = new Padding(28, 8, 28, 16),
-                Font = new System.Drawing.Font("Segoe UI", 9F),
-                ForeColor = System.Drawing.Color.Gainsboro,
+                Font = new Font("Segoe UI", 9F),
+                ForeColor = Color.Gainsboro,
+                BackColor = Color.FromArgb(32, 32, 36),
                 Text = "Preparing…",
             };
             Controls.Add(_statusLabel);
             _statusLabel.BringToFront();
 
-            _launchButton = new MaterialButton
+            _launchButton = new Button
             {
                 Text = "LAUNCH HIATME TOOL SUITE",
-                Type = MaterialButton.MaterialButtonType.Contained,
-                UseAccentColor = true,
                 AutoSize = false,
-                Size = new System.Drawing.Size(320, 42),
+                Size = new Size(320, 42),
                 Anchor = AnchorStyles.Bottom,
                 Visible = false,
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Color.FromArgb(76, 175, 80),
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI Semibold", 10F),
+                Cursor = Cursors.Hand,
             };
+            _launchButton.FlatAppearance.BorderSize = 0;
             _launchButton.Click += (_, __) => OnLaunchMainAppClicked();
             Controls.Add(_launchButton);
             _launchButton.BringToFront();
@@ -109,7 +102,7 @@ namespace Update
                 return;
             int x = Math.Max(28, (ClientSize.Width - _launchButton.Width) / 2);
             int y = ClientSize.Height - _launchButton.Height - 100;
-            _launchButton.Location = new System.Drawing.Point(x, y);
+            _launchButton.Location = new Point(x, y);
         }
 
         private void OnLaunchMainAppClicked()
@@ -120,9 +113,6 @@ namespace Update
             else
                 _launchButton.Enabled = true;
         }
-
-        private Label _statusLabel;
-        private MaterialButton _launchButton;
 
         private void Status(string text)
         {
@@ -155,7 +145,6 @@ namespace Update
                 }
 
                 // Any OTHER instances (e.g. a second window the user opened) still lock the exe/DLLs.
-                // Wait for every process running from the install folder to exit before we touch files.
                 if (!string.IsNullOrEmpty(_opts.RestartExe) && File.Exists(_opts.RestartExe))
                 {
                     Status("Waiting for all app windows to close...");
@@ -207,7 +196,18 @@ namespace Update
 
                 if (!string.IsNullOrEmpty(_opts.RestartExe) && File.Exists(_opts.RestartExe))
                 {
-                    Status("Update installed. Launch when you're ready.");
+                    Status("Update installed. Relaunching…");
+                    await Task.Delay(500);
+                    if (TryRelaunchMainApp(showFailureDialog: false))
+                    {
+                        Program.Log("Auto-relaunch succeeded; closing updater.");
+                        await Task.Delay(350);
+                        BeginInvoke((MethodInvoker)Close);
+                        return;
+                    }
+
+                    Program.Log("Auto-relaunch failed; showing Launch button.");
+                    Status("Update installed. Click Launch to reopen the app.");
                     void ShowLaunch()
                     {
                         _launchButton.Visible = true;
@@ -221,11 +221,8 @@ namespace Update
                         ShowLaunch();
                     return;
                 }
-                else
-                {
-                    Program.Log("No restart requested or restart exe missing: " + _opts.RestartExe);
-                }
 
+                Program.Log("No restart requested or restart exe missing: " + _opts.RestartExe);
                 await Task.Delay(750);
                 BeginInvoke((MethodInvoker)Close);
             }
@@ -238,167 +235,68 @@ namespace Update
 
         private void Fail(string message)
         {
-            Status("Failed.");
-            MessageBox.Show(message, "Hiatme Updater", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            BeginInvoke((MethodInvoker)Close);
-        }
-
-        /// <summary>
-        /// Waits for the main app pid to exit. Uses a graceful wait, then CloseMainWindow, then Kill as last resort.
-        /// </summary>
-        private static bool WaitForMainAppExit(int pid)
-        {
-            Process proc = null;
+            Program.Log("FAIL: " + message);
             try
             {
-                proc = Process.GetProcessById(pid);
+                MessageBox.Show(this, message + "\n\nLog: " + Program.LogPath,
+                    "Hiatme Tool Suite — Update", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
-            catch (ArgumentException)
-            {
-                return true;
-            }
-            catch (InvalidOperationException)
-            {
-                return true;
-            }
-
-            using (proc)
-            {
-                if (proc.WaitForExit(20000))
-                {
-                    Thread.Sleep(1500);
-                    return true;
-                }
-
-                try
-                {
-                    if (proc.MainWindowHandle != IntPtr.Zero)
-                        proc.CloseMainWindow();
-                }
-                catch { }
-
-                if (proc.WaitForExit(8000))
-                {
-                    Thread.Sleep(1500);
-                    return true;
-                }
-
-                try
-                {
-                    proc.Kill();
-                    proc.WaitForExit(8000);
-                    Program.Log("Killed pid " + pid);
-                }
-                catch (Exception ex)
-                {
-                    Program.Log("Could not kill pid " + pid + ": " + ex.Message);
-                    return false;
-                }
-
-                Thread.Sleep(2000);
-                return !IsProcessRunning(pid);
-            }
+            catch { }
+            try { BeginInvoke((MethodInvoker)Close); } catch { Close(); }
         }
 
-        private static bool IsProcessRunning(int pid)
+        private static bool WaitForMainAppExit(int pid)
         {
             try
             {
                 using (var p = Process.GetProcessById(pid))
-                    return !p.HasExited;
+                {
+                    return p.WaitForExit(120000);
+                }
             }
-            catch
+            catch (ArgumentException)
             {
-                return false;
+                return true; // already gone
             }
         }
 
-        /// <summary>
-        /// Blocks until no process is running from <paramref name="exePath"/> (any instance the user opened),
-        /// escalating to CloseMainWindow then Kill as the timeout nears. Returns true only when all are gone.
-        /// </summary>
         private static bool WaitForAllInstancesExit(string exePath, TimeSpan timeout)
         {
-            if (string.IsNullOrEmpty(exePath))
-                return true;
-
-            string processName = Path.GetFileNameWithoutExtension(exePath);
-            string fullPath;
-            try { fullPath = Path.GetFullPath(exePath); }
-            catch { fullPath = exePath; }
+            if (string.IsNullOrEmpty(exePath)) return true;
+            string full;
+            try { full = Path.GetFullPath(exePath); }
+            catch { full = exePath; }
 
             var sw = Stopwatch.StartNew();
-            bool triedClose = false;
-            bool triedKill = false;
-
             while (sw.Elapsed < timeout)
             {
-                var matches = GetProcessesAtPath(processName, fullPath);
-                if (matches.Count == 0)
-                {
-                    Thread.Sleep(1000); // let the OS release file handles
+                if (!AnyProcessRunningFrom(full))
                     return true;
-                }
-
-                // Halfway to the deadline: politely ask windows to close.
-                if (!triedClose && sw.Elapsed > TimeSpan.FromTicks(timeout.Ticks / 2))
-                {
-                    triedClose = true;
-                    foreach (var p in matches)
-                    {
-                        try { if (p.MainWindowHandle != IntPtr.Zero) p.CloseMainWindow(); }
-                        catch { }
-                    }
-                }
-
-                // Near the deadline: force any stragglers.
-                if (!triedKill && sw.Elapsed > TimeSpan.FromTicks((long)(timeout.Ticks * 0.8)))
-                {
-                    triedKill = true;
-                    foreach (var p in matches)
-                    {
-                        try { p.Kill(); Program.Log("Killed stray instance pid " + p.Id); }
-                        catch (Exception ex) { Program.Log("Could not kill pid " + p.Id + ": " + ex.Message); }
-                    }
-                }
-
-                foreach (var p in matches)
-                {
-                    try { p.Dispose(); } catch { }
-                }
-                Thread.Sleep(400);
+                Thread.Sleep(300);
             }
-
-            return GetProcessesAtPath(processName, fullPath).Count == 0;
+            return !AnyProcessRunningFrom(full);
         }
 
-        private static List<Process> GetProcessesAtPath(string processName, string fullPath)
+        private static bool AnyProcessRunningFrom(string fullExePath)
         {
-            var result = new List<Process>();
-            Process[] byName;
-            try { byName = Process.GetProcessesByName(processName); }
-            catch { return result; }
-
-            foreach (var p in byName)
+            string name = Path.GetFileNameWithoutExtension(fullExePath);
+            bool result = false;
+            foreach (var p in Process.GetProcessesByName(name))
             {
-                bool keep = false;
                 try
                 {
-                    // MainModule access can throw for protected/exited processes; match on path when we can,
-                    // otherwise fall back to the process-name match (better to over-wait than copy over a lock).
-                    string modPath = p.MainModule?.FileName;
-                    keep = string.IsNullOrEmpty(modPath)
-                        || string.Equals(modPath, fullPath, StringComparison.OrdinalIgnoreCase);
+                    string path = p.MainModule?.FileName;
+                    if (!string.IsNullOrEmpty(path)
+                        && string.Equals(Path.GetFullPath(path), fullExePath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        result = true;
+                    }
                 }
-                catch
+                catch { }
+                finally
                 {
-                    keep = true;
-                }
-
-                if (keep)
-                    result.Add(p);
-                else
                     try { p.Dispose(); } catch { }
+                }
             }
             return result;
         }
@@ -430,8 +328,6 @@ namespace Update
 
             string workDir = Path.GetDirectoryName(_opts.RestartExe) ?? "";
 
-            // Don't launch a fresh instance while an old one is still shutting down — that's exactly
-            // the "file in use" race. Make sure every prior instance is gone first.
             if (!WaitForAllInstancesExit(_opts.RestartExe, TimeSpan.FromSeconds(20)))
                 Program.Log("Relaunch: prior instances still present after wait; proceeding cautiously.");
 
@@ -442,14 +338,40 @@ namespace Update
                     if (!WaitForFileUnlocked(_opts.RestartExe, TimeSpan.FromSeconds(5)))
                         throw new IOException("Application files are still locked.");
 
+                    // Shell-execute is the most reliable way to start a WinForms GUI app from another process.
                     var rp = Process.Start(new ProcessStartInfo
                     {
                         FileName = _opts.RestartExe,
-                        UseShellExecute = true,
                         WorkingDirectory = workDir,
+                        UseShellExecute = true,
+                        ErrorDialog = false,
                     });
                     Program.Log("Relaunched main app as pid " + (rp == null ? "(null)" : rp.Id.ToString()));
-                    return rp != null;
+
+                    // Confirm it actually stayed up (AV / lock races sometimes spawn-and-die).
+                    Thread.Sleep(600);
+                    if (rp != null && !rp.HasExited)
+                        return true;
+                    if (AnyProcessRunningFrom(Path.GetFullPath(_opts.RestartExe)))
+                        return true;
+
+                    // Fallback: cmd start (handles some quoting / working-dir oddities).
+                    var rp2 = Process.Start(new ProcessStartInfo
+                    {
+                        FileName = "cmd.exe",
+                        Arguments = "/c start \"\" \"" + _opts.RestartExe + "\"",
+                        WorkingDirectory = workDir,
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                    });
+                    Thread.Sleep(800);
+                    if (AnyProcessRunningFrom(Path.GetFullPath(_opts.RestartExe)))
+                    {
+                        Program.Log("Relaunch succeeded via cmd start.");
+                        return true;
+                    }
+                    Program.Log("Relaunch process started but main app not detected running.");
+                    return false;
                 }
                 catch (Exception ex)
                 {
@@ -471,14 +393,6 @@ namespace Update
             "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday", "Template Temps",
         };
 
-        private static bool IsPreservedUserDataPath(string relativePath)
-        {
-            if (string.IsNullOrEmpty(relativePath))
-                return false;
-            string top = relativePath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)[0];
-            return PreservedInstallSubdirs.Contains(top);
-        }
-
         /// <summary>
         /// Recursive copy of <paramref name="srcDir"/> over <paramref name="dstDir"/>:
         ///   * Files in src overwrite the dst version (with a brief retry loop in case the OS is slow to release a lock).
@@ -487,58 +401,44 @@ namespace Update
         /// </summary>
         private static void CopyDirectoryOverwrite(string srcDir, string dstDir)
         {
-            foreach (string sub in Directory.GetDirectories(srcDir, "*", SearchOption.AllDirectories))
+            Directory.CreateDirectory(dstDir);
+            foreach (string srcFile in Directory.GetFiles(srcDir))
             {
-                string rel = sub.Substring(srcDir.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                if (IsPreservedUserDataPath(rel))
-                    continue;
-                string target = Path.Combine(dstDir, rel);
-                Directory.CreateDirectory(target);
+                string name = Path.GetFileName(srcFile);
+                string destFile = Path.Combine(dstDir, name);
+                CopyFileWithRetry(srcFile, destFile);
             }
-            foreach (string file in Directory.GetFiles(srcDir, "*", SearchOption.AllDirectories))
+            foreach (string srcSub in Directory.GetDirectories(srcDir))
             {
-                string rel = file.Substring(srcDir.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                if (IsPreservedUserDataPath(rel))
+                string relName = Path.GetFileName(srcSub);
+                if (PreservedInstallSubdirs.Contains(relName))
+                {
+                    Program.Log("Skipping preserved user folder from zip: " + relName);
                     continue;
-                string target = Path.Combine(dstDir, rel);
-                string targetDir = Path.GetDirectoryName(target);
-                if (!string.IsNullOrEmpty(targetDir))
-                    Directory.CreateDirectory(targetDir);
-
-                CopyWithRetry(file, target);
+                }
+                CopyDirectoryOverwrite(srcSub, Path.Combine(dstDir, relName));
             }
         }
 
-        private static void CopyWithRetry(string src, string dst)
+        private static void CopyFileWithRetry(string src, string dst)
         {
-            const int maxAttempts = 8;
-            for (int attempt = 1; attempt <= maxAttempts; attempt++)
+            const int attempts = 10;
+            for (int i = 1; i <= attempts; i++)
             {
                 try
                 {
-                    if (File.Exists(dst))
-                    {
-                        try { File.SetAttributes(dst, FileAttributes.Normal); } catch { }
-                    }
                     File.Copy(src, dst, overwrite: true);
                     return;
                 }
-                catch (IOException) when (attempt < maxAttempts)
+                catch (IOException) when (i < attempts)
                 {
-                    Thread.Sleep(250 * attempt);
+                    Thread.Sleep(200 * i);
                 }
-                catch (UnauthorizedAccessException) when (attempt < maxAttempts)
+                catch (UnauthorizedAccessException) when (i < attempts)
                 {
-                    Thread.Sleep(250 * attempt);
+                    Thread.Sleep(200 * i);
                 }
             }
-            // Last-ditch attempt: move the locked file aside and copy. If even that fails, let the exception bubble.
-            try
-            {
-                string aside = dst + ".old-" + Guid.NewGuid().ToString("N").Substring(0, 8);
-                if (File.Exists(dst)) File.Move(dst, aside);
-            }
-            catch { }
             File.Copy(src, dst, overwrite: true);
         }
     }

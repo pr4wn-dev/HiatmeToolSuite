@@ -3,19 +3,16 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Threading;
 using System.Windows.Forms;
 
 namespace Update
 {
     internal static class Program
     {
-        // Marker arg that signals this process is already running from the temp self-relocated copy.
-        // Without it, Update.exe ALWAYS copies itself to %TEMP% and re-execs so it can replace its own file on disk.
+        // Marker arg that signals this process is already running from a temp copy / zip-extracted worker.
         private const string FromTempArg = "--from-temp";
+        private const string ApplyLatestArg = "--apply-latest";
 
-        // Single per-process log file. Without this, any failure inside the self-relocated copy is invisible
-        // because the parent main app has already exited by then.
         internal static readonly string LogPath = Path.Combine(Path.GetTempPath(), "HiatmeUpdaterLog.txt");
 
         internal static void Log(string message)
@@ -25,25 +22,24 @@ namespace Update
                 File.AppendAllText(LogPath,
                     "[" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff") + "] " + message + Environment.NewLine);
             }
-            catch
-            {
-                // Logging is best-effort; never crash the updater because a temp file can't be written.
-            }
+            catch { }
         }
 
         [STAThread]
         static void Main(string[] args)
         {
-            // Parse the args we accept. Unknown args are ignored so users can run Update.exe by hand
-            // (e.g. by double-clicking) and still see a friendly window.
+            args = args ?? new string[0];
             var opts = UpdateArgs.Parse(args);
-            bool isLegacyDoubleClick = !opts.HasAnyUpdateAction;
-            bool fromTemp = args != null && args.Any(a => string.Equals(a, FromTempArg, StringComparison.OrdinalIgnoreCase));
+            bool applyLatest = args.Any(a => string.Equals(a, ApplyLatestArg, StringComparison.OrdinalIgnoreCase))
+                || IsApplyUpdateBinaryName();
+            bool fromTemp = args.Any(a => string.Equals(a, FromTempArg, StringComparison.OrdinalIgnoreCase));
+            bool isLegacyDoubleClick = !opts.HasAnyUpdateAction && !applyLatest;
 
             Log("Update.exe started. cwd=" + Environment.CurrentDirectory +
                 " exe=" + Assembly.GetExecutingAssembly().Location +
-                " args=[" + string.Join(" | ", args ?? new string[0]) + "]" +
-                " fromTemp=" + fromTemp);
+                " args=[" + string.Join(" | ", args) + "]" +
+                " fromTemp=" + fromTemp +
+                " applyLatest=" + applyLatest);
 
             AppDomain.CurrentDomain.UnhandledException += (s, e) =>
             {
@@ -57,52 +53,64 @@ namespace Update
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 
+            if (applyLatest)
+            {
+                Log("Apply-latest mode.");
+                ApplyLatest.RunInteractive();
+                return;
+            }
+
             if (isLegacyDoubleClick)
             {
-                Log("Legacy double-click mode (no update args). Showing hint form.");
+                Log("Legacy double-click mode (no update args). Showing repair form.");
                 Application.Run(new Form1());
                 return;
             }
 
-            if (!fromTemp)
+            // Worker already in temp / extracted from zip — run pipeline directly.
+            if (fromTemp)
             {
-                try
-                {
-                    string tempCopy = CopySelfAndDepsToTemp();
-                    Log("Relocated to: " + tempCopy);
-                    var psi = new ProcessStartInfo
-                    {
-                        FileName = tempCopy,
-                        Arguments = BuildArgsForRelaunch(args),
-                        UseShellExecute = false,
-                        WorkingDirectory = Path.GetDirectoryName(tempCopy) ?? Path.GetTempPath(),
-                    };
-                    var p = Process.Start(psi);
-                    Log("Relaunched temp copy as pid " + (p == null ? "(null)" : p.Id.ToString()));
-                }
-                catch (Exception ex)
-                {
-                    Log("Self-relocate failed: " + ex);
-                    // Fall through to in-place mode below. The downside is we can't overwrite our own
-                    // Update.exe on disk, but most releases don't need to and an in-place install is
-                    // infinitely better than the silent-failure mode we had before this fix.
-                    Log("Falling back to in-place updater run from " + Assembly.GetExecutingAssembly().Location);
-                    Application.Run(new Form1(opts));
-                }
-                return; // original exe exits; the temp copy (or in-place fallback) takes over
+                Log("Worker mode. Showing update form.");
+                Application.Run(new Form1(opts));
+                Log("Update.exe exiting normally.");
+                return;
             }
 
-            Log("Worker mode (running from temp). Showing update form.");
-            Application.Run(new Form1(opts));
-            Log("Update.exe exiting normally.");
+            // Launched from install dir without --from-temp: relocate then hand off.
+            try
+            {
+                string tempCopy = CopySelfAndDepsToTemp();
+                Log("Relocated to: " + tempCopy);
+                var psi = new ProcessStartInfo
+                {
+                    FileName = tempCopy,
+                    Arguments = BuildArgsForRelaunch(args),
+                    UseShellExecute = false,
+                    WorkingDirectory = Path.GetDirectoryName(tempCopy) ?? Path.GetTempPath(),
+                };
+                var p = Process.Start(psi);
+                Log("Relaunched temp copy as pid " + (p == null ? "(null)" : p.Id.ToString()));
+            }
+            catch (Exception ex)
+            {
+                Log("Self-relocate failed: " + ex);
+                Log("Falling back to in-place updater run from " + Assembly.GetExecutingAssembly().Location);
+                Application.Run(new Form1(opts));
+            }
         }
 
-        /// <summary>
-        /// Copies <c>Update.exe</c> AND every file alongside it (DLLs, .config, etc.) into a fresh per-run
-        /// folder under %TEMP%. Crucial: we need MaterialSkin.dll plus anything else .NET probes for in the
-        /// exe's directory — without this the relaunched process dies on first form construction with a
-        /// FileNotFoundException that the user never sees.
-        /// </summary>
+        private static bool IsApplyUpdateBinaryName()
+        {
+            try
+            {
+                string name = Path.GetFileNameWithoutExtension(Assembly.GetExecutingAssembly().Location) ?? "";
+                return name.IndexOf("ApplyUpdate", StringComparison.OrdinalIgnoreCase) >= 0
+                    || name.IndexOf("HiatmeApply", StringComparison.OrdinalIgnoreCase) >= 0
+                    || name.IndexOf("RepairUpdate", StringComparison.OrdinalIgnoreCase) >= 0;
+            }
+            catch { return false; }
+        }
+
         private static string CopySelfAndDepsToTemp()
         {
             string self = Assembly.GetExecutingAssembly().Location;
@@ -111,34 +119,22 @@ namespace Update
             Directory.CreateDirectory(runDir);
 
             string destExe = Path.Combine(runDir, Path.GetFileName(self));
+            File.Copy(self, destExe, overwrite: true);
 
-            // Copy the exe and its sibling assemblies / native deps. We deliberately skip large bundled
-            // payloads (.zip, .mp3, .otf) that aren't needed at runtime by the updater itself.
-            string[] skipExt = { ".zip", ".mp3", ".otf", ".pdb" };
-            foreach (var file in Directory.GetFiles(srcDir))
+            string cfgName = Path.GetFileName(self) + ".config";
+            string cfgSrc = Path.Combine(srcDir, cfgName);
+            if (File.Exists(cfgSrc))
             {
-                if (skipExt.Contains(Path.GetExtension(file).ToLowerInvariant())) continue;
-                string fname = Path.GetFileName(file);
-                string dest = Path.Combine(runDir, fname);
-                try { File.Copy(file, dest, overwrite: true); }
-                catch (Exception ex) { Log("Could not copy " + fname + ": " + ex.Message); }
+                try { File.Copy(cfgSrc, Path.Combine(runDir, cfgName), overwrite: true); }
+                catch (Exception ex) { Log("Could not copy " + cfgName + ": " + ex.Message); }
             }
 
-            // Also copy any architecture-specific native subfolders the runtime might probe (e.g. x86/, x64/
-            // for SQLite.Interop.dll). Cheap insurance.
-            foreach (var subName in new[] { "x86", "x64" })
+            // Prefer Update.exe.config name when this binary was renamed HiatmeApplyUpdate.exe
+            string altCfg = Path.Combine(srcDir, "Update.exe.config");
+            if (!File.Exists(cfgSrc) && File.Exists(altCfg))
             {
-                string sub = Path.Combine(srcDir, subName);
-                if (Directory.Exists(sub))
-                {
-                    string destSub = Path.Combine(runDir, subName);
-                    Directory.CreateDirectory(destSub);
-                    foreach (var file in Directory.GetFiles(sub))
-                    {
-                        try { File.Copy(file, Path.Combine(destSub, Path.GetFileName(file)), overwrite: true); }
-                        catch { }
-                    }
-                }
+                try { File.Copy(altCfg, Path.Combine(runDir, "Update.exe.config"), overwrite: true); }
+                catch { }
             }
 
             if (!File.Exists(destExe))
@@ -154,7 +150,6 @@ namespace Update
             {
                 foreach (var a in args)
                 {
-                    // Quote anything containing spaces (unless it's already a fully-quoted token).
                     if (a.Contains(' ') && !(a.StartsWith("\"") && a.EndsWith("\"")))
                         parts.Add("\"" + a + "\"");
                     else
@@ -166,13 +161,6 @@ namespace Update
         }
     }
 
-    /// <summary>
-    /// Parsed command-line args.
-    ///   --pid &lt;int&gt;        process id of the main app to wait for (optional)
-    ///   --zip &lt;path&gt;       path to the verified zip to extract (required)
-    ///   --target &lt;dir&gt;     install directory to extract over (required)
-    ///   --restart &lt;exe&gt;    path to the app exe to launch after extraction (optional)
-    /// </summary>
     public sealed class UpdateArgs
     {
         public int? WaitForPid { get; private set; }

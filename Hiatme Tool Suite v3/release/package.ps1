@@ -146,8 +146,13 @@ try {
     if (Test-Path $updPdb) { Copy-Item -Path $updPdb -Destination $staging -Force }
     $updCfg = Join-Path $updRelease 'Update.exe.config'
     if (Test-Path $updCfg) { Copy-Item -Path $updCfg -Destination $staging -Force }
+    # Older updater builds needed MaterialSkin.dll; current Update.exe is plain WinForms.
     $materialSkin = Join-Path $updRelease 'MaterialSkin.dll'
-    if (Test-Path $materialSkin) { Copy-Item -Path $materialSkin -Destination $staging -Force }
+    if (Test-Path $materialSkin) {
+        Copy-Item -Path $materialSkin -Destination $staging -Force
+    } elseif (Test-Path (Join-Path $mainRelease 'MaterialSkin.dll')) {
+        Copy-Item -Path (Join-Path $mainRelease 'MaterialSkin.dll') -Destination $staging -Force
+    }
 
     $zipName = "HiatmeToolSuite-$ver.zip"
     $zipPath = Join-Path $scriptDir $zipName
@@ -155,6 +160,12 @@ try {
     Write-Host "Creating $zipName..."
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     [System.IO.Compression.ZipFile]::CreateFromDirectory($staging, $zipPath, [System.IO.Compression.CompressionLevel]::Optimal, $false)
+
+    # Sidecar for stuck desks: same Update.exe binary, renamed so double-click runs Apply Latest.
+    $applyPath = Join-Path $scriptDir 'HiatmeApplyUpdate.exe'
+    $updExe = Join-Path $updRelease 'Update.exe'
+    Copy-Item -Path $updExe -Destination $applyPath -Force
+    Write-Host "Wrote standalone repair tool: $applyPath"
 
     if ($ReleaseNotes) {
         $mdPath = Join-Path $scriptDir "HiatmeToolSuite-$ver.md"
@@ -171,10 +182,12 @@ try {
     Write-Host "  Zip   : $zipPath"
     Write-Host "  Size  : $sizeMb MB"
     Write-Host "  SHA256: $sha"
+    Write-Host "  Repair: $applyPath"
     Write-Host ""
     Write-Host "Next steps:"
     Write-Host "  1) Upload $zipName to /downloads/hiatme-tool-suite/ on hiatme.com."
-    Write-Host "  2) (Optional) Upload HiatmeToolSuite-$ver.md alongside it for release notes."
+    Write-Host "  2) Upload HiatmeApplyUpdate.exe alongside it (for desks stuck on broken Restart)."
+    Write-Host "  3) (Optional) Upload HiatmeToolSuite-$ver.md alongside it for release notes."
     if ($PackageMode -eq 'AppOnly') {
         Write-Host ""
         Write-Host "AppOnly zip: desks that already have login backgrounds download ~15 MB."

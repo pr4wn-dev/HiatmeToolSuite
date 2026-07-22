@@ -23,6 +23,8 @@ AIagent/
 # The big .zip payloads still stay out (they belong in the website repo, not here).
 !Hiatme Tool Suite v3/release/
 Hiatme Tool Suite v3/release/*.zip
+Hiatme Tool Suite v3/release/HiatmeApplyUpdate.exe
+Hiatme Tool Suite v3/release/_ms_extract/
 
 # Snapshot folders used to test the updater pipeline end-to-end.
 __test_run_*/

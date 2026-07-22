@@ -3164,10 +3164,11 @@ namespace Hiatme_Tool_Suite_v3
                     {
                         SupeyMessageDialog.ShowWarning(this,
                             "Update",
-                            "Could not start the updater.",
-                            "Your install folder is missing Update.exe and it could not be extracted from the download.",
+                            "Could not start the installer.",
+                            "Close the app and try Check for updates again.",
                             "Install folder:\n" + AppDomain.CurrentDomain.BaseDirectory + "\n\n" +
-                            "Downloaded zip:\n" + dlg.DownloadedZipPath);
+                            "Downloaded zip:\n" + dlg.DownloadedZipPath + "\n\n" +
+                            "Log:\n" + Path.Combine(Path.GetTempPath(), "HiatmeUpdaterLog.txt"));
                         return;
                     }
 

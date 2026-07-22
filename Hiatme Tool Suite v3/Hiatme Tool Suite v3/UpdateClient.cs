@@ -1,10 +1,12 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Net;
 using System.Net.Http;
 using System.Reflection;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -226,45 +228,59 @@ namespace Hiatme_Tool_Suite_v3
                     "Downloaded file failed integrity check.\nExpected SHA256: " + manifest.Sha256 + "\nActual:   " + actualHash);
             }
 
+            // Refresh updater bits while the main exe is still running (Update.exe is not locked by us).
+            try { StageUpdaterFilesFromZip(zipPath, AppDomain.CurrentDomain.BaseDirectory); } catch { }
+
             return zipPath;
         }
 
         /// <summary>
-        /// Launch the bundled <c>Update.exe</c> with arguments to wait for the current process, extract the zip
-        /// over the install dir, and restart this exe. Returns true if the updater was launched successfully —
-        /// caller should then exit the main app.
+        /// RESTART TO INSTALL handoff. Does not use on-disk Update.exe (broken on many desks).
+        /// Extracts the zip now, then runs a cmd worker that waits for this process to exit,
+        /// copies files into the install folder, and relaunches the app.
         /// </summary>
         public static bool LaunchUpdaterAndExit(string zipPath)
         {
             if (string.IsNullOrEmpty(zipPath) || !File.Exists(zipPath))
                 return false;
 
-            string installDir = AppDomain.CurrentDomain.BaseDirectory;
+            string installDir = (AppDomain.CurrentDomain.BaseDirectory ?? "")
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             string mainExe = Assembly.GetExecutingAssembly().Location;
-            string updaterExe = Path.Combine(installDir, "Update.exe");
-            if (!File.Exists(updaterExe))
-            {
-                // Older installs shipped before Update.exe was bundled next to the main exe.
-                if (!TryBootstrapUpdaterFromZip(zipPath, installDir))
-                    return false;
-            }
-
-            var pid = System.Diagnostics.Process.GetCurrentProcess().Id;
-            string args =
-                "--pid " + pid +
-                " --zip \"" + zipPath + "\"" +
-                " --target \"" + installDir.TrimEnd(Path.DirectorySeparatorChar) + "\"" +
-                " --restart \"" + mainExe + "\"";
+            if (string.IsNullOrEmpty(installDir) || !Directory.Exists(installDir))
+                return false;
+            if (string.IsNullOrEmpty(mainExe) || !File.Exists(mainExe))
+                return false;
 
             try
             {
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                string workRoot = Path.Combine(Path.GetTempPath(), "HiatmeToolSuiteUpdate", "job_" + DateTime.UtcNow.Ticks);
+                string staging = Path.Combine(workRoot, "staging");
+                Directory.CreateDirectory(staging);
+                ZipFile.ExtractToDirectory(zipPath, staging);
+
+                string logPath = Path.Combine(Path.GetTempPath(), "HiatmeUpdaterLog.txt");
+                string scriptPath = Path.Combine(workRoot, "apply.cmd");
+                int pid = Process.GetCurrentProcess().Id;
+
+                File.WriteAllText(scriptPath, BuildApplyScript(
+                    pid, staging, installDir, mainExe, zipPath, logPath), Encoding.ASCII);
+
+                var p = Process.Start(new ProcessStartInfo
                 {
-                    FileName = updaterExe,
-                    Arguments = args,
+                    FileName = "cmd.exe",
+                    Arguments = "/c \"" + scriptPath + "\"",
+                    WorkingDirectory = workRoot,
                     UseShellExecute = false,
-                    WorkingDirectory = installDir,
+                    CreateNoWindow = true,
                 });
+                if (p == null)
+                    return false;
+
+                Thread.Sleep(500);
+                if (p.HasExited)
+                    return false;
+
                 return true;
             }
             catch
@@ -273,35 +289,66 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        private static string BuildApplyScript(
+            int pid,
+            string stagingDir,
+            string installDir,
+            string mainExe,
+            string zipPath,
+            string logPath)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("@echo off");
+            sb.AppendLine("setlocal");
+            sb.AppendLine("set \"LOG=" + EscapeCmd(logPath) + "\"");
+            sb.AppendLine("echo [%date% %time%] apply.cmd start>>\"%LOG%\"");
+            sb.AppendLine("echo [%date% %time%] waiting for pid " + pid + ">>\"%LOG%\"");
+            sb.AppendLine(":waitpid");
+            sb.AppendLine("tasklist /FI \"PID eq " + pid + "\" | find \"" + pid + "\" >nul");
+            sb.AppendLine("if not errorlevel 1 (");
+            sb.AppendLine("  timeout /t 1 /nobreak >nul");
+            sb.AppendLine("  goto waitpid");
+            sb.AppendLine(")");
+            sb.AppendLine("echo [%date% %time%] pid gone — copying>>\"%LOG%\"");
+            sb.AppendLine("timeout /t 2 /nobreak >nul");
+            sb.AppendLine("robocopy \"" + EscapeCmd(stagingDir) + "\" \"" + EscapeCmd(installDir) + "\" /E /IS /IT /R:5 /W:1 /XD Monday Tuesday Wednesday Thursday Friday Saturday Sunday \"Template Temps\" >>\"%LOG%\" 2>&1");
+            sb.AppendLine("set RC=%ERRORLEVEL%");
+            sb.AppendLine("echo [%date% %time%] robocopy=%RC%>>\"%LOG%\"");
+            sb.AppendLine("if %RC% GEQ 8 (");
+            sb.AppendLine("  echo [%date% %time%] COPY FAILED>>\"%LOG%\"");
+            sb.AppendLine("  exit /b 1");
+            sb.AppendLine(")");
+            sb.AppendLine("echo [%date% %time%] launching>>\"%LOG%\"");
+            sb.AppendLine("start \"\" \"" + EscapeCmd(mainExe) + "\"");
+            sb.AppendLine("del /F /Q \"" + EscapeCmd(zipPath) + "\" >nul 2>&1");
+            sb.AppendLine("rmdir /S /Q \"" + EscapeCmd(stagingDir) + "\" >nul 2>&1");
+            sb.AppendLine("echo [%date% %time%] done>>\"%LOG%\"");
+            sb.AppendLine("endlocal");
+            sb.AppendLine("exit /b 0");
+            return sb.ToString();
+        }
+
+        private static string EscapeCmd(string path)
+        {
+            return (path ?? "").Replace("\"", "");
+        }
+
         /// <summary>
-        /// Pulls <c>Update.exe</c> (and its .config) out of the verified download so legacy installs can update once.
+        /// Overwrite install-dir updater files from the verified zip (safe while main app is running).
         /// </summary>
-        private static bool TryBootstrapUpdaterFromZip(string zipPath, string installDir)
+        private static void StageUpdaterFilesFromZip(string zipPath, string installDir)
         {
             if (string.IsNullOrEmpty(zipPath) || !File.Exists(zipPath) || string.IsNullOrEmpty(installDir))
-                return false;
-
-            try
+                return;
+            using (ZipArchive archive = ZipFile.OpenRead(zipPath))
             {
-                using (ZipArchive archive = ZipFile.OpenRead(zipPath))
+                foreach (string name in new[] { "Update.exe", "Update.exe.config", "MaterialSkin.dll" })
                 {
-                    bool gotExe = false;
-                    foreach (string name in new[] { "Update.exe", "Update.exe.config" })
-                    {
-                        ZipArchiveEntry entry = archive.GetEntry(name);
-                        if (entry == null)
-                            continue;
-                        string dest = Path.Combine(installDir, name);
-                        entry.ExtractToFile(dest, overwrite: true);
-                        if (name.Equals("Update.exe", StringComparison.OrdinalIgnoreCase))
-                            gotExe = true;
-                    }
-                    return gotExe && File.Exists(Path.Combine(installDir, "Update.exe"));
+                    ZipArchiveEntry entry = archive.GetEntry(name);
+                    if (entry == null) continue;
+                    try { entry.ExtractToFile(Path.Combine(installDir, name), overwrite: true); }
+                    catch { }
                 }
-            }
-            catch
-            {
-                return false;
             }
         }
 
