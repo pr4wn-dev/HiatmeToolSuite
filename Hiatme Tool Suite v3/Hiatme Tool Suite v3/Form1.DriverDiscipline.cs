@@ -16,6 +16,8 @@ namespace Hiatme_Tool_Suite_v3
     partial class Form1
     {
         private const int DdToolbarH = 48;
+        private const int DdCardGap = 14;
+        private const int DdContentPad = 20;
 
         private SupeyCard ddMainCard;
         private SupeyCard ddStatusCard;
@@ -31,7 +33,8 @@ namespace Hiatme_Tool_Suite_v3
 
         private Panel ddBodyHost;
         private Panel ddScrollBody;
-        private TableLayoutPanel ddFormGrid;
+        private FlowLayoutPanel ddStack;
+        private readonly List<SupeyCard> _ddSectionCards = new List<SupeyCard>();
 
         private SupeyTextBox ddCaseTb;
         private SupeyTextBox ddPreparedTb;
@@ -210,6 +213,7 @@ namespace Hiatme_Tool_Suite_v3
                 Type = SupeyMaterialButton.MaterialButtonType.Contained,
                 UseAccentColor = true,
                 Size = new Size(130, 32),
+                Anchor = AnchorStyles.Left | AnchorStyles.Top,
                 Location = new Point(0, 2),
             };
             ddGenerateBtn.Click += (_, __) => GenerateDriverDisciplineWord();
@@ -220,7 +224,7 @@ namespace Hiatme_Tool_Suite_v3
                 Text = "From Dashcam",
                 Type = SupeyMaterialButton.MaterialButtonType.Outlined,
                 Size = new Size(120, 32),
-                Location = new Point(140, 2),
+                Location = new Point(146, 2),
             };
             ddFromDashcamBtn.Click += (_, __) => PrefillDriverDisciplineFromDashcam();
 
@@ -230,7 +234,7 @@ namespace Hiatme_Tool_Suite_v3
                 Text = "Open Dashcam",
                 Type = SupeyMaterialButton.MaterialButtonType.Outlined,
                 Size = new Size(120, 32),
-                Location = new Point(270, 2),
+                Location = new Point(274, 2),
             };
             ddOpenDashcamBtn.Click += (_, __) =>
             {
@@ -241,10 +245,10 @@ namespace Hiatme_Tool_Suite_v3
             ddAddClipsBtn = new SupeyMaterialButton
             {
                 Name = "ddAddClipsBtn",
-                Text = "Add clip files…",
+                Text = "Add clips…",
                 Type = SupeyMaterialButton.MaterialButtonType.Outlined,
-                Size = new Size(120, 32),
-                Location = new Point(400, 2),
+                Size = new Size(110, 32),
+                Location = new Point(402, 2),
             };
             ddAddClipsBtn.Click += (_, __) => AddDriverDisciplineClipsManual();
 
@@ -254,7 +258,7 @@ namespace Hiatme_Tool_Suite_v3
                 Text = "Clear form",
                 Type = SupeyMaterialButton.MaterialButtonType.Text,
                 Size = new Size(100, 32),
-                Location = new Point(530, 2),
+                Anchor = AnchorStyles.Top | AnchorStyles.Right,
             };
             ddClearBtn.Click += (_, __) =>
             {
@@ -271,6 +275,14 @@ namespace Hiatme_Tool_Suite_v3
                 }
             };
 
+            ddToolbarInner.Resize += (_, __) =>
+            {
+                if (ddClearBtn != null)
+                    ddClearBtn.Location = new Point(
+                        Math.Max(520, ddToolbarInner.ClientSize.Width - ddClearBtn.Width - 4),
+                        2);
+            };
+
             ddToolbarInner.Controls.Add(ddGenerateBtn);
             ddToolbarInner.Controls.Add(ddFromDashcamBtn);
             ddToolbarInner.Controls.Add(ddOpenDashcamBtn);
@@ -282,174 +294,247 @@ namespace Hiatme_Tool_Suite_v3
 
         private void BuildDriverDisciplineBody()
         {
+            _ddSectionCards.Clear();
+
             ddBodyHost = new Panel
             {
                 Name = "ddBodyHost",
                 Dock = DockStyle.Fill,
                 BackColor = SupeyTheme.Surface,
-                Padding = new Padding(4),
+                Padding = new Padding(0),
             };
 
+            // FlowLayout owns vertical stacking; parent panel scrolls.
             ddScrollBody = new Panel
             {
                 Name = "ddScrollBody",
                 Dock = DockStyle.Fill,
                 AutoScroll = true,
                 BackColor = SupeyTheme.Surface,
-                Padding = new Padding(16, 12, 16, 20),
+                Padding = new Padding(DdContentPad, 12, DdContentPad, 24),
             };
 
-            ddFormGrid = new TableLayoutPanel
+            ddStack = new FlowLayoutPanel
             {
-                Name = "ddFormGrid",
+                Name = "ddStack",
+                FlowDirection = FlowDirection.TopDown,
+                WrapContents = false,
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                Dock = DockStyle.Top,
-                ColumnCount = 1,
                 BackColor = SupeyTheme.Surface,
-                Padding = new Padding(0),
                 Margin = new Padding(0),
+                Padding = new Padding(0),
+                Location = new Point(0, 0),
             };
-            ddFormGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
 
-            int row = 0;
-            AddDdSection(ref row, "Case & notice");
-            AddDdGrid(ref row, BuildDdMetaGrid());
-            AddDdSection(ref row, "Employee");
-            AddDdGrid(ref row, BuildDdEmployeeGrid());
-            AddDdSection(ref row, "Incident");
-            AddDdGrid(ref row, BuildDdIncidentGrid());
-            AddDdSection(ref row, "Violation type(s) — check all that apply");
-            AddDdControl(ref row, BuildDdViolationPanel(), 220);
-            AddDdSection(ref row, "Action level");
-            ddActionCombo = new SupeyComboBox
-            {
-                Name = "ddActionCombo",
-                Dock = DockStyle.Top,
-                Width = 420,
-                UseTallSize = true,
-                Hint = "Action level",
-            };
-            foreach (string level in DriverDisciplineOptions.ActionLevels)
-                ddActionCombo.Items.Add(level);
-            ddActionCombo.SelectedItem = "Written warning";
-            AddDdControl(ref row, WrapDdField(ddActionCombo, 440, 64), 68);
+            // Fixed-height section cards (no AutoSize) — prevents SupeyCard/Dock overflow.
+            const int fieldRow = 58;
+            int violCols = 2;
+            int violRows = (DriverDisciplineOptions.Violations.Length + violCols - 1) / violCols;
+            int violH = violRows * 28 + 4;
+            int actionH = 56;
 
-            AddDdSection(ref row, "What the footage shows (short summary)");
-            ddFootageSummaryTb = MakeDdMemo("ddFootageSummaryTb", 72);
-            AddDdControl(ref row, ddFootageSummaryTb, 80);
+            ddStack.Controls.Add(MakeDdSectionCard(
+                "Corrective action write-up",
+                "Work top to bottom: who & when → what happened → evidence → action.",
+                BuildDdAccentStripe(),
+                contentHeight: 6));
 
-            AddDdSection(ref row, "Full narrative / investigation notes");
-            ddNarrativeTb = MakeDdMemo("ddNarrativeTb", 120);
-            AddDdControl(ref row, ddNarrativeTb, 128);
+            ddStack.Controls.Add(MakeDdSectionCard(
+                "1 · Case & notice",
+                "Reference for the write-up and who prepared it.",
+                BuildDdMetaGrid(fieldRow),
+                contentHeight: fieldRow * 2 + 4));
 
-            AddDdSection(ref row, "Dashcam evidence");
-            AddDdGrid(ref row, BuildDdEvidenceGrid());
+            ddStack.Controls.Add(MakeDdSectionCard(
+                "2 · Employee",
+                "Driver and supervisor on the notice.",
+                BuildDdEmployeeGrid(fieldRow),
+                contentHeight: fieldRow * 2 + 4));
 
-            AddDdSection(ref row, "Policy / rule cited");
-            ddPolicyTb = new SupeyTextBox
-            {
-                Name = "ddPolicyTb",
-                Dock = DockStyle.Top,
-                UseTallSize = true,
-                Hint = "Policy / handbook section",
-            };
-            AddDdControl(ref row, WrapDdField(ddPolicyTb, 0, 64), 68);
+            ddStack.Controls.Add(MakeDdSectionCard(
+                "3 · Incident",
+                "When and where it happened.",
+                BuildDdIncidentGrid(fieldRow),
+                contentHeight: fieldRow * 3 + 4));
 
-            AddDdSection(ref row, "Prior related history");
-            ddPriorTb = MakeDdMemo("ddPriorTb", 72);
-            AddDdControl(ref row, ddPriorTb, 80);
+            ddStack.Controls.Add(MakeDdSectionCard(
+                "4 · Violation & action",
+                "Check all that apply, then pick the action level.",
+                BuildDdJudgmentPanel(violH, actionH),
+                contentHeight: violH + actionH + 8));
 
-            AddDdSection(ref row, "Corrective action required");
-            ddCorrectiveTb = MakeDdMemo("ddCorrectiveTb", 90);
-            AddDdControl(ref row, ddCorrectiveTb, 98);
-            ddFollowUpTb = new SupeyTextBox
-            {
-                Name = "ddFollowUpTb",
-                Dock = DockStyle.Top,
-                UseTallSize = true,
-                Hint = "Follow-up / review date",
-            };
-            AddDdControl(ref row, WrapDdField(ddFollowUpTb, 320, 64), 68);
+            ddStack.Controls.Add(MakeDdSectionCard(
+                "5 · Dashcam evidence",
+                "Folder and clips that support this write-up.",
+                BuildDdEvidencePanel(fieldRow),
+                contentHeight: fieldRow + 150));
 
-            AddDdSection(ref row, "Driver statement (optional — leave blank for paper completion)");
-            ddDriverStatementTb = MakeDdMemo("ddDriverStatementTb", 72);
-            AddDdControl(ref row, ddDriverStatementTb, 80);
+            ddStack.Controls.Add(MakeDdSectionCard(
+                "6 · What the footage shows",
+                "Short summary — prints near the top of the Word form.",
+                BuildDdMemoBlock(out ddFootageSummaryTb, "ddFootageSummaryTb"),
+                contentHeight: 86));
 
-            ddScrollBody.Controls.Add(ddFormGrid);
+            ddStack.Controls.Add(MakeDdSectionCard(
+                "7 · Investigation notes",
+                "Full narrative for the file.",
+                BuildDdMemoBlock(out ddNarrativeTb, "ddNarrativeTb"),
+                contentHeight: 140));
+
+            ddStack.Controls.Add(MakeDdSectionCard(
+                "8 · Policy & history",
+                "Cite the rule and any prior coaching or write-ups.",
+                BuildDdPolicyPriorPanel(fieldRow),
+                contentHeight: 120));
+
+            ddStack.Controls.Add(MakeDdSectionCard(
+                "9 · Corrective action",
+                "What the driver must do next, and when you’ll review.",
+                BuildDdCorrectivePanel(fieldRow),
+                contentHeight: 160));
+
+            ddStack.Controls.Add(MakeDdSectionCard(
+                "10 · Driver statement (optional)",
+                "Leave blank if they’ll write this on the printed copy.",
+                BuildDdMemoBlock(out ddDriverStatementTb, "ddDriverStatementTb"),
+                contentHeight: 90));
+
+            ddScrollBody.Controls.Add(ddStack);
             ddBodyHost.Controls.Add(ddScrollBody);
-            ddScrollBody.Resize += (_, __) =>
+
+            ddScrollBody.Resize += (_, __) => LayoutDriverDisciplineStack();
+            LayoutDriverDisciplineStack();
+        }
+
+        private void LayoutDriverDisciplineStack()
+        {
+            if (ddStack == null || ddScrollBody == null) return;
+            int w = Math.Max(640, ddScrollBody.ClientSize.Width - SystemInformation.VerticalScrollBarWidth - 8);
+            ddStack.SuspendLayout();
+            try
             {
-                if (ddFormGrid != null)
-                    ddFormGrid.Width = Math.Max(640, ddScrollBody.ClientSize.Width - 36);
+                ddStack.Width = w;
+                foreach (Control c in ddStack.Controls)
+                {
+                    c.Width = w;
+                    c.Margin = new Padding(0, 0, 0, DdCardGap);
+                }
+            }
+            finally { ddStack.ResumeLayout(true); }
+        }
+
+        private static Control BuildDdAccentStripe()
+        {
+            return new Panel
+            {
+                Dock = DockStyle.Fill,
+                Height = 3,
+                BackColor = SupeyTheme.AccentStripe,
+                Margin = new Padding(0),
             };
         }
 
-        private void AddDdSection(ref int row, string title)
+        private SupeyCard MakeDdSectionCard(string title, string subtitle, Control content, int contentHeight)
         {
-            var lbl = new SupeyLabel
+            const int padX = 16;
+            const int padTop = 12;
+            const int padBottom = 14;
+            int headerH = string.IsNullOrEmpty(subtitle) ? 26 : 44;
+            int cardH = padTop + headerH + 6 + contentHeight + padBottom;
+
+            var card = new SupeyCard
             {
-                Text = title,
+                SurfaceLevel = SupeyCard.Surface.Elevated,
+                ShowBorder = true,
+                CornerRadius = 10,
+                Padding = new Padding(padX, padTop, padX, padBottom),
+                Margin = new Padding(0, 0, 0, DdCardGap),
                 AutoSize = false,
-                Height = 28,
+                Height = cardH,
+                Width = 800,
+            };
+
+            var header = new Panel
+            {
                 Dock = DockStyle.Top,
+                Height = headerH,
+                BackColor = SupeyTheme.SurfaceElevated,
+                Padding = new Padding(0, 0, 0, 4),
+            };
+            var titleLbl = new SupeyLabel
+            {
+                Text = title ?? "",
+                Dock = DockStyle.Top,
+                Height = 22,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Font = SupeyTheme.SubHeaderFont,
                 ForeColor = SupeyTheme.TextPrimary,
-                BackColor = SupeyTheme.Surface,
-                Padding = new Padding(0, 8, 0, 0),
-                Margin = new Padding(0, row == 0 ? 0 : 8, 0, 2),
+                BackColor = SupeyTheme.SurfaceElevated,
             };
-            ddFormGrid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            ddFormGrid.Controls.Add(lbl, 0, row++);
-        }
-
-        private void AddDdGrid(ref int row, Control grid)
-        {
-            grid.Dock = DockStyle.Top;
-            grid.Margin = new Padding(0, 0, 0, 6);
-            ddFormGrid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            ddFormGrid.Controls.Add(grid, 0, row++);
-        }
-
-        private void AddDdControl(ref int row, Control c, int height)
-        {
-            c.Height = height;
-            c.Dock = DockStyle.Top;
-            c.Margin = new Padding(0, 0, 0, 6);
-            ddFormGrid.RowStyles.Add(new RowStyle(SizeType.Absolute, height + 6));
-            ddFormGrid.Controls.Add(c, 0, row++);
-        }
-
-        private static Panel WrapDdField(Control field, int width, int height)
-        {
-            var host = new Panel
+            if (!string.IsNullOrEmpty(subtitle))
             {
-                Height = height,
-                BackColor = SupeyTheme.Surface,
-                Padding = new Padding(0),
-            };
-            if (width > 0) field.Width = width;
-            else field.Dock = DockStyle.Fill;
-            if (width > 0)
-            {
-                field.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-                field.Width = Math.Max(200, width);
+                var subLbl = new SupeyLabel
+                {
+                    Text = subtitle,
+                    Dock = DockStyle.Top,
+                    Height = 18,
+                    TextAlign = ContentAlignment.MiddleLeft,
+                    Font = SupeyTheme.CaptionFont,
+                    ForeColor = SupeyTheme.TextMuted,
+                    BackColor = SupeyTheme.SurfaceElevated,
+                };
+                header.Controls.Add(subLbl);
+                header.Controls.Add(titleLbl);
             }
-            host.Controls.Add(field);
-            if (width <= 0)
-                field.Dock = DockStyle.Fill;
             else
             {
-                field.Location = new Point(0, 0);
-                host.Resize += (_, __) => field.Width = Math.Max(200, host.ClientSize.Width);
+                header.Controls.Add(titleLbl);
             }
+
+            content.Dock = DockStyle.Fill;
+            content.BackColor = SupeyTheme.SurfaceElevated;
+
+            card.Controls.Add(content);
+            card.Controls.Add(header);
+
+            _ddSectionCards.Add(card);
+            return card;
+        }
+
+        private static SupeyLabel MakeDdFieldCaption(string text)
+        {
+            return new SupeyLabel
+            {
+                Text = text,
+                Dock = DockStyle.Top,
+                Height = 16,
+                TextAlign = ContentAlignment.MiddleLeft,
+                ForeColor = SupeyTheme.TextMuted,
+                Font = SupeyTheme.CaptionFont,
+                BackColor = SupeyTheme.SurfaceElevated,
+                Margin = new Padding(0),
+                Padding = new Padding(0),
+            };
+        }
+
+        private Panel BuildDdMemoBlock(out TextBox box, string name)
+        {
+            box = MakeDdMemo(name);
+            var host = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = SupeyTheme.SurfaceElevated,
+                Padding = new Padding(0),
+            };
+            box.Dock = DockStyle.Fill;
+            host.Controls.Add(box);
             return host;
         }
 
-        private TableLayoutPanel BuildDdMetaGrid()
+        private TableLayoutPanel BuildDdMetaGrid(int rowH)
         {
-            var grid = MakeDdTwoColGrid();
+            var grid = MakeDdTwoColGrid(2, rowH);
             ddCaseTb = MakeDdText("ddCaseTb", "Case / reference #");
             ddPreparedTb = MakeDdText("ddPreparedTb", "Prepared by");
             ddDeptTb = MakeDdText("ddDeptTb", "Department");
@@ -462,9 +547,9 @@ namespace Hiatme_Tool_Suite_v3
             return grid;
         }
 
-        private TableLayoutPanel BuildDdEmployeeGrid()
+        private TableLayoutPanel BuildDdEmployeeGrid(int rowH)
         {
-            var grid = MakeDdTwoColGrid();
+            var grid = MakeDdTwoColGrid(2, rowH);
             ddDriverTb = MakeDdText("ddDriverTb", "Driver name");
             ddEmployeeIdTb = MakeDdText("ddEmployeeIdTb", "Employee ID");
             ddVehicleTb = MakeDdText("ddVehicleTb", "Vehicle");
@@ -477,16 +562,9 @@ namespace Hiatme_Tool_Suite_v3
             return grid;
         }
 
-        private TableLayoutPanel BuildDdIncidentGrid()
+        private TableLayoutPanel BuildDdIncidentGrid(int rowH)
         {
-            var grid = MakeDdTwoColGrid();
-            grid.ColumnCount = 3;
-            grid.ColumnStyles.Clear();
-            grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33f));
-            grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33f));
-            grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.34f));
-            grid.RowCount = 2;
-
+            var grid = MakeDdTwoColGrid(3, rowH);
             ddIncidentDate = MakeDdDate("ddIncidentDate");
             ddIncidentTimeTb = MakeDdText("ddIncidentTimeTb", "e.g. 14:35");
             ddTripRefTb = MakeDdText("ddTripRefTb", "Trip / client ref");
@@ -494,77 +572,106 @@ namespace Hiatme_Tool_Suite_v3
 
             grid.Controls.Add(LabeledDd("Incident date", ddIncidentDate), 0, 0);
             grid.Controls.Add(LabeledDd("Approximate time", ddIncidentTimeTb), 1, 0);
-            grid.Controls.Add(LabeledDd("Trip / client ref", ddTripRefTb), 2, 0);
-
+            grid.Controls.Add(LabeledDd("Trip / client ref", ddTripRefTb), 0, 1);
             var locHost = LabeledDd("Location / area", ddLocationTb);
-            grid.SetColumnSpan(locHost, 3);
-            grid.Controls.Add(locHost, 0, 1);
+            grid.SetColumnSpan(locHost, 2);
+            grid.Controls.Add(locHost, 0, 2);
             return grid;
         }
 
-        private Panel BuildDdViolationPanel()
+        private Panel BuildDdJudgmentPanel(int violH, int actionH)
         {
-            ddViolationHost = new Panel
-            {
-                Name = "ddViolationHost",
-                Height = 220,
-                BackColor = SupeyTheme.SurfaceElevated,
-                Padding = new Padding(12, 10, 12, 10),
-            };
-            // Paint a light bordered card look via SupeyCard-like panel
-            var card = new SupeyCard
+            var host = new Panel
             {
                 Dock = DockStyle.Fill,
-                SurfaceLevel = SupeyCard.Surface.Elevated,
-                ShowBorder = true,
-                CornerRadius = 8,
-                Padding = new Padding(12, 8, 12, 8),
-            };
-            var flow = new FlowLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                FlowDirection = FlowDirection.TopDown,
-                WrapContents = true,
-                AutoScroll = false,
                 BackColor = SupeyTheme.SurfaceElevated,
                 Padding = new Padding(0),
             };
 
+            ddViolationHost = new Panel
+            {
+                Name = "ddViolationHost",
+                Dock = DockStyle.Top,
+                Height = violH,
+                BackColor = SupeyTheme.SurfaceElevated,
+                Padding = new Padding(0),
+            };
+
+            var violGrid = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 2,
+                BackColor = SupeyTheme.SurfaceElevated,
+                Margin = new Padding(0),
+                Padding = new Padding(0),
+            };
+            violGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
+            violGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
+
             _ddViolationChecks.Clear();
-            foreach (string label in DriverDisciplineOptions.Violations)
+            string[] violations = DriverDisciplineOptions.Violations;
+            int rows = (violations.Length + 1) / 2;
+            violGrid.RowCount = rows;
+            for (int r = 0; r < rows; r++)
+                violGrid.RowStyles.Add(new RowStyle(SizeType.Percent, 100f / rows));
+
+            for (int i = 0; i < violations.Length; i++)
             {
                 var chk = new SupeyCheckbox
                 {
-                    Text = label,
+                    Text = violations[i],
                     Checked = false,
-                    Size = new Size(420, 24),
-                    Margin = new Padding(0, 2, 16, 2),
+                    Dock = DockStyle.Fill,
+                    Margin = new Padding(0, 1, 8, 1),
                     BackColor = SupeyTheme.SurfaceElevated,
                 };
                 _ddViolationChecks.Add(chk);
-                flow.Controls.Add(chk);
+                violGrid.Controls.Add(chk, i % 2, i / 2);
             }
+            ddViolationHost.Controls.Add(violGrid);
 
-            card.Controls.Add(flow);
-            ddViolationHost.Controls.Add(card);
-            return ddViolationHost;
+            ddActionCombo = new SupeyComboBox
+            {
+                Name = "ddActionCombo",
+                Dock = DockStyle.Top,
+                UseTallSize = false,
+                Height = 36,
+                Hint = "Action level",
+            };
+            foreach (string level in DriverDisciplineOptions.ActionLevels)
+                ddActionCombo.Items.Add(level);
+            ddActionCombo.SelectedItem = "Written warning";
+
+            var actionHost = new Panel
+            {
+                Dock = DockStyle.Bottom,
+                Height = actionH,
+                BackColor = SupeyTheme.SurfaceElevated,
+                Padding = new Padding(0, 6, 0, 0),
+            };
+            var actionCap = MakeDdFieldCaption("Action level");
+            actionHost.Controls.Add(ddActionCombo);
+            actionHost.Controls.Add(actionCap);
+
+            // Bottom first, then Top — keeps the action strip pinned and violations above it.
+            host.Controls.Add(actionHost);
+            host.Controls.Add(ddViolationHost);
+            return host;
         }
 
-        private TableLayoutPanel BuildDdEvidenceGrid()
+        private Panel BuildDdEvidencePanel(int folderRowH)
         {
-            var grid = new TableLayoutPanel
+            var host = new Panel
             {
-                ColumnCount = 1,
-                RowCount = 2,
-                AutoSize = true,
-                BackColor = SupeyTheme.Surface,
+                Dock = DockStyle.Fill,
+                BackColor = SupeyTheme.SurfaceElevated,
+                Padding = new Padding(0),
             };
-            grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
-            grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 70f));
-            grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 140f));
 
             ddFolderTb = MakeDdText("ddFolderTb", "Footage folder path");
-            grid.Controls.Add(LabeledDd("Footage folder", ddFolderTb), 0, 0);
+            var folderBlock = LabeledDd("Footage folder", ddFolderTb);
+            folderBlock.Dock = DockStyle.Top;
+            folderBlock.Height = folderRowH;
 
             ddClipsLv = new SupeyListView
             {
@@ -576,48 +683,122 @@ namespace Hiatme_Tool_Suite_v3
                 HeaderStyle = ColumnHeaderStyle.Nonclickable,
                 BorderStyle = BorderStyle.None,
                 MultiSelect = false,
-                Height = 130,
                 BackColor = SupeyTheme.ListBody,
                 ForeColor = SupeyTheme.ListText,
             };
             try { ddClipsLv.Font = ListViewOwnerDrawFonts.Cell; } catch { }
-            ddClipsLv.Columns.Add("Clip file", 280);
-            ddClipsLv.Columns.Add("Full path", 520);
+            ddClipsLv.Columns.Add("Clip file", 220);
+            ddClipsLv.Columns.Add("Full path", 480);
             ddClipsLv.DrawColumnHeader += listView_DrawColumnHeader;
             ddClipsLv.DrawItem += listView_DrawItem;
             ddClipsLv.DrawSubItem += listView_DrawSubItem;
             ListViewHeaderEmptyAreaPainter.Attach(ddClipsLv);
             SupeyListViewHelpers.EnableDoubleBufferRecursively(ddClipsLv);
 
-            var clipHost = new SupeyCard
+            var clipBlock = new Panel
             {
                 Dock = DockStyle.Fill,
-                SurfaceLevel = SupeyCard.Surface.Elevated,
-                ShowBorder = true,
-                CornerRadius = 8,
-                Padding = new Padding(6),
+                BackColor = SupeyTheme.SurfaceElevated,
+                Padding = new Padding(0, 4, 0, 0),
             };
-            clipHost.Controls.Add(ddClipsLv);
-            grid.Controls.Add(clipHost, 0, 1);
-            return grid;
+            var clipCap = MakeDdFieldCaption("Attached clips");
+            var clipFrame = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = SupeyTheme.ListBody,
+                Padding = new Padding(0),
+            };
+            clipFrame.Controls.Add(ddClipsLv);
+            clipBlock.Controls.Add(clipFrame);
+            clipBlock.Controls.Add(clipCap);
+
+            host.Controls.Add(clipBlock);
+            host.Controls.Add(folderBlock);
+            return host;
         }
 
-        private static TableLayoutPanel MakeDdTwoColGrid()
+        private TableLayoutPanel BuildDdPolicyPriorPanel(int policyRowH)
         {
             var grid = new TableLayoutPanel
             {
+                Dock = DockStyle.Fill,
                 ColumnCount = 2,
-                RowCount = 2,
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                BackColor = SupeyTheme.Surface,
+                RowCount = 1,
+                BackColor = SupeyTheme.SurfaceElevated,
                 Margin = new Padding(0),
                 Padding = new Padding(0),
             };
             grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
             grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
-            grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 78f));
-            grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 78f));
+            grid.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+
+            ddPolicyTb = MakeDdText("ddPolicyTb", "Policy / handbook section");
+            var policyCell = LabeledDd("Policy / rule cited", ddPolicyTb);
+            policyCell.Padding = new Padding(0, 0, 10, 0);
+
+            var priorHost = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = SupeyTheme.SurfaceElevated,
+                Padding = new Padding(10, 0, 0, 0),
+            };
+            var priorCap = MakeDdFieldCaption("Prior related history");
+            ddPriorTb = MakeDdMemo("ddPriorTb");
+            ddPriorTb.Dock = DockStyle.Fill;
+            priorHost.Controls.Add(ddPriorTb);
+            priorHost.Controls.Add(priorCap);
+
+            grid.Controls.Add(policyCell, 0, 0);
+            grid.Controls.Add(priorHost, 1, 0);
+            return grid;
+        }
+
+        private Panel BuildDdCorrectivePanel(int followRowH)
+        {
+            var host = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = SupeyTheme.SurfaceElevated,
+                Padding = new Padding(0),
+            };
+
+            ddFollowUpTb = MakeDdText("ddFollowUpTb", "Follow-up / review date");
+            var follow = LabeledDd("Follow-up / review date", ddFollowUpTb);
+            follow.Dock = DockStyle.Bottom;
+            follow.Height = followRowH;
+
+            ddCorrectiveTb = MakeDdMemo("ddCorrectiveTb");
+            ddCorrectiveTb.Dock = DockStyle.Fill;
+            var memoHost = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = SupeyTheme.SurfaceElevated,
+                Padding = new Padding(0, 0, 0, 6),
+            };
+            var cap = MakeDdFieldCaption("Corrective action required");
+            memoHost.Controls.Add(ddCorrectiveTb);
+            memoHost.Controls.Add(cap);
+
+            host.Controls.Add(memoHost);
+            host.Controls.Add(follow);
+            return host;
+        }
+
+        private static TableLayoutPanel MakeDdTwoColGrid(int rows, int rowH)
+        {
+            var grid = new TableLayoutPanel
+            {
+                ColumnCount = 2,
+                RowCount = rows,
+                Dock = DockStyle.Fill,
+                BackColor = SupeyTheme.SurfaceElevated,
+                Margin = new Padding(0),
+                Padding = new Padding(0),
+            };
+            grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
+            grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
+            for (int i = 0; i < rows; i++)
+                grid.RowStyles.Add(new RowStyle(SizeType.Absolute, rowH));
             return grid;
         }
 
@@ -626,31 +807,29 @@ namespace Hiatme_Tool_Suite_v3
             var host = new Panel
             {
                 Dock = DockStyle.Fill,
-                Padding = new Padding(0, 0, 12, 8),
-                BackColor = SupeyTheme.Surface,
+                Padding = new Padding(0, 0, 10, 2),
+                BackColor = SupeyTheme.SurfaceElevated,
                 Margin = new Padding(0),
             };
-            var lbl = new SupeyLabel
-            {
-                Text = label,
-                Dock = DockStyle.Top,
-                Height = 18,
-                TextAlign = ContentAlignment.MiddleLeft,
-                ForeColor = SupeyTheme.TextMuted,
-                Font = SupeyTheme.CaptionFont,
-                BackColor = SupeyTheme.Surface,
-                Margin = new Padding(0),
-            };
-            field.Dock = DockStyle.Top;
+            var lbl = MakeDdFieldCaption(label);
+            field.Dock = DockStyle.Fill;
             if (field is SupeyTextBox tb)
             {
-                tb.UseTallSize = true;
-                tb.Height = 58;
+                tb.UseTallSize = false;
+                tb.Dock = DockStyle.Top;
+                tb.Height = 36;
+            }
+            else if (field is SupeyComboBox cb)
+            {
+                cb.UseTallSize = false;
+                cb.Dock = DockStyle.Top;
+                cb.Height = 36;
             }
             else if (field is RJDatePicker)
             {
-                field.Height = 36;
-                field.Margin = new Padding(0, 10, 0, 0);
+                field.Dock = DockStyle.Top;
+                field.Height = 32;
+                field.Margin = new Padding(0, 2, 0, 0);
             }
             host.Controls.Add(field);
             host.Controls.Add(lbl);
@@ -663,8 +842,8 @@ namespace Hiatme_Tool_Suite_v3
             {
                 Name = name,
                 Hint = hint,
-                UseTallSize = true,
-                Height = 58,
+                UseTallSize = false,
+                Height = 36,
             };
         }
 
@@ -675,12 +854,12 @@ namespace Hiatme_Tool_Suite_v3
                 Name = name,
                 Format = DateTimePickerFormat.Short,
                 Value = DateTime.Today,
-                Width = 200,
-                Height = 36,
+                Width = 180,
+                Height = 32,
             };
         }
 
-        private static TextBox MakeDdMemo(string name, int height)
+        private static TextBox MakeDdMemo(string name)
         {
             return new TextBox
             {
@@ -689,11 +868,10 @@ namespace Hiatme_Tool_Suite_v3
                 ScrollBars = ScrollBars.Vertical,
                 AcceptsReturn = true,
                 BorderStyle = BorderStyle.FixedSingle,
-                Height = height,
                 Font = SupeyTheme.BodyFont,
-                BackColor = SupeyTheme.SurfaceElevated,
+                BackColor = SupeyTheme.ListBody,
                 ForeColor = SupeyTheme.TextPrimary,
-                Margin = new Padding(0, 0, 0, 0),
+                Margin = new Padding(0),
             };
         }
 
@@ -838,7 +1016,6 @@ namespace Hiatme_Tool_Suite_v3
 
             if (_dcSelected == null)
             {
-                // Try ensure dashcam is built / has selection
                 if (!_dcBuilt)
                     InitializeDashcamVideosTab();
             }
@@ -857,7 +1034,6 @@ namespace Hiatme_Tool_Suite_v3
             if (ddDriverTb != null) ddDriverTb.Text = driver.Driver ?? "";
             if (ddFolderTb != null) ddFolderTb.Text = driver.FolderPath ?? "";
 
-            // Best-effort vehicle from Supey roster
             try
             {
                 string warn;
@@ -997,21 +1173,29 @@ namespace Hiatme_Tool_Suite_v3
                 if (ddToolbarInner != null) ddToolbarInner.BackColor = SupeyTheme.SurfaceElevated;
                 if (ddBodyHost != null) ddBodyHost.BackColor = SupeyTheme.Surface;
                 if (ddScrollBody != null) ddScrollBody.BackColor = SupeyTheme.Surface;
-                if (ddFormGrid != null) ddFormGrid.BackColor = SupeyTheme.Surface;
+                if (ddStack != null) ddStack.BackColor = SupeyTheme.Surface;
+
+                foreach (var card in _ddSectionCards)
+                {
+                    if (card == null) continue;
+                    card.SurfaceLevel = SupeyCard.Surface.Elevated;
+                    card.BackColor = SupeyTheme.SurfaceElevated;
+                    card.ShowBorder = true;
+                }
 
                 foreach (var memo in new[] { ddFootageSummaryTb, ddNarrativeTb, ddPriorTb, ddCorrectiveTb, ddDriverStatementTb })
                 {
                     if (memo == null) continue;
-                    memo.BackColor = SupeyTheme.SurfaceElevated;
+                    memo.BackColor = SupeyTheme.ListBody;
                     memo.ForeColor = SupeyTheme.TextPrimary;
                     memo.Font = SupeyTheme.BodyFont;
                 }
-                if (ddViolationHost != null) ddViolationHost.BackColor = SupeyTheme.Surface;
+                if (ddViolationHost != null) ddViolationHost.BackColor = SupeyTheme.SurfaceElevated;
                 foreach (var chk in _ddViolationChecks)
                     chk.BackColor = SupeyTheme.SurfaceElevated;
 
-                if (layout && ddFormGrid != null && ddScrollBody != null)
-                    ddFormGrid.Width = Math.Max(640, ddScrollBody.ClientSize.Width - 36);
+                if (layout)
+                    LayoutDriverDisciplineStack();
             }
             catch { }
         }
