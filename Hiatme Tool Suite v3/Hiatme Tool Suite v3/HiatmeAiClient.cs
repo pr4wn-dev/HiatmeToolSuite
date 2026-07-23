@@ -3158,6 +3158,94 @@ namespace Hiatme_Tool_Suite_v3
             return rows;
         }
 
+        // ── Workbook schedule-assign (timing blame ownership) ─────────────
+
+        public sealed class ScheduleAssignDayStatus
+        {
+            public bool Ok { get; set; }
+            public bool Exists { get; set; }
+
+            [JsonProperty("service_date")]
+            public string ServiceDate { get; set; }
+
+            [JsonProperty("trip_count")]
+            public int TripCount { get; set; }
+
+            [JsonProperty("content_hash")]
+            public string ContentHash { get; set; }
+
+            [JsonProperty("updated_at")]
+            public double? UpdatedAt { get; set; }
+
+            public bool Unchanged { get; set; }
+            public string Source { get; set; }
+            public string Error { get; set; }
+        }
+
+        public sealed class ScheduleAssignTripRow
+        {
+            [JsonProperty("trip_number")]
+            public string TripNumber { get; set; }
+
+            public string Driver { get; set; }
+        }
+
+        public static async Task<ScheduleAssignDayStatus> PutScheduleAssignDayAsync(
+            HiatmeAiSettings settings,
+            string serviceDateIso,
+            IList<ScheduleAssignTripRow> trips,
+            string source = "",
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null)
+                return new ScheduleAssignDayStatus { Ok = false, Error = "settings missing" };
+            if (string.IsNullOrWhiteSpace(serviceDateIso))
+                return new ScheduleAssignDayStatus { Ok = false, Error = "service_date required" };
+
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl))
+                return new ScheduleAssignDayStatus { Ok = false, Error = "AI server URL not configured" };
+
+            string url = baseUrl + "/api/hiatme/schedule-assign/day";
+            var payload = new
+            {
+                service_date = serviceDateIso.Trim(),
+                source = source ?? "",
+                trips = trips ?? new List<ScheduleAssignTripRow>(),
+            };
+
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Put, url))
+                {
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    req.Content = new StringContent(
+                        JsonConvert.SerializeObject(payload),
+                        Encoding.UTF8,
+                        "application/json");
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken)
+                        .ConfigureAwait(false))
+                    {
+                        var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        if (!resp.IsSuccessStatusCode)
+                            return new ScheduleAssignDayStatus
+                            {
+                                Ok = false,
+                                Error = "HTTP " + (int)resp.StatusCode + ": " + body,
+                            };
+                        return JsonConvert.DeserializeObject<ScheduleAssignDayStatus>(body)
+                            ?? new ScheduleAssignDayStatus { Ok = false, Error = "empty response" };
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                return new ScheduleAssignDayStatus { Ok = false, Error = ex.Message };
+            }
+        }
+
         // ── ModivCare Market TP scorecard (panel-cached) ──────────────────
 
         public sealed class ModivcareMarketScoreSummary

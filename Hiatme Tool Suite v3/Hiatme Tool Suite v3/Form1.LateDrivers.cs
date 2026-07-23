@@ -141,6 +141,17 @@ namespace Hiatme_Tool_Suite_v3
             /// </summary>
             public HashSet<string> HabitChipKeys;
             public bool HabitChipOpen;
+            /// <summary>
+            /// Workbook still lists this trip under the selected driver, but WellRyde
+            /// shows a different driver — not their ding; habits follow WR.
+            /// </summary>
+            public bool ReassignedAway;
+            public string ReassignedToDriver;
+            /// <summary>
+            /// Habit-only row on the WR driver while the workbook still has the trip
+            /// under someone else.
+            /// </summary>
+            public string ReceivedFromDriver;
         }
 
         private void InitializeLateDriversTab()
@@ -1485,6 +1496,88 @@ namespace Hiatme_Tool_Suite_v3
             return _supeyAiSettings;
         }
 
+        /// <summary>
+        /// Push printed-schedule trip→driver ownership so the AI panel attributes
+        /// late/early to the workbook owner after WellRyde reassigns.
+        /// </summary>
+        private async Task UploadLateDriversScheduleAssignAsync(
+            HiatmeAiSettings settings,
+            string serviceDateIso)
+        {
+            if (settings == null || string.IsNullOrWhiteSpace(settings.BaseUrl))
+                return;
+            if (string.IsNullOrWhiteSpace(serviceDateIso))
+                return;
+
+            EnsureLateDriversScheduleCache(serviceDateIso.Trim(), forceReload: false);
+            if (_ldScheduleCache == null)
+                return;
+
+            var rows = new List<HiatmeAiClient.ScheduleAssignTripRow>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            void addTrip(string tripNo, string driver)
+            {
+                if (string.IsNullOrWhiteSpace(tripNo) || string.IsNullOrWhiteSpace(driver))
+                    return;
+                string d = driver.Trim();
+                if (d.Equals("Reserves", StringComparison.OrdinalIgnoreCase)
+                    || d.Equals("Reserve", StringComparison.OrdinalIgnoreCase)
+                    || d.IndexOf("unassign", StringComparison.OrdinalIgnoreCase) >= 0)
+                    return;
+                string tn = tripNo.Trim();
+                string key = ScheduleBuilderModivcareTripMatch.NormalizeTripNumber(tn);
+                if (string.IsNullOrEmpty(key) || !seen.Add(key))
+                    return;
+                rows.Add(new HiatmeAiClient.ScheduleAssignTripRow
+                {
+                    TripNumber = tn,
+                    Driver = d,
+                });
+            }
+
+            if (_ldScheduleCache.DriverTrips != null)
+            {
+                foreach (var kv in _ldScheduleCache.DriverTrips)
+                {
+                    if (string.IsNullOrWhiteSpace(kv.Key) || kv.Value == null)
+                        continue;
+                    foreach (var t in kv.Value)
+                    {
+                        if (t == null) continue;
+                        addTrip(t.TripNumber, kv.Key);
+                    }
+                }
+            }
+            if (_ldScheduleCache.DriverLines != null)
+            {
+                foreach (var kv in _ldScheduleCache.DriverLines)
+                {
+                    if (string.IsNullOrWhiteSpace(kv.Key) || kv.Value == null)
+                        continue;
+                    foreach (var line in kv.Value)
+                    {
+                        if (line?.Trip == null) continue;
+                        addTrip(line.Trip.TripNumber, kv.Key);
+                    }
+                }
+            }
+
+            if (rows.Count == 0)
+                return;
+
+            try
+            {
+                await HiatmeAiClient.PutScheduleAssignDayAsync(
+                        settings, serviceDateIso.Trim(), rows, source: "late-drivers-workbook")
+                    .ConfigureAwait(true);
+            }
+            catch
+            {
+                // Non-fatal — habits still load; blame falls back to WR driver.
+            }
+        }
+
         private async Task<(bool Ok, string Message, bool Downloaded)> EnsureModivcareDaySnapshotAsync(
             HiatmeAiSettings settings,
             string serviceDateIso)
@@ -1633,6 +1726,10 @@ namespace Hiatme_Tool_Suite_v3
                         SetLateDriversStatus("Status: " + ensured.Message);
                         return;
                     }
+                    // Workbook trip→driver so late/early blame stays on the printed owner
+                    // after WellRyde reassigns (Modivcare has clocks, not assignment).
+                    await UploadLateDriversScheduleAssignAsync(settings, sd)
+                        .ConfigureAwait(true);
                 }
 
                 if (!force && mode == "live" && !string.IsNullOrEmpty(_ldLastHash))
@@ -1860,6 +1957,8 @@ namespace Hiatme_Tool_Suite_v3
         {
             // Day/Live: pull schedule roster so clean drivers still appear in the strip.
             MergeLateDriversScheduleRosterIntoDriverRows();
+            // Always show workbook tab names; fold WR spellings onto those tiles.
+            RemapLateDriversRowsToScheduleNames();
             LayoutLateDriversTabPanels();
             LayoutLateDriversDriverStripRow();
             BindLateDriversDriverStrip();
@@ -1920,20 +2019,12 @@ namespace Hiatme_Tool_Suite_v3
             if (_ldDriverRows == null)
                 _ldDriverRows = new List<HiatmeAiClient.LateDriversDriverSummary>();
 
-            // Habits vs workbook often disagree on spelling ("Jeffrey Brown" vs "Jeffrey J Brown").
+            // Habits vs workbook often disagree on spelling ("Jeffrey Brown" vs "Jeffrey B").
             // Skip schedule names that already fuzzy-match a habits tile.
             foreach (string scheduleName in names.OrderBy(n => n, StringComparer.OrdinalIgnoreCase))
             {
                 bool exists = _ldDriverRows.Any(d =>
-                {
-                    if (d == null || string.IsNullOrWhiteSpace(d.Driver))
-                        return false;
-                    if (string.Equals(d.Driver, scheduleName, StringComparison.OrdinalIgnoreCase))
-                        return true;
-                    string resolved = ResolveLateDriversScheduleDriverKey(d.Driver);
-                    return !string.IsNullOrEmpty(resolved)
-                        && string.Equals(resolved, scheduleName, StringComparison.OrdinalIgnoreCase);
-                });
+                    d != null && LateDriversDriverNamesMatch(d.Driver, scheduleName));
                 if (exists)
                     continue;
                 _ldDriverRows.Add(new HiatmeAiClient.LateDriversDriverSummary
@@ -1943,6 +2034,7 @@ namespace Hiatme_Tool_Suite_v3
                 });
             }
 
+            CollapseLateDriversDuplicateDriverRows();
             SortLateDriversByMinutes(_ldDriverRows);
         }
 
@@ -2070,11 +2162,14 @@ namespace Hiatme_Tool_Suite_v3
             {
                 string driver = row.Driver ?? "";
                 row.Trips = _ldEventRows
-                    .Where(e => e != null
-                        && string.Equals(
-                            string.IsNullOrWhiteSpace(e.Driver) ? "(unassigned)" : e.Driver.Trim(),
-                            driver,
-                            StringComparison.OrdinalIgnoreCase))
+                    .Where(e =>
+                    {
+                        if (e == null) return false;
+                        string ed = string.IsNullOrWhiteSpace(e.Driver)
+                            ? "(unassigned)"
+                            : e.Driver.Trim();
+                        return LateDriversDriverNamesMatch(ed, driver);
+                    })
                     .ToList();
                 row.OpenCount = row.Trips.Count(t => t != null && t.Open);
                 // Recompute late/early from filtered trips so B/C DO never inflates the scorecard.
@@ -2102,6 +2197,7 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             _ldDriverRows = byName.Values.ToList();
+            CollapseLateDriversDuplicateDriverRows();
             SortLateDriversByMinutes(_ldDriverRows);
         }
 
@@ -3215,25 +3311,14 @@ namespace Hiatme_Tool_Suite_v3
             string tripNo)
         {
             if (row == null) return;
+            // Highlight follows the Habit column (HabitEvent), not every habit on the trip.
+            // A trip often has both late_pu + late_do; lighting both for Late DO looked wrong.
             var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             bool anyOpen = false;
             string want = (tripNo ?? row.TripNo ?? "").Trim();
-            if (!string.IsNullOrEmpty(want) && habits != null)
-            {
-                foreach (var e in habits)
-                {
-                    if (e == null) continue;
-                    if (!LateDriversTripNosEqualForChip(e.TripNo, want))
-                        continue;
-                    string hk = HabitKeyOf(e);
-                    if (!string.IsNullOrEmpty(hk))
-                        keys.Add(hk);
-                    if (e.Open)
-                        anyOpen = true;
-                }
-            }
-            // Habit-only / single-event rows: always include the attached event.
-            if (row.HabitEvent != null)
+            if (row.HabitEvent != null
+                && (string.IsNullOrEmpty(want)
+                    || LateDriversTripNosEqualForChip(row.HabitEvent.TripNo, want)))
             {
                 string hk = HabitKeyOf(row.HabitEvent);
                 if (!string.IsNullOrEmpty(hk))
@@ -3241,13 +3326,25 @@ namespace Hiatme_Tool_Suite_v3
                 if (row.HabitEvent.Open)
                     anyOpen = true;
             }
+            else if (!string.IsNullOrEmpty(want) && habits != null)
+            {
+                // No attached event — still allow Open chip via any open habit on this leg.
+                foreach (var e in habits)
+                {
+                    if (e == null || !e.Open) continue;
+                    if (!LateDriversTripNosEqualForChip(e.TripNo, want))
+                        continue;
+                    anyOpen = true;
+                    break;
+                }
+            }
             row.HabitChipKeys = keys;
             row.HabitChipOpen = anyOpen;
         }
 
         /// <summary>
-        /// True if this list row matches the score tile. Uses per-row HabitChipKeys
-        /// stamped at bind time (strict trip #) — never fuzzy-scans other trips.
+        /// True if this list row matches the score tile. Matches the visible Habit
+        /// on the row only — never other habit types sharing the same trip #.
         /// </summary>
         private bool LateDriversRowMatchesChip(object tag, string chip)
         {
@@ -3264,15 +3361,19 @@ namespace Hiatme_Tool_Suite_v3
             if (!(tag is LateDriversTripRowTag row))
                 return false;
 
-            if (row.HabitChipKeys != null)
-            {
-                if (chip == "open")
-                    return row.HabitChipOpen;
-                return row.HabitChipKeys.Contains(chip);
-            }
+            // Reassigned away: still on this sheet, but not this driver's habit.
+            if (row.ReassignedAway)
+                return false;
 
-            // Fallback before keys were stamped.
-            return row.HabitEvent != null && LateDriversHabitMatchesChip(row.HabitEvent, chip);
+            if (chip == "open")
+                return row.HabitChipOpen
+                    || (row.HabitEvent != null && row.HabitEvent.Open);
+
+            // Visible habit only (Habit column), not sibling habits on the same trip.
+            if (row.HabitEvent != null)
+                return LateDriversHabitMatchesChip(row.HabitEvent, chip);
+
+            return row.HabitChipKeys != null && row.HabitChipKeys.Contains(chip);
         }
 
         /// <summary>
@@ -3687,7 +3788,16 @@ namespace Hiatme_Tool_Suite_v3
 
             var habit = row.HabitEvent;
             string date = row.ServiceDate ?? "";
-            string habitLabel = habit != null ? HabitLabelOf(HabitKeyOf(habit)) : "—";
+            string habitLabel;
+            if (row.ReassignedAway)
+            {
+                string to = LateDriversShortDriverLabel(row.ReassignedToDriver);
+                habitLabel = string.IsNullOrEmpty(to) ? "Moved" : ("Moved → " + to);
+            }
+            else
+            {
+                habitLabel = habit != null ? HabitLabelOf(HabitKeyOf(habit)) : "—";
+            }
             string tripNo = row.TripNo ?? "";
             if (row.HabitOnly && !string.IsNullOrEmpty(tripNo) && !tripNo.StartsWith("+", StringComparison.Ordinal))
                 tripNo = "+" + tripNo;
@@ -3695,6 +3805,14 @@ namespace Hiatme_Tool_Suite_v3
             string driverCol = !string.IsNullOrWhiteSpace(row.DriverDisplay)
                 ? row.DriverDisplay.Trim()
                 : (habit?.Driver ?? "").Trim();
+            string client = row.Client ?? "";
+            if (!string.IsNullOrWhiteSpace(row.ReceivedFromDriver))
+            {
+                string from = LateDriversShortDriverLabel(row.ReceivedFromDriver);
+                if (!string.IsNullOrEmpty(from))
+                    client = (string.IsNullOrWhiteSpace(client) ? "" : client.Trim() + " · ")
+                        + "from " + from;
+            }
             string schedPu = string.IsNullOrWhiteSpace(row.SchedPuDisplay) ? "—" : row.SchedPuDisplay;
             string actPu = string.IsNullOrWhiteSpace(row.ActualPuDisplay) ? "—" : row.ActualPuDisplay;
             string schedDo = string.IsNullOrWhiteSpace(row.SchedDoDisplay) ? "—" : row.SchedDoDisplay;
@@ -3707,7 +3825,7 @@ namespace Hiatme_Tool_Suite_v3
             if (showDriver)
                 item.SubItems.Add(string.IsNullOrEmpty(driverCol) ? "—" : driverCol);
             item.SubItems.Add(habitLabel);
-            item.SubItems.Add(row.Client ?? "");
+            item.SubItems.Add(client);
             item.SubItems.Add(schedPu);
             item.SubItems.Add(actPu);
             item.SubItems.Add(schedDo);
@@ -3728,7 +3846,15 @@ namespace Hiatme_Tool_Suite_v3
                     ? (habit.Open ? "Open" : "Closed")
                     : LateDriversStateFromStatus(status));
 
-            if (habit != null)
+            if (row.ReassignedAway)
+            {
+                // Still on this sheet in the workbook, but WR gave it to someone else.
+                item.SubItems.Add("—");
+                item.SubItems.Add(string.IsNullOrEmpty(status) ? "—" : status);
+                item.SubItems.Add(string.IsNullOrEmpty(state) ? "—" : state);
+                item.ForeColor = Color.FromArgb(100, 140, 190);
+            }
+            else if (habit != null)
             {
                 bool noActual = string.IsNullOrWhiteSpace(habit.ActualIso);
                 string minsText = noActual && habit.Open
@@ -3833,30 +3959,14 @@ namespace Hiatme_Tool_Suite_v3
                         lastHeaderGroup = g;
                     }
 
-                    var habit = FindBestLateDriversHabitForTrip(habits, trip.TripNumber);
-                    if (habit != null)
-                        MarkLateDriversHabitsMatchedForTrip(habits, trip.TripNumber, matchedHabitKeys);
-
-                    var schedRow = new LateDriversTripRowTag
-                    {
-                        ScheduleTrip = trip,
-                        HabitEvent = habit,
-                        FromSchedule = true,
-                        HabitOnly = false,
-                        GroupNumber = g.GroupNumber,
-                        GroupLabel = "G" + g.GroupNumber,
-                        GroupColor = g.DisplayColor,
-                        DriverDisplay = driverName,
-                        TripNo = trip.TripNumber?.Trim() ?? "",
-                        ServiceDate = serviceDateIso,
-                        Client = trip.ClientFullName ?? habit?.Client ?? "",
-                        SchedDisplay = FormatLateDriversScheduleClock(
-                            PreferSchedTimeForHabit(trip, habit)),
-                        SortTime = LateDriversScheduleSortTime(serviceDateIso, trip),
-                    };
-                    AssignLateDriversChipKeys(schedRow, habits, trip.TripNumber);
-                    ApplyLateDriversPuDoTimes(schedRow, trip, habits);
-                    rows.Add(schedRow);
+                    rows.Add(MakeLateDriversScheduleTripRow(
+                        serviceDateIso,
+                        driverName,
+                        trip,
+                        habits,
+                        matchedHabitKeys,
+                        groupNumber: g.GroupNumber,
+                        groupColor: g.DisplayColor));
                 }
             }
             else
@@ -3866,31 +3976,19 @@ namespace Hiatme_Tool_Suite_v3
                     .OrderBy(t => LateDriversScheduleSortTime(serviceDateIso, t))
                     .ThenBy(t => t.TripNumber ?? "", StringComparer.OrdinalIgnoreCase))
                 {
-                    var habit = FindBestLateDriversHabitForTrip(habits, trip.TripNumber);
-                    if (habit != null)
-                        MarkLateDriversHabitsMatchedForTrip(habits, trip.TripNumber, matchedHabitKeys);
-
-                    var schedRow = new LateDriversTripRowTag
-                    {
-                        ScheduleTrip = trip,
-                        HabitEvent = habit,
-                        FromSchedule = true,
-                        HabitOnly = false,
-                        DriverDisplay = driverName,
-                        TripNo = trip.TripNumber?.Trim() ?? "",
-                        ServiceDate = serviceDateIso,
-                        Client = trip.ClientFullName ?? habit?.Client ?? "",
-                        SchedDisplay = FormatLateDriversScheduleClock(
-                            PreferSchedTimeForHabit(trip, habit)),
-                        SortTime = LateDriversScheduleSortTime(serviceDateIso, trip),
-                    };
-                    AssignLateDriversChipKeys(schedRow, habits, trip.TripNumber);
-                    ApplyLateDriversPuDoTimes(schedRow, trip, habits);
-                    rows.Add(schedRow);
+                    rows.Add(MakeLateDriversScheduleTripRow(
+                        serviceDateIso,
+                        driverName,
+                        trip,
+                        habits,
+                        matchedHabitKeys,
+                        groupNumber: 0,
+                        groupColor: null));
                 }
             }
 
             // Habit-only: insert by sched time when not already on a schedule trip row.
+            // These are usually WR-driver habits for trips still printed on someone else's sheet.
             foreach (var e in habits)
             {
                 string hk = LateDriversHabitIdentityKey(e);
@@ -3916,6 +4014,10 @@ namespace Hiatme_Tool_Suite_v3
                     SchedDisplay = FormatLateDriversTime(e.SchedIso, blank: "—"),
                     SortTime = sort,
                 };
+                string sheetOwner = FindLateDriversWorkbookOwnerForTrip(e.TripNo);
+                if (!string.IsNullOrWhiteSpace(sheetOwner)
+                    && !LateDriversDriverNamesMatch(sheetOwner, driverName))
+                    added.ReceivedFromDriver = sheetOwner.Trim();
                 // Habit-only rows: chip keys for this event alone (not every habit on the trip #).
                 added.HabitChipKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 string eventKey = HabitKeyOf(e);
@@ -3927,6 +4029,145 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             return rows;
+        }
+
+        private LateDriversTripRowTag MakeLateDriversScheduleTripRow(
+            string serviceDateIso,
+            string scheduleDriver,
+            MCDownloadedTrip trip,
+            List<HiatmeAiClient.LateDriversEventRow> habits,
+            HashSet<string> matchedHabitKeys,
+            int groupNumber,
+            Color? groupColor)
+        {
+            bool moved = LateDriversTripReassignedAway(
+                scheduleDriver, trip?.TripNumber, out string wrDriver);
+
+            // Habits follow blame / sheet rules — never leave B's ding on a Moved row.
+            // When a score tile is active, prefer that habit type so Late DO shows Late DO
+            // (not Late PU) on trips that have both.
+            HiatmeAiClient.LateDriversEventRow habit = null;
+            if (!moved)
+            {
+                string prefer = (_ldHabitChip ?? "all").Trim().ToLowerInvariant();
+                if (prefer == "all" || prefer == "open")
+                    prefer = null;
+                habit = FindBestLateDriversHabitForTrip(habits, trip.TripNumber, prefer);
+                if (habit != null)
+                    MarkLateDriversHabitMatched(habit, matchedHabitKeys);
+            }
+
+            var schedRow = new LateDriversTripRowTag
+            {
+                ScheduleTrip = trip,
+                HabitEvent = habit,
+                FromSchedule = true,
+                HabitOnly = false,
+                ReassignedAway = moved,
+                ReassignedToDriver = moved ? wrDriver : null,
+                GroupNumber = groupNumber,
+                GroupLabel = groupNumber > 0 ? ("G" + groupNumber) : "",
+                GroupColor = groupColor,
+                DriverDisplay = scheduleDriver,
+                TripNo = trip.TripNumber?.Trim() ?? "",
+                ServiceDate = serviceDateIso,
+                Client = trip.ClientFullName ?? habit?.Client ?? "",
+                SchedDisplay = FormatLateDriversScheduleClock(
+                    PreferSchedTimeForHabit(trip, habit)),
+                SortTime = LateDriversScheduleSortTime(serviceDateIso, trip),
+            };
+            if (moved)
+            {
+                schedRow.HabitChipKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                schedRow.HabitChipOpen = false;
+                if (string.IsNullOrWhiteSpace(schedRow.Client))
+                {
+                    var wr = FindLateDriversWrTrip(trip.TripNumber);
+                    if (!string.IsNullOrWhiteSpace(wr?.Client))
+                        schedRow.Client = wr.Client.Trim();
+                }
+            }
+            else
+            {
+                AssignLateDriversChipKeys(schedRow, habits, trip.TripNumber);
+            }
+            ApplyLateDriversPuDoTimes(schedRow, trip, habits);
+            return schedRow;
+        }
+
+        /// <summary>
+        /// True when the workbook still lists the trip under <paramref name="scheduleDriver"/>
+        /// but WellRyde shows a different driver (reassigned / stolen / unassigned).
+        /// </summary>
+        private bool LateDriversTripReassignedAway(
+            string scheduleDriver,
+            string tripNo,
+            out string wrDriver)
+        {
+            wrDriver = null;
+            if (string.IsNullOrWhiteSpace(scheduleDriver) || string.IsNullOrWhiteSpace(tripNo))
+                return false;
+            if (_ldWrTripsByTripNo.Count == 0)
+                return false;
+
+            var wr = FindLateDriversWrTrip(tripNo);
+            if (wr == null)
+                return false;
+
+            wrDriver = string.IsNullOrWhiteSpace(wr.Driver)
+                ? "(unassigned)"
+                : wr.Driver.Trim();
+            if (LateDriversDriverNamesMatch(wrDriver, scheduleDriver))
+                return false;
+            return true;
+        }
+
+        /// <summary>Which workbook tab still owns this trip #, if any.</summary>
+        private string FindLateDriversWorkbookOwnerForTrip(string tripNo)
+        {
+            if (_ldScheduleCache == null || string.IsNullOrWhiteSpace(tripNo))
+                return null;
+
+            if (_ldScheduleCache.DriverTrips != null)
+            {
+                foreach (var kv in _ldScheduleCache.DriverTrips)
+                {
+                    if (string.IsNullOrWhiteSpace(kv.Key) || kv.Value == null)
+                        continue;
+                    foreach (var t in kv.Value)
+                    {
+                        if (t == null) continue;
+                        if (LateDriversTripNosEqualForChip(t.TripNumber, tripNo))
+                            return kv.Key.Trim();
+                    }
+                }
+            }
+            if (_ldScheduleCache.DriverLines != null)
+            {
+                foreach (var kv in _ldScheduleCache.DriverLines)
+                {
+                    if (string.IsNullOrWhiteSpace(kv.Key) || kv.Value == null)
+                        continue;
+                    foreach (var line in kv.Value)
+                    {
+                        if (line?.Trip == null) continue;
+                        if (LateDriversTripNosEqualForChip(line.Trip.TripNumber, tripNo))
+                            return kv.Key.Trim();
+                    }
+                }
+            }
+            return null;
+        }
+
+        private static string LateDriversShortDriverLabel(string driver)
+        {
+            if (string.IsNullOrWhiteSpace(driver))
+                return "";
+            string s = string.Join(" ", driver.Trim().Split(
+                new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries));
+            if (s.Length <= 22)
+                return s;
+            return s.Substring(0, 21) + "…";
         }
 
         private static string LateDriversHabitIdentityKey(HiatmeAiClient.LateDriversEventRow e)
@@ -4063,20 +4304,29 @@ namespace Hiatme_Tool_Suite_v3
 
         private static HiatmeAiClient.LateDriversEventRow FindBestLateDriversHabitForTrip(
             List<HiatmeAiClient.LateDriversEventRow> habits,
-            string scheduleTripNo)
+            string scheduleTripNo,
+            string preferHabitKey = null)
         {
             if (habits == null || string.IsNullOrWhiteSpace(scheduleTripNo))
                 return null;
 
-            HiatmeAiClient.LateDriversEventRow best = null;
+            string prefer = (preferHabitKey ?? "").Trim().ToLowerInvariant();
+            if (prefer == "all" || prefer == "open")
+                prefer = "";
+
+            HiatmeAiClient.LateDriversEventRow bestPreferred = null;
+            HiatmeAiClient.LateDriversEventRow bestAny = null;
             foreach (var e in habits)
             {
                 if (e == null) continue;
-                if (!ScheduleBuilderModivcareTripMatch.TripNumbersMatch(e.TripNo, scheduleTripNo))
+                // Same leg only — TripNumbersMatch also hits A/B partners.
+                if (!LateDriversTripNosEqualForChip(e.TripNo, scheduleTripNo))
                     continue;
-                best = PreferLateDriversHabitEvent(best, e);
+                bestAny = PreferLateDriversHabitEvent(bestAny, e);
+                if (!string.IsNullOrEmpty(prefer) && HabitKeyOf(e) == prefer)
+                    bestPreferred = PreferLateDriversHabitEvent(bestPreferred, e);
             }
-            return best;
+            return bestPreferred ?? bestAny;
         }
 
         private static HiatmeAiClient.LateDriversEventRow FindBestLateDriversHabitForTripSide(
@@ -4091,7 +4341,7 @@ namespace Hiatme_Tool_Suite_v3
             foreach (var e in habits)
             {
                 if (e == null) continue;
-                if (!ScheduleBuilderModivcareTripMatch.TripNumbersMatch(e.TripNo, scheduleTripNo))
+                if (!LateDriversTripNosEqualForChip(e.TripNo, scheduleTripNo))
                     continue;
                 if (!LateDriversHabitIsSide(e, side))
                     continue;
@@ -4100,22 +4350,15 @@ namespace Hiatme_Tool_Suite_v3
             return best;
         }
 
-        private static void MarkLateDriversHabitsMatchedForTrip(
-            List<HiatmeAiClient.LateDriversEventRow> habits,
-            string scheduleTripNo,
+        private static void MarkLateDriversHabitMatched(
+            HiatmeAiClient.LateDriversEventRow habit,
             HashSet<string> matchedHabitKeys)
         {
-            if (habits == null || matchedHabitKeys == null || string.IsNullOrWhiteSpace(scheduleTripNo))
+            if (habit == null || matchedHabitKeys == null)
                 return;
-            foreach (var e in habits)
-            {
-                if (e == null) continue;
-                if (!ScheduleBuilderModivcareTripMatch.TripNumbersMatch(e.TripNo, scheduleTripNo))
-                    continue;
-                string key = LateDriversHabitIdentityKey(e);
-                if (!string.IsNullOrEmpty(key))
-                    matchedHabitKeys.Add(key);
-            }
+            string key = LateDriversHabitIdentityKey(habit);
+            if (!string.IsNullOrEmpty(key))
+                matchedHabitKeys.Add(key);
         }
 
         private static LateDriversTripRowTag MakeLateDriversGroupHeaderRow(
@@ -4195,7 +4438,7 @@ namespace Hiatme_Tool_Suite_v3
             return habits;
         }
 
-        /// <summary>Exact, normalized, or same schedule-tab fuzzy match.</summary>
+        /// <summary>Exact, normalized, first+last-initial, or same schedule-tab fuzzy match.</summary>
         private bool LateDriversDriverNamesMatch(string a, string b)
         {
             if (string.IsNullOrWhiteSpace(a) || string.IsNullOrWhiteSpace(b))
@@ -4205,6 +4448,8 @@ namespace Hiatme_Tool_Suite_v3
             if (string.Equals(aa, bb, StringComparison.OrdinalIgnoreCase))
                 return true;
             if (NormalizeLateDriversDriverKey(aa) == NormalizeLateDriversDriverKey(bb))
+                return true;
+            if (LateDriversDriverNamesMatchFirstLastInitial(aa, bb))
                 return true;
 
             string ka = ResolveLateDriversScheduleDriverKey(aa);
@@ -4219,6 +4464,190 @@ namespace Hiatme_Tool_Suite_v3
                 && string.Equals(kb, aa, StringComparison.OrdinalIgnoreCase))
                 return true;
             return false;
+        }
+
+        /// <summary>
+        /// Workbook ``Dean D`` / ``Jeffrey B`` matches WellRyde ``DEAN DAVIS`` / ``Jeffrey J Brown``.
+        /// </summary>
+        private static bool LateDriversDriverNamesMatchFirstLastInitial(string a, string b)
+        {
+            var ta = NormalizeLateDriversDriverKey(a)
+                .Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            var tb = NormalizeLateDriversDriverKey(b)
+                .Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (ta.Length < 2 || tb.Length < 2)
+                return false;
+            if (!string.Equals(ta[0], tb[0], StringComparison.Ordinal))
+                return false;
+
+            string aLast = ta[ta.Length - 1];
+            string bLast = tb[tb.Length - 1];
+            // Short tab second token is often the last initial ("Dean D").
+            string aSecond = ta[1];
+            string bSecond = tb[1];
+            if (aSecond.Length == 1 && bLast.StartsWith(aSecond, StringComparison.Ordinal))
+                return true;
+            if (bSecond.Length == 1 && aLast.StartsWith(bSecond, StringComparison.Ordinal))
+                return true;
+            if ((aSecond.Length == 1 || bSecond.Length == 1)
+                && aLast.Length > 0 && bLast.Length > 0
+                && aLast[0] == bLast[0])
+                return true;
+            return false;
+        }
+
+        /// <summary>
+        /// Collapse WR full-name tiles with workbook short-name tiles for the same person.
+        /// </summary>
+        private void CollapseLateDriversDuplicateDriverRows()
+        {
+            var rows = _ldDriverRows;
+            if (rows == null || rows.Count < 2)
+                return;
+
+            var used = new bool[rows.Count];
+            var collapsed = new List<HiatmeAiClient.LateDriversDriverSummary>();
+            for (int i = 0; i < rows.Count; i++)
+            {
+                if (used[i] || rows[i] == null || string.IsNullOrWhiteSpace(rows[i].Driver))
+                    continue;
+
+                var group = new List<HiatmeAiClient.LateDriversDriverSummary> { rows[i] };
+                used[i] = true;
+                for (int j = i + 1; j < rows.Count; j++)
+                {
+                    if (used[j] || rows[j] == null || string.IsNullOrWhiteSpace(rows[j].Driver))
+                        continue;
+                    if (group.Any(g => LateDriversDriverNamesMatch(g.Driver, rows[j].Driver)))
+                    {
+                        group.Add(rows[j]);
+                        used[j] = true;
+                    }
+                }
+                collapsed.Add(MergeLateDriversDriverSummaries(group));
+            }
+
+            _ldDriverRows = collapsed;
+        }
+
+        private HiatmeAiClient.LateDriversDriverSummary MergeLateDriversDriverSummaries(
+            List<HiatmeAiClient.LateDriversDriverSummary> group)
+        {
+            if (group == null || group.Count == 0)
+                return new HiatmeAiClient.LateDriversDriverSummary();
+
+            string canonical = PreferLateDriversCanonicalDriverName(
+                group.Select(g => g?.Driver).Where(s => !string.IsNullOrWhiteSpace(s)));
+
+            if (group.Count == 1)
+            {
+                group[0].Driver = canonical;
+                return group[0];
+            }
+
+            var trips = new List<HiatmeAiClient.LateDriversEventRow>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var g in group)
+            {
+                if (g?.Trips == null) continue;
+                foreach (var t in g.Trips)
+                {
+                    if (t == null) continue;
+                    string key = LateDriversHabitIdentityKey(t);
+                    if (string.IsNullOrEmpty(key))
+                        key = LateDriversTripKey(t.ServiceDate, t.TripNo, t.Side);
+                    if (!seen.Add(key))
+                        continue;
+                    trips.Add(t);
+                }
+            }
+
+            var merged = new HiatmeAiClient.LateDriversDriverSummary
+            {
+                Driver = canonical,
+                Trips = trips,
+            };
+            merged.OpenCount = trips.Count(t => t != null && t.Open);
+            merged.Unfinished = group.Sum(g => g?.Unfinished ?? 0);
+            merged.UnfinishedOpen = group.Sum(g => g?.UnfinishedOpen ?? 0);
+
+            int pu = 0, doN = 0, earlyPu = 0, earlyDo = 0;
+            double lateMins = 0;
+            foreach (var t in trips)
+            {
+                if (t == null) continue;
+                string k = (t.Habit ?? t.Kind ?? "").Trim().ToLowerInvariant();
+                string side = (t.Side ?? "").Trim().ToLowerInvariant();
+                bool latePu = k == "late_pu" || (string.IsNullOrEmpty(k) && side == "pu");
+                bool lateDo = k == "late_do" || (string.IsNullOrEmpty(k) && side == "do");
+                if (latePu) { pu++; lateMins += LateDriversDisplayHabitMinutes(t); }
+                else if (lateDo) { doN++; lateMins += LateDriversDisplayHabitMinutes(t); }
+                else if (k == "early_pu") earlyPu++;
+                else if (k == "early_do") earlyDo++;
+            }
+            merged.PuCount = pu;
+            merged.DoCount = doN;
+            merged.LateCount = pu + doN;
+            merged.TotalMinutes = lateMins;
+            merged.EarlyPu = earlyPu;
+            merged.EarlyDo = earlyDo;
+            merged.EarlyCount = earlyPu + earlyDo;
+            return merged;
+        }
+
+        /// <summary>Always prefer workbook tab spelling when a schedule match exists.</summary>
+        private string CanonicalizeLateDriversDriverLabel(string driverName)
+        {
+            if (string.IsNullOrWhiteSpace(driverName))
+                return "(unassigned)";
+            string want = driverName.Trim();
+            if (want.Equals("(unassigned)", StringComparison.OrdinalIgnoreCase))
+                return "(unassigned)";
+            string key = ResolveLateDriversScheduleDriverKey(want);
+            return !string.IsNullOrEmpty(key) ? key : want;
+        }
+
+        private string PreferLateDriversCanonicalDriverName(IEnumerable<string> names)
+        {
+            var list = (names ?? Enumerable.Empty<string>())
+                .Select(n => (n ?? "").Trim())
+                .Where(n => n.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (list.Count == 0)
+                return "(unassigned)";
+
+            // Always prefer printed schedule tab name when any variant resolves to one.
+            foreach (string n in list)
+            {
+                string key = ResolveLateDriversScheduleDriverKey(n);
+                if (!string.IsNullOrEmpty(key))
+                    return key;
+            }
+
+            return CanonicalizeLateDriversDriverLabel(list[0]);
+        }
+
+        /// <summary>
+        /// Rename every strip tile to its workbook tab and collapse WR duplicates onto it.
+        /// </summary>
+        private void RemapLateDriversRowsToScheduleNames()
+        {
+            if (_ldDriverRows == null || _ldDriverRows.Count == 0)
+                return;
+
+            foreach (var row in _ldDriverRows)
+            {
+                if (row == null || string.IsNullOrWhiteSpace(row.Driver))
+                    continue;
+                row.Driver = CanonicalizeLateDriversDriverLabel(row.Driver);
+            }
+
+            if (!string.IsNullOrWhiteSpace(_ldSelectedDriver))
+                _ldSelectedDriver = CanonicalizeLateDriversDriverLabel(_ldSelectedDriver);
+
+            CollapseLateDriversDuplicateDriverRows();
+            SortLateDriversByMinutes(_ldDriverRows);
         }
 
         private static int InferLateDriversGroupNumberAtTime(
@@ -4428,7 +4857,7 @@ namespace Hiatme_Tool_Suite_v3
                     return candidates[0];
             }
 
-            return want; // miss — callers treat as empty sheet
+            return null; // miss
         }
 
         private static string NormalizeLateDriversDriverKey(string name)
@@ -4631,6 +5060,7 @@ namespace Hiatme_Tool_Suite_v3
             int schedN = merged?.Count(r => r != null && r.FromSchedule) ?? 0;
             int habitN = merged?.Count(r => r?.HabitEvent != null) ?? 0;
             int addedN = merged?.Count(r => r != null && r.HabitOnly) ?? 0;
+            int movedN = merged?.Count(r => r != null && r.ReassignedAway) ?? 0;
             int groupsN = merged?.Count(r => r != null && r.IsGroupHeader) ?? 0;
             string origin = string.Equals(_ldScheduleCacheSource, "server_cache", StringComparison.OrdinalIgnoreCase)
                 ? "server cache"
@@ -4643,6 +5073,8 @@ namespace Hiatme_Tool_Suite_v3
             note += " · " + schedN + " trips · " + habitN + " habit alerts";
             if (groupsN > 0)
                 note += " · " + groupsN + " groups";
+            if (movedN > 0)
+                note += " · " + movedN + " moved on WR";
             if (addedN > 0)
                 note += " · " + addedN + " not on sheet";
             if (_ldWrTripsByTripNo.Count > 0)
