@@ -2828,18 +2828,52 @@ namespace Hiatme_Tool_Suite_v3
                 Cursor = Cursors.Hand,
                 Tag = summary, // null = All drivers
             };
+            var nameRow = new Panel
+            {
+                Name = "ldTileNameRow",
+                Dock = DockStyle.Top,
+                Height = 22,
+                BackColor = Color.Transparent,
+            };
             var nameLbl = new Label
             {
                 Name = "ldTileName",
                 AutoSize = false,
-                Dock = DockStyle.Top,
-                Height = 22,
+                Dock = DockStyle.Fill,
                 Text = title ?? "",
                 TextAlign = ContentAlignment.MiddleLeft,
                 BackColor = Color.Transparent,
                 ForeColor = SupeyTheme.TextPrimary,
                 Font = new Font("Segoe UI Semibold", 9.5f, FontStyle.Bold),
             };
+            nameRow.Controls.Add(nameLbl);
+            if (summary != null && !string.IsNullOrWhiteSpace(summary.Driver))
+            {
+                var reviewBtn = new Label
+                {
+                    Name = "ldTileReview",
+                    AutoSize = false,
+                    Dock = DockStyle.Right,
+                    Width = 22,
+                    Text = "i",
+                    TextAlign = ContentAlignment.MiddleCenter,
+                    BackColor = Color.Transparent,
+                    ForeColor = SupeyTheme.AccentPrimary,
+                    Font = new Font("Segoe UI Semibold", 9.5f, FontStyle.Bold),
+                    Cursor = Cursors.Hand,
+                    Tag = summary.Driver.Trim(),
+                };
+                try
+                {
+                    var tip = new ToolTip();
+                    tip.SetToolTip(reviewBtn, "Performance review");
+                }
+                catch { }
+                string driverForReview = summary.Driver.Trim();
+                reviewBtn.Click += (_, __) =>
+                    _ = ShowLateDriversPerformanceReviewAsync(driverForReview);
+                nameRow.Controls.Add(reviewBtn);
+            }
             var statsLbl = new Label
             {
                 Name = "ldTileStats",
@@ -2865,7 +2899,7 @@ namespace Hiatme_Tool_Suite_v3
             };
             card.Controls.Add(minsLbl);
             card.Controls.Add(statsLbl);
-            card.Controls.Add(nameLbl);
+            card.Controls.Add(nameRow);
 
             void pick(object s, EventArgs e)
             {
@@ -2873,10 +2907,61 @@ namespace Hiatme_Tool_Suite_v3
                 SelectLateDriversDriver(chosen?.Driver, focusTripNo: null);
             }
             card.Click += pick;
-            foreach (Control c in card.Controls)
-                c.Click += pick;
+            nameLbl.Click += pick;
+            statsLbl.Click += pick;
+            minsLbl.Click += pick;
+            nameRow.Click += pick;
 
             return card;
+        }
+
+        private async Task ShowLateDriversPerformanceReviewAsync(string driverName)
+        {
+            if (string.IsNullOrWhiteSpace(driverName) || IsDisposed)
+                return;
+            var settings = LateDriversAiSettings();
+            if (settings == null || string.IsNullOrWhiteSpace(settings.BaseUrl))
+            {
+                SupeyMessageDialog.ShowWarning(
+                    this,
+                    "Performance review",
+                    "AI server not configured",
+                    "Set the AI server URL in AI Assistant settings.");
+                return;
+            }
+
+            string sd = LateDriversSelectedServiceDateIso();
+            SetLateDriversStatus("Status: Loading performance review for " + driverName.Trim() + "…");
+            try
+            {
+                var review = await HiatmeAiClient.GetDriverHabitsReviewAsync(
+                        settings, sd, driverName.Trim())
+                    .ConfigureAwait(true);
+                if (review == null || !review.Ok)
+                {
+                    SupeyMessageDialog.ShowWarning(
+                        this,
+                        "Performance review",
+                        "Could not load review",
+                        review?.Error ?? "unknown error");
+                    return;
+                }
+
+                using (var form = new DriverHabitsReviewForm(review))
+                    form.ShowDialog(this);
+            }
+            catch (Exception ex)
+            {
+                SupeyMessageDialog.ShowWarning(
+                    this,
+                    "Performance review",
+                    "Review failed",
+                    ex.Message);
+            }
+            finally
+            {
+                UpdateLateDriversToolbarHints();
+            }
         }
 
         /// <summary>

@@ -2994,6 +2994,159 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        // ── Driver Habits day performance review (popup / EOD preview) ────
+
+        public sealed class DriverHabitsReviewSummary
+        {
+            [JsonProperty("late_pu")]
+            public int LatePu { get; set; }
+
+            [JsonProperty("late_do")]
+            public int LateDo { get; set; }
+
+            [JsonProperty("early_pu")]
+            public int EarlyPu { get; set; }
+
+            [JsonProperty("early_do")]
+            public int EarlyDo { get; set; }
+
+            public int Unfinished { get; set; }
+
+            [JsonProperty("unfinished_open")]
+            public int UnfinishedOpen { get; set; }
+
+            [JsonProperty("billed_unfinished")]
+            public int BilledUnfinished { get; set; }
+
+            [JsonProperty("late_count")]
+            public int LateCount { get; set; }
+
+            [JsonProperty("early_count")]
+            public int EarlyCount { get; set; }
+
+            [JsonProperty("late_minutes")]
+            public double LateMinutes { get; set; }
+
+            [JsonProperty("early_minutes")]
+            public double EarlyMinutes { get; set; }
+
+            [JsonProperty("event_count")]
+            public int EventCount { get; set; }
+
+            [JsonProperty("trip_count")]
+            public int TripCount { get; set; }
+        }
+
+        public sealed class DriverHabitsReviewTrip
+        {
+            [JsonProperty("trip_no")]
+            public string TripNo { get; set; }
+
+            public string Client { get; set; }
+            public string Habit { get; set; }
+
+            [JsonProperty("habit_label")]
+            public string HabitLabel { get; set; }
+
+            public string Side { get; set; }
+            public double Minutes { get; set; }
+            public bool Open { get; set; }
+
+            [JsonProperty("sched_time")]
+            public string SchedTime { get; set; }
+
+            [JsonProperty("actual_time")]
+            public string ActualTime { get; set; }
+
+            public string Status { get; set; }
+            public string Note { get; set; }
+        }
+
+        public sealed class DriverHabitsReviewDoc
+        {
+            public bool Ok { get; set; }
+
+            [JsonProperty("service_date")]
+            public string ServiceDate { get; set; }
+
+            [JsonProperty("date_label")]
+            public string DateLabel { get; set; }
+
+            public string Driver { get; set; }
+            public string Headline { get; set; }
+            public string Tone { get; set; }
+
+            public int? Rank { get; set; }
+
+            [JsonProperty("rank_of")]
+            public int RankOf { get; set; }
+
+            [JsonProperty("rank_label")]
+            public string RankLabel { get; set; }
+
+            [JsonProperty("rank_line")]
+            public string RankLine { get; set; }
+
+            [JsonProperty("email_intro")]
+            public string EmailIntro { get; set; }
+
+            [JsonProperty("preview_blurb")]
+            public string PreviewBlurb { get; set; }
+
+            public DriverHabitsReviewSummary Summary { get; set; }
+            public List<DriverHabitsReviewTrip> Improve { get; set; }
+            public string Error { get; set; }
+        }
+
+        public static async Task<DriverHabitsReviewDoc> GetDriverHabitsReviewAsync(
+            HiatmeAiSettings settings,
+            string serviceDateIso,
+            string driver,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null)
+                return new DriverHabitsReviewDoc { Ok = false, Error = "settings missing" };
+            if (string.IsNullOrWhiteSpace(serviceDateIso))
+                return new DriverHabitsReviewDoc { Ok = false, Error = "service_date required" };
+            if (string.IsNullOrWhiteSpace(driver))
+                return new DriverHabitsReviewDoc { Ok = false, Error = "driver required" };
+
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl))
+                return new DriverHabitsReviewDoc { Ok = false, Error = "AI server URL not configured" };
+
+            string url = baseUrl + "/api/hiatme/driver-habits/review?service_date="
+                + Uri.EscapeDataString(serviceDateIso.Trim())
+                + "&driver=" + Uri.EscapeDataString(driver.Trim());
+
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Get, url))
+                {
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken)
+                        .ConfigureAwait(false))
+                    {
+                        var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        if (!resp.IsSuccessStatusCode)
+                            return new DriverHabitsReviewDoc
+                            {
+                                Ok = false,
+                                Error = "HTTP " + (int)resp.StatusCode + ": " + body,
+                            };
+                        return JsonConvert.DeserializeObject<DriverHabitsReviewDoc>(body)
+                            ?? new DriverHabitsReviewDoc { Ok = false, Error = "empty response" };
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                return new DriverHabitsReviewDoc { Ok = false, Error = ex.Message };
+            }
+        }
+
         // ── Modivcare day snapshot (Driver Habits sched source) ───────────
 
         public sealed class ModivcareDayStatus

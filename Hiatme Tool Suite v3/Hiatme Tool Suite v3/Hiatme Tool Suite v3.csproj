@@ -175,6 +175,9 @@
     <Compile Include="ScheduleEmailSendConfirmForm.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="DriverHabitsReviewForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="ScheduleEmailRecipientsForm.cs">
       <SubType>Form</SubType>
     </Compile>
