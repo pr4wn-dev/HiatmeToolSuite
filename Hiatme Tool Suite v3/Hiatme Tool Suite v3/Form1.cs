@@ -9313,15 +9313,48 @@ namespace Hiatme_Tool_Suite_v3
                 : ((e.ItemState & ListViewItemStates.Selected) != 0 && listView.Focused);
 
             bool alertFlashRow = false;
+            bool ldScheduleSep = false;
+            bool ldGroupCell = false;
+            Color ldSepText = Color.Empty;
             if (isSupey)
             {
+                var ldTag = ReferenceEquals(listView, ldTripLv)
+                    ? e.Item?.Tag as LateDriversTripRowTag
+                    : null;
+                ldScheduleSep = ldTag != null && (ldTag.IsGroupHeader || ldTag.IsGap);
+
                 Color bg = selected ? SupeyTheme.ListSelected : e.Item.BackColor;
-                if (bg == Color.Empty || bg == Color.Transparent)
+                // Habits schedule: tint Group column from tag (not Item.BackColor —
+                // SubItems[0] shares Item.BackColor, and alert blink clears that).
+                if (!selected
+                    && ldTag != null
+                    && !ldTag.IsGroupHeader
+                    && !ldTag.IsGap
+                    && e.ColumnIndex == 0
+                    && ldTag.GroupColor.HasValue)
+                {
+                    bg = ldTag.GroupColor.Value;
+                    ldGroupCell = true;
+                    ldSepText = ScheduleBuilderPreviewStyle.ContrastText(bg);
+                }
+                else if (bg == Color.Empty || bg == Color.Transparent)
                     bg = SupeyTheme.ListBody;
                 else if (!selected
                     && ReferenceEquals(listView, ldTripLv)
-                    && bg != SupeyTheme.ListBody)
+                    && bg != SupeyTheme.ListBody
+                    && !ldScheduleSep)
                     alertFlashRow = true;
+
+                if (ldScheduleSep && !selected)
+                {
+                    if (ldTag.IsGroupHeader && bg != SupeyTheme.ListBody)
+                        ldSepText = ScheduleBuilderPreviewStyle.ContrastText(bg);
+                    else if (e.Item.ForeColor != Color.Empty)
+                        ldSepText = e.Item.ForeColor;
+                    else
+                        ldSepText = SupeyTheme.TextMuted;
+                }
+
                 TripScoutPaintStatusCellIfBlinking(e, bg, out bg);
                 var fill = SupeyListViewHelpers.InsetBoundsForGrid(e.Bounds);
                 if (fill.Width > 0 && fill.Height > 0)
@@ -9334,11 +9367,18 @@ namespace Hiatme_Tool_Suite_v3
             Color textColor = themed
                 ? (selected
                     ? SupeyTheme.ListSelectedText
-                    : (alertFlashRow ? Color.White : SupeyTheme.ListText))
+                    : (alertFlashRow
+                        ? Color.White
+                        : ((ldScheduleSep || ldGroupCell) && ldSepText != Color.Empty
+                            ? ldSepText
+                            : SupeyTheme.ListText)))
                 : Color.White;
+            Font cellFont = (ldScheduleSep && e.Item?.Font != null)
+                ? e.Item.Font
+                : ListViewOwnerDrawFonts.Cell;
             TextRenderer.DrawText(e.Graphics,
                 SupeyListViewHelpers.GetCellDisplayText(listView, e.ColumnIndex, e.SubItem.Text),
-                ListViewOwnerDrawFonts.Cell, bounds, textColor,
+                cellFont, bounds, textColor,
                 align | TextFormatFlags.SingleLine | TextFormatFlags.GlyphOverhangPadding | TextFormatFlags.VerticalCenter | TextFormatFlags.WordEllipsis);
         }
         private void ListView_SizeChanged(object sender, EventArgs e)
