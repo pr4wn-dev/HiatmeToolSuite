@@ -29,7 +29,7 @@ namespace Hiatme_Tool_Suite_v3
 
         /// <summary>When off, schedule groups stay (G1/G2 + headers) but lose palette tint.</summary>
         private bool LateDriversGroupColorsEnabled =>
-            ldColorsSwitch == null || ldColorsSwitch.IsDisposed || ldColorsSwitch.Checked;
+            ldColorsSwitch != null && !ldColorsSwitch.IsDisposed && ldColorsSwitch.Checked;
 
         private void BuildLateDriversLiveSwitch()
         {
@@ -61,7 +61,7 @@ namespace Hiatme_Tool_Suite_v3
                 Text = "Colors",
                 AutoSize = true,
                 Margin = Padding.Empty,
-                Checked = true,
+                Checked = false,
             };
             StyleLateDriversColorsSwitch();
             ldColorsSwitch.CheckedChanged += LdColorsSwitch_CheckedChanged;

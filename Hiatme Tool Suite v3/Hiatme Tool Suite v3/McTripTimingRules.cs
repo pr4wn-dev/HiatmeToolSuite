@@ -45,6 +45,28 @@ namespace Hiatme_Tool_Suite_v3
         public static double MinutesEarly(DateTime scheduled, DateTime actual) =>
             (scheduled - actual).TotalMinutes;
 
+        /// <summary>
+        /// Minutes past the allowed late window (not raw vs schedule).
+        /// A-leg PU 17 after sched with 14 grace → 3.
+        /// </summary>
+        public static double ExcessLateMinutes(string tripNumber, double lateVsSched, bool isDo)
+        {
+            double late = Math.Max(0, lateVsSched);
+            int grace = isDo ? DoLateMaxMinutes : PuLateMaxMinutes(tripNumber);
+            return Math.Max(0, late - grace);
+        }
+
+        /// <summary>
+        /// Minutes past the allowed early window. PU uses scoreboard early cap (A 29 / B-C 0);
+        /// DO uses the lenient early flag threshold (30).
+        /// </summary>
+        public static double ExcessEarlyMinutes(string tripNumber, double earlyVsSched, bool isDo)
+        {
+            double early = Math.Max(0, earlyVsSched);
+            int cap = isDo ? LenientDoEarlyMinMinutes : PuEarlyMaxMinutes(tripNumber);
+            return Math.Max(0, early - cap);
+        }
+
         /// <summary>Driver PU is within scoreboard late allowance (not early-checked).</summary>
         public static bool PuLateMinutesOk(string tripNumber, DateTime driverPu, DateTime schedPu)
         {

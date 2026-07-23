@@ -106,6 +106,11 @@ namespace Hiatme_Tool_Suite_v3
         private ScheduleBuilderLoadResult _ldScheduleCache;
         private string _ldScheduleCacheError;
 
+        /// <summary>WellRyde / Trip Scout rows for the day — fills Actual (and missing Sched) times.</summary>
+        private string _ldWrTripsDateIso;
+        private readonly Dictionary<string, HiatmeAiClient.TripScoutServerTripRow> _ldWrTripsByTripNo =
+            new Dictionary<string, HiatmeAiClient.TripScoutServerTripRow>(StringComparer.OrdinalIgnoreCase);
+
         /// <summary>ListView Tag: schedule row + optional habit event (blink uses HabitEvent).</summary>
         private sealed class LateDriversTripRowTag
         {
@@ -127,6 +132,8 @@ namespace Hiatme_Tool_Suite_v3
             public string ActualPuDisplay;
             public string SchedDoDisplay;
             public string ActualDoDisplay;
+            public string StatusDisplay;
+            public string StateDisplay;
             public DateTime SortTime;
         }
 
@@ -1605,7 +1612,10 @@ namespace Hiatme_Tool_Suite_v3
                 string mode = LateDriversSelectedMode();
                 string sd = LateDriversSelectedServiceDateIso();
                 if (force && (mode == "live" || mode == "day"))
+                {
                     ClearLateDriversScheduleCache();
+                    ClearLateDriversWrTripsCache();
+                }
 
                 if (mode == "live" || mode == "day")
                 {
@@ -1632,6 +1642,11 @@ namespace Hiatme_Tool_Suite_v3
                         && string.Equals(st.ContentHash, _ldLastHash, StringComparison.Ordinal)
                         && string.Equals(habitsHash, _ldHabitsHash ?? "", StringComparison.Ordinal))
                     {
+                        // Habits unchanged — still refresh WR so status/actuals keep moving.
+                        await EnsureLateDriversWrTripsAsync(settings, sd, forceRefresh: true)
+                            .ConfigureAwait(true);
+                        if (!string.IsNullOrWhiteSpace(_ldSelectedDriver))
+                            BindLateDriversTripPane();
                         SetLateDriversStatus(
                             "Status: Live — " + st.EventCount + " habit signals today ("
                             + st.OpenCount + " still open) · unchanged · "
@@ -1644,6 +1659,8 @@ namespace Hiatme_Tool_Suite_v3
 
                 string habitPeriod = mode == "live" ? "day" : mode;
                 var habitsTask = HiatmeAiClient.GetLateDriversHabitsAsync(settings, habitPeriod, sd);
+                // WR actuals/status for every trip (habits alone only cover alert sides).
+                var wrTask = EnsureLateDriversWrTripsAsync(settings, sd, forceRefresh: true);
 
                 if (mode == "live" || mode == "day")
                 {
@@ -1664,6 +1681,7 @@ namespace Hiatme_Tool_Suite_v3
                             return;
                         }
                         var habits = await habitsTask.ConfigureAwait(true);
+                        await wrTask.ConfigureAwait(true);
                         _ldDayPerf = doc.DayPerformance;
                         ApplyLateDriversEventPayload(
                             doc.Events ?? new List<HiatmeAiClient.LateDriversEventRow>(),
@@ -1683,6 +1701,7 @@ namespace Hiatme_Tool_Suite_v3
                         var dayTask = HiatmeAiClient.GetLateDriversDayAsync(settings, sd);
                         var habits = await habitsTask.ConfigureAwait(true);
                         var doc = await dayTask.ConfigureAwait(true);
+                        await wrTask.ConfigureAwait(true);
 
                         if ((doc == null || !doc.Ok) && (habits == null || !habits.Ok))
                         {
@@ -1728,6 +1747,7 @@ namespace Hiatme_Tool_Suite_v3
                         SortLateDriversByMinutes(_ldDriverRows);
                     _ldRangeLabel = (doc.FromDate ?? "") + " → " + (doc.ToDate ?? "");
                     var habits = await habitsTask.ConfigureAwait(true);
+                    await wrTask.ConfigureAwait(true);
                     MergeLateDriversHabits(habits);
                     PresentLateDriversLoadedData();
                     int earlyN = (_ldDriverRows ?? new List<HiatmeAiClient.LateDriversDriverSummary>())
@@ -2060,8 +2080,8 @@ namespace Hiatme_Tool_Suite_v3
                     string side = (t.Side ?? "").Trim().ToLowerInvariant();
                     bool latePu = k == "late_pu" || (string.IsNullOrEmpty(k) && side == "pu");
                     bool lateDo = k == "late_do" || (string.IsNullOrEmpty(k) && side == "do");
-                    if (latePu) { pu++; lateMins += Math.Max(0, t.MinutesLate); }
-                    else if (lateDo) { doN++; lateMins += Math.Max(0, t.MinutesLate); }
+                    if (latePu) { pu++; lateMins += LateDriversDisplayHabitMinutes(t); }
+                    else if (lateDo) { doN++; lateMins += LateDriversDisplayHabitMinutes(t); }
                     else if (k == "early_pu") earlyPu++;
                     else if (k == "early_do") earlyDo++;
                 }
@@ -2145,7 +2165,7 @@ namespace Hiatme_Tool_Suite_v3
                     row.PuCount++;
                 if (e.Open)
                     row.OpenCount++;
-                row.TotalMinutes += e.MinutesLate;
+                row.TotalMinutes += LateDriversDisplayHabitMinutes(e);
                 row.Trips.Add(e);
             }
 
@@ -2999,6 +3019,67 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        /// <summary>
+        /// Mins column: minutes past the allowed window (A PU +14 / B-C +29 / early caps),
+        /// not raw vs scheduled. Recomputes from clocks when present so legacy API rows
+        /// that stored raw-vs-sched still display correctly.
+        /// </summary>
+        private static double LateDriversDisplayHabitMinutes(HiatmeAiClient.LateDriversEventRow e)
+        {
+            if (e == null) return 0;
+            string hk = HabitKeyOf(e);
+            bool isDo = LateDriversHabitIsSide(e, "do");
+            bool isPu = LateDriversHabitIsSide(e, "pu");
+
+            if (TryParseLateDriversIso(e.SchedIso, out var sched)
+                && TryParseLateDriversIso(e.ActualIso, out var actual))
+            {
+                if (hk.StartsWith("late", StringComparison.Ordinal))
+                {
+                    double late = McTripTimingRules.MinutesLate(actual, sched);
+                    return McTripTimingRules.ExcessLateMinutes(e.TripNo, late, isDo);
+                }
+                if (hk.StartsWith("early", StringComparison.Ordinal))
+                {
+                    double early = McTripTimingRules.MinutesEarly(sched, actual);
+                    return McTripTimingRules.ExcessEarlyMinutes(e.TripNo, early, isDo);
+                }
+            }
+
+            double stored = Math.Max(0, e.MinutesLate);
+            if (hk.StartsWith("late", StringComparison.Ordinal))
+            {
+                int grace = isDo
+                    ? McTripTimingRules.DoLateMaxMinutes
+                    : (e.GraceMinutes > 0
+                        ? e.GraceMinutes
+                        : McTripTimingRules.PuLateMaxMinutes(e.TripNo));
+                // Legacy raw-vs-sched is typically > grace; new API already stores excess.
+                if (stored > grace)
+                    return Math.Max(0, stored - grace);
+                return stored;
+            }
+            if (hk.StartsWith("early", StringComparison.Ordinal))
+            {
+                int cap = isDo
+                    ? McTripTimingRules.LenientDoEarlyMinMinutes
+                    : McTripTimingRules.PuEarlyMaxMinutes(e.TripNo);
+                if (stored > cap)
+                    return Math.Max(0, stored - cap);
+                return stored;
+            }
+            return stored;
+        }
+
+        private static bool TryParseLateDriversIso(string iso, out DateTime dt)
+        {
+            dt = default;
+            if (string.IsNullOrWhiteSpace(iso))
+                return false;
+            return DateTime.TryParse(iso, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out dt)
+                || DateTime.TryParse(iso, out dt);
+        }
+
         private void BindLateDriversTripPane()
         {
             if (ldTripLv == null || ldTripLv.IsDisposed)
@@ -3067,7 +3148,7 @@ namespace Hiatme_Tool_Suite_v3
 
             trips = trips
                 .OrderByDescending(e => e.Open)
-                .ThenByDescending(e => e.MinutesLate)
+                .ThenByDescending(e => LateDriversDisplayHabitMinutes(e))
                 .ThenBy(e => e.Driver ?? "", StringComparer.OrdinalIgnoreCase)
                 .ThenBy(e => e.ServiceDate ?? "")
                 .ThenBy(e => e.TripNo ?? "")
@@ -3186,11 +3267,32 @@ namespace Hiatme_Tool_Suite_v3
                 : e.Driver.Trim();
             bool isPu = LateDriversHabitIsSide(e, "pu");
             bool isDo = LateDriversHabitIsSide(e, "do");
-            // Unfinished / unknown: show times under PU so the row is not blank.
+            // Unfinished / unknown: treat as PU so the row is not blank.
             if (!isPu && !isDo)
                 isPu = true;
-            string sched = FormatLateDriversTime(e.SchedIso, blank: "—");
-            string actual = FormatLateDriversTime(e.ActualIso, blank: "—");
+
+            // Start from WellRyde day row (both sides), then overlay this habit's side.
+            string schedPu = "—", actPu = "—", schedDo = "—", actDo = "—";
+            var wr = FindLateDriversWrTrip(e?.TripNo);
+            if (wr != null)
+            {
+                schedPu = FormatLateDriversTime(wr.SchedPuIso, blank: "—");
+                actPu = FormatLateDriversTime(wr.ActualPuIso, blank: "—");
+                schedDo = FormatLateDriversTime(wr.SchedDoIso, blank: "—");
+                actDo = FormatLateDriversTime(wr.ActualDoIso, blank: "—");
+            }
+            string habitSched = FormatLateDriversTime(e?.SchedIso, blank: "—");
+            string habitActual = FormatLateDriversTime(e?.ActualIso, blank: "—");
+            if (isPu)
+            {
+                if (habitSched != "—") schedPu = habitSched;
+                if (habitActual != "—") actPu = habitActual;
+            }
+            if (isDo)
+            {
+                if (habitSched != "—") schedDo = habitSched;
+                if (habitActual != "—") actDo = habitActual;
+            }
 
             var item = new ListViewItem("—");
             item.SubItems.Add(e.ServiceDate ?? "");
@@ -3199,16 +3301,19 @@ namespace Hiatme_Tool_Suite_v3
                 item.SubItems.Add(driver);
             item.SubItems.Add(habit);
             item.SubItems.Add(e.Client ?? "");
-            item.SubItems.Add(isPu ? sched : "—");
-            item.SubItems.Add(isPu ? actual : "—");
-            item.SubItems.Add(isDo ? sched : "—");
-            item.SubItems.Add(isDo ? actual : "—");
+            item.SubItems.Add(schedPu);
+            item.SubItems.Add(actPu);
+            item.SubItems.Add(schedDo);
+            item.SubItems.Add(actDo);
             bool noActual = string.IsNullOrWhiteSpace(e.ActualIso);
             string minsText = noActual && e.Open
                 ? "—"
-                : e.MinutesLate.ToString("0", CultureInfo.InvariantCulture) + "m";
+                : LateDriversDisplayHabitMinutes(e).ToString("0", CultureInfo.InvariantCulture) + "m";
             item.SubItems.Add(minsText);
-            item.SubItems.Add(e.StatusLatest ?? "");
+            string status = !string.IsNullOrWhiteSpace(e.StatusLatest)
+                ? e.StatusLatest.Trim()
+                : (wr?.Status ?? "").Trim();
+            item.SubItems.Add(string.IsNullOrEmpty(status) ? "—" : status);
             item.SubItems.Add(e.Open ? "Open" : "Closed");
             item.Tag = e;
             string hk = HabitKeyOf(e);
@@ -3241,8 +3346,8 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         /// <summary>
-        /// Group/gap separator: paint note (and G#) as one merged bar across the row,
-        /// centered when a note is present — same idea as Schedule Builder note rows.
+        /// Group/gap separator: full-row bar. G# sits in the Group column with the same
+        /// +10 inset as trip cells; notes are centered in the remaining columns.
         /// </summary>
         private void LateDriversPaintMergedSepRow(Graphics g, ListViewItem item, bool selected)
         {
@@ -3271,30 +3376,87 @@ namespace Hiatme_Tool_Suite_v3
                     : SupeyTheme.TextMuted);
 
             string note = (tag.GroupLabel ?? "").Trim();
-            string gLabel = tag.GroupNumber > 0 ? ("G" + tag.GroupNumber) : "";
-            string text;
-            if (tag.IsGroupHeader)
-            {
-                if (gLabel.Length > 0 && note.Length > 0)
-                    text = gLabel + "  ·  " + note;
-                else if (note.Length > 0)
-                    text = note;
-                else
-                    text = gLabel;
-            }
-            else
-                text = note;
+            string gLabel = tag.IsGroupHeader && tag.GroupNumber > 0
+                ? ("G" + tag.GroupNumber)
+                : "";
 
-            Font font = item.Font ?? ListViewOwnerDrawFonts.Cell;
-            SupeyListViewHelpers.PaintMergedDetailsRow(
-                g,
-                rowBounds,
-                bg,
-                text,
-                fg,
-                font,
-                boldText: tag.IsGroupHeader && text.Length > 0,
-                centerText: note.Length > 0);
+            // Match listView_DrawSubItem cell inset so G# lines up with trip Group cells.
+            const int cellPadL = 10;
+            int groupColW = (ldTripLv != null && !ldTripLv.IsDisposed && ldTripLv.Columns.Count > 0)
+                ? Math.Max(0, ldTripLv.Columns[0].Width)
+                : 52;
+
+            var state = g.Save();
+            try
+            {
+                g.SetClip(rowBounds);
+                using (var brush = new SolidBrush(bg))
+                    g.FillRectangle(brush, rowBounds);
+
+                Font font = item.Font ?? ListViewOwnerDrawFonts.Cell;
+                Font drawFont = tag.IsGroupHeader && (gLabel.Length > 0 || note.Length > 0)
+                    ? new Font(font, FontStyle.Bold)
+                    : font;
+                try
+                {
+                    if (gLabel.Length > 0)
+                    {
+                        var groupTextBounds = new Rectangle(
+                            rowBounds.Left + cellPadL,
+                            rowBounds.Top,
+                            Math.Max(0, groupColW - cellPadL - 1),
+                            rowBounds.Height);
+                        TextRenderer.DrawText(
+                            g,
+                            gLabel,
+                            drawFont,
+                            groupTextBounds,
+                            fg,
+                            TextFormatFlags.Left
+                                | TextFormatFlags.SingleLine
+                                | TextFormatFlags.VerticalCenter
+                                | TextFormatFlags.EndEllipsis
+                                | TextFormatFlags.NoPrefix
+                                | TextFormatFlags.GlyphOverhangPadding);
+                    }
+
+                    if (note.Length > 0)
+                    {
+                        // Keep Group column clear for G#; otherwise use the full bar.
+                        int noteLeft = gLabel.Length > 0
+                            ? rowBounds.Left + groupColW
+                            : rowBounds.Left;
+                        var noteBounds = new Rectangle(
+                            noteLeft + 6,
+                            rowBounds.Top,
+                            Math.Max(0, rowBounds.Right - noteLeft - 12),
+                            rowBounds.Height);
+                        TextRenderer.DrawText(
+                            g,
+                            note,
+                            drawFont,
+                            noteBounds,
+                            fg,
+                            TextFormatFlags.HorizontalCenter
+                                | TextFormatFlags.SingleLine
+                                | TextFormatFlags.VerticalCenter
+                                | TextFormatFlags.EndEllipsis
+                                | TextFormatFlags.NoPrefix);
+                    }
+                }
+                finally
+                {
+                    if (!ReferenceEquals(drawFont, font))
+                        drawFont.Dispose();
+                }
+
+                using (var pen = new Pen(SupeyListViewHelpers.ListGridLineColor, 1f))
+                    g.DrawLine(pen, rowBounds.Left, rowBounds.Bottom - 1, rowBounds.Right - 1, rowBounds.Bottom - 1);
+            }
+            finally
+            {
+                g.Restore(state);
+            }
         }
 
         /// <summary>
@@ -3416,15 +3578,31 @@ namespace Hiatme_Tool_Suite_v3
             item.SubItems.Add(actPu);
             item.SubItems.Add(schedDo);
             item.SubItems.Add(actDo);
+
+            // Status/State/times come from WR for every trip; habit overlays Mins + coloring.
+            string status = !string.IsNullOrWhiteSpace(row.StatusDisplay)
+                ? row.StatusDisplay.Trim()
+                : (habit?.StatusLatest ?? "").Trim();
+            if (string.IsNullOrEmpty(status))
+            {
+                var wr = FindLateDriversWrTrip(tripNo.TrimStart('+'));
+                status = (wr?.Status ?? "").Trim();
+            }
+            string state = !string.IsNullOrWhiteSpace(row.StateDisplay)
+                ? row.StateDisplay.Trim()
+                : (habit != null
+                    ? (habit.Open ? "Open" : "Closed")
+                    : LateDriversStateFromStatus(status));
+
             if (habit != null)
             {
                 bool noActual = string.IsNullOrWhiteSpace(habit.ActualIso);
                 string minsText = noActual && habit.Open
                     ? "—"
-                    : habit.MinutesLate.ToString("0", CultureInfo.InvariantCulture) + "m";
+                    : LateDriversDisplayHabitMinutes(habit).ToString("0", CultureInfo.InvariantCulture) + "m";
                 item.SubItems.Add(minsText);
-                item.SubItems.Add(habit.StatusLatest ?? "");
-                item.SubItems.Add(habit.Open ? "Open" : "Closed");
+                item.SubItems.Add(string.IsNullOrEmpty(status) ? "—" : status);
+                item.SubItems.Add(string.IsNullOrEmpty(state) ? "—" : state);
                 string hk = HabitKeyOf(habit);
                 if (habit.Open)
                     item.ForeColor = Color.FromArgb(200, 80, 60);
@@ -3438,8 +3616,8 @@ namespace Hiatme_Tool_Suite_v3
             else
             {
                 item.SubItems.Add("—");
-                item.SubItems.Add("");
-                item.SubItems.Add("");
+                item.SubItems.Add(string.IsNullOrEmpty(status) ? "—" : status);
+                item.SubItems.Add(string.IsNullOrEmpty(state) ? "—" : state);
                 item.ForeColor = SupeyTheme.TextSecondary;
             }
 
@@ -3630,24 +3808,31 @@ namespace Hiatme_Tool_Suite_v3
             return hk.EndsWith("_" + want, StringComparison.Ordinal);
         }
 
-        private static void ApplyLateDriversPuDoTimes(
+        private void ApplyLateDriversPuDoTimes(
             LateDriversTripRowTag row,
             MCDownloadedTrip trip,
             List<HiatmeAiClient.LateDriversEventRow> habits)
         {
             if (row == null) return;
 
-            string schedPu = FormatLateDriversScheduleClock(trip?.PUTime);
-            string schedDo = FormatLateDriversScheduleClock(
-                PreferNonEmpty(trip?.DOTime, trip?.SchedDOTime));
+            // Workbook times via SupeyTripTimes (Excel fractions, 0830, A/B-leg DO rules).
+            string schedPu = trip != null
+                ? SupeyTripTimes.FormatTimeOfDay(SupeyTripTimes.TryParsePU(trip))
+                : "—";
+            string schedDo = FormatLateDriversTripSchedDo(trip);
 
             var habitPu = FindBestLateDriversHabitForTripSide(habits, trip?.TripNumber ?? row.TripNo, "pu");
             var habitDo = FindBestLateDriversHabitForTripSide(habits, trip?.TripNumber ?? row.TripNo, "do");
+            var wr = FindLateDriversWrTrip(trip?.TripNumber ?? row.TripNo);
 
             if ((string.IsNullOrWhiteSpace(schedPu) || schedPu == "—") && habitPu != null)
                 schedPu = FormatLateDriversTime(habitPu.SchedIso, blank: "—");
             if ((string.IsNullOrWhiteSpace(schedDo) || schedDo == "—") && habitDo != null)
                 schedDo = FormatLateDriversTime(habitDo.SchedIso, blank: "—");
+            if ((string.IsNullOrWhiteSpace(schedPu) || schedPu == "—") && wr != null)
+                schedPu = FormatLateDriversTime(wr.SchedPuIso, blank: "—");
+            if ((string.IsNullOrWhiteSpace(schedDo) || schedDo == "—") && wr != null)
+                schedDo = FormatLateDriversTime(wr.SchedDoIso, blank: "—");
 
             // Habit-only row with a single side: still show that side's times.
             if (trip == null && row.HabitEvent != null && habitPu == null && habitDo == null)
@@ -3662,17 +3847,76 @@ namespace Hiatme_Tool_Suite_v3
                     schedDo = FormatLateDriversTime(habitDo.SchedIso, blank: "—");
             }
 
-            row.SchedPuDisplay = string.IsNullOrWhiteSpace(schedPu) || schedPu == "—" ? "—" : schedPu;
-            row.SchedDoDisplay = string.IsNullOrWhiteSpace(schedDo) || schedDo == "—" ? "—" : schedDo;
-            row.ActualPuDisplay = habitPu != null
+            string actPu = habitPu != null
                 ? FormatLateDriversTime(habitPu.ActualIso, blank: "—")
                 : "—";
-            row.ActualDoDisplay = habitDo != null
+            string actDo = habitDo != null
                 ? FormatLateDriversTime(habitDo.ActualIso, blank: "—")
                 : "—";
+            // Habits only cover alert sides — fill the rest from WellRyde day trips.
+            if ((string.IsNullOrWhiteSpace(actPu) || actPu == "—") && wr != null)
+                actPu = FormatLateDriversTime(wr.ActualPuIso, blank: "—");
+            if ((string.IsNullOrWhiteSpace(actDo) || actDo == "—") && wr != null)
+                actDo = FormatLateDriversTime(wr.ActualDoIso, blank: "—");
+
+            row.SchedPuDisplay = string.IsNullOrWhiteSpace(schedPu) || schedPu == "—" ? "—" : schedPu;
+            row.SchedDoDisplay = string.IsNullOrWhiteSpace(schedDo) || schedDo == "—" ? "—" : schedDo;
+            row.ActualPuDisplay = string.IsNullOrWhiteSpace(actPu) || actPu == "—" ? "—" : actPu;
+            row.ActualDoDisplay = string.IsNullOrWhiteSpace(actDo) || actDo == "—" ? "—" : actDo;
             row.SchedDisplay = row.SchedPuDisplay != "—"
                 ? row.SchedPuDisplay
                 : row.SchedDoDisplay;
+
+            // Status for clean (non-habit) trips too — WellRyde day row is the source of truth.
+            string status = "";
+            string state = "—";
+            if (row.HabitEvent != null)
+            {
+                status = (row.HabitEvent.StatusLatest ?? "").Trim();
+                state = row.HabitEvent.Open ? "Open" : "Closed";
+            }
+            if (string.IsNullOrEmpty(status) && wr != null)
+                status = (wr.Status ?? "").Trim();
+            if (state == "—" && !string.IsNullOrEmpty(status))
+                state = LateDriversStateFromStatus(status);
+            row.StatusDisplay = string.IsNullOrEmpty(status) ? "—" : status;
+            row.StateDisplay = string.IsNullOrEmpty(state) ? "—" : state;
+
+            if (string.IsNullOrWhiteSpace(row.Client) && wr != null && !string.IsNullOrWhiteSpace(wr.Client))
+                row.Client = wr.Client.Trim();
+        }
+
+        private static string LateDriversStateFromStatus(string status)
+        {
+            if (string.IsNullOrWhiteSpace(status))
+                return "—";
+            string s = status.Trim().ToLowerInvariant();
+            if (s.Contains("cancel")
+                || s.Contains("complete")
+                || s.Contains("billed")
+                || s.Contains("no show")
+                || s.Contains("noshow")
+                || s.Contains("no-show")
+                || s.Contains("suspended")
+                || s.Contains("will call")
+                || s.Contains("willcall"))
+                return "Closed";
+            return "Open";
+        }
+
+        /// <summary>Sched DO for display — A-leg appt / B-C scheduled_dropoff (SupeyTripTimes rules).</summary>
+        private static string FormatLateDriversTripSchedDo(MCDownloadedTrip trip)
+        {
+            if (trip == null) return "—";
+            var ts = SupeyTripTimes.TryParseDO(trip);
+            if (ts.HasValue)
+                return SupeyTripTimes.FormatTimeOfDay(ts);
+            // TryParseDO hides midnight will-calls; leave blank rather than "12:00 AM".
+            string raw = PreferNonEmpty(trip.SchedDOTime, trip.DOTime);
+            var parsed = SupeyTripTimes.TryParse(raw);
+            if (parsed.HasValue && parsed.Value == TimeSpan.Zero)
+                return "—";
+            return FormatLateDriversScheduleClock(raw);
         }
 
         private static HiatmeAiClient.LateDriversEventRow FindBestLateDriversHabitForTrip(
@@ -3947,8 +4191,8 @@ namespace Hiatme_Tool_Suite_v3
             bool aLate = ha.StartsWith("late", StringComparison.Ordinal);
             bool bLate = hb.StartsWith("late", StringComparison.Ordinal);
             if (aLate != bLate) return aLate ? a : b;
-            if (Math.Abs(a.MinutesLate - b.MinutesLate) > 0.01)
-                return a.MinutesLate >= b.MinutesLate ? a : b;
+            if (Math.Abs(LateDriversDisplayHabitMinutes(a) - LateDriversDisplayHabitMinutes(b)) > 0.01)
+                return LateDriversDisplayHabitMinutes(a) >= LateDriversDisplayHabitMinutes(b) ? a : b;
             return a;
         }
 
@@ -4064,6 +4308,107 @@ namespace Hiatme_Tool_Suite_v3
             _ldScheduleCacheEtag = null;
             _ldScheduleCache = null;
             _ldScheduleCacheError = null;
+            // Do not clear WR trips here. PresentLateDrivers loads WR first, then
+            // EnsureLateDriversScheduleCache reloads the workbook and would wipe
+            // status/actuals for clean (non-habit) trips.
+        }
+
+        private void ClearLateDriversWrTripsCache()
+        {
+            _ldWrTripsDateIso = null;
+            _ldWrTripsByTripNo.Clear();
+        }
+
+        private async Task EnsureLateDriversWrTripsAsync(
+            HiatmeAiSettings settings,
+            string serviceDateIso,
+            bool forceRefresh = false)
+        {
+            serviceDateIso = (serviceDateIso ?? "").Trim();
+            if (string.IsNullOrEmpty(serviceDateIso) || settings == null)
+                return;
+            if (!forceRefresh
+                && string.Equals(_ldWrTripsDateIso, serviceDateIso, StringComparison.Ordinal)
+                && _ldWrTripsByTripNo.Count > 0)
+                return;
+
+            ClearLateDriversWrTripsCache();
+            try
+            {
+                var doc = await HiatmeAiClient.GetTripScoutServerTripsAsync(settings, serviceDateIso)
+                    .ConfigureAwait(true);
+                if (doc == null || !doc.Ok || doc.Trips == null)
+                    return;
+
+                _ldWrTripsDateIso = serviceDateIso;
+                foreach (var t in doc.Trips)
+                {
+                    if (t == null || string.IsNullOrWhiteSpace(t.TripNo))
+                        continue;
+                    IndexLateDriversWrTrip(t);
+                }
+            }
+            catch { }
+        }
+
+        private void IndexLateDriversWrTrip(HiatmeAiClient.TripScoutServerTripRow t)
+        {
+            if (t == null || string.IsNullOrWhiteSpace(t.TripNo))
+                return;
+
+            void put(string key)
+            {
+                if (string.IsNullOrWhiteSpace(key))
+                    return;
+                key = key.Trim();
+                if (_ldWrTripsByTripNo.TryGetValue(key, out var existing)
+                    && LateDriversWrTripScore(t) <= LateDriversWrTripScore(existing))
+                    return;
+                _ldWrTripsByTripNo[key] = t;
+            }
+
+            string raw = t.TripNo.Trim();
+            put(raw);
+            put(ScheduleBuilderModivcareTripMatch.NormalizeTripNumber(raw));
+            put(ScheduleBuilderPreviewDrag.TripLegKey(raw));
+        }
+
+        private static int LateDriversWrTripScore(HiatmeAiClient.TripScoutServerTripRow t)
+        {
+            if (t == null) return 0;
+            return (!string.IsNullOrWhiteSpace(t.ActualPuIso) ? 1 : 0)
+                + (!string.IsNullOrWhiteSpace(t.ActualDoIso) ? 1 : 0)
+                + (!string.IsNullOrWhiteSpace(t.SchedPuIso) ? 1 : 0)
+                + (!string.IsNullOrWhiteSpace(t.SchedDoIso) ? 1 : 0)
+                + (!string.IsNullOrWhiteSpace(t.Status) ? 1 : 0);
+        }
+
+        private HiatmeAiClient.TripScoutServerTripRow FindLateDriversWrTrip(string tripNo)
+        {
+            if (_ldWrTripsByTripNo.Count == 0 || string.IsNullOrWhiteSpace(tripNo))
+                return null;
+
+            string raw = tripNo.Trim().TrimStart('+');
+            if (_ldWrTripsByTripNo.TryGetValue(raw, out var byRaw))
+                return byRaw;
+
+            string key = ScheduleBuilderModivcareTripMatch.NormalizeTripNumber(raw);
+            if (!string.IsNullOrEmpty(key) && _ldWrTripsByTripNo.TryGetValue(key, out var row))
+                return row;
+
+            string leg = ScheduleBuilderPreviewDrag.TripLegKey(raw);
+            if (!string.IsNullOrEmpty(leg) && _ldWrTripsByTripNo.TryGetValue(leg, out var byLeg))
+                return byLeg;
+
+            // Schedule vs WR trip # formatting can differ slightly — fuzzy match.
+            foreach (var kv in _ldWrTripsByTripNo)
+            {
+                if (kv.Value == null) continue;
+                if (ScheduleBuilderModivcareTripMatch.TripNumbersMatch(raw, kv.Value.TripNo)
+                    || ScheduleBuilderModivcareTripMatch.TripNumbersMatch(raw, kv.Key))
+                    return kv.Value;
+            }
+            return null;
         }
 
         private void EnsureLateDriversScheduleCache(string serviceDateIso, bool forceReload)
@@ -4158,6 +4503,8 @@ namespace Hiatme_Tool_Suite_v3
                 note += " · " + groupsN + " groups";
             if (addedN > 0)
                 note += " · " + addedN + " not on sheet";
+            if (_ldWrTripsByTripNo.Count > 0)
+                note += " · WR " + _ldWrTripsByTripNo.Values.Distinct().Count();
             return note;
         }
 
@@ -4221,6 +4568,10 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (string.IsNullOrWhiteSpace(clock))
                 return "—";
+            // SupeyTripTimes handles Excel day-fractions and "0830"-style clocks.
+            var ts = SupeyTripTimes.TryParse(clock);
+            if (ts.HasValue)
+                return SupeyTripTimes.FormatTimeOfDay(ts);
             if (DateTime.TryParse(clock.Trim(), CultureInfo.CurrentCulture, DateTimeStyles.None, out var t)
                 || DateTime.TryParse(clock.Trim(), CultureInfo.InvariantCulture, DateTimeStyles.None, out t))
                 return t.ToString("h:mm tt", CultureInfo.CurrentCulture);
