@@ -2690,17 +2690,108 @@ namespace Hiatme_Tool_Suite_v3
             void pick(object s, EventArgs e)
             {
                 var chosen = card.Tag as HiatmeAiClient.LateDriversDriverSummary;
-                _ldSelectedDriver = chosen?.Driver;
-                StyleLateDriversDriverTiles();
-                UpdateLateDriversTripCaption();
-                RefreshLateDriversScorecard();
-                BindLateDriversTripPane();
+                SelectLateDriversDriver(chosen?.Driver, focusTripNo: null);
             }
             card.Click += pick;
             foreach (Control c in card.Controls)
                 c.Click += pick;
 
             return card;
+        }
+
+        /// <summary>
+        /// Select All drivers (null) or a specific driver tile, rebind the trip list,
+        /// and optionally scroll/select a trip by number.
+        /// </summary>
+        private void SelectLateDriversDriver(string driverName, string focusTripNo)
+        {
+            string next = string.IsNullOrWhiteSpace(driverName) ? null : driverName.Trim();
+            bool changed = !string.Equals(
+                _ldSelectedDriver ?? "",
+                next ?? "",
+                StringComparison.OrdinalIgnoreCase);
+
+            _ldSelectedDriver = next;
+
+            if (changed && !string.IsNullOrEmpty(next))
+            {
+                // Page the strip so the chosen driver tile is visible.
+                var rows = _ldStripDrivers ?? new List<HiatmeAiClient.LateDriversDriverSummary>();
+                int idx = rows.FindIndex(d =>
+                    d != null && string.Equals(d.Driver, next, StringComparison.OrdinalIgnoreCase));
+                if (idx >= 0)
+                {
+                    int page = LateDriversDriverStripPageSize();
+                    if (page > 0)
+                    {
+                        if (idx < _ldDriverScrollOffset)
+                            _ldDriverScrollOffset = idx;
+                        else if (idx >= _ldDriverScrollOffset + page)
+                            _ldDriverScrollOffset = Math.Max(0, idx - page + 1);
+                        RenderLateDriversDriverStripPage();
+                    }
+                }
+            }
+
+            StyleLateDriversDriverTiles();
+            UpdateLateDriversTripCaption();
+            RefreshLateDriversScorecard();
+            BindLateDriversTripPane();
+
+            if (!string.IsNullOrWhiteSpace(focusTripNo))
+                FocusLateDriversTripInList(focusTripNo);
+        }
+
+        private void FocusLateDriversTripInList(string tripNo)
+        {
+            if (ldTripLv == null || ldTripLv.IsDisposed || string.IsNullOrWhiteSpace(tripNo))
+                return;
+
+            string want = ScheduleBuilderModivcareTripMatch.NormalizeTripNumber(
+                tripNo.Trim().TrimStart('+'));
+            if (string.IsNullOrEmpty(want))
+                return;
+
+            ListViewItem match = null;
+            foreach (ListViewItem item in ldTripLv.Items)
+            {
+                if (item?.Tag is LateDriversTripRowTag wrap)
+                {
+                    if (wrap.IsGroupHeader || wrap.IsGap)
+                        continue;
+                    string tn = ScheduleBuilderModivcareTripMatch.NormalizeTripNumber(
+                        (wrap.TripNo ?? "").Trim().TrimStart('+'));
+                    if (string.Equals(tn, want, StringComparison.OrdinalIgnoreCase))
+                    {
+                        match = item;
+                        break;
+                    }
+                }
+                else
+                {
+                    var habit = LateDriversHabitFromTag(item?.Tag);
+                    string tn = ScheduleBuilderModivcareTripMatch.NormalizeTripNumber(
+                        (habit?.TripNo ?? "").Trim().TrimStart('+'));
+                    if (string.Equals(tn, want, StringComparison.OrdinalIgnoreCase))
+                    {
+                        match = item;
+                        break;
+                    }
+                }
+            }
+
+            if (match == null)
+                return;
+
+            try
+            {
+                ldTripLv.SelectedItems.Clear();
+                match.Selected = true;
+                match.Focused = true;
+                match.EnsureVisible();
+                ldTripLv.Focus();
+            }
+            catch { }
         }
 
         private void StyleLateDriversDriverTiles()
@@ -3776,6 +3867,7 @@ namespace Hiatme_Tool_Suite_v3
 
             string serviceDate = null;
             string tripNo = null;
+            string driverName = null;
             if (ldTripLv.SelectedItems[0].Tag is LateDriversTripRowTag wrap
                 && (wrap.IsGroupHeader || wrap.IsGap))
                 return;
@@ -3784,15 +3876,30 @@ namespace Hiatme_Tool_Suite_v3
             {
                 serviceDate = habit.ServiceDate;
                 tripNo = habit.TripNo;
+                driverName = habit.Driver;
             }
             else if (ldTripLv.SelectedItems[0].Tag is LateDriversTripRowTag tripWrap)
             {
                 serviceDate = tripWrap.ServiceDate;
                 tripNo = tripWrap.TripNo;
+                driverName = tripWrap.HabitEvent?.Driver
+                    ?? tripWrap.ScheduleTrip?.DriverNameParsed;
             }
             if (string.IsNullOrWhiteSpace(tripNo))
                 return;
 
+            // From All drivers: open that driver's Habits schedule and land on the trip.
+            if (string.IsNullOrEmpty(_ldSelectedDriver) && !string.IsNullOrWhiteSpace(driverName))
+            {
+                string resolved = ResolveLateDriversDriverNameForSelect(driverName);
+                if (!string.IsNullOrEmpty(resolved))
+                {
+                    SelectLateDriversDriver(resolved, focusTripNo: tripNo);
+                    return;
+                }
+            }
+
+            // Already on a driver (or no driver name): jump to Trip Scout for that trip.
             try
             {
                 if (tsdatepicker != null && !string.IsNullOrWhiteSpace(serviceDate)
@@ -3813,6 +3920,33 @@ namespace Hiatme_Tool_Suite_v3
                     hiatmeTabControl.SelectedTab = tabPage9;
             }
             catch { }
+        }
+
+        /// <summary>Match habit driver label to a strip/roster name (exact / normalized).</summary>
+        private string ResolveLateDriversDriverNameForSelect(string driverName)
+        {
+            if (string.IsNullOrWhiteSpace(driverName))
+                return null;
+
+            string want = driverName.Trim();
+            var roster = _ldDriverRows ?? new List<HiatmeAiClient.LateDriversDriverSummary>();
+            var exact = roster.FirstOrDefault(d =>
+                d != null && string.Equals(d.Driver, want, StringComparison.OrdinalIgnoreCase));
+            if (exact != null)
+                return exact.Driver;
+
+            // Fall back to schedule-key resolver if the roster label differs slightly.
+            string key = ResolveLateDriversScheduleDriverKey(want);
+            if (!string.IsNullOrEmpty(key))
+            {
+                var viaSched = roster.FirstOrDefault(d =>
+                    d != null && string.Equals(d.Driver, key, StringComparison.OrdinalIgnoreCase));
+                if (viaSched != null)
+                    return viaSched.Driver;
+                return key;
+            }
+
+            return want;
         }
 
         private void SetLateDriversStatus(string text)
