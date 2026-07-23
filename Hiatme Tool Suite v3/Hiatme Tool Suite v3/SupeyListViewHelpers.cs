@@ -73,6 +73,18 @@ namespace Hiatme_Tool_Suite_v3
                 case FsPreviewSectionHeaderTag _:
                     return true;
                 default:
+                    // LateDriversTripRowTag is nested private on Form1 — match by name/fields.
+                    if (item.Tag.GetType().Name == "LateDriversTripRowTag")
+                    {
+                        try
+                        {
+                            var t = item.Tag.GetType();
+                            object header = t.GetField("IsGroupHeader")?.GetValue(item.Tag);
+                            object gap = t.GetField("IsGap")?.GetValue(item.Tag);
+                            return (header is bool h && h) || (gap is bool g && g);
+                        }
+                        catch { return false; }
+                    }
                     return item.Tag.GetType().Name == "SupeyPreviewGroupHeaderTag";
             }
         }

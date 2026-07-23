@@ -9228,6 +9228,19 @@ namespace Hiatme_Tool_Suite_v3
 
             if (isSupey && listView.View == System.Windows.Forms.View.Details)
             {
+                // Driver Habits group/gap notes: one merged bar across the row (DrawSubItem skips).
+                if (ReferenceEquals(listView, ldTripLv)
+                    && e.Item?.Tag is LateDriversTripRowTag ldSep
+                    && (ldSep.IsGroupHeader || ldSep.IsGap))
+                {
+                    e.DrawDefault = false;
+                    LateDriversPaintMergedSepRow(
+                        e.Graphics,
+                        e.Item,
+                        e.Item.Selected && listView.Focused);
+                    return;
+                }
+
                 // For our owner-drawn Details lists, never let DrawItem paint the full row background.
                 // It can repaint only column 0 and wipe the subitem text we draw later.
                 // We paint backgrounds + grids per-cell in DrawSubItem instead.
@@ -9322,6 +9335,9 @@ namespace Hiatme_Tool_Suite_v3
                     ? e.Item?.Tag as LateDriversTripRowTag
                     : null;
                 ldScheduleSep = ldTag != null && (ldTag.IsGroupHeader || ldTag.IsGap);
+                // Merged note/group bars are painted in DrawItem — skip per-cell paint.
+                if (ldScheduleSep)
+                    return;
 
                 Color bg = selected ? SupeyTheme.ListSelected : e.Item.BackColor;
                 // Habits schedule: tint Group column from tag (not Item.BackColor —
@@ -9345,16 +9361,6 @@ namespace Hiatme_Tool_Suite_v3
                     && bg != SupeyTheme.ListBody
                     && !ldScheduleSep)
                     alertFlashRow = true;
-
-                if (ldScheduleSep && !selected)
-                {
-                    if (ldTag.IsGroupHeader && bg != SupeyTheme.ListBody)
-                        ldSepText = ScheduleBuilderPreviewStyle.ContrastText(bg);
-                    else if (e.Item.ForeColor != Color.Empty)
-                        ldSepText = e.Item.ForeColor;
-                    else
-                        ldSepText = SupeyTheme.TextMuted;
-                }
 
                 TripScoutPaintStatusCellIfBlinking(e, bg, out bg);
                 var fill = SupeyListViewHelpers.InsetBoundsForGrid(e.Bounds);

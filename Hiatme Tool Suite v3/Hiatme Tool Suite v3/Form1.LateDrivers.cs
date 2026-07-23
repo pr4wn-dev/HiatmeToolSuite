@@ -3121,10 +3121,12 @@ namespace Hiatme_Tool_Suite_v3
             if (ldTripLv == null || ldTripLv.IsDisposed)
                 return;
 
-            // Layout without Driver: Group, Date, Habit, Trip… → col 3 is Trip
-            // Layout with Driver:    Group, Date, Habit, Driver, Trip… → col 3 is Driver
+            // Layout without Driver: Group, Date, Trip, Habit… → col 3 is Habit
+            // Layout with Driver:    Group, Date, Trip, Driver, Habit… → col 3 is Driver
             bool hasDriverCol = ldTripLv.Columns.Count > 3
                 && string.Equals(ldTripLv.Columns[3].Text, "Driver", StringComparison.OrdinalIgnoreCase);
+            bool tripBeforeHabit = ldTripLv.Columns.Count > 2
+                && string.Equals(ldTripLv.Columns[2].Text, "Trip", StringComparison.OrdinalIgnoreCase);
             bool hasPuDoCols = false;
             for (int i = 0; i < ldTripLv.Columns.Count; i++)
             {
@@ -3134,7 +3136,7 @@ namespace Hiatme_Tool_Suite_v3
                     break;
                 }
             }
-            if (ldTripLv.Columns.Count > 0 && hasDriverCol == showDriver && hasPuDoCols)
+            if (ldTripLv.Columns.Count > 0 && hasDriverCol == showDriver && hasPuDoCols && tripBeforeHabit)
                 return;
 
             ldTripLv.BeginUpdate();
@@ -3144,10 +3146,10 @@ namespace Hiatme_Tool_Suite_v3
                 ldTripLv.Columns.Clear();
                 ldTripLv.Columns.Add("Group", 52);
                 ldTripLv.Columns.Add("Date", 90);
-                ldTripLv.Columns.Add("Habit", 78);
+                ldTripLv.Columns.Add("Trip", 120);
                 if (showDriver)
                     ldTripLv.Columns.Add("Driver", 140);
-                ldTripLv.Columns.Add("Trip", 120);
+                ldTripLv.Columns.Add("Habit", 78);
                 ldTripLv.Columns.Add("Client", 160);
                 ldTripLv.Columns.Add("Sched PU", 78);
                 ldTripLv.Columns.Add("Actual PU", 78);
@@ -3192,10 +3194,10 @@ namespace Hiatme_Tool_Suite_v3
 
             var item = new ListViewItem("—");
             item.SubItems.Add(e.ServiceDate ?? "");
-            item.SubItems.Add(habit);
+            item.SubItems.Add(e.TripNo ?? "");
             if (showDriver)
                 item.SubItems.Add(driver);
-            item.SubItems.Add(e.TripNo ?? "");
+            item.SubItems.Add(habit);
             item.SubItems.Add(e.Client ?? "");
             item.SubItems.Add(isPu ? sched : "—");
             item.SubItems.Add(isPu ? actual : "—");
@@ -3217,6 +3219,82 @@ namespace Hiatme_Tool_Suite_v3
             else if (hk == "unfinished_ticket" || hk == "billed_unfinished")
                 item.ForeColor = Color.FromArgb(160, 90, 40);
             return item;
+        }
+
+        private bool LateDriversTryGetEntireRowBounds(ListViewItem item, out Rectangle bounds)
+        {
+            bounds = Rectangle.Empty;
+            if (ldTripLv == null || item == null)
+                return false;
+            try
+            {
+                bounds = ldTripLv.GetItemRect(item.Index, ItemBoundsPortion.Entire);
+                int contentW = SupeyListViewHelpers.GetDetailsContentWidth(ldTripLv);
+                if (contentW > bounds.Width)
+                    bounds.Width = contentW;
+            }
+            catch (ArgumentException)
+            {
+                bounds = item.Bounds;
+            }
+            return bounds.Width > 0 && bounds.Height > 0;
+        }
+
+        /// <summary>
+        /// Group/gap separator: paint note (and G#) as one merged bar across the row,
+        /// centered when a note is present — same idea as Schedule Builder note rows.
+        /// </summary>
+        private void LateDriversPaintMergedSepRow(Graphics g, ListViewItem item, bool selected)
+        {
+            if (g == null || !(item?.Tag is LateDriversTripRowTag tag)
+                || (!tag.IsGroupHeader && !tag.IsGap))
+                return;
+            if (!LateDriversTryGetEntireRowBounds(item, out Rectangle rowBounds))
+                return;
+
+            Color bg;
+            if (selected)
+                bg = SupeyTheme.ListSelected;
+            else if (tag.IsGroupHeader)
+            {
+                bg = LateDriversGroupColorsEnabled
+                    ? (tag.GroupColor ?? SupeyTheme.SurfaceElevated)
+                    : SupeyTheme.SurfaceElevated;
+            }
+            else
+                bg = SupeyTheme.ListBody;
+
+            Color fg = selected
+                ? SupeyTheme.ListSelectedText
+                : (tag.IsGroupHeader
+                    ? ScheduleBuilderPreviewStyle.ContrastText(bg)
+                    : SupeyTheme.TextMuted);
+
+            string note = (tag.GroupLabel ?? "").Trim();
+            string gLabel = tag.GroupNumber > 0 ? ("G" + tag.GroupNumber) : "";
+            string text;
+            if (tag.IsGroupHeader)
+            {
+                if (gLabel.Length > 0 && note.Length > 0)
+                    text = gLabel + "  ·  " + note;
+                else if (note.Length > 0)
+                    text = note;
+                else
+                    text = gLabel;
+            }
+            else
+                text = note;
+
+            Font font = item.Font ?? ListViewOwnerDrawFonts.Cell;
+            SupeyListViewHelpers.PaintMergedDetailsRow(
+                g,
+                rowBounds,
+                bg,
+                text,
+                fg,
+                font,
+                boldText: tag.IsGroupHeader && text.Length > 0,
+                centerText: note.Length > 0);
         }
 
         /// <summary>
@@ -3265,19 +3343,17 @@ namespace Hiatme_Tool_Suite_v3
 
         private ListViewItem CreateLateDriversMergedListItem(LateDriversTripRowTag row, bool showDriver)
         {
-            // After Habit (+ optional Driver): Trip, Client, 4 times, Mins, Status, State
-            int trailing = showDriver ? 10 : 9;
+            // After Trip (+ optional Driver) + Habit: Client, 4 times, Mins, Status, State
+            // Group/gap notes live in Tag.GroupLabel and paint as a full-row merged bar
+            // (not Habit cell text — that would widen the Habit column via autofit).
+            int subCount = showDriver ? 12 : 11;
 
             if (row.IsGap)
             {
                 string note = (row.GroupLabel ?? "").Trim();
                 var gap = new ListViewItem("");
                 gap.UseItemStyleForSubItems = false;
-                gap.SubItems.Add("");
-                gap.SubItems.Add(note);
-                if (showDriver)
-                    gap.SubItems.Add("");
-                for (int c = 0; c < trailing - (showDriver ? 1 : 0); c++)
+                for (int c = 0; c < subCount; c++)
                     gap.SubItems.Add("");
                 gap.Tag = row;
                 gap.ForeColor = SupeyTheme.TextMuted;
@@ -3294,15 +3370,9 @@ namespace Hiatme_Tool_Suite_v3
                 Color bar = LateDriversGroupColorsEnabled
                     ? (row.GroupColor ?? SupeyTheme.SurfaceElevated)
                     : SupeyTheme.SurfaceElevated;
-                string gLabel = row.GroupNumber > 0 ? ("G" + row.GroupNumber) : "";
-                string note = (row.GroupLabel ?? "").Trim();
-                var hdr = new ListViewItem(gLabel);
+                var hdr = new ListViewItem("");
                 hdr.UseItemStyleForSubItems = false;
-                hdr.SubItems.Add("");
-                hdr.SubItems.Add(note);
-                if (showDriver)
-                    hdr.SubItems.Add(row.DriverDisplay ?? "");
-                for (int c = 0; c < trailing - (showDriver ? 1 : 0); c++)
+                for (int c = 0; c < subCount; c++)
                     hdr.SubItems.Add("");
                 hdr.Tag = row;
                 Color fg = LateDriversGroupColorsEnabled
@@ -3337,10 +3407,10 @@ namespace Hiatme_Tool_Suite_v3
             var item = new ListViewItem(groupCol);
             item.UseItemStyleForSubItems = false;
             item.SubItems.Add(date);
-            item.SubItems.Add(habitLabel);
+            item.SubItems.Add(tripNo);
             if (showDriver)
                 item.SubItems.Add(string.IsNullOrEmpty(driverCol) ? "—" : driverCol);
-            item.SubItems.Add(tripNo);
+            item.SubItems.Add(habitLabel);
             item.SubItems.Add(row.Client ?? "");
             item.SubItems.Add(schedPu);
             item.SubItems.Add(actPu);
