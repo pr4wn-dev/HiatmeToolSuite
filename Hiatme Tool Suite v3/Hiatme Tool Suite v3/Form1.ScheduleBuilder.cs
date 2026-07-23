@@ -1756,32 +1756,61 @@ namespace Hiatme_Tool_Suite_v3
 
         {
 
-            using (var dlg = new OpenFileDialog())
+            DateTime loadDay = fsbdatepicker?.Value.Date ?? DateTime.Today;
+            string path = null;
+            string ext = null;
+
+            // Prefer Desktop / AI server workbook for the datepicker day (kitchen PCs).
+            try
+            {
+                var resolved = await ScheduleWorkbookResolver.ResolveForReadAsync(
+                    loadDay, HiatmeAiSettings.Load()).ConfigureAwait(true);
+                if (resolved != null
+                    && !string.IsNullOrWhiteSpace(resolved.FullPath)
+                    && File.Exists(resolved.FullPath))
+                {
+                    path = resolved.FullPath;
+                    ext = (Path.GetExtension(path) ?? "").ToLowerInvariant();
+                    string origin = string.Equals(
+                        resolved.Source, "server_cache", StringComparison.OrdinalIgnoreCase)
+                        ? "server cache"
+                        : "Desktop";
+                    SetScheduleBuilderStatus(
+                        "Loading " + (resolved.FileName ?? Path.GetFileName(path))
+                        + " (" + origin + ")…");
+                }
+            }
+            catch { }
+
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                using (var dlg = new OpenFileDialog())
+                {
+                    dlg.Title = "Load saved schedule";
+
+                    int loadYear = loadDay.Year;
+                    string desktopDir = ScheduleExportPaths.ResolveDesktopYearFolder(loadYear);
+                    string cacheDir = ScheduleWorkbookResolver.LocalCacheYearFolder(loadYear);
+                    dlg.InitialDirectory = Directory.Exists(desktopDir) && Directory.GetFiles(desktopDir).Length > 0
+                        ? desktopDir
+                        : (Directory.Exists(cacheDir) ? cacheDir : desktopDir);
+
+                    dlg.Filter =
+
+                        "Schedule|*.xlsx;*.xls;*.csv|Excel workbook|*.xlsx;*.xls|CSV (pick any file in the folder)|*.csv|All files|*.*";
+
+                    dlg.CheckFileExists = true;
+
+                    if (dlg.ShowDialog(this) != DialogResult.OK)
+
+                        return;
+
+                    path = dlg.FileName;
+                    ext = (Path.GetExtension(path) ?? "").ToLowerInvariant();
+                }
+            }
 
             {
-
-                dlg.Title = "Load saved schedule";
-
-                int loadYear = fsbdatepicker?.Value.Year ?? DateTime.Now.Year;
-                dlg.InitialDirectory = ScheduleExportPaths.ResolveDesktopYearFolder(loadYear);
-
-                dlg.Filter =
-
-                    "Schedule|*.xlsx;*.xls;*.csv|Excel workbook|*.xlsx;*.xls|CSV (pick any file in the folder)|*.csv|All files|*.*";
-
-                dlg.CheckFileExists = true;
-
-                if (dlg.ShowDialog(this) != DialogResult.OK)
-
-                    return;
-
-
-
-                string path = dlg.FileName;
-
-                string ext = (Path.GetExtension(path) ?? "").ToLowerInvariant();
-
-
 
                 _fsHasPreview = false;
 
@@ -1809,7 +1838,10 @@ namespace Hiatme_Tool_Suite_v3
 
                     if (ext == ".xlsx" || ext == ".xls")
                     {
-                        _fsPreferredSavePath = path;
+                        // Prefer saving back to Desktop when that file exists; cache loads stay cache.
+                        ScheduleExportPaths.GetDefaultWorkbookSaveLocation(
+                            loadDay, out _, out _, out string desktopSave);
+                        _fsPreferredSavePath = File.Exists(desktopSave) ? desktopSave : path;
                         load = await ScheduleBuilderScheduleLoad.LoadFromWorkbookAsync(path)
                             .ConfigureAwait(true);
                     }

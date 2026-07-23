@@ -101,6 +101,8 @@ namespace Hiatme_Tool_Suite_v3
         private string _ldScheduleCacheDateIso;
         private string _ldScheduleCachePath;
         private string _ldScheduleCacheFileName;
+        private string _ldScheduleCacheSource;
+        private string _ldScheduleCacheEtag;
         private ScheduleBuilderLoadResult _ldScheduleCache;
         private string _ldScheduleCacheError;
 
@@ -116,6 +118,7 @@ namespace Hiatme_Tool_Suite_v3
             public int GroupNumber;
             public string GroupLabel;
             public Color? GroupColor;
+            public string DriverDisplay;
             public string TripNo;
             public string ServiceDate;
             public string Client;
@@ -1806,8 +1809,8 @@ namespace Hiatme_Tool_Suite_v3
 
         private void PresentLateDriversLoadedData()
         {
-            // Schedule xlsx loads lazily when a driver tile is selected (BindLateDriversTripPane).
-            // Do not load it here — a blocked async workbook load used to hang Day/Live refresh.
+            // Day/Live: pull schedule roster so clean drivers still appear in the strip.
+            MergeLateDriversScheduleRosterIntoDriverRows();
             LayoutLateDriversTabPanels();
             LayoutLateDriversDriverStripRow();
             BindLateDriversDriverStrip();
@@ -1823,6 +1826,66 @@ namespace Hiatme_Tool_Suite_v3
                 ldOtpMeter?.Invalidate();
             }
             catch { }
+        }
+
+        /// <summary>
+        /// Add every workbook driver to the strip (0 habit counts) so Day/Live shows the full roster.
+        /// </summary>
+        private void MergeLateDriversScheduleRosterIntoDriverRows()
+        {
+            string mode = LateDriversSelectedMode();
+            if (mode != "day" && mode != "live")
+                return;
+
+            string sd = LateDriversSelectedServiceDateIso();
+            EnsureLateDriversScheduleCache(sd, forceReload: false);
+            if (_ldScheduleCache == null)
+                return;
+
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            void addKey(string k)
+            {
+                if (string.IsNullOrWhiteSpace(k)) return;
+                string n = k.Trim();
+                if (n.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
+                    return;
+                if (n.StartsWith("Reserve", StringComparison.OrdinalIgnoreCase)
+                    && n.IndexOf(" ", StringComparison.Ordinal) < 0)
+                    return;
+                names.Add(n);
+            }
+
+            if (_ldScheduleCache.DriverTrips != null)
+            {
+                foreach (var k in _ldScheduleCache.DriverTrips.Keys)
+                    addKey(k);
+            }
+            if (_ldScheduleCache.DriverLines != null)
+            {
+                foreach (var k in _ldScheduleCache.DriverLines.Keys)
+                    addKey(k);
+            }
+            if (names.Count == 0)
+                return;
+
+            if (_ldDriverRows == null)
+                _ldDriverRows = new List<HiatmeAiClient.LateDriversDriverSummary>();
+
+            foreach (string name in names.OrderBy(n => n, StringComparer.OrdinalIgnoreCase))
+            {
+                bool exists = _ldDriverRows.Any(d =>
+                    d != null
+                    && string.Equals(d.Driver, name, StringComparison.OrdinalIgnoreCase));
+                if (exists)
+                    continue;
+                _ldDriverRows.Add(new HiatmeAiClient.LateDriversDriverSummary
+                {
+                    Driver = name,
+                    Trips = new List<HiatmeAiClient.LateDriversEventRow>(),
+                });
+            }
+
+            SortLateDriversByMinutes(_ldDriverRows);
         }
 
         /// <summary>
@@ -2911,6 +2974,7 @@ namespace Hiatme_Tool_Suite_v3
 
             string mode = LateDriversSelectedMode();
             bool singleDay = mode == "day" || mode == "live";
+            // All drivers = habit alerts only (late/early/etc.). Full schedule is per-driver.
             bool useSchedule = singleDay && !string.IsNullOrWhiteSpace(_ldSelectedDriver);
 
             if (useSchedule)
@@ -2920,7 +2984,7 @@ namespace Hiatme_Tool_Suite_v3
                 var merged = BuildLateDriversMergedScheduleRows(sd, _ldSelectedDriver);
                 if (merged != null)
                 {
-                    BindLateDriversMergedTripRows(merged);
+                    BindLateDriversMergedTripRows(merged, showDriver: false);
                     AppendLateDriversScheduleStatus(FormatLateDriversScheduleStatusNote(merged));
                     return;
                 }
@@ -2991,10 +3055,9 @@ namespace Hiatme_Tool_Suite_v3
             ApplyLateDriversTripAlertBlinkPhase();
         }
 
-        private void BindLateDriversMergedTripRows(List<LateDriversTripRowTag> rows)
+        private void BindLateDriversMergedTripRows(List<LateDriversTripRowTag> rows, bool showDriver)
         {
-            // Single-driver schedule view — Driver column not needed.
-            EnsureLateDriversTripColumns(showDriver: false);
+            EnsureLateDriversTripColumns(showDriver);
 
             string chip = (_ldHabitChip ?? "all").Trim().ToLowerInvariant();
             ldTripLv.BeginUpdate();
@@ -3004,7 +3067,7 @@ namespace Hiatme_Tool_Suite_v3
                 foreach (var row in rows ?? new List<LateDriversTripRowTag>())
                 {
                     if (row == null) continue;
-                    var item = CreateLateDriversMergedListItem(row);
+                    var item = CreateLateDriversMergedListItem(row, showDriver);
                     bool chipMatch = LateDriversMergedRowMatchesChip(row, chip);
                     if (chip != "all" && !chipMatch && !row.IsGroupHeader && !row.IsGap)
                         item.ForeColor = SupeyTheme.TextMuted;
@@ -3103,8 +3166,10 @@ namespace Hiatme_Tool_Suite_v3
             return item;
         }
 
-        private ListViewItem CreateLateDriversMergedListItem(LateDriversTripRowTag row)
+        private ListViewItem CreateLateDriversMergedListItem(LateDriversTripRowTag row, bool showDriver)
         {
+            int trailing = showDriver ? 8 : 7;
+
             if (row.IsGap)
             {
                 // Blank spacer (or note in Habit col) — mirrors Schedule Builder gap rows.
@@ -3113,7 +3178,9 @@ namespace Hiatme_Tool_Suite_v3
                 gap.UseItemStyleForSubItems = false;
                 gap.SubItems.Add("");
                 gap.SubItems.Add(note);
-                for (int c = 0; c < 7; c++)
+                if (showDriver)
+                    gap.SubItems.Add("");
+                for (int c = 0; c < trailing - (showDriver ? 1 : 0); c++)
                     gap.SubItems.Add("");
                 gap.Tag = row;
                 gap.ForeColor = SupeyTheme.TextMuted;
@@ -3135,7 +3202,9 @@ namespace Hiatme_Tool_Suite_v3
                 hdr.UseItemStyleForSubItems = false;
                 hdr.SubItems.Add("");
                 hdr.SubItems.Add(note);
-                for (int c = 0; c < 7; c++)
+                if (showDriver)
+                    hdr.SubItems.Add(row.DriverDisplay ?? "");
+                for (int c = 0; c < trailing - (showDriver ? 1 : 0); c++)
                     hdr.SubItems.Add("");
                 hdr.Tag = row;
                 Color fg = ScheduleBuilderPreviewStyle.ContrastText(bar);
@@ -3157,11 +3226,16 @@ namespace Hiatme_Tool_Suite_v3
             if (row.HabitOnly && !string.IsNullOrEmpty(tripNo) && !tripNo.StartsWith("+", StringComparison.Ordinal))
                 tripNo = "+" + tripNo;
             string groupCol = row.GroupNumber > 0 ? ("G" + row.GroupNumber) : "—";
+            string driverCol = !string.IsNullOrWhiteSpace(row.DriverDisplay)
+                ? row.DriverDisplay.Trim()
+                : (habit?.Driver ?? "").Trim();
 
             var item = new ListViewItem(groupCol);
             item.UseItemStyleForSubItems = false;
             item.SubItems.Add(date);
             item.SubItems.Add(habitLabel);
+            if (showDriver)
+                item.SubItems.Add(string.IsNullOrEmpty(driverCol) ? "—" : driverCol);
             item.SubItems.Add(tripNo);
             item.SubItems.Add(row.Client ?? "");
             item.SubItems.Add(string.IsNullOrWhiteSpace(row.SchedDisplay) ? "—" : row.SchedDisplay);
@@ -3705,6 +3779,8 @@ namespace Hiatme_Tool_Suite_v3
             _ldScheduleCacheDateIso = null;
             _ldScheduleCachePath = null;
             _ldScheduleCacheFileName = null;
+            _ldScheduleCacheSource = null;
+            _ldScheduleCacheEtag = null;
             _ldScheduleCache = null;
             _ldScheduleCacheError = null;
         }
@@ -3718,14 +3794,6 @@ namespace Hiatme_Tool_Suite_v3
                 return;
             }
 
-            if (!forceReload
-                && string.Equals(_ldScheduleCacheDateIso, serviceDateIso, StringComparison.Ordinal)
-                && (_ldScheduleCache != null || !string.IsNullOrEmpty(_ldScheduleCacheError)))
-                return;
-
-            ClearLateDriversScheduleCache();
-            _ldScheduleCacheDateIso = serviceDateIso;
-
             if (!DateTime.TryParseExact(
                     serviceDateIso,
                     "yyyy-MM-dd",
@@ -3733,18 +3801,38 @@ namespace Hiatme_Tool_Suite_v3
                     DateTimeStyles.None,
                     out var day))
             {
+                ClearLateDriversScheduleCache();
+                _ldScheduleCacheDateIso = serviceDateIso;
                 _ldScheduleCacheError = "bad date";
                 return;
             }
 
-            ScheduleExportPaths.GetDefaultWorkbookSaveLocation(
-                day, out _, out string fileName, out string fullPath);
+            var resolved = ScheduleWorkbookResolver.ResolveForRead(day, LateDriversAiSettings());
+            string fullPath = resolved?.FullPath;
+            string fileName = resolved?.FileName
+                ?? ScheduleExportPaths.WorkbookFileName(
+                    day.ToString("MMMM"), day.Day, day.Year);
+            string etag = resolved?.Etag ?? "";
+
+            if (!forceReload
+                && string.Equals(_ldScheduleCacheDateIso, serviceDateIso, StringComparison.Ordinal)
+                && string.Equals(_ldScheduleCachePath ?? "", fullPath ?? "", StringComparison.OrdinalIgnoreCase)
+                && string.Equals(_ldScheduleCacheEtag ?? "", etag, StringComparison.Ordinal)
+                && (_ldScheduleCache != null || !string.IsNullOrEmpty(_ldScheduleCacheError)))
+                return;
+
+            ClearLateDriversScheduleCache();
+            _ldScheduleCacheDateIso = serviceDateIso;
             _ldScheduleCacheFileName = fileName;
             _ldScheduleCachePath = fullPath;
+            _ldScheduleCacheSource = resolved?.Source;
+            _ldScheduleCacheEtag = etag;
 
-            if (!File.Exists(fullPath))
+            if (string.IsNullOrWhiteSpace(fullPath) || !File.Exists(fullPath))
             {
-                _ldScheduleCacheError = fileName + " missing — habits only";
+                _ldScheduleCacheError = string.IsNullOrWhiteSpace(resolved?.Error)
+                    ? (fileName + " missing — habits only")
+                    : (resolved.Error + " — habits only");
                 return;
             }
 
@@ -3776,7 +3864,15 @@ namespace Hiatme_Tool_Suite_v3
             int habitN = merged?.Count(r => r?.HabitEvent != null) ?? 0;
             int addedN = merged?.Count(r => r != null && r.HabitOnly) ?? 0;
             int groupsN = merged?.Count(r => r != null && r.IsGroupHeader) ?? 0;
-            string note = file + " · " + schedN + " trips · " + habitN + " habit alerts";
+            string origin = string.Equals(_ldScheduleCacheSource, "server_cache", StringComparison.OrdinalIgnoreCase)
+                ? "server cache"
+                : (string.Equals(_ldScheduleCacheSource, "desktop", StringComparison.OrdinalIgnoreCase)
+                    ? "Desktop"
+                    : null);
+            string note = file;
+            if (!string.IsNullOrEmpty(origin))
+                note += " (" + origin + ")";
+            note += " · " + schedN + " trips · " + habitN + " habit alerts";
             if (groupsN > 0)
                 note += " · " + groupsN + " groups";
             if (addedN > 0)
@@ -3882,7 +3978,8 @@ namespace Hiatme_Tool_Suite_v3
             {
                 serviceDate = tripWrap.ServiceDate;
                 tripNo = tripWrap.TripNo;
-                driverName = tripWrap.HabitEvent?.Driver
+                driverName = tripWrap.DriverDisplay
+                    ?? tripWrap.HabitEvent?.Driver
                     ?? tripWrap.ScheduleTrip?.DriverNameParsed;
             }
             if (string.IsNullOrWhiteSpace(tripNo))

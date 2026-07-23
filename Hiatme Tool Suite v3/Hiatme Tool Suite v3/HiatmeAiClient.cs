@@ -178,6 +178,43 @@ namespace Hiatme_Tool_Suite_v3
         public JArray Matches { get; set; }
     }
 
+    /// <summary>GET /api/hiatme/schedules/workbook/meta</summary>
+    internal sealed class HiatmeScheduleWorkbookMeta
+    {
+        [JsonProperty("ok")]
+        public bool Ok { get; set; }
+
+        [JsonProperty("exists")]
+        public bool Exists { get; set; }
+
+        [JsonProperty("filename")]
+        public string Filename { get; set; }
+
+        [JsonProperty("service_date")]
+        public string ServiceDate { get; set; }
+
+        [JsonProperty("mtime")]
+        public double? Mtime { get; set; }
+
+        [JsonProperty("size")]
+        public long? Size { get; set; }
+
+        [JsonProperty("etag")]
+        public string Etag { get; set; }
+
+        [JsonProperty("source")]
+        public string Source { get; set; }
+
+        [JsonProperty("synced")]
+        public bool Synced { get; set; }
+
+        [JsonProperty("reason")]
+        public string Reason { get; set; }
+
+        [JsonProperty("error")]
+        public string Error { get; set; }
+    }
+
     internal sealed class HiatmeAiPreReviewResponse
     {
         public List<string> Warnings { get; set; } = new List<string>();
@@ -1317,6 +1354,188 @@ namespace Hiatme_Tool_Suite_v3
             {
                 return 0;
             }
+        }
+
+        /// <summary>GET /api/hiatme/schedules/workbook/meta — existence/etag for a day workbook.</summary>
+        public static async Task<HiatmeScheduleWorkbookMeta> GetScheduleWorkbookMetaAsync(
+            HiatmeAiSettings settings,
+            string serviceDateIso,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null) return null;
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl)) return null;
+            string sd = (serviceDateIso ?? "").Trim();
+            if (string.IsNullOrEmpty(sd)) return null;
+            string url = baseUrl + "/api/hiatme/schedules/workbook/meta?service_date="
+                + Uri.EscapeDataString(sd);
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Get, url))
+                {
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken)
+                        .ConfigureAwait(false))
+                    {
+                        var text = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        if (!resp.IsSuccessStatusCode)
+                        {
+                            try
+                            {
+                                return JsonConvert.DeserializeObject<HiatmeScheduleWorkbookMeta>(text)
+                                    ?? new HiatmeScheduleWorkbookMeta
+                                    {
+                                        Ok = false,
+                                        Exists = false,
+                                        Error = "HTTP " + (int)resp.StatusCode,
+                                    };
+                            }
+                            catch
+                            {
+                                return new HiatmeScheduleWorkbookMeta
+                                {
+                                    Ok = false,
+                                    Exists = false,
+                                    Error = "HTTP " + (int)resp.StatusCode,
+                                };
+                            }
+                        }
+                        return JsonConvert.DeserializeObject<HiatmeScheduleWorkbookMeta>(text);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                return new HiatmeScheduleWorkbookMeta
+                {
+                    Ok = false,
+                    Exists = false,
+                    Error = ex.Message,
+                };
+            }
+        }
+
+        /// <summary>
+        /// Download day workbook bytes to <paramref name="destPath"/>.
+        /// Returns meta headers when successful.
+        /// </summary>
+        public static async Task<HiatmeScheduleWorkbookMeta> DownloadScheduleWorkbookAsync(
+            HiatmeAiSettings settings,
+            string serviceDateIso,
+            string destPath,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null || string.IsNullOrWhiteSpace(destPath))
+                return null;
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl)) return null;
+            string sd = (serviceDateIso ?? "").Trim();
+            if (string.IsNullOrEmpty(sd)) return null;
+            string url = baseUrl + "/api/hiatme/schedules/workbook?service_date="
+                + Uri.EscapeDataString(sd);
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Get, url))
+                {
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken)
+                        .ConfigureAwait(false))
+                    {
+                        if (!resp.IsSuccessStatusCode)
+                        {
+                            return new HiatmeScheduleWorkbookMeta
+                            {
+                                Ok = false,
+                                Exists = false,
+                                Error = "HTTP " + (int)resp.StatusCode,
+                            };
+                        }
+
+                        string dir = Path.GetDirectoryName(destPath);
+                        if (!string.IsNullOrEmpty(dir))
+                            Directory.CreateDirectory(dir);
+
+                        string tmp = destPath + ".tmp";
+                        using (var fs = new FileStream(
+                            tmp, FileMode.Create, FileAccess.Write, FileShare.None))
+                        {
+                            await resp.Content.CopyToAsync(fs).ConfigureAwait(false);
+                        }
+
+                        if (File.Exists(destPath))
+                        {
+                            try { File.Delete(destPath); }
+                            catch { }
+                        }
+                        File.Move(tmp, destPath);
+
+                        string filename = null;
+                        if (resp.Content.Headers.ContentDisposition != null)
+                            filename = resp.Content.Headers.ContentDisposition.FileName?.Trim('"');
+                        if (string.IsNullOrWhiteSpace(filename)
+                            && resp.Headers.TryGetValues("X-Schedule-Filename", out var fnVals))
+                            filename = FirstHeader(fnVals);
+                        if (string.IsNullOrWhiteSpace(filename))
+                            filename = Path.GetFileName(destPath);
+
+                        string etag = null;
+                        if (resp.Headers.ETag != null)
+                            etag = resp.Headers.ETag.Tag;
+                        if (string.IsNullOrWhiteSpace(etag)
+                            && resp.Headers.TryGetValues("ETag", out var etVals))
+                            etag = FirstHeader(etVals);
+
+                        long? size = null;
+                        if (resp.Headers.TryGetValues("X-Schedule-Size", out var szVals)
+                            && long.TryParse(FirstHeader(szVals), out var sz))
+                            size = sz;
+                        double? mtime = null;
+                        if (resp.Headers.TryGetValues("X-Schedule-Mtime", out var mtVals)
+                            && double.TryParse(
+                                FirstHeader(mtVals),
+                                NumberStyles.Float,
+                                CultureInfo.InvariantCulture,
+                                out var mt))
+                            mtime = mt;
+
+                        return new HiatmeScheduleWorkbookMeta
+                        {
+                            Ok = true,
+                            Exists = true,
+                            Filename = filename,
+                            ServiceDate = sd,
+                            Etag = etag,
+                            Size = size,
+                            Mtime = mtime,
+                            Source = "server",
+                        };
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                return new HiatmeScheduleWorkbookMeta
+                {
+                    Ok = false,
+                    Exists = false,
+                    Error = ex.Message,
+                };
+            }
+        }
+
+        private static string FirstHeader(IEnumerable<string> values)
+        {
+            if (values == null) return null;
+            foreach (var v in values)
+            {
+                if (!string.IsNullOrWhiteSpace(v))
+                    return v.Trim();
+            }
+            return null;
         }
 
         /// <summary>Historical archive status (Desktop mirror + ingested day count).</summary>

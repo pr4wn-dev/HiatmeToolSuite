@@ -153,6 +153,7 @@
     <Compile Include="ScheduleBuilderMapMileage.cs" />
     <Compile Include="ScheduleBuilderScheduleLoad.cs" />
     <Compile Include="ScheduleExportPaths.cs" />
+    <Compile Include="ScheduleWorkbookResolver.cs" />
     <Compile Include="ScheduleBuilderGroupInference.cs" />
     <Compile Include="ScheduleBuilderLoadDateResolver.cs" />
     <Compile Include="ScheduleBuilderXlsxReader.cs" />
