@@ -12,6 +12,7 @@ namespace Hiatme_Tool_Suite_v3
         private const int LateDriversLiveScanMinVisibleMs = 1200;
 
         private SupeySwitch ldLiveSwitch;
+        private SupeySwitch ldColorsSwitch;
         private System.Windows.Forms.Timer _ldPollTimer;
         private System.Windows.Forms.Timer _ldPollCountdownTimer;
         private DateTime _ldPollNextUtc;
@@ -25,6 +26,10 @@ namespace Hiatme_Tool_Suite_v3
 
         private bool LateDriversLiveEnabled =>
             ldLiveSwitch != null && !ldLiveSwitch.IsDisposed && ldLiveSwitch.Checked;
+
+        /// <summary>When off, schedule groups stay (G1/G2 + headers) but lose palette tint.</summary>
+        private bool LateDriversGroupColorsEnabled =>
+            ldColorsSwitch == null || ldColorsSwitch.IsDisposed || ldColorsSwitch.Checked;
 
         private void BuildLateDriversLiveSwitch()
         {
@@ -41,6 +46,25 @@ namespace Hiatme_Tool_Suite_v3
             };
             StyleLateDriversLiveSwitch();
             ldLiveSwitch.CheckedChanged += LdLiveSwitch_CheckedChanged;
+
+            BuildLateDriversColorsSwitch();
+        }
+
+        private void BuildLateDriversColorsSwitch()
+        {
+            if (ldColorsSwitch != null && !ldColorsSwitch.IsDisposed)
+                return;
+
+            ldColorsSwitch = new SupeySwitch
+            {
+                Name = "ldColorsSwitch",
+                Text = "Colors",
+                AutoSize = true,
+                Margin = Padding.Empty,
+                Checked = true,
+            };
+            StyleLateDriversColorsSwitch();
+            ldColorsSwitch.CheckedChanged += LdColorsSwitch_CheckedChanged;
         }
 
         private void StyleLateDriversLiveSwitch()
@@ -54,6 +78,26 @@ namespace Hiatme_Tool_Suite_v3
             ldLiveSwitch.Font = SupeyTheme.BodyFont;
             ldLiveSwitch.ForeColor = SupeyTheme.TextPrimary;
             try { ldLiveSwitch.Size = ldLiveSwitch.GetPreferredSize(Size.Empty); } catch { }
+        }
+
+        private void StyleLateDriversColorsSwitch()
+        {
+            if (ldColorsSwitch == null || ldColorsSwitch.IsDisposed)
+                return;
+            ldColorsSwitch.AutoSize = true;
+            ldColorsSwitch.Text = "Colors";
+            ldColorsSwitch.Margin = Padding.Empty;
+            ldColorsSwitch.BackColor = SupeyTheme.SurfaceElevated;
+            ldColorsSwitch.Font = SupeyTheme.BodyFont;
+            ldColorsSwitch.ForeColor = SupeyTheme.TextPrimary;
+            try { ldColorsSwitch.Size = ldColorsSwitch.GetPreferredSize(Size.Empty); } catch { }
+        }
+
+        private void LdColorsSwitch_CheckedChanged(object sender, EventArgs e)
+        {
+            if (!_ldBuilt)
+                return;
+            ApplyLateDriversTripListColorMode();
         }
 
         private void LdLiveSwitch_CheckedChanged(object sender, EventArgs e)
@@ -343,6 +387,7 @@ namespace Hiatme_Tool_Suite_v3
         private void StyleLateDriversLiveChromeTheme()
         {
             StyleLateDriversLiveSwitch();
+            StyleLateDriversColorsSwitch();
             if (_ldLiveCountdown != null && !_ldLiveCountdown.IsDisposed)
             {
                 try { _ldLiveCountdown.Font = new Font("Segoe UI Semibold", 10f, FontStyle.Bold); }

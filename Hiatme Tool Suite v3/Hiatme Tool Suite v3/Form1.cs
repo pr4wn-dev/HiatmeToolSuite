@@ -9331,6 +9331,7 @@ namespace Hiatme_Tool_Suite_v3
                     && !ldTag.IsGroupHeader
                     && !ldTag.IsGap
                     && e.ColumnIndex == 0
+                    && LateDriversGroupColorsEnabled
                     && ldTag.GroupColor.HasValue)
                 {
                     bg = ldTag.GroupColor.Value;
