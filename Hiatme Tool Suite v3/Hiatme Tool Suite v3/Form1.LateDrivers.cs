@@ -1871,16 +1871,25 @@ namespace Hiatme_Tool_Suite_v3
             if (_ldDriverRows == null)
                 _ldDriverRows = new List<HiatmeAiClient.LateDriversDriverSummary>();
 
-            foreach (string name in names.OrderBy(n => n, StringComparer.OrdinalIgnoreCase))
+            // Habits vs workbook often disagree on spelling ("Jeffrey Brown" vs "Jeffrey J Brown").
+            // Skip schedule names that already fuzzy-match a habits tile.
+            foreach (string scheduleName in names.OrderBy(n => n, StringComparer.OrdinalIgnoreCase))
             {
                 bool exists = _ldDriverRows.Any(d =>
-                    d != null
-                    && string.Equals(d.Driver, name, StringComparison.OrdinalIgnoreCase));
+                {
+                    if (d == null || string.IsNullOrWhiteSpace(d.Driver))
+                        return false;
+                    if (string.Equals(d.Driver, scheduleName, StringComparison.OrdinalIgnoreCase))
+                        return true;
+                    string resolved = ResolveLateDriversScheduleDriverKey(d.Driver);
+                    return !string.IsNullOrEmpty(resolved)
+                        && string.Equals(resolved, scheduleName, StringComparison.OrdinalIgnoreCase);
+                });
                 if (exists)
                     continue;
                 _ldDriverRows.Add(new HiatmeAiClient.LateDriversDriverSummary
                 {
-                    Driver = name,
+                    Driver = scheduleName,
                     Trips = new List<HiatmeAiClient.LateDriversEventRow>(),
                 });
             }
