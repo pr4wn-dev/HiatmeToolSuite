@@ -9328,6 +9328,8 @@ namespace Hiatme_Tool_Suite_v3
             bool alertFlashRow = false;
             bool ldScheduleSep = false;
             bool ldGroupCell = false;
+            bool ldChipMatch = false;
+            bool ldChipDim = false;
             Color ldSepText = Color.Empty;
             if (isSupey)
             {
@@ -9339,6 +9341,9 @@ namespace Hiatme_Tool_Suite_v3
                 if (ldScheduleSep)
                     return;
 
+                if (ReferenceEquals(listView, ldTripLv))
+                    LateDriversTripChipVisual(e.Item?.Tag, out ldChipMatch, out ldChipDim);
+
                 Color bg = selected ? SupeyTheme.ListSelected : e.Item.BackColor;
                 // Habits schedule: tint Group column from tag (not Item.BackColor —
                 // SubItems[0] shares Item.BackColor, and alert blink clears that).
@@ -9348,7 +9353,8 @@ namespace Hiatme_Tool_Suite_v3
                     && !ldTag.IsGap
                     && e.ColumnIndex == 0
                     && LateDriversGroupColorsEnabled
-                    && ldTag.GroupColor.HasValue)
+                    && ldTag.GroupColor.HasValue
+                    && !ldChipMatch)
                 {
                     bg = ldTag.GroupColor.Value;
                     ldGroupCell = true;
@@ -9361,6 +9367,19 @@ namespace Hiatme_Tool_Suite_v3
                     && bg != SupeyTheme.ListBody
                     && !ldScheduleSep)
                     alertFlashRow = true;
+
+                // Score-tile matches: accent wash. Keep it even during alert blink so
+                // the tile highlight doesn't "disappear" on open late/early rows.
+                if (!selected && ldChipMatch)
+                {
+                    bg = alertFlashRow
+                        ? e.Item.BackColor
+                        : LateDriversChipMatchBackColor();
+                    if (bg == Color.Empty || bg == Color.Transparent)
+                        bg = LateDriversChipMatchBackColor();
+                    ldGroupCell = false;
+                    ldSepText = Color.Empty;
+                }
 
                 TripScoutPaintStatusCellIfBlinking(e, bg, out bg);
                 var fill = SupeyListViewHelpers.InsetBoundsForGrid(e.Bounds);
@@ -9376,9 +9395,11 @@ namespace Hiatme_Tool_Suite_v3
                     ? SupeyTheme.ListSelectedText
                     : (alertFlashRow
                         ? Color.White
-                        : ((ldScheduleSep || ldGroupCell) && ldSepText != Color.Empty
-                            ? ldSepText
-                            : SupeyTheme.ListText)))
+                        : (ldChipDim
+                            ? SupeyTheme.TextMuted
+                            : ((ldScheduleSep || ldGroupCell) && ldSepText != Color.Empty
+                                ? ldSepText
+                                : SupeyTheme.ListText))))
                 : Color.White;
             Font cellFont = (ldScheduleSep && e.Item?.Font != null)
                 ? e.Item.Font

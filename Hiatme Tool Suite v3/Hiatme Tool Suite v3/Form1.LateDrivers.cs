@@ -135,6 +135,12 @@ namespace Hiatme_Tool_Suite_v3
             public string StatusDisplay;
             public string StateDisplay;
             public DateTime SortTime;
+            /// <summary>
+            /// Exact habit keys on this trip (strict trip #). Used for score-tile highlight
+            /// so paint never fuzzy-matches a different trip's habits.
+            /// </summary>
+            public HashSet<string> HabitChipKeys;
+            public bool HabitChipOpen;
         }
 
         private void InitializeLateDriversTab()
@@ -581,7 +587,7 @@ namespace Hiatme_Tool_Suite_v3
             ldHeroCard.Controls.Add(ldHeroInner);
             ldHeroHost.Controls.Add(ldHeroCard);
 
-            // ── Stage: trip list (Fill) — filters live on the scorecard tiles ─
+            // ── Stage: trip list (Fill) — scorecard tiles highlight matching trips ─
             ldStageHost = new Panel
             {
                 Name = "ldStageHost",
@@ -732,16 +738,17 @@ namespace Hiatme_Tool_Suite_v3
         private void SelectLateDriversHabitFilter(string key)
         {
             string next = (key ?? "all").Trim().ToLowerInvariant();
-            // Clicking the active tile again clears the filter.
+            // Clicking the active tile again clears the highlight.
             if (next == _ldHabitChip && next != "all")
                 next = "all";
             else if (next == _ldHabitChip)
                 return;
             _ldHabitChip = next;
             StyleLateDriversScoreFilters();
-            BindLateDriversDriverStrip();
-            RefreshLateDriversScorecard();
+            // Score tiles highlight trips only — never filter/deselect the driver strip.
             BindLateDriversTripPane();
+            FocusLateDriversFirstChipMatch();
+            try { ldTripLv?.Invalidate(true); } catch { }
         }
 
         private void StyleLateDriversScoreFilters()
@@ -2193,58 +2200,21 @@ namespace Hiatme_Tool_Suite_v3
             });
         }
 
-        private List<HiatmeAiClient.LateDriversDriverSummary> FilteredLateDrivers()
-        {
-            var src = (_ldDriverRows ?? new List<HiatmeAiClient.LateDriversDriverSummary>())
-                .Where(d => d != null)
-                .ToList();
-            string chip = (_ldHabitChip ?? "all").Trim().ToLowerInvariant();
-            if (chip == "all")
-                return src;
-            if (chip == "open")
-                return src.Where(d => d.OpenCount > 0 || d.UnfinishedOpen > 0
-                    || (d.Trips != null && d.Trips.Any(t => t != null && t.Open))).ToList();
-            if (chip == "early_pu")
-                return src.Where(d => d.EarlyPu > 0
-                    || DriverHasHabitTrip(d, "early_pu")).ToList();
-            if (chip == "early_do")
-                return src.Where(d => d.EarlyDo > 0
-                    || DriverHasHabitTrip(d, "early_do")).ToList();
-            if (chip == "late_pu")
-                return src.Where(d => d.PuCount > 0
-                    || DriverHasHabitTrip(d, "late_pu")).ToList();
-            if (chip == "late_do")
-                return src.Where(d => d.DoCount > 0
-                    || DriverHasHabitTrip(d, "late_do")).ToList();
-            if (chip == "unfinished_ticket")
-                return src.Where(d => d.UnfinishedOpen > 0
-                    || DriverHasHabitTrip(d, "unfinished_ticket")).ToList();
-            if (chip == "billed_unfinished")
-                return src.Where(d => DriverHasHabitTrip(d, "billed_unfinished")).ToList();
-            return src.Where(d => DriverHasHabitTrip(d, chip)).ToList();
-        }
-
-        private static bool DriverHasHabitTrip(
-            HiatmeAiClient.LateDriversDriverSummary d, string habitKey)
-        {
-            if (d?.Trips == null || string.IsNullOrEmpty(habitKey))
-                return false;
-            return d.Trips.Any(t => t != null && HabitKeyOf(t) == habitKey);
-        }
-
         private void BindLateDriversDriverStrip()
         {
             if (ldDriverStrip == null || ldDriverStrip.IsDisposed)
                 return;
 
-            var rows = FilteredLateDrivers();
+            // Full roster always — habit score tiles highlight trips, not drivers.
+            var rows = (_ldDriverRows ?? new List<HiatmeAiClient.LateDriversDriverSummary>())
+                .Where(d => d != null)
+                .ToList();
             string keep = _ldSelectedDriver;
-            // Drop selection if filtered out
             if (!string.IsNullOrEmpty(keep)
                 && !rows.Any(d => string.Equals(d.Driver, keep, StringComparison.OrdinalIgnoreCase)))
                 keep = null;
 
-            _ldStripDrivers = rows ?? new List<HiatmeAiClient.LateDriversDriverSummary>();
+            _ldStripDrivers = rows;
             _ldSelectedDriver = keep;
             _ldDriverScrollOffset = 0;
 
@@ -2997,7 +2967,34 @@ namespace Hiatme_Tool_Suite_v3
         private static string HabitKeyOf(HiatmeAiClient.LateDriversEventRow e)
         {
             if (e == null) return "";
-            string h = (e.Habit ?? e.Kind ?? "").Trim().ToLowerInvariant();
+            string h = (e.Habit ?? e.Kind ?? "").Trim().ToLowerInvariant()
+                .Replace(' ', '_')
+                .Replace('-', '_');
+            switch (h)
+            {
+                case "latepu":
+                case "late_pickup":
+                case "late_pick_up":
+                    return "late_pu";
+                case "latedo":
+                case "late_dropoff":
+                case "late_drop_off":
+                    return "late_do";
+                case "earlypu":
+                case "early_pickup":
+                case "early_pick_up":
+                    return "early_pu";
+                case "earlydo":
+                case "early_dropoff":
+                case "early_drop_off":
+                    return "early_do";
+                case "unfinished":
+                case "unfinished_ticket":
+                    return "unfinished_ticket";
+                case "billed_skip":
+                case "billed_unfinished":
+                    return "billed_unfinished";
+            }
             if (!string.IsNullOrEmpty(h))
                 return h;
             return string.Equals(e.Side, "do", StringComparison.OrdinalIgnoreCase)
@@ -3140,14 +3137,11 @@ namespace Hiatme_Tool_Suite_v3
                     .ToList();
             }
 
+            // Keep every trip visible; score tiles highlight matches in owner-draw.
             string chip = (_ldHabitChip ?? "all").Trim().ToLowerInvariant();
-            if (chip == "open")
-                trips = trips.Where(e => e != null && e.Open).ToList();
-            else if (chip != "all")
-                trips = trips.Where(e => HabitKeyOf(e) == chip).ToList();
-
             trips = trips
-                .OrderByDescending(e => e.Open)
+                .OrderByDescending(e => chip != "all" && LateDriversHabitMatchesChip(e, chip))
+                .ThenByDescending(e => e.Open)
                 .ThenByDescending(e => LateDriversDisplayHabitMinutes(e))
                 .ThenBy(e => e.Driver ?? "", StringComparer.OrdinalIgnoreCase)
                 .ThenBy(e => e.ServiceDate ?? "")
@@ -3172,7 +3166,6 @@ namespace Hiatme_Tool_Suite_v3
         {
             EnsureLateDriversTripColumns(showDriver);
 
-            string chip = (_ldHabitChip ?? "all").Trim().ToLowerInvariant();
             ldTripLv.BeginUpdate();
             try
             {
@@ -3180,11 +3173,7 @@ namespace Hiatme_Tool_Suite_v3
                 foreach (var row in rows ?? new List<LateDriversTripRowTag>())
                 {
                     if (row == null) continue;
-                    var item = CreateLateDriversMergedListItem(row, showDriver);
-                    bool chipMatch = LateDriversMergedRowMatchesChip(row, chip);
-                    if (chip != "all" && !chipMatch && !row.IsGroupHeader && !row.IsGap)
-                        item.ForeColor = SupeyTheme.TextMuted;
-                    ldTripLv.Items.Add(item);
+                    ldTripLv.Items.Add(CreateLateDriversMergedListItem(row, showDriver));
                 }
             }
             finally
@@ -3192,6 +3181,162 @@ namespace Hiatme_Tool_Suite_v3
                 ldTripLv.EndUpdate();
             }
             ApplyLateDriversTripAlertBlinkPhase();
+        }
+
+        private static bool LateDriversHabitMatchesChip(
+            HiatmeAiClient.LateDriversEventRow e, string chip)
+        {
+            if (e == null) return chip == "all";
+            chip = (chip ?? "all").Trim().ToLowerInvariant();
+            if (chip == "all") return true;
+            if (chip == "open") return e.Open;
+            string hk = HabitKeyOf(e);
+            return !string.IsNullOrEmpty(hk) && hk == chip;
+        }
+
+        /// <summary>Same trip identity for chip keys — leg-aware, no partner-leg bleed.</summary>
+        private static bool LateDriversTripNosEqualForChip(string a, string b)
+        {
+            if (string.IsNullOrWhiteSpace(a) || string.IsNullOrWhiteSpace(b))
+                return false;
+            string ka = ScheduleBuilderPreviewDrag.TripLegKey(a);
+            string kb = ScheduleBuilderPreviewDrag.TripLegKey(b);
+            if (ka.Length > 0 && kb.Length > 0)
+                return string.Equals(ka, kb, StringComparison.OrdinalIgnoreCase);
+            string na = ScheduleBuilderModivcareTripMatch.NormalizeTripNumber(a);
+            string nb = ScheduleBuilderModivcareTripMatch.NormalizeTripNumber(b);
+            return na.Length > 0
+                && string.Equals(na, nb, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static void AssignLateDriversChipKeys(
+            LateDriversTripRowTag row,
+            List<HiatmeAiClient.LateDriversEventRow> habits,
+            string tripNo)
+        {
+            if (row == null) return;
+            var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            bool anyOpen = false;
+            string want = (tripNo ?? row.TripNo ?? "").Trim();
+            if (!string.IsNullOrEmpty(want) && habits != null)
+            {
+                foreach (var e in habits)
+                {
+                    if (e == null) continue;
+                    if (!LateDriversTripNosEqualForChip(e.TripNo, want))
+                        continue;
+                    string hk = HabitKeyOf(e);
+                    if (!string.IsNullOrEmpty(hk))
+                        keys.Add(hk);
+                    if (e.Open)
+                        anyOpen = true;
+                }
+            }
+            // Habit-only / single-event rows: always include the attached event.
+            if (row.HabitEvent != null)
+            {
+                string hk = HabitKeyOf(row.HabitEvent);
+                if (!string.IsNullOrEmpty(hk))
+                    keys.Add(hk);
+                if (row.HabitEvent.Open)
+                    anyOpen = true;
+            }
+            row.HabitChipKeys = keys;
+            row.HabitChipOpen = anyOpen;
+        }
+
+        /// <summary>
+        /// True if this list row matches the score tile. Uses per-row HabitChipKeys
+        /// stamped at bind time (strict trip #) — never fuzzy-scans other trips.
+        /// </summary>
+        private bool LateDriversRowMatchesChip(object tag, string chip)
+        {
+            chip = (chip ?? "all").Trim().ToLowerInvariant();
+            if (chip == "all")
+                return true;
+            if (tag is LateDriversTripRowTag sep && (sep.IsGroupHeader || sep.IsGap))
+                return true;
+
+            // Habit-only list: one event per row — match that event only.
+            if (tag is HiatmeAiClient.LateDriversEventRow ev)
+                return LateDriversHabitMatchesChip(ev, chip);
+
+            if (!(tag is LateDriversTripRowTag row))
+                return false;
+
+            if (row.HabitChipKeys != null)
+            {
+                if (chip == "open")
+                    return row.HabitChipOpen;
+                return row.HabitChipKeys.Contains(chip);
+            }
+
+            // Fallback before keys were stamped.
+            return row.HabitEvent != null && LateDriversHabitMatchesChip(row.HabitEvent, chip);
+        }
+
+        /// <summary>
+        /// Soft accent wash for score-tile matches (owner-draw reads this via
+        /// <see cref="LateDriversTripChipVisual"/> — item.ForeColor is ignored by Supey lists).
+        /// </summary>
+        private static Color LateDriversChipMatchBackColor()
+        {
+            Color a = SupeyTheme.AccentPrimary;
+            Color b = SupeyTheme.ListBody;
+            return Color.FromArgb(
+                (a.R * 50 + b.R * 50) / 100,
+                (a.G * 50 + b.G * 50) / 100,
+                (a.B * 50 + b.B * 50) / 100);
+        }
+
+        /// <summary>
+        /// Score-tile visual for a trip row: match (highlight) or dim. Separators ignored.
+        /// </summary>
+        private void LateDriversTripChipVisual(object tag, out bool chipMatch, out bool chipDim)
+        {
+            chipMatch = false;
+            chipDim = false;
+            string chip = (_ldHabitChip ?? "all").Trim().ToLowerInvariant();
+            if (chip == "all")
+                return;
+            if (tag is LateDriversTripRowTag sep && (sep.IsGroupHeader || sep.IsGap))
+                return;
+
+            if (LateDriversRowMatchesChip(tag, chip))
+                chipMatch = true;
+            else
+                chipDim = true;
+        }
+
+        private void FocusLateDriversFirstChipMatch()
+        {
+            if (ldTripLv == null || ldTripLv.IsDisposed)
+                return;
+            string chip = (_ldHabitChip ?? "all").Trim().ToLowerInvariant();
+            if (chip == "all")
+                return;
+
+            ListViewItem first = null;
+            foreach (ListViewItem item in ldTripLv.Items)
+            {
+                if (item == null) continue;
+                if (item.Tag is LateDriversTripRowTag sep && (sep.IsGroupHeader || sep.IsGap))
+                    continue;
+                if (!LateDriversRowMatchesChip(item.Tag, chip))
+                    continue;
+                first = item;
+                break;
+            }
+            if (first == null)
+                return;
+            try
+            {
+                // Don't select — selection paint hides the accent wash on that row.
+                ldTripLv.SelectedIndices.Clear();
+                first.EnsureVisible();
+            }
+            catch { }
+            try { ldTripLv.Invalidate(true); } catch { }
         }
 
         /// <summary>
@@ -3244,17 +3389,6 @@ namespace Hiatme_Tool_Suite_v3
             {
                 ldTripLv.EndUpdate();
             }
-        }
-
-        private static bool LateDriversMergedRowMatchesChip(LateDriversTripRowTag row, string chip)
-        {
-            // Keep group/gap separators visible while filtering trips.
-            if (row != null && (row.IsGroupHeader || row.IsGap))
-                return true;
-            if (row?.HabitEvent == null) return chip == "all";
-            if (chip == "all") return true;
-            if (chip == "open") return row.HabitEvent.Open;
-            return HabitKeyOf(row.HabitEvent) == chip;
         }
 
         private ListViewItem CreateLateDriversHabitListItem(
@@ -3720,6 +3854,7 @@ namespace Hiatme_Tool_Suite_v3
                             PreferSchedTimeForHabit(trip, habit)),
                         SortTime = LateDriversScheduleSortTime(serviceDateIso, trip),
                     };
+                    AssignLateDriversChipKeys(schedRow, habits, trip.TripNumber);
                     ApplyLateDriversPuDoTimes(schedRow, trip, habits);
                     rows.Add(schedRow);
                 }
@@ -3749,6 +3884,7 @@ namespace Hiatme_Tool_Suite_v3
                             PreferSchedTimeForHabit(trip, habit)),
                         SortTime = LateDriversScheduleSortTime(serviceDateIso, trip),
                     };
+                    AssignLateDriversChipKeys(schedRow, habits, trip.TripNumber);
                     ApplyLateDriversPuDoTimes(schedRow, trip, habits);
                     rows.Add(schedRow);
                 }
@@ -3780,6 +3916,12 @@ namespace Hiatme_Tool_Suite_v3
                     SchedDisplay = FormatLateDriversTime(e.SchedIso, blank: "—"),
                     SortTime = sort,
                 };
+                // Habit-only rows: chip keys for this event alone (not every habit on the trip #).
+                added.HabitChipKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                string eventKey = HabitKeyOf(e);
+                if (!string.IsNullOrEmpty(eventKey))
+                    added.HabitChipKeys.Add(eventKey);
+                added.HabitChipOpen = e.Open;
                 ApplyLateDriversPuDoTimes(added, trip: null, habits: new List<HiatmeAiClient.LateDriversEventRow> { e });
                 InsertLateDriversRowInGroup(rows, added);
             }
