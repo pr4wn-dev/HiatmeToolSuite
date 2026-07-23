@@ -99,7 +99,12 @@ namespace Hiatme_Tool_Suite_v3
             return result;
         }
 
-        public static async Task<ScheduleBuilderLoadResult> LoadFromWorkbookAsync(string workbookPath)
+        /// <summary>
+        /// Synchronous workbook load. Prefer this from WinForms UI code — the async
+        /// wrapper only yields for awaiters and will deadlock if blocked with GetResult
+        /// on the UI synchronization context.
+        /// </summary>
+        public static ScheduleBuilderLoadResult LoadFromWorkbook(string workbookPath)
         {
             var result = new ScheduleBuilderLoadResult();
             if (string.IsNullOrWhiteSpace(workbookPath) || !File.Exists(workbookPath))
@@ -177,6 +182,12 @@ namespace Hiatme_Tool_Suite_v3
                 catch { /* ignore */ }
             }
 
+            return result;
+        }
+
+        public static async Task<ScheduleBuilderLoadResult> LoadFromWorkbookAsync(string workbookPath)
+        {
+            var result = LoadFromWorkbook(workbookPath);
             await Task.Yield();
             return result;
         }

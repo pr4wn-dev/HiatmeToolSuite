@@ -97,6 +97,27 @@ namespace Hiatme_Tool_Suite_v3
         private readonly HashSet<string> _ldAlertChirpKeys =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>Cached SCHEDULES FOR {year} workbook for Day/Live schedule ListView merge.</summary>
+        private string _ldScheduleCacheDateIso;
+        private string _ldScheduleCachePath;
+        private string _ldScheduleCacheFileName;
+        private ScheduleBuilderLoadResult _ldScheduleCache;
+        private string _ldScheduleCacheError;
+
+        /// <summary>ListView Tag: schedule row + optional habit event (blink uses HabitEvent).</summary>
+        private sealed class LateDriversTripRowTag
+        {
+            public MCDownloadedTrip ScheduleTrip;
+            public HiatmeAiClient.LateDriversEventRow HabitEvent;
+            public bool FromSchedule;
+            public bool HabitOnly;
+            public string TripNo;
+            public string ServiceDate;
+            public string Client;
+            public string SchedDisplay;
+            public DateTime SortTime;
+        }
+
         private void InitializeLateDriversTab()
         {
             if (_ldBuilt || hiatmeTabControl == null || tabPageLateDrivers == null)
@@ -157,6 +178,7 @@ namespace Hiatme_Tool_Suite_v3
                     _ldLiveDivider = null;
                     _ldDayDate = DateTime.Today;
                     _ldAnchorDate = DateTime.Today;
+                    ClearLateDriversScheduleCache();
                     _ldPeriodButtons.Clear();
                     _ldScoreValues.Clear();
                     _ldScoreCards.Clear();
@@ -1560,6 +1582,8 @@ namespace Hiatme_Tool_Suite_v3
 
                 string mode = LateDriversSelectedMode();
                 string sd = LateDriversSelectedServiceDateIso();
+                if (force && (mode == "live" || mode == "day"))
+                    ClearLateDriversScheduleCache();
 
                 if (mode == "live" || mode == "day")
                 {
@@ -1785,6 +1809,8 @@ namespace Hiatme_Tool_Suite_v3
 
         private void PresentLateDriversLoadedData()
         {
+            // Schedule xlsx loads lazily when a driver tile is selected (BindLateDriversTripPane).
+            // Do not load it here — a blocked async workbook load used to hang Day/Live refresh.
             LayoutLateDriversTabPanels();
             LayoutLateDriversDriverStripRow();
             BindLateDriversDriverStrip();
@@ -2562,7 +2588,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 if (item == null)
                     continue;
-                var row = item.Tag as HiatmeAiClient.LateDriversEventRow;
+                var row = LateDriversHabitFromTag(item.Tag);
                 bool alert = LateDriversEventNeedsCallAlert(row);
                 if (!alert || !_ldDriverAlertBlinkOn)
                 {
@@ -2584,6 +2610,15 @@ namespace Hiatme_Tool_Suite_v3
                 try { ldTripLv.Invalidate(true); }
                 catch { }
             }
+        }
+
+        private static HiatmeAiClient.LateDriversEventRow LateDriversHabitFromTag(object tag)
+        {
+            if (tag is HiatmeAiClient.LateDriversEventRow direct)
+                return direct;
+            if (tag is LateDriversTripRowTag wrap)
+                return wrap.HabitEvent;
+            return null;
         }
 
         private SupeyCard CreateLateDriversDriverTile(
@@ -2784,6 +2819,36 @@ namespace Hiatme_Tool_Suite_v3
             if (ldTripLv == null || ldTripLv.IsDisposed)
                 return;
 
+            string mode = LateDriversSelectedMode();
+            bool singleDay = mode == "day" || mode == "live";
+            bool useSchedule = singleDay && !string.IsNullOrWhiteSpace(_ldSelectedDriver);
+
+            if (useSchedule)
+            {
+                string sd = LateDriversSelectedServiceDateIso();
+                EnsureLateDriversScheduleCache(sd, forceReload: false);
+                var merged = BuildLateDriversMergedScheduleRows(sd, _ldSelectedDriver);
+                if (merged != null)
+                {
+                    BindLateDriversMergedTripRows(merged);
+                    AppendLateDriversScheduleStatus(FormatLateDriversScheduleStatusNote(merged));
+                    return;
+                }
+                AppendLateDriversScheduleStatus(
+                    string.IsNullOrWhiteSpace(_ldScheduleCacheError)
+                        ? "missing — habits only"
+                        : _ldScheduleCacheError);
+            }
+            else
+            {
+                AppendLateDriversScheduleStatus(null);
+            }
+
+            BindLateDriversHabitOnlyTripPane();
+        }
+
+        private void BindLateDriversHabitOnlyTripPane()
+        {
             List<HiatmeAiClient.LateDriversEventRow> trips;
             if (!string.IsNullOrEmpty(_ldSelectedDriver))
             {
@@ -2823,30 +2888,29 @@ namespace Hiatme_Tool_Suite_v3
             {
                 ldTripLv.Items.Clear();
                 foreach (var e in trips)
+                    ldTripLv.Items.Add(CreateLateDriversHabitListItem(e));
+            }
+            finally
+            {
+                ldTripLv.EndUpdate();
+            }
+            ApplyLateDriversTripAlertBlinkPhase();
+        }
+
+        private void BindLateDriversMergedTripRows(List<LateDriversTripRowTag> rows)
+        {
+            string chip = (_ldHabitChip ?? "all").Trim().ToLowerInvariant();
+            ldTripLv.BeginUpdate();
+            try
+            {
+                ldTripLv.Items.Clear();
+                foreach (var row in rows ?? new List<LateDriversTripRowTag>())
                 {
-                    string habit = HabitLabelOf(HabitKeyOf(e));
-                    var item = new ListViewItem(e.ServiceDate ?? "");
-                    item.SubItems.Add(habit);
-                    item.SubItems.Add(e.TripNo ?? "");
-                    item.SubItems.Add(e.Client ?? "");
-                    item.SubItems.Add(FormatLateDriversTime(e.SchedIso, blank: "—"));
-                    item.SubItems.Add(FormatLateDriversTime(e.ActualIso, blank: "—"));
-                    // Open tickets with no actual stamp: Mins is "age since sched", not a lateness score.
-                    bool noActual = string.IsNullOrWhiteSpace(e.ActualIso);
-                    string minsText = noActual && e.Open
-                        ? "—"
-                        : e.MinutesLate.ToString("0", CultureInfo.InvariantCulture) + "m";
-                    item.SubItems.Add(minsText);
-                    item.SubItems.Add(e.StatusLatest ?? "");
-                    item.SubItems.Add(e.Open ? "Open" : "Closed");
-                    item.Tag = e;
-                    string hk = HabitKeyOf(e);
-                    if (e.Open)
-                        item.ForeColor = Color.FromArgb(200, 80, 60);
-                    else if (hk.StartsWith("early", StringComparison.Ordinal))
-                        item.ForeColor = Color.FromArgb(180, 120, 40);
-                    else if (hk == "unfinished_ticket" || hk == "billed_unfinished")
-                        item.ForeColor = Color.FromArgb(160, 90, 40);
+                    if (row == null) continue;
+                    var item = CreateLateDriversMergedListItem(row);
+                    bool chipMatch = LateDriversMergedRowMatchesChip(row, chip);
+                    if (chip != "all" && !chipMatch)
+                        item.ForeColor = SupeyTheme.TextMuted;
                     ldTripLv.Items.Add(item);
                 }
             }
@@ -2855,6 +2919,435 @@ namespace Hiatme_Tool_Suite_v3
                 ldTripLv.EndUpdate();
             }
             ApplyLateDriversTripAlertBlinkPhase();
+        }
+
+        private static bool LateDriversMergedRowMatchesChip(LateDriversTripRowTag row, string chip)
+        {
+            if (row?.HabitEvent == null) return chip == "all";
+            if (chip == "all") return true;
+            if (chip == "open") return row.HabitEvent.Open;
+            return HabitKeyOf(row.HabitEvent) == chip;
+        }
+
+        private ListViewItem CreateLateDriversHabitListItem(HiatmeAiClient.LateDriversEventRow e)
+        {
+            string habit = HabitLabelOf(HabitKeyOf(e));
+            var item = new ListViewItem(e.ServiceDate ?? "");
+            item.SubItems.Add(habit);
+            item.SubItems.Add(e.TripNo ?? "");
+            item.SubItems.Add(e.Client ?? "");
+            item.SubItems.Add(FormatLateDriversTime(e.SchedIso, blank: "—"));
+            item.SubItems.Add(FormatLateDriversTime(e.ActualIso, blank: "—"));
+            bool noActual = string.IsNullOrWhiteSpace(e.ActualIso);
+            string minsText = noActual && e.Open
+                ? "—"
+                : e.MinutesLate.ToString("0", CultureInfo.InvariantCulture) + "m";
+            item.SubItems.Add(minsText);
+            item.SubItems.Add(e.StatusLatest ?? "");
+            item.SubItems.Add(e.Open ? "Open" : "Closed");
+            item.Tag = e;
+            string hk = HabitKeyOf(e);
+            if (e.Open)
+                item.ForeColor = Color.FromArgb(200, 80, 60);
+            else if (hk.StartsWith("early", StringComparison.Ordinal))
+                item.ForeColor = Color.FromArgb(180, 120, 40);
+            else if (hk == "unfinished_ticket" || hk == "billed_unfinished")
+                item.ForeColor = Color.FromArgb(160, 90, 40);
+            return item;
+        }
+
+        private ListViewItem CreateLateDriversMergedListItem(LateDriversTripRowTag row)
+        {
+            var habit = row.HabitEvent;
+            string date = row.ServiceDate ?? "";
+            string habitLabel = habit != null ? HabitLabelOf(HabitKeyOf(habit)) : "—";
+            string tripNo = row.TripNo ?? "";
+            if (row.HabitOnly && !string.IsNullOrEmpty(tripNo) && !tripNo.StartsWith("+", StringComparison.Ordinal))
+                tripNo = "+" + tripNo;
+
+            var item = new ListViewItem(date);
+            item.SubItems.Add(habitLabel);
+            item.SubItems.Add(tripNo);
+            item.SubItems.Add(row.Client ?? "");
+            item.SubItems.Add(string.IsNullOrWhiteSpace(row.SchedDisplay) ? "—" : row.SchedDisplay);
+            if (habit != null)
+            {
+                item.SubItems.Add(FormatLateDriversTime(habit.ActualIso, blank: "—"));
+                bool noActual = string.IsNullOrWhiteSpace(habit.ActualIso);
+                string minsText = noActual && habit.Open
+                    ? "—"
+                    : habit.MinutesLate.ToString("0", CultureInfo.InvariantCulture) + "m";
+                item.SubItems.Add(minsText);
+                item.SubItems.Add(habit.StatusLatest ?? "");
+                item.SubItems.Add(habit.Open ? "Open" : "Closed");
+                string hk = HabitKeyOf(habit);
+                if (habit.Open)
+                    item.ForeColor = Color.FromArgb(200, 80, 60);
+                else if (hk.StartsWith("early", StringComparison.Ordinal))
+                    item.ForeColor = Color.FromArgb(180, 120, 40);
+                else if (hk == "unfinished_ticket" || hk == "billed_unfinished")
+                    item.ForeColor = Color.FromArgb(160, 90, 40);
+                else if (row.HabitOnly)
+                    item.ForeColor = Color.FromArgb(120, 160, 220);
+            }
+            else
+            {
+                item.SubItems.Add("—");
+                item.SubItems.Add("—");
+                item.SubItems.Add("");
+                item.SubItems.Add("");
+                item.ForeColor = SupeyTheme.TextSecondary;
+            }
+
+            item.Tag = row;
+            return item;
+        }
+
+        private List<LateDriversTripRowTag> BuildLateDriversMergedScheduleRows(
+            string serviceDateIso,
+            string driverName)
+        {
+            if (_ldScheduleCache == null || string.IsNullOrWhiteSpace(driverName))
+                return null;
+
+            var scheduleTrips = FindLateDriversScheduleTripsForDriver(driverName);
+            if (scheduleTrips == null)
+                return null;
+
+            var habits = (_ldEventRows ?? new List<HiatmeAiClient.LateDriversEventRow>())
+                .Where(e => e != null
+                    && string.Equals(
+                        string.IsNullOrWhiteSpace(e.Driver) ? "(unassigned)" : e.Driver.Trim(),
+                        driverName.Trim(),
+                        StringComparison.OrdinalIgnoreCase)
+                    && (string.IsNullOrWhiteSpace(e.ServiceDate)
+                        || string.Equals(e.ServiceDate.Trim(), serviceDateIso, StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+
+            // Also pull from driver rollup trips (habits merge may put events there).
+            var driver = (_ldDriverRows ?? new List<HiatmeAiClient.LateDriversDriverSummary>())
+                .FirstOrDefault(d => d != null
+                    && string.Equals(d.Driver, driverName, StringComparison.OrdinalIgnoreCase));
+            if (driver?.Trips != null)
+            {
+                foreach (var e in driver.Trips)
+                {
+                    if (e == null) continue;
+                    if (!string.IsNullOrWhiteSpace(e.ServiceDate)
+                        && !string.Equals(e.ServiceDate.Trim(), serviceDateIso, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    if (!habits.Any(h => ReferenceEquals(h, e)
+                        || string.Equals(h.EventId, e.EventId, StringComparison.OrdinalIgnoreCase)
+                        || (ScheduleBuilderModivcareTripMatch.TripNumbersMatch(h.TripNo, e.TripNo)
+                            && HabitKeyOf(h) == HabitKeyOf(e))))
+                        habits.Add(e);
+                }
+            }
+
+            var habitByTrip = new Dictionary<string, HiatmeAiClient.LateDriversEventRow>(
+                StringComparer.OrdinalIgnoreCase);
+            foreach (var e in habits)
+            {
+                string key = ScheduleBuilderModivcareTripMatch.NormalizeTripNumber(e.TripNo);
+                if (string.IsNullOrEmpty(key)) continue;
+                if (!habitByTrip.TryGetValue(key, out var existing)
+                    || PreferLateDriversHabitEvent(e, existing) == e)
+                    habitByTrip[key] = e;
+            }
+
+            var matchedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var rows = new List<LateDriversTripRowTag>();
+
+            foreach (var trip in scheduleTrips
+                .Where(t => t != null && !string.IsNullOrWhiteSpace(t.TripNumber))
+                .OrderBy(t => LateDriversScheduleSortTime(serviceDateIso, t))
+                .ThenBy(t => t.TripNumber ?? "", StringComparer.OrdinalIgnoreCase))
+            {
+                string key = ScheduleBuilderModivcareTripMatch.NormalizeTripNumber(trip.TripNumber);
+                habitByTrip.TryGetValue(key, out var habit);
+                if (!string.IsNullOrEmpty(key) && habit != null)
+                    matchedKeys.Add(key);
+
+                string schedDisp = FormatLateDriversScheduleClock(
+                    PreferSchedTimeForHabit(trip, habit));
+                rows.Add(new LateDriversTripRowTag
+                {
+                    ScheduleTrip = trip,
+                    HabitEvent = habit,
+                    FromSchedule = true,
+                    HabitOnly = false,
+                    TripNo = trip.TripNumber?.Trim() ?? "",
+                    ServiceDate = serviceDateIso,
+                    Client = trip.ClientFullName ?? habit?.Client ?? "",
+                    SchedDisplay = schedDisp,
+                    SortTime = LateDriversScheduleSortTime(serviceDateIso, trip),
+                });
+            }
+
+            foreach (var e in habits)
+            {
+                string key = ScheduleBuilderModivcareTripMatch.NormalizeTripNumber(e.TripNo);
+                if (!string.IsNullOrEmpty(key) && matchedKeys.Contains(key))
+                    continue;
+                // Prefer the dictionary winner for this trip # if present.
+                if (!string.IsNullOrEmpty(key)
+                    && habitByTrip.TryGetValue(key, out var primary)
+                    && !ReferenceEquals(primary, e)
+                    && PreferLateDriversHabitEvent(primary, e) == primary)
+                    continue;
+
+                DateTime sort = LateDriversHabitSortTime(serviceDateIso, e);
+                rows.Add(new LateDriversTripRowTag
+                {
+                    ScheduleTrip = null,
+                    HabitEvent = e,
+                    FromSchedule = false,
+                    HabitOnly = true,
+                    TripNo = e.TripNo?.Trim() ?? "",
+                    ServiceDate = string.IsNullOrWhiteSpace(e.ServiceDate) ? serviceDateIso : e.ServiceDate.Trim(),
+                    Client = e.Client ?? "",
+                    SchedDisplay = FormatLateDriversTime(e.SchedIso, blank: "—"),
+                    SortTime = sort,
+                });
+            }
+
+            return rows
+                .OrderBy(r => r.SortTime)
+                .ThenBy(r => r.TripNo ?? "", StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private static HiatmeAiClient.LateDriversEventRow PreferLateDriversHabitEvent(
+            HiatmeAiClient.LateDriversEventRow a,
+            HiatmeAiClient.LateDriversEventRow b)
+        {
+            if (a == null) return b;
+            if (b == null) return a;
+            if (a.Open != b.Open) return a.Open ? a : b;
+            string ha = HabitKeyOf(a);
+            string hb = HabitKeyOf(b);
+            bool aLate = ha.StartsWith("late", StringComparison.Ordinal);
+            bool bLate = hb.StartsWith("late", StringComparison.Ordinal);
+            if (aLate != bLate) return aLate ? a : b;
+            if (Math.Abs(a.MinutesLate - b.MinutesLate) > 0.01)
+                return a.MinutesLate >= b.MinutesLate ? a : b;
+            return a;
+        }
+
+        private static string PreferSchedTimeForHabit(
+            MCDownloadedTrip trip,
+            HiatmeAiClient.LateDriversEventRow habit)
+        {
+            if (habit != null && string.Equals(habit.Side, "do", StringComparison.OrdinalIgnoreCase))
+            {
+                string doSide = PreferNonEmpty(
+                    trip?.SchedDOTime,
+                    PreferNonEmpty(trip?.DOTime, null));
+                if (!string.IsNullOrWhiteSpace(doSide))
+                    return doSide;
+            }
+            return PreferNonEmpty(trip?.PUTime, PreferNonEmpty(trip?.DOTime, trip?.SchedDOTime));
+        }
+
+        private static string PreferNonEmpty(string a, string b) =>
+            !string.IsNullOrWhiteSpace(a) ? a.Trim() : (b ?? "");
+
+        private List<MCDownloadedTrip> FindLateDriversScheduleTripsForDriver(string driverName)
+        {
+            if (_ldScheduleCache?.DriverTrips == null || string.IsNullOrWhiteSpace(driverName))
+                return null;
+
+            string want = driverName.Trim();
+            if (_ldScheduleCache.DriverTrips.TryGetValue(want, out var exact) && exact != null)
+                return exact;
+
+            string wantKey = NormalizeLateDriversDriverKey(want);
+            foreach (var kv in _ldScheduleCache.DriverTrips)
+            {
+                if (kv.Key == null) continue;
+                if (string.Equals(kv.Key.Trim(), want, StringComparison.OrdinalIgnoreCase))
+                    return kv.Value;
+                if (NormalizeLateDriversDriverKey(kv.Key) == wantKey)
+                    return kv.Value;
+            }
+
+            // First-name + last initial: "Aaron C" vs "Aaron Carter"
+            string wantFirst = wantKey.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";
+            if (wantFirst.Length >= 2)
+            {
+                var candidates = _ldScheduleCache.DriverTrips
+                    .Where(kv =>
+                    {
+                        string k = NormalizeLateDriversDriverKey(kv.Key);
+                        return k.StartsWith(wantFirst + " ", StringComparison.Ordinal)
+                            || k == wantFirst
+                            || wantKey.StartsWith(
+                                (k.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "") + " ",
+                                StringComparison.Ordinal);
+                    })
+                    .ToList();
+                if (candidates.Count == 1)
+                    return candidates[0].Value;
+            }
+
+            return new List<MCDownloadedTrip>(); // sheet missing for driver — still allow habit-only inserts
+        }
+
+        private static string NormalizeLateDriversDriverKey(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return "";
+            var chars = name.Trim().ToLowerInvariant()
+                .Where(c => char.IsLetterOrDigit(c) || c == ' ')
+                .ToArray();
+            return string.Join(" ", new string(chars).Split(
+                new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries));
+        }
+
+        private void ClearLateDriversScheduleCache()
+        {
+            _ldScheduleCacheDateIso = null;
+            _ldScheduleCachePath = null;
+            _ldScheduleCacheFileName = null;
+            _ldScheduleCache = null;
+            _ldScheduleCacheError = null;
+        }
+
+        private void EnsureLateDriversScheduleCache(string serviceDateIso, bool forceReload)
+        {
+            serviceDateIso = (serviceDateIso ?? "").Trim();
+            if (string.IsNullOrEmpty(serviceDateIso))
+            {
+                _ldScheduleCacheError = "no service date";
+                return;
+            }
+
+            if (!forceReload
+                && string.Equals(_ldScheduleCacheDateIso, serviceDateIso, StringComparison.Ordinal)
+                && (_ldScheduleCache != null || !string.IsNullOrEmpty(_ldScheduleCacheError)))
+                return;
+
+            ClearLateDriversScheduleCache();
+            _ldScheduleCacheDateIso = serviceDateIso;
+
+            if (!DateTime.TryParseExact(
+                    serviceDateIso,
+                    "yyyy-MM-dd",
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.None,
+                    out var day))
+            {
+                _ldScheduleCacheError = "bad date";
+                return;
+            }
+
+            ScheduleExportPaths.GetDefaultWorkbookSaveLocation(
+                day, out _, out string fileName, out string fullPath);
+            _ldScheduleCacheFileName = fileName;
+            _ldScheduleCachePath = fullPath;
+
+            if (!File.Exists(fullPath))
+            {
+                _ldScheduleCacheError = fileName + " missing — habits only";
+                return;
+            }
+
+            try
+            {
+                // Sync load only — async+GetResult on the UI thread deadlocks on Task.Yield.
+                _ldScheduleCache = ScheduleBuilderScheduleLoad.LoadFromWorkbook(fullPath);
+                if (_ldScheduleCache == null
+                    || _ldScheduleCache.DriverTrips == null
+                    || _ldScheduleCache.DriverTrips.Count == 0)
+                {
+                    _ldScheduleCache = null;
+                    _ldScheduleCacheError = fileName + " empty — habits only";
+                    return;
+                }
+                _ldScheduleCacheError = null;
+            }
+            catch (Exception ex)
+            {
+                _ldScheduleCache = null;
+                _ldScheduleCacheError = "load failed (" + ex.Message + ") — habits only";
+            }
+        }
+
+        private string FormatLateDriversScheduleStatusNote(List<LateDriversTripRowTag> merged)
+        {
+            string file = _ldScheduleCacheFileName ?? "schedule";
+            int schedN = merged?.Count(r => r != null && r.FromSchedule) ?? 0;
+            int habitN = merged?.Count(r => r?.HabitEvent != null) ?? 0;
+            int addedN = merged?.Count(r => r != null && r.HabitOnly) ?? 0;
+            string note = file + " · " + schedN + " trips · " + habitN + " habit alerts";
+            if (addedN > 0)
+                note += " · " + addedN + " not on sheet";
+            return note;
+        }
+
+        private void AppendLateDriversScheduleStatus(string scheduleNote)
+        {
+            if (ldStatusLbl == null || ldStatusLbl.IsDisposed)
+                return;
+            string cur = ldStatusLbl.Text ?? "";
+            const string marker = " · Schedule: ";
+            int idx = cur.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (idx >= 0)
+                cur = cur.Substring(0, idx);
+            if (string.IsNullOrWhiteSpace(scheduleNote))
+            {
+                ldStatusLbl.Text = cur;
+                return;
+            }
+            ldStatusLbl.Text = cur + marker + scheduleNote.Trim();
+        }
+
+        private static DateTime LateDriversScheduleSortTime(string serviceDateIso, MCDownloadedTrip trip)
+        {
+            string clock = PreferNonEmpty(trip?.PUTime, PreferNonEmpty(trip?.DOTime, trip?.SchedDOTime));
+            return CombineLateDriversDateAndClock(serviceDateIso, clock);
+        }
+
+        private static DateTime LateDriversHabitSortTime(
+            string serviceDateIso,
+            HiatmeAiClient.LateDriversEventRow e)
+        {
+            if (!string.IsNullOrWhiteSpace(e?.SchedIso)
+                && (DateTime.TryParse(e.SchedIso, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var dt)
+                    || DateTime.TryParse(e.SchedIso, out dt)))
+                return dt;
+            return CombineLateDriversDateAndClock(serviceDateIso, null);
+        }
+
+        private static DateTime CombineLateDriversDateAndClock(string serviceDateIso, string clock)
+        {
+            DateTime day = DateTime.Today;
+            if (!string.IsNullOrWhiteSpace(serviceDateIso)
+                && DateTime.TryParseExact(
+                    serviceDateIso.Trim(),
+                    "yyyy-MM-dd",
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.None,
+                    out var parsedDay))
+                day = parsedDay.Date;
+
+            if (string.IsNullOrWhiteSpace(clock))
+                return day.AddHours(23).AddMinutes(59);
+
+            if (DateTime.TryParse(clock.Trim(), CultureInfo.CurrentCulture, DateTimeStyles.None, out var t)
+                || DateTime.TryParse(clock.Trim(), CultureInfo.InvariantCulture, DateTimeStyles.None, out t))
+                return day.Add(t.TimeOfDay);
+
+            return day.AddHours(23).AddMinutes(59);
+        }
+
+        private static string FormatLateDriversScheduleClock(string clock)
+        {
+            if (string.IsNullOrWhiteSpace(clock))
+                return "—";
+            if (DateTime.TryParse(clock.Trim(), CultureInfo.CurrentCulture, DateTimeStyles.None, out var t)
+                || DateTime.TryParse(clock.Trim(), CultureInfo.InvariantCulture, DateTimeStyles.None, out t))
+                return t.ToString("h:mm tt", CultureInfo.CurrentCulture);
+            return clock.Trim();
         }
 
         private static string FormatLateDriversTime(string iso, string blank = "")
@@ -2871,13 +3364,28 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (ldTripLv?.SelectedItems == null || ldTripLv.SelectedItems.Count == 0)
                 return;
-            if (!(ldTripLv.SelectedItems[0].Tag is HiatmeAiClient.LateDriversEventRow row))
+
+            string serviceDate = null;
+            string tripNo = null;
+            var habit = LateDriversHabitFromTag(ldTripLv.SelectedItems[0].Tag);
+            if (habit != null)
+            {
+                serviceDate = habit.ServiceDate;
+                tripNo = habit.TripNo;
+            }
+            else if (ldTripLv.SelectedItems[0].Tag is LateDriversTripRowTag wrap)
+            {
+                serviceDate = wrap.ServiceDate;
+                tripNo = wrap.TripNo;
+            }
+            if (string.IsNullOrWhiteSpace(tripNo))
                 return;
+
             try
             {
-                if (tsdatepicker != null && !string.IsNullOrWhiteSpace(row.ServiceDate)
+                if (tsdatepicker != null && !string.IsNullOrWhiteSpace(serviceDate)
                     && DateTime.TryParseExact(
-                        row.ServiceDate.Trim(),
+                        serviceDate.Trim(),
                         "yyyy-MM-dd",
                         CultureInfo.InvariantCulture,
                         DateTimeStyles.None,
@@ -2885,9 +3393,9 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     try { tsdatepicker.Value = d; } catch { }
                 }
-                if (!string.IsNullOrWhiteSpace(row.TripNo) && tssearchbox != null)
+                if (tssearchbox != null)
                 {
-                    try { tssearchbox.Text = row.TripNo.Trim(); } catch { }
+                    try { tssearchbox.Text = tripNo.Trim().TrimStart('+'); } catch { }
                 }
                 if (tabPage9 != null)
                     hiatmeTabControl.SelectedTab = tabPage9;
