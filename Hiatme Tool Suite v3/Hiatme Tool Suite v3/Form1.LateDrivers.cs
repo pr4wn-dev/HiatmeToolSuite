@@ -1509,7 +1509,8 @@ namespace Hiatme_Tool_Suite_v3
             if (string.IsNullOrWhiteSpace(serviceDateIso))
                 return;
 
-            EnsureLateDriversScheduleCache(serviceDateIso.Trim(), forceReload: false);
+            await EnsureLateDriversScheduleCacheAsync(serviceDateIso.Trim(), forceReload: false)
+                .ConfigureAwait(true);
             if (_ldScheduleCache == null)
                 return;
 
@@ -1619,12 +1620,12 @@ namespace Hiatme_Tool_Suite_v3
             List<MCDownloadedTrip> downloaded = null;
             try
             {
-                var dler = new MCTripDownloader();
+                var dler = new MCTripDownloader { SuppressUiDialogs = true };
                 downloaded = await dler.DownloadTripRecords(day, mcLoginHandler).ConfigureAwait(true);
                 if (dler.InvalidDate)
                 {
                     return (false,
-                        "Need Modivcare schedule for " + serviceDateIso + " (date not available in portal)",
+                        "No Modivcare schedule for " + serviceDateIso + " (date not available in portal)",
                         false);
                 }
             }
@@ -1634,7 +1635,7 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             if (downloaded == null || downloaded.Count == 0)
-                return (false, "Need Modivcare schedule for " + serviceDateIso + " (empty download)", false);
+                return (false, "No Modivcare trips for " + serviceDateIso + " (day off / empty)", false);
 
             var rows = HiatmeAiClient.ModivcareDayTripsFromDownloaded(downloaded);
             var put = await HiatmeAiClient.PutModivcareDayAsync(
@@ -1719,17 +1720,37 @@ namespace Hiatme_Tool_Suite_v3
 
                 if (mode == "live" || mode == "day")
                 {
-                    var ensured = await EnsureModivcareDaySnapshotAsync(settings, sd)
-                        .ConfigureAwait(true);
-                    if (!ensured.Ok)
+                    if (mode == "live")
                     {
-                        SetLateDriversStatus("Status: " + ensured.Message);
-                        return;
+                        // Live may pull Modivcare for today. Day mode must NEVER call the
+                        // Modivcare portal — its HttpClient has no timeout and freezes the app
+                        // on off-days / empty calendar dates.
+                        var ensured = await EnsureModivcareDaySnapshotAsync(settings, sd)
+                            .ConfigureAwait(true);
+                        if (!ensured.Ok)
+                        {
+                            SetLateDriversStatus("Status: " + ensured.Message);
+                            return;
+                        }
+                        await UploadLateDriversScheduleAssignAsync(settings, sd)
+                            .ConfigureAwait(true);
+                        await EnsureLateDriversScheduleCacheAsync(sd, forceReload: force)
+                            .ConfigureAwait(true);
                     }
-                    // Workbook trip→driver so late/early blame stays on the printed owner
-                    // after WellRyde reassigns (Modivcare has clocks, not assignment).
-                    await UploadLateDriversScheduleAssignAsync(settings, sd)
-                        .ConfigureAwait(true);
+                    else
+                    {
+                        // Day: use whatever is already on the AI server / Desktop only.
+                        SetLateDriversStatus("Status: Loading " + sd + "…");
+                        var st = await HiatmeAiClient.GetModivcareDayStatusAsync(settings, sd)
+                            .ConfigureAwait(true);
+                        if (st != null && st.Ok && st.Exists && st.TripCount > 0)
+                        {
+                            await UploadLateDriversScheduleAssignAsync(settings, sd)
+                                .ConfigureAwait(true);
+                        }
+                        // Desktop / local cache only — no server workbook download wait on off-days.
+                        EnsureLateDriversScheduleCache(sd, forceReload: force);
+                    }
                 }
 
                 if (!force && mode == "live" && !string.IsNullOrEmpty(_ldLastHash))
@@ -1809,13 +1830,16 @@ namespace Hiatme_Tool_Suite_v3
 
                         if ((doc == null || !doc.Ok) && (habits == null || !habits.Ok))
                         {
-                            SetLateDriversStatus("Status: " + (doc?.Error ?? habits?.Error ?? "day load failed"));
-                            return;
-                        }
-                        if (doc != null && doc.Ok && !doc.ModivcareExists
-                            && (habits == null || !habits.Ok || (habits.EventCount <= 0 && (habits.Events == null || habits.Events.Count == 0))))
-                        {
-                            SetLateDriversStatus("Status: Need Modivcare schedule for " + sd);
+                            // Still paint an empty day rather than leaving the prior day on screen.
+                            ApplyLateDriversEventPayload(
+                                new List<HiatmeAiClient.LateDriversEventRow>(),
+                                "",
+                                sd,
+                                sd,
+                                0,
+                                habits: null);
+                            SetLateDriversStatus(
+                                "Status: " + (doc?.Error ?? habits?.Error ?? "No data for " + sd));
                             return;
                         }
 
@@ -1829,10 +1853,19 @@ namespace Hiatme_Tool_Suite_v3
                         if (doc != null && doc.Ok)
                             _ldDayPerf = doc.DayPerformance;
                         ApplyLateDriversEventPayload(lateEvents, hash, sd, sd, mcTrips, habits: habits);
+                        if (doc != null && doc.Ok && !doc.ModivcareExists
+                            && (habits == null || habits.EventCount <= 0)
+                            && lateEvents.Count == 0)
+                        {
+                            SetLateDriversStatus(
+                                "Status: No schedule/habits for " + sd + " (day off or not pulled)");
+                        }
                     }
                 }
                 else
                 {
+                    await EnsureLateDriversScheduleCacheAsync(sd, forceReload: force)
+                        .ConfigureAwait(true);
                     var doc = await HiatmeAiClient.GetLateDriversPeriodAsync(
                             settings, mode, sd)
                         .ConfigureAwait(true);
@@ -2526,9 +2559,23 @@ namespace Hiatme_Tool_Suite_v3
             return LateDriversTsStillHot(e.ResolvedAt);
         }
 
+        private static bool LateDriversEventIsServiceToday(HiatmeAiClient.LateDriversEventRow e)
+        {
+            string sd = (e?.ServiceDate ?? "").Trim();
+            if (string.IsNullOrEmpty(sd))
+                return false;
+            return string.Equals(
+                sd,
+                DateTime.Today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                StringComparison.Ordinal);
+        }
+
         private static bool LateDriversEventNeedsCallAlert(HiatmeAiClient.LateDriversEventRow e)
         {
             if (e == null || e.Excluded)
+                return false;
+            // Historical days are review-only — never blink/chirp (even if detected_at was refreshed).
+            if (!LateDriversEventIsServiceToday(e))
                 return false;
             string hk = HabitKeyOf(e);
             if (!LateDriversIsTimingHabitKey(hk))
@@ -5067,6 +5114,57 @@ namespace Hiatme_Tool_Suite_v3
             return null;
         }
 
+        /// <summary>
+        /// UI-safe schedule resolve (await HTTP). Prefer this from refresh paths.
+        /// Never use ResolveForRead().GetResult() on the UI thread — off-days freeze the app.
+        /// </summary>
+        private async Task EnsureLateDriversScheduleCacheAsync(
+            string serviceDateIso,
+            bool forceReload)
+        {
+            serviceDateIso = (serviceDateIso ?? "").Trim();
+            if (string.IsNullOrEmpty(serviceDateIso))
+            {
+                _ldScheduleCacheError = "no service date";
+                return;
+            }
+
+            if (!DateTime.TryParseExact(
+                    serviceDateIso,
+                    "yyyy-MM-dd",
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.None,
+                    out var day))
+            {
+                ClearLateDriversScheduleCache();
+                _ldScheduleCacheDateIso = serviceDateIso;
+                _ldScheduleCacheError = "bad date";
+                return;
+            }
+
+            ScheduleWorkbookResolveResult resolved;
+            try
+            {
+                resolved = await ScheduleWorkbookResolver.ResolveForReadAsync(
+                        day, LateDriversAiSettings())
+                    .ConfigureAwait(true);
+            }
+            catch (Exception ex)
+            {
+                resolved = new ScheduleWorkbookResolveResult
+                {
+                    ServiceDateIso = serviceDateIso,
+                    Error = ex.Message,
+                };
+            }
+
+            ApplyLateDriversScheduleResolve(serviceDateIso, day, resolved, forceReload);
+        }
+
+        /// <summary>
+        /// Sync path for strip/trip clicks: Desktop or already-cached file only.
+        /// Does not call the AI server (avoids UI-thread GetResult freeze on off-days).
+        /// </summary>
         private void EnsureLateDriversScheduleCache(string serviceDateIso, bool forceReload)
         {
             serviceDateIso = (serviceDateIso ?? "").Trim();
@@ -5089,7 +5187,44 @@ namespace Hiatme_Tool_Suite_v3
                 return;
             }
 
-            var resolved = ScheduleWorkbookResolver.ResolveForRead(day, LateDriversAiSettings());
+            ScheduleExportPaths.GetDefaultWorkbookSaveLocation(
+                day, out _, out string fileName, out string desktopPath);
+            string cachePath = ScheduleWorkbookResolver.LocalCachePath(day);
+            string fullPath = null;
+            string source = null;
+            string etag = "";
+            if (!string.IsNullOrWhiteSpace(desktopPath) && File.Exists(desktopPath))
+            {
+                fullPath = desktopPath;
+                source = "desktop";
+            }
+            else if (File.Exists(cachePath))
+            {
+                fullPath = cachePath;
+                source = "server_cache";
+                etag = ScheduleWorkbookResolver.ReadCachedEtag(cachePath) ?? "";
+            }
+
+            var resolved = new ScheduleWorkbookResolveResult
+            {
+                FullPath = fullPath,
+                FileName = fileName,
+                Source = source,
+                Etag = etag,
+                ServiceDateIso = serviceDateIso,
+                Error = string.IsNullOrWhiteSpace(fullPath)
+                    ? (fileName + " missing — habits only")
+                    : null,
+            };
+            ApplyLateDriversScheduleResolve(serviceDateIso, day, resolved, forceReload);
+        }
+
+        private void ApplyLateDriversScheduleResolve(
+            string serviceDateIso,
+            DateTime day,
+            ScheduleWorkbookResolveResult resolved,
+            bool forceReload)
+        {
             string fullPath = resolved?.FullPath;
             string fileName = resolved?.FileName
                 ?? ScheduleExportPaths.WorkbookFileName(
@@ -5120,7 +5255,6 @@ namespace Hiatme_Tool_Suite_v3
 
             try
             {
-                // Sync load only — async+GetResult on the UI thread deadlocks on Task.Yield.
                 _ldScheduleCache = ScheduleBuilderScheduleLoad.LoadFromWorkbook(fullPath);
                 if (_ldScheduleCache == null
                     || _ldScheduleCache.DriverTrips == null

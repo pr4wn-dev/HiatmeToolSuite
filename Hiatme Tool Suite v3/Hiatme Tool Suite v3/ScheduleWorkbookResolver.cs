@@ -65,7 +65,9 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         /// <summary>
-        /// Sync resolve for UI-thread call sites. Uses ConfigureAwait(false) HTTP under the hood.
+        /// Sync resolve via GetResult. Do not call from the WinForms UI thread when the
+        /// Desktop workbook is missing — that path hits HTTP and can freeze the app.
+        /// Prefer <see cref="ResolveForReadAsync"/> from UI code.
         /// </summary>
         public static ScheduleWorkbookResolveResult ResolveForRead(
             DateTime serviceDate,

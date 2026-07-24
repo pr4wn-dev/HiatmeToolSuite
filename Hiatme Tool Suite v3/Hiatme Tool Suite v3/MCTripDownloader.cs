@@ -20,6 +20,12 @@ namespace Hiatme_Tool_Suite_v3
         public string Year { get; set; }
         public bool InvalidDate { get; set; }
 
+        /// <summary>
+        /// When true, skip MessageBox prompts (Driver Habits / background ensure paths).
+        /// InvalidDate is still set so callers can show status text instead.
+        /// </summary>
+        public bool SuppressUiDialogs { get; set; }
+
         /// <summary>Trip IDs sent in the last Full Delimited download POST (from MC calendar textarea).</summary>
         public int LastRequestedTripIdCount { get; private set; }
 
@@ -98,7 +104,8 @@ namespace Hiatme_Tool_Suite_v3
                 if (calsearchfails == 4)
                 {
                     InvalidDate = true;
-                    MessageBox.Show("Only current and next month is acceptable.");
+                    if (!SuppressUiDialogs)
+                        MessageBox.Show("Only current and next month is acceptable.");
                     return;
                 }
                 
@@ -202,8 +209,12 @@ namespace Hiatme_Tool_Suite_v3
             else//current month not found
             {
                 Console.WriteLine("Selected day not found");
-                MessageBox.Show("Trips can only be downloaded for up to 8 days in the past and up to 30 days in the future. Please try again.");
                 InvalidDate = true;
+                if (!SuppressUiDialogs)
+                {
+                    MessageBox.Show(
+                        "Trips can only be downloaded for up to 8 days in the past and up to 30 days in the future. Please try again.");
+                }
                 return;
             }
         }

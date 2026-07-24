@@ -55,7 +55,11 @@ namespace Hiatme_Tool_Suite_v3
             CookieJar = new CookieContainer();
             Handler = new HttpClientHandler();
             Handler.CookieContainer = CookieJar;
-            Client = new HttpClient(Handler);
+            Client = new HttpClient(Handler)
+            {
+                // Default is infinite — Driver Habits / portal calls must not hang forever.
+                Timeout = TimeSpan.FromSeconds(45),
+            };
             UserAgent = "";
             AWSALB = "";
             ContentType = "";
