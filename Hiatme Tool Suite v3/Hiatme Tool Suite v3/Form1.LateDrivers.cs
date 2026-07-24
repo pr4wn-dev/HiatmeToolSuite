@@ -32,6 +32,11 @@ namespace Hiatme_Tool_Suite_v3
         private SupeyComboBox ldMonthCombo;
         private SupeyComboBox ldYearCombo;
         private SupeyMaterialButton ldRefreshBtn;
+        private Panel ldSearchHost;
+        private SupeyCard ldSearchCard;
+        private Panel ldSearchInner;
+        private SupeyTextBox ldSearchBox;
+        private bool _ldSuppressSearch;
         private Label ldDateHintLbl;
         private Label ldRangeCaptionLbl;
         private Label ldDriverCaptionLbl;
@@ -222,6 +227,10 @@ namespace Hiatme_Tool_Suite_v3
                     ldOtpMeter = null;
                     ldScorecardHost = null;
                     ldRefreshBtn = null;
+                    ldSearchHost = null;
+                    ldSearchCard = null;
+                    ldSearchInner = null;
+                    ldSearchBox = null;
                     ldLiveSwitch = null;
                     ldColorsSwitch = null;
                     _ldLiveChromeHost = null;
@@ -381,6 +390,7 @@ namespace Hiatme_Tool_Suite_v3
                 ldMainCard.Controls.Add(ldHeroHost);
                 ldMainCard.Controls.Add(ldDriverStripHost);
                 ldMainCard.Controls.Add(ldRangeCaptionLbl);
+                ldMainCard.Controls.Add(ldSearchHost);
                 ldMainCard.Controls.Add(ldToolbar);
 
                 tabPageLateDrivers.Controls.Add(ldStatusCard);
@@ -470,6 +480,49 @@ namespace Hiatme_Tool_Suite_v3
 
             ldToolbarCard.Controls.Add(ldToolbarInner);
             ldToolbar.Controls.Add(ldToolbarCard);
+
+            // ── Search row (Trip Scout–style full-width card) ─────────────
+            ldSearchHost = new Panel
+            {
+                Name = "ldSearchHost",
+                Dock = DockStyle.Top,
+                Height = 54,
+                Padding = new Padding(10, 0, 10, 4),
+                BackColor = Color.Transparent,
+            };
+            ldSearchCard = new SupeyCard
+            {
+                Name = "ldSearchCard",
+                Dock = DockStyle.Fill,
+                SurfaceLevel = SupeyCard.Surface.Elevated,
+                ShowBorder = true,
+                CornerRadius = 8,
+                Padding = Padding.Empty,
+            };
+            ldSearchInner = new Panel
+            {
+                Name = "ldSearchInner",
+                Dock = DockStyle.Fill,
+                Padding = new Padding(12, 8, 12, 8),
+                BackColor = Color.Transparent,
+            };
+            ldSearchInner.Resize += (_, __) => LayoutLateDriversSearchBox();
+            ldSearchBox = new SupeyTextBox
+            {
+                Name = "ldSearchBox",
+                Hint = "Search trips by ID, client, driver, address, status…",
+                LeadingIcon = Properties.Resources.magnify,
+                UseTallSize = false,
+                UseToolbarSize = true,
+                MaxLength = 200,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+            };
+            try { ldSearchBox.Height = 30; } catch { }
+            ldSearchBox.TextChanged += LdSearchBox_TextChanged;
+            ldSearchBox.KeyDown += LdSearchBox_KeyDown;
+            ldSearchInner.Controls.Add(ldSearchBox);
+            ldSearchCard.Controls.Add(ldSearchInner);
+            ldSearchHost.Controls.Add(ldSearchCard);
 
             ldRangeCaptionLbl.Dock = DockStyle.Top;
             ldRangeCaptionLbl.Height = 22;
@@ -1163,6 +1216,70 @@ namespace Hiatme_Tool_Suite_v3
                     cw.Height);
                 ldColorsSwitch.BringToFront();
             }
+        }
+
+        private void LayoutLateDriversSearchBox()
+        {
+            if (ldSearchInner == null || ldSearchInner.IsDisposed
+                || ldSearchBox == null || ldSearchBox.IsDisposed)
+                return;
+            int padL = ldSearchInner.Padding.Left;
+            int padR = ldSearchInner.Padding.Right;
+            int padT = ldSearchInner.Padding.Top;
+            int h = 30;
+            int w = Math.Max(120, ldSearchInner.ClientSize.Width - padL - padR);
+            ldSearchBox.UseToolbarSize = true;
+            ldSearchBox.SetBounds(padL, padT, w, h);
+        }
+
+        private void LdSearchBox_TextChanged(object sender, EventArgs e)
+        {
+            if (_ldSuppressSearch || !_ldBuilt || IsDisposed)
+                return;
+            ApplyLateDriversSearchLive();
+        }
+
+        private void LdSearchBox_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Escape)
+            {
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+                if (ldSearchBox != null && !string.IsNullOrEmpty(ldSearchBox.Text))
+                {
+                    _ldSuppressSearch = true;
+                    try { ldSearchBox.Text = ""; }
+                    finally { _ldSuppressSearch = false; }
+                    ApplyLateDriversSearchLive();
+                }
+                return;
+            }
+            if (e.KeyCode != Keys.Enter)
+                return;
+            e.Handled = true;
+            e.SuppressKeyPress = true;
+            // Jump to owning driver / Other with the trip focused; clear search so that tile's
+            // full list shows (Trip Scout keeps filtering — Habits needs the driver context).
+            string jumpQ = ldSearchBox?.Text;
+            if (string.IsNullOrWhiteSpace(jumpQ))
+                return;
+            _ldSuppressSearch = true;
+            try { ldSearchBox.Text = ""; }
+            finally { _ldSuppressSearch = false; }
+            GoToLateDriversTripSearch(jumpQ);
+        }
+
+        private string LateDriversSearchQuery => (ldSearchBox?.Text ?? "").Trim();
+
+        /// <summary>
+        /// Trip Scout–style live filter: non-empty query shows matching trips across the day
+        /// (driver sheets + Other). Empty query restores the selected tile view.
+        /// </summary>
+        private void ApplyLateDriversSearchLive()
+        {
+            if (!_ldBuilt || ldTripLv == null || ldTripLv.IsDisposed)
+                return;
+            BindLateDriversTripPane();
         }
 
         private SupeyListView CreateLateDriversListView(string name)
@@ -3118,11 +3235,6 @@ namespace Hiatme_Tool_Suite_v3
             if (ldTripLv == null || ldTripLv.IsDisposed || string.IsNullOrWhiteSpace(tripNo))
                 return;
 
-            string want = ScheduleBuilderModivcareTripMatch.NormalizeTripNumber(
-                tripNo.Trim().TrimStart('+'));
-            if (string.IsNullOrEmpty(want))
-                return;
-
             ListViewItem match = null;
             foreach (ListViewItem item in ldTripLv.Items)
             {
@@ -3130,9 +3242,7 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     if (wrap.IsGroupHeader || wrap.IsGap)
                         continue;
-                    string tn = ScheduleBuilderModivcareTripMatch.NormalizeTripNumber(
-                        (wrap.TripNo ?? "").Trim().TrimStart('+'));
-                    if (string.Equals(tn, want, StringComparison.OrdinalIgnoreCase))
+                    if (LateDriversTripQueryMatches(wrap.TripNo, tripNo))
                     {
                         match = item;
                         break;
@@ -3141,9 +3251,7 @@ namespace Hiatme_Tool_Suite_v3
                 else
                 {
                     var habit = LateDriversHabitFromTag(item?.Tag);
-                    string tn = ScheduleBuilderModivcareTripMatch.NormalizeTripNumber(
-                        (habit?.TripNo ?? "").Trim().TrimStart('+'));
-                    if (string.Equals(tn, want, StringComparison.OrdinalIgnoreCase))
+                    if (LateDriversTripQueryMatches(habit?.TripNo, tripNo))
                     {
                         match = item;
                         break;
@@ -3163,6 +3271,256 @@ namespace Hiatme_Tool_Suite_v3
                 ldTripLv.Focus();
             }
             catch { }
+        }
+
+        private static bool LateDriversTripQueryMatches(string tripNo, string query)
+        {
+            if (string.IsNullOrWhiteSpace(tripNo) || string.IsNullOrWhiteSpace(query))
+                return false;
+            string t = tripNo.Trim().TrimStart('+');
+            string q = query.Trim().TrimStart('+');
+            if (t.Length == 0 || q.Length == 0)
+                return false;
+            if (LateDriversTripNosEqualForChip(t, q))
+                return true;
+            if (t.IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+            string nt = ScheduleBuilderModivcareTripMatch.NormalizeTripNumber(t);
+            string nq = ScheduleBuilderModivcareTripMatch.NormalizeTripNumber(q);
+            if (!string.IsNullOrEmpty(nq) && !string.IsNullOrEmpty(nt)
+                && nt.IndexOf(nq, StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+            string legT = ScheduleBuilderPreviewDrag.TripLegKey(t);
+            string legQ = ScheduleBuilderPreviewDrag.TripLegKey(q);
+            if (!string.IsNullOrEmpty(legQ) && !string.IsNullOrEmpty(legT)
+                && string.Equals(legT, legQ, StringComparison.OrdinalIgnoreCase))
+                return true;
+            return false;
+        }
+
+        /// <summary>
+        /// Find a trip by # (full or partial) and jump to its driver tile, Other, or All.
+        /// </summary>
+        private void GoToLateDriversTripSearch(string query)
+        {
+            query = (query ?? "").Trim();
+            if (string.IsNullOrEmpty(query))
+                return;
+
+            string mode = LateDriversSelectedMode();
+            bool singleDay = mode == "day" || mode == "live";
+            string sd = LateDriversSelectedServiceDateIso();
+            if (singleDay)
+                EnsureLateDriversScheduleCache(sd, forceReload: false);
+
+            // Prefer exact workbook trip # when several partial matches exist.
+            string focusTrip = null;
+
+            if (singleDay)
+            {
+                string owner;
+                string ownedTrip;
+                if (TryFindLateDriversWorkbookTrip(query, out owner, out ownedTrip)
+                    && !string.IsNullOrWhiteSpace(owner))
+                {
+                    focusTrip = ownedTrip ?? query;
+                    if (owner.Equals("Reserves", StringComparison.OrdinalIgnoreCase)
+                        || owner.Equals("Reserve", StringComparison.OrdinalIgnoreCase)
+                        || owner.StartsWith("Reserve ", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // No Reserves tile — open Other if also off-driver-sheet, else All.
+                        if (IsLateDriversTripOffSchedule(focusTrip, sd))
+                        {
+                            SelectLateDriversDriver(LateDriversOtherKey, focusTrip);
+                            SetLateDriversStatus("Status: Found " + focusTrip + " — Other (reserves / off sheet)");
+                            return;
+                        }
+                        SelectLateDriversDriver(null, focusTrip);
+                        SetLateDriversStatus("Status: Found " + focusTrip + " — on Reserves sheet");
+                        return;
+                    }
+
+                    string tile = MatchLateDriversStripDriver(owner);
+                    SelectLateDriversDriver(tile ?? owner, focusTrip);
+                    SetLateDriversStatus(
+                        "Status: Found " + focusTrip + " — " + (tile ?? owner));
+                    return;
+                }
+
+                if (TryFindLateDriversOffScheduleTrip(query, sd, out focusTrip))
+                {
+                    SelectLateDriversDriver(LateDriversOtherKey, focusTrip);
+                    SetLateDriversStatus("Status: Found " + focusTrip + " — Other (not on schedule)");
+                    return;
+                }
+            }
+
+            // Habit / period list
+            var habit = (_ldEventRows ?? new List<HiatmeAiClient.LateDriversEventRow>())
+                .FirstOrDefault(e => e != null && LateDriversTripQueryMatches(e.TripNo, query));
+            if (habit != null)
+            {
+                focusTrip = habit.TripNo?.Trim() ?? query;
+                string blame = string.IsNullOrWhiteSpace(habit.Driver)
+                    ? null
+                    : habit.Driver.Trim();
+                if (!string.IsNullOrEmpty(blame)
+                    && blame.IndexOf("unassign", StringComparison.OrdinalIgnoreCase) < 0
+                    && !blame.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
+                {
+                    string tile = MatchLateDriversStripDriver(blame);
+                    if (!string.IsNullOrEmpty(tile) && singleDay)
+                    {
+                        SelectLateDriversDriver(tile, focusTrip);
+                        SetLateDriversStatus("Status: Found " + focusTrip + " — " + tile);
+                        return;
+                    }
+                }
+                SelectLateDriversDriver(null, focusTrip);
+                SetLateDriversStatus("Status: Found " + focusTrip + " — all drivers");
+                return;
+            }
+
+            // WR day trips (may not have habits yet)
+            if (singleDay)
+            {
+                var wr = FindLateDriversWrTripByQuery(query);
+                if (wr != null && !string.IsNullOrWhiteSpace(wr.TripNo))
+                {
+                    focusTrip = wr.TripNo.Trim();
+                    string owner2 = FindLateDriversWorkbookOwnerForTrip(focusTrip);
+                    if (!string.IsNullOrWhiteSpace(owner2)
+                        && !owner2.Equals("Reserves", StringComparison.OrdinalIgnoreCase)
+                        && owner2.IndexOf("unassign", StringComparison.OrdinalIgnoreCase) < 0)
+                    {
+                        string tile = MatchLateDriversStripDriver(owner2);
+                        SelectLateDriversDriver(tile ?? owner2, focusTrip);
+                        SetLateDriversStatus(
+                            "Status: Found " + focusTrip + " — " + (tile ?? owner2));
+                        return;
+                    }
+                    SelectLateDriversDriver(LateDriversOtherKey, focusTrip);
+                    SetLateDriversStatus("Status: Found " + focusTrip + " — Other");
+                    return;
+                }
+            }
+
+            SetLateDriversStatus("Status: No trip matching \"" + query + "\"");
+        }
+
+        private string MatchLateDriversStripDriver(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                return null;
+            string want = CanonicalizeLateDriversDriverLabel(name.Trim());
+            var hit = (_ldDriverRows ?? new List<HiatmeAiClient.LateDriversDriverSummary>())
+                .FirstOrDefault(d => d != null && LateDriversDriverNamesMatch(d.Driver, want));
+            return hit?.Driver;
+        }
+
+        private bool TryFindLateDriversWorkbookTrip(
+            string query,
+            out string owner,
+            out string tripNo)
+        {
+            owner = null;
+            tripNo = null;
+            if (_ldScheduleCache == null || string.IsNullOrWhiteSpace(query))
+                return false;
+
+            string foundOwner = null;
+            string foundTrip = null;
+
+            void consider(string tab, string tn)
+            {
+                if (string.IsNullOrWhiteSpace(tab) || string.IsNullOrWhiteSpace(tn))
+                    return;
+                if (!LateDriversTripQueryMatches(tn, query))
+                    return;
+                // Prefer exact / longer match when upgrading.
+                if (foundTrip == null
+                    || tn.Length > foundTrip.Length
+                    || string.Equals(
+                        ScheduleBuilderModivcareTripMatch.NormalizeTripNumber(tn),
+                        ScheduleBuilderModivcareTripMatch.NormalizeTripNumber(query),
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    foundOwner = tab.Trim();
+                    foundTrip = tn.Trim();
+                }
+            }
+
+            if (_ldScheduleCache.DriverTrips != null)
+            {
+                foreach (var kv in _ldScheduleCache.DriverTrips)
+                {
+                    if (kv.Value == null) continue;
+                    foreach (var t in kv.Value)
+                        consider(kv.Key, t?.TripNumber);
+                }
+            }
+            if (_ldScheduleCache.DriverLines != null)
+            {
+                foreach (var kv in _ldScheduleCache.DriverLines)
+                {
+                    if (kv.Value == null) continue;
+                    foreach (var line in kv.Value)
+                        consider(kv.Key, line?.Trip?.TripNumber);
+                }
+            }
+            if (_ldScheduleCache.ReserveFileTrips != null)
+            {
+                foreach (var t in _ldScheduleCache.ReserveFileTrips)
+                    consider("Reserves", t?.TripNumber);
+            }
+
+            owner = foundOwner;
+            tripNo = foundTrip;
+            return !string.IsNullOrEmpty(tripNo);
+        }
+
+        private bool TryFindLateDriversOffScheduleTrip(
+            string query,
+            string serviceDateIso,
+            out string tripNo)
+        {
+            tripNo = null;
+            var rows = BuildLateDriversOffScheduleRows(serviceDateIso);
+            var hit = (rows ?? new List<LateDriversTripRowTag>())
+                .FirstOrDefault(r => r != null
+                    && !r.IsGroupHeader
+                    && !r.IsGap
+                    && LateDriversTripQueryMatches(r.TripNo, query));
+            if (hit == null)
+                return false;
+            tripNo = hit.TripNo?.Trim();
+            return !string.IsNullOrEmpty(tripNo);
+        }
+
+        private bool IsLateDriversTripOffSchedule(string tripNo, string serviceDateIso)
+        {
+            var rows = BuildLateDriversOffScheduleRows(serviceDateIso);
+            return (rows ?? new List<LateDriversTripRowTag>())
+                .Any(r => r != null
+                    && !r.IsGroupHeader
+                    && !r.IsGap
+                    && LateDriversTripQueryMatches(r.TripNo, tripNo));
+        }
+
+        private HiatmeAiClient.TripScoutServerTripRow FindLateDriversWrTripByQuery(string query)
+        {
+            if (string.IsNullOrWhiteSpace(query) || _ldWrTripsByTripNo.Count == 0)
+                return null;
+            HiatmeAiClient.TripScoutServerTripRow best = null;
+            foreach (var wr in _ldWrTripsByTripNo.Values.Distinct())
+            {
+                if (wr == null || !LateDriversTripQueryMatches(wr.TripNo, query))
+                    continue;
+                if (best == null
+                    || (wr.TripNo ?? "").Length > (best.TripNo ?? "").Length)
+                    best = wr;
+            }
+            return best;
         }
 
         private void StyleLateDriversDriverTiles()
@@ -3447,6 +3805,27 @@ namespace Hiatme_Tool_Suite_v3
 
             string mode = LateDriversSelectedMode();
             bool singleDay = mode == "day" || mode == "live";
+            string q = LateDriversSearchQuery;
+
+            // Live search (Trip Scout style): flat matches across the day while typing.
+            if (singleDay && q.Length > 0)
+            {
+                string sd = LateDriversSelectedServiceDateIso();
+                EnsureLateDriversScheduleCache(sd, forceReload: false);
+                int corpus;
+                var hits = BuildLateDriversSearchResultRows(sd, q, out corpus);
+                BindLateDriversMergedTripRows(hits, showDriver: true);
+                AppendLateDriversScheduleStatus(
+                    hits.Count == 0
+                        ? ("Status: 0 of " + corpus + " trips match \"" + q + "\".")
+                        : ("Status: " + hits.Count + " of " + corpus
+                            + " trips match \"" + q + "\".  Enter → jump to driver"));
+                if (ldTripCaptionLbl != null && !ldTripCaptionLbl.IsDisposed)
+                    ldTripCaptionLbl.Text = "Search — \"" + q + "\"";
+                return;
+            }
+
+            UpdateLateDriversTripCaption();
 
             if (singleDay && LateDriversOtherSelected)
             {
@@ -3492,6 +3871,246 @@ namespace Hiatme_Tool_Suite_v3
             BindLateDriversHabitOnlyTripPane();
         }
 
+        /// <summary>
+        /// Flat day-wide search hits (workbook + WR Other + habit leftovers), like Trip Scout.
+        /// </summary>
+        private List<LateDriversTripRowTag> BuildLateDriversSearchResultRows(
+            string serviceDateIso,
+            string query,
+            out int corpusCount)
+        {
+            var rows = new List<LateDriversTripRowTag>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            corpusCount = 0;
+            query = (query ?? "").Trim();
+            if (query.Length == 0)
+                return rows;
+
+            string TripSearchKey(string tripNo)
+            {
+                if (string.IsNullOrWhiteSpace(tripNo))
+                    return "";
+                string key = ScheduleBuilderPreviewDrag.TripLegKey(tripNo);
+                if (string.IsNullOrEmpty(key))
+                    key = ScheduleBuilderModivcareTripMatch.NormalizeTripNumber(tripNo);
+                if (string.IsNullOrEmpty(key))
+                    key = tripNo.Trim();
+                return key;
+            }
+
+            void addRow(LateDriversTripRowTag row)
+            {
+                if (row == null || string.IsNullOrWhiteSpace(row.TripNo))
+                    return;
+                string key = TripSearchKey(row.TripNo);
+                if (string.IsNullOrEmpty(key) || !seen.Add(key))
+                    return;
+                rows.Add(row);
+            }
+
+            // Workbook: prefer preview lines per driver (same as schedule pane); else flat trips.
+            var driverNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (_ldScheduleCache?.DriverLines != null)
+            {
+                foreach (var k in _ldScheduleCache.DriverLines.Keys)
+                {
+                    if (!string.IsNullOrWhiteSpace(k)
+                        && !k.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
+                        driverNames.Add(k);
+                }
+            }
+            if (_ldScheduleCache?.DriverTrips != null)
+            {
+                foreach (var k in _ldScheduleCache.DriverTrips.Keys)
+                {
+                    if (!string.IsNullOrWhiteSpace(k)
+                        && !k.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
+                        driverNames.Add(k);
+                }
+            }
+
+            foreach (string driverName in driverNames)
+            {
+                var habits = CollectLateDriversHabitsForDriverDay(serviceDateIso, driverName);
+                var matched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var lines = FindLateDriversScheduleLinesForDriver(driverName);
+                var flat = FindLateDriversScheduleTripsForDriver(driverName);
+                IEnumerable<MCDownloadedTrip> tripsEnum;
+                if (lines != null && lines.Count > 0)
+                {
+                    tripsEnum = lines
+                        .Where(l => l != null
+                            && l.Kind == ScheduleBuilderPreviewLine.LineKind.Trip
+                            && l.Trip != null
+                            && !string.IsNullOrWhiteSpace(l.Trip.TripNumber))
+                        .Select(l => l.Trip);
+                }
+                else
+                {
+                    tripsEnum = (flat ?? new List<MCDownloadedTrip>())
+                        .Where(t => t != null && !string.IsNullOrWhiteSpace(t.TripNumber));
+                }
+
+                foreach (var trip in tripsEnum)
+                {
+                    corpusCount++;
+                    if (!LateDriversScheduleTripMatchesSearch(trip, driverName, query))
+                        continue;
+                    addRow(MakeLateDriversScheduleTripRow(
+                        serviceDateIso, driverName, trip, habits, matched, 0, null));
+                }
+            }
+
+            // Other / off-schedule WR trips.
+            foreach (var off in BuildLateDriversOffScheduleRows(serviceDateIso)
+                ?? new List<LateDriversTripRowTag>())
+            {
+                if (off == null || off.IsGroupHeader || off.IsGap)
+                    continue;
+                corpusCount++;
+                if (!LateDriversMergedRowMatchesSearch(off, query))
+                    continue;
+                addRow(off);
+            }
+
+            // Habit-only leftovers (not already on a sheet row) — don't inflate corpus.
+            foreach (var e in _ldEventRows ?? new List<HiatmeAiClient.LateDriversEventRow>())
+            {
+                if (e == null || !LateDriversHabitMatchesSearch(e, query))
+                    continue;
+                string key = TripSearchKey(e.TripNo);
+                if (!string.IsNullOrEmpty(key) && seen.Contains(key))
+                    continue;
+                var added = new LateDriversTripRowTag
+                {
+                    ScheduleTrip = null,
+                    HabitEvent = e,
+                    FromSchedule = false,
+                    HabitOnly = true,
+                    DriverDisplay = string.IsNullOrWhiteSpace(e.Driver)
+                        ? "(unassigned)"
+                        : e.Driver.Trim(),
+                    TripNo = e.TripNo?.Trim() ?? "",
+                    ServiceDate = string.IsNullOrWhiteSpace(e.ServiceDate)
+                        ? serviceDateIso
+                        : e.ServiceDate.Trim(),
+                    Client = e.Client ?? "",
+                    SortTime = LateDriversHabitSortTime(serviceDateIso, e),
+                    HabitChipKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                };
+                string hk = HabitKeyOf(e);
+                if (!string.IsNullOrEmpty(hk))
+                    added.HabitChipKeys.Add(hk);
+                added.HabitChipOpen = e.Open;
+                ApplyLateDriversPuDoTimes(
+                    added, trip: null, habits: new List<HiatmeAiClient.LateDriversEventRow> { e });
+                addRow(added);
+            }
+
+            rows.Sort((a, b) =>
+            {
+                int cmp = a.SortTime.CompareTo(b.SortTime);
+                if (cmp != 0) return cmp;
+                return string.Compare(a.TripNo, b.TripNo, StringComparison.OrdinalIgnoreCase);
+            });
+            return rows;
+        }
+
+        private bool LateDriversScheduleTripMatchesSearch(
+            MCDownloadedTrip trip,
+            string driverName,
+            string query)
+        {
+            if (trip == null || string.IsNullOrWhiteSpace(query))
+                return false;
+            if (LateDriversSearchBlobMatches(
+                    query,
+                    trip.TripNumber,
+                    trip.ClientFullName,
+                    trip.ClientFirstName,
+                    trip.ClientLastName,
+                    driverName,
+                    trip.DriverNameParsed,
+                    trip.PUStreet,
+                    trip.PUCity,
+                    trip.DOStreet,
+                    trip.DOCITY,
+                    trip.PUTelephone,
+                    trip.DOTelephone,
+                    trip.Comments,
+                    trip.Miles))
+                return true;
+
+            var wr = FindLateDriversWrTrip(trip.TripNumber);
+            if (wr != null
+                && LateDriversSearchBlobMatches(
+                    query,
+                    wr.TripNo,
+                    wr.Client,
+                    wr.Driver,
+                    wr.Status,
+                    wr.PuStreet,
+                    wr.PuCity,
+                    wr.DoStreet,
+                    wr.DoCity))
+                return true;
+            return false;
+        }
+
+        private static bool LateDriversSearchBlobMatches(
+            string query,
+            params string[] fields)
+        {
+            if (string.IsNullOrWhiteSpace(query))
+                return true;
+            foreach (var f in fields)
+            {
+                if (string.IsNullOrWhiteSpace(f))
+                    continue;
+                if (f.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0)
+                    return true;
+                if (LateDriversTripQueryMatches(f, query))
+                    return true;
+            }
+            return false;
+        }
+
+        private static bool LateDriversMergedRowMatchesSearch(LateDriversTripRowTag row, string query)
+        {
+            if (row == null) return false;
+            if (string.IsNullOrWhiteSpace(query)) return true;
+            string habit = !string.IsNullOrWhiteSpace(row.OffScheduleKind)
+                ? LateDriversOffScheduleKindLabel(row.OffScheduleKind)
+                : (row.HabitEvent != null ? HabitLabelOf(HabitKeyOf(row.HabitEvent)) : null);
+            return LateDriversSearchBlobMatches(
+                query,
+                row.TripNo,
+                row.Client,
+                row.DriverDisplay,
+                row.ReassignedToDriver,
+                row.ReceivedFromDriver,
+                row.StatusDisplay,
+                row.StateDisplay,
+                habit,
+                row.OffScheduleKind);
+        }
+
+        private static bool LateDriversHabitMatchesSearch(
+            HiatmeAiClient.LateDriversEventRow e,
+            string query)
+        {
+            if (e == null) return false;
+            return LateDriversSearchBlobMatches(
+                query,
+                e.TripNo,
+                e.Client,
+                e.Driver,
+                e.StatusLatest,
+                HabitLabelOf(HabitKeyOf(e)),
+                e.Habit,
+                e.Kind);
+        }
+
         private void BindLateDriversHabitOnlyTripPane()
         {
             bool showDriver = string.IsNullOrEmpty(_ldSelectedDriver);
@@ -3520,6 +4139,11 @@ namespace Hiatme_Tool_Suite_v3
 
             // Keep every trip visible; score tiles highlight matches in owner-draw.
             string chip = (_ldHabitChip ?? "all").Trim().ToLowerInvariant();
+            string q = LateDriversSearchQuery;
+            int totalBeforeSearch = trips.Count;
+            if (q.Length > 0)
+                trips = trips.Where(e => LateDriversHabitMatchesSearch(e, q)).ToList();
+
             trips = trips
                 .OrderByDescending(e => chip != "all" && LateDriversHabitMatchesChip(e, chip))
                 .ThenByDescending(e => e.Open)
@@ -3541,6 +4165,17 @@ namespace Hiatme_Tool_Suite_v3
                 ldTripLv.EndUpdate();
             }
             ApplyLateDriversTripAlertBlinkPhase();
+
+            if (q.Length > 0)
+            {
+                AppendLateDriversScheduleStatus(
+                    trips.Count == 0
+                        ? ("Status: 0 of " + totalBeforeSearch + " habits match \"" + q + "\".")
+                        : ("Status: " + trips.Count + " of " + totalBeforeSearch
+                            + " habits match \"" + q + "\"."));
+                if (ldTripCaptionLbl != null && !ldTripCaptionLbl.IsDisposed)
+                    ldTripCaptionLbl.Text = "Search — \"" + q + "\"";
+            }
         }
 
         private void BindLateDriversMergedTripRows(List<LateDriversTripRowTag> rows, bool showDriver)
@@ -4957,7 +5592,8 @@ namespace Hiatme_Tool_Suite_v3
                 row.Driver = CanonicalizeLateDriversDriverLabel(row.Driver);
             }
 
-            if (!string.IsNullOrWhiteSpace(_ldSelectedDriver))
+            if (!string.IsNullOrWhiteSpace(_ldSelectedDriver)
+                && !LateDriversIsOtherSelected(_ldSelectedDriver))
                 _ldSelectedDriver = CanonicalizeLateDriversDriverLabel(_ldSelectedDriver);
 
             CollapseLateDriversDuplicateDriverRows();
