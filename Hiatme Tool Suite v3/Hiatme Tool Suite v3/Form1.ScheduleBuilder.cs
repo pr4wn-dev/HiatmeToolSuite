@@ -630,6 +630,48 @@ namespace Hiatme_Tool_Suite_v3
 
         }
 
+        /// <summary>
+        /// Themed Schedule Builder alert — same Supey dialog Driver Habits uses.
+        /// </summary>
+        private void ShowFsScheduleBuilderException(ScheduleBuilderException ex, string heading)
+        {
+            if (ex == null)
+            {
+                SupeyMessageDialog.ShowWarning(
+                    this,
+                    "Schedule Builder",
+                    heading ?? "Schedule builder stopped",
+                    "Unknown error.");
+                return;
+            }
+
+            string body = (ex.InnerException?.Message ?? "").Trim();
+            if (string.IsNullOrEmpty(body))
+                body = "The schedule builder could not finish.";
+
+            var details = new List<string>();
+            if (!string.IsNullOrWhiteSpace(ex.StepName))
+                details.Add("Step: " + ex.StepName.Trim());
+            if (!string.IsNullOrWhiteSpace(ex.FilePath))
+                details.Add("File: " + ex.FilePath.Trim());
+            if (!string.IsNullOrWhiteSpace(ex.DriverName))
+                details.Add("Excel tab / template: " + ex.DriverName.Trim());
+            if (ex.RowIndex > 0)
+                details.Add("CSV line: " + ex.RowIndex);
+            if (!string.IsNullOrWhiteSpace(ex.TripNumber))
+                details.Add("Trip #: " + ex.TripNumber.Trim());
+            if (!string.IsNullOrWhiteSpace(ex.ColumnOrField)
+                && !string.Equals(ex.ColumnOrField.Trim(), "—", StringComparison.Ordinal))
+                details.Add("Column / field: " + ex.ColumnOrField.Trim());
+
+            SupeyMessageDialog.ShowWarning(
+                this,
+                "Schedule Builder",
+                string.IsNullOrWhiteSpace(heading) ? "Schedule builder stopped" : heading.Trim(),
+                body,
+                details.Count > 0 ? string.Join("\r\n", details) : null);
+        }
+
         private void BuildFsWorkspace()
 
         {
@@ -1026,13 +1068,13 @@ namespace Hiatme_Tool_Suite_v3
             noteTag = item?.Tag as FsPreviewNoteTag;
             sectionTag = item?.Tag as FsPreviewSectionHeaderTag;
             gapNoteTag = item?.Tag as FsPreviewGapTag;
-            bool isReservesTab = _fsActiveDriverTab != null
-                && _fsActiveDriverTab.Equals("Reserves", StringComparison.OrdinalIgnoreCase);
             if (noteTag?.Group != null)
                 return true;
             if (gapNoteTag != null && ScheduleBuilderGapNotes.GapTagHasNoteBar(gapNoteTag))
                 return true;
-            return sectionTag != null && isReservesTab;
+            // Reserves section headers (Will calls / Reservers / …) — do not require
+            // _fsActiveDriverTab; first paint can race tab selection.
+            return sectionTag != null;
         }
 
         private bool FsTripsIsMergedBarRow(ListViewItem item, out FsPreviewNoteTag noteTag, out FsPreviewSectionHeaderTag sectionTag)
@@ -1168,6 +1210,11 @@ namespace Hiatme_Tool_Suite_v3
             if (FsTripsIsMergedBarRow(e.Item, out _, out _))
             {
                 e.DrawDefault = false;
+                // Merged bars used to paint only in DrawItem. Win32 often repaints column 0
+                // alone (hover / first layout) without DrawItem, wiping the title until the
+                // next full tab bind. Paint the full bar from SubItem 0 instead.
+                if (e.ColumnIndex == 0)
+                    FsTripsPaintMergedBarRow(e.Graphics, e.Item, e.Item != null && e.Item.Selected);
                 return;
             }
 
@@ -1859,15 +1906,11 @@ namespace Hiatme_Tool_Suite_v3
 
                     {
 
-                        MessageBox.Show(this,
-
-                            "Choose an Excel workbook (.xlsx) or a driver .csv file.",
-
+                        SupeyMessageDialog.ShowInfo(
+                            this,
                             "Schedule Builder",
-
-                            MessageBoxButtons.OK,
-
-                            MessageBoxIcon.Information);
+                            "Choose a schedule file",
+                            "Pick an Excel workbook (.xlsx) or a driver .csv file.");
 
                         return;
 
@@ -1879,17 +1922,12 @@ namespace Hiatme_Tool_Suite_v3
 
                     {
 
-                        MessageBox.Show(this,
-
-                            "No driver tabs found in that file or folder.\n\n"
-
-                            + "Expected one .csv per driver (same names as templates), or an Excel workbook with driver sheets.",
-
+                        SupeyMessageDialog.ShowWarning(
+                            this,
                             "Schedule Builder",
-
-                            MessageBoxButtons.OK,
-
-                            MessageBoxIcon.Warning);
+                            "No driver tabs found",
+                            "That file or folder did not contain any driver tabs.\n\n"
+                            + "Expected one .csv per driver (same names as templates), or an Excel workbook with driver sheets.");
 
                         SetScheduleBuilderStatus("Load found no driver tabs.");
 
@@ -2030,15 +2068,11 @@ namespace Hiatme_Tool_Suite_v3
 
                 {
 
-                    MessageBox.Show(this,
-
-                        ex.Message,
-
+                    SupeyMessageDialog.ShowWarning(
+                        this,
                         "Schedule Builder",
-
-                        MessageBoxButtons.OK,
-
-                        MessageBoxIcon.Warning);
+                        "Could not load schedule",
+                        ex.Message);
 
                     SetScheduleBuilderStatus("Load failed.");
 
@@ -2048,15 +2082,13 @@ namespace Hiatme_Tool_Suite_v3
 
                 {
 
-                    MessageBox.Show(this,
-
-                        "Could not load the schedule.\n\n" + ex.Message,
-
+                    SupeyMessageDialog.Show(
+                        this,
+                        SupeyMessageDialog.Kind.Error,
                         "Schedule Builder",
-
-                        MessageBoxButtons.OK,
-
-                        MessageBoxIcon.Error);
+                        "Could not load schedule",
+                        "Something went wrong while opening the schedule.",
+                        ex.Message);
 
                     SetScheduleBuilderStatus("Load failed.");
 
@@ -2279,15 +2311,7 @@ namespace Hiatme_Tool_Suite_v3
 
             {
 
-                MessageBox.Show(this,
-
-                    "Schedule build stopped.\n\n" + ex.Message,
-
-                    "Schedule Builder",
-
-                    MessageBoxButtons.OK,
-
-                    MessageBoxIcon.Warning);
+                ShowFsScheduleBuilderException(ex, "Schedule build stopped");
 
                 SetScheduleBuilderStatus("Build failed — see message.");
 
@@ -2297,15 +2321,13 @@ namespace Hiatme_Tool_Suite_v3
 
             {
 
-                MessageBox.Show(this,
-
-                    "Unexpected error while building schedule.\n\n" + ex.Message,
-
+                SupeyMessageDialog.Show(
+                    this,
+                    SupeyMessageDialog.Kind.Error,
                     "Schedule Builder",
-
-                    MessageBoxButtons.OK,
-
-                    MessageBoxIcon.Error);
+                    "Unexpected build error",
+                    "Something went wrong while building the schedule.",
+                    ex.Message);
 
                 SetScheduleBuilderStatus("Build failed.");
 
@@ -3181,15 +3203,7 @@ namespace Hiatme_Tool_Suite_v3
 
             {
 
-                MessageBox.Show(this,
-
-                    "Could not save the schedule.\n\n" + ex.Message,
-
-                    "Schedule Builder",
-
-                    MessageBoxButtons.OK,
-
-                    MessageBoxIcon.Warning);
+                ShowFsScheduleBuilderException(ex, "Could not save the schedule");
 
                 SetScheduleBuilderStatus("Save failed — see message.");
 
@@ -3199,15 +3213,13 @@ namespace Hiatme_Tool_Suite_v3
 
             {
 
-                MessageBox.Show(this,
-
-                    "Unexpected error while saving.\n\n" + ex.Message,
-
+                SupeyMessageDialog.Show(
+                    this,
+                    SupeyMessageDialog.Kind.Error,
                     "Schedule Builder",
-
-                    MessageBoxButtons.OK,
-
-                    MessageBoxIcon.Error);
+                    "Unexpected save error",
+                    "Something went wrong while saving the schedule.",
+                    ex.Message);
 
                 SetScheduleBuilderStatus("Save failed.");
 
@@ -3301,6 +3313,9 @@ namespace Hiatme_Tool_Suite_v3
                     ApplyFsTripsColumnWidths();
 
                     FsSyncReroutedHighlightsFromPreviewLines();
+
+                    try { _fsTripsLv.Invalidate(true); }
+                    catch { }
 
                     return;
 

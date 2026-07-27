@@ -500,6 +500,17 @@ namespace Hiatme_Tool_Suite_v3
                 var source = list ?? Array.Empty<MCDownloadedTrip>();
                 if (preserveTripOrder)
                     return source;
+                // String OrderBy on "9:30"/"10:00" put afternoon before morning.
+                return source
+                    .OrderBy(t => SupeyTripTimes.TryParsePU(t) ?? TimeSpan.MaxValue)
+                    .ThenBy(t => (t?.TripNumber ?? "").Trim(), StringComparer.OrdinalIgnoreCase);
+            }
+
+            IEnumerable<MCDownloadedTrip> OrderByPuLegacyString(IList<MCDownloadedTrip> list)
+            {
+                var source = list ?? Array.Empty<MCDownloadedTrip>();
+                if (preserveTripOrder)
+                    return source;
                 return source.OrderBy(x => x?.PUTime ?? "");
             }
 
@@ -575,7 +586,7 @@ namespace Hiatme_Tool_Suite_v3
 
                 });
 
-                foreach (var t in OrderByPu(cancels))
+                foreach (var t in OrderByPuLegacyString(cancels))
 
                     lines.Add(TripLine(t, CancelBand));
 
@@ -597,7 +608,7 @@ namespace Hiatme_Tool_Suite_v3
 
                 });
 
-                foreach (var t in OrderByPu(allReroutes))
+                foreach (var t in OrderByPuLegacyString(allReroutes))
 
                     lines.Add(TripLine(t, RerouteBand));
 
