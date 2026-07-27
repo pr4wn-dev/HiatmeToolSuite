@@ -5039,8 +5039,6 @@ namespace Hiatme_Tool_Suite_v3
                 habitLabel = habit != null ? HabitLabelOf(HabitKeyOf(habit)) : "—";
             }
             string tripNo = row.TripNo ?? "";
-            if (row.HabitOnly && !string.IsNullOrEmpty(tripNo) && !tripNo.StartsWith("+", StringComparison.Ordinal))
-                tripNo = "+" + tripNo;
             string groupCol = row.GroupNumber > 0 ? ("G" + row.GroupNumber) : "—";
             string driverCol = !string.IsNullOrWhiteSpace(row.DriverDisplay)
                 ? row.DriverDisplay.Trim()
@@ -7180,27 +7178,7 @@ namespace Hiatme_Tool_Suite_v3
                 }
             }
 
-            // Already on a driver (or no driver name): jump to Trip Scout for that trip.
-            try
-            {
-                if (tsdatepicker != null && !string.IsNullOrWhiteSpace(serviceDate)
-                    && DateTime.TryParseExact(
-                        serviceDate.Trim(),
-                        "yyyy-MM-dd",
-                        CultureInfo.InvariantCulture,
-                        DateTimeStyles.None,
-                        out var d))
-                {
-                    try { tsdatepicker.Value = d; } catch { }
-                }
-                if (tssearchbox != null)
-                {
-                    try { tssearchbox.Text = tripNo.Trim().TrimStart('+'); } catch { }
-                }
-                if (tabPage9 != null)
-                    hiatmeTabControl.SelectedTab = tabPage9;
-            }
-            catch { }
+            // Stay in Driver Habits — do not jump to Trip Scout.
         }
 
         /// <summary>Match habit driver label to a strip/roster name (exact / normalized).</summary>

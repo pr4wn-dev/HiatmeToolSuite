@@ -730,15 +730,8 @@ namespace Hiatme_Tool_Suite_v3
             string prefix = expanded ? "▼ " : "▶ ";
             string body = LateDriversStripExpandChromeText(raw);
             if (string.IsNullOrWhiteSpace(body))
-            {
-                body = (tripNo ?? "").Trim();
-                if (item.Tag is LateDriversTripRowTag wrap
-                    && wrap.HabitOnly
-                    && !string.IsNullOrEmpty(body)
-                    && !body.StartsWith("+", StringComparison.Ordinal))
-                    body = "+" + body;
-            }
-            return prefix + body + " (" + n + ")";
+                body = LateDriversNormalizeChangeTripNo(tripNo);
+            return prefix + body;
         }
 
         private static string LateDriversStripExpandChromeText(string raw)
@@ -748,7 +741,9 @@ namespace Hiatme_Tool_Suite_v3
             string s = raw.Trim();
             if (s.StartsWith("▼ ", StringComparison.Ordinal) || s.StartsWith("▶ ", StringComparison.Ordinal))
                 s = s.Substring(2).TrimStart();
-            // Drop trailing " (N)" change count.
+            if (s.StartsWith("+", StringComparison.Ordinal))
+                s = s.Substring(1).TrimStart();
+            // Drop trailing " (N)" change count from older builds.
             int idx = s.LastIndexOf(" (", StringComparison.Ordinal);
             if (idx > 0 && s.EndsWith(")", StringComparison.Ordinal))
             {
@@ -840,7 +835,7 @@ namespace Hiatme_Tool_Suite_v3
             if (string.IsNullOrWhiteSpace(rawTrip))
                 rawTrip = LateDriversNormalizeChangeTripNo(tripNo);
             rawTrip = LateDriversStripExpandChromeText(rawTrip);
-            item.SubItems[tripCol].Text = prefix + rawTrip + " (" + changeCount + ")";
+            item.SubItems[tripCol].Text = prefix + rawTrip;
         }
 
         private void LateDriversApplyExpandChrome(ListViewItem item, LateDriversTripRowTag row, bool showDriver)
@@ -848,9 +843,7 @@ namespace Hiatme_Tool_Suite_v3
             if (item == null || row == null || row.IsGroupHeader || row.IsGap || row.IsChangeDetail)
                 return;
 
-            string rawTrip = (row.TripNo ?? "").Trim();
-            if (row.HabitOnly && !string.IsNullOrEmpty(rawTrip) && !rawTrip.StartsWith("+", StringComparison.Ordinal))
-                rawTrip = "+" + rawTrip;
+            string rawTrip = LateDriversNormalizeChangeTripNo(row.TripNo);
             LateDriversApplyExpandChrome(item, row.TripNo, rawTrip);
         }
 
