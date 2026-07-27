@@ -125,6 +125,8 @@ namespace Hiatme_Tool_Suite_v3
             else
             {
                 StopLateDriversLivePolling();
+                HideLateDriversBellAlertBar();
+                _ldLiveBell?.SetNotificationState(0, false);
             }
 
             UpdateLateDriversPeriodPickerChrome();
@@ -226,12 +228,49 @@ namespace Hiatme_Tool_Suite_v3
             {
                 _ldLiveTimerCard.Controls.Add(_ldLiveCountdown);
             }
+
+            if (_ldLiveBellCard == null || _ldLiveBellCard.IsDisposed)
+            {
+                // Same as scan: transparent slot on the elevated chip (no nested SupeyCard).
+                _ldLiveBellCard = new Panel
+                {
+                    Name = "ldLiveBellCard",
+                    BackColor = Color.Transparent,
+                };
+                _ldLiveTimerCard.Controls.Add(_ldLiveBellCard);
+            }
+            else if (!ReferenceEquals(_ldLiveBellCard.Parent, _ldLiveTimerCard))
+            {
+                _ldLiveTimerCard.Controls.Add(_ldLiveBellCard);
+                _ldLiveBellCard.BackColor = Color.Transparent;
+            }
+
+            if (_ldLiveBell == null || _ldLiveBell.IsDisposed)
+            {
+                _ldLiveBell = new TripScoutLiveBellControl
+                {
+                    Name = "ldLiveBell",
+                    Dock = DockStyle.Fill,
+                };
+                _ldLiveBell.SetHostBackColor(SupeyTheme.SurfaceElevated);
+                _ldLiveBell.BellClicked += (_, __) => LateDriversLiveBell_Click();
+                _ldLiveBellCard.Controls.Add(_ldLiveBell);
+            }
+            else
+            {
+                _ldLiveBell.SetHostBackColor(SupeyTheme.SurfaceElevated);
+            }
         }
 
         private int MeasureLateDriversLiveChromeWidth()
         {
             const int padL = 8, padR = 8, gap = 8;
-            return padL + TripScoutLiveScanSlot + gap + TripScoutLiveTimerCardW + padR;
+            // scan | bell | timer
+            return padL
+                + TripScoutLiveScanSlot + gap
+                + TripScoutLiveBellSlot + gap
+                + TripScoutLiveTimerCardW
+                + padR;
         }
 
         private void LayoutLateDriversLiveChromeHost()
@@ -255,16 +294,27 @@ namespace Hiatme_Tool_Suite_v3
                 const int padL = 8, padR = 8, padV = 8, gap = 8;
                 int innerH = Math.Max(16, chipH - (padV * 2));
                 int scanY = padV + Math.Max(0, (innerH - TripScoutLiveScanSlot) / 2);
+                // Bell slot is 2px taller; sit it on the scan Y then nudge up so the glyph
+                // optically matches the loady (badge/clapper sit a touch low in the control).
+                int bellY = Math.Max(0, scanY - 2);
+                int x = padL;
+
                 if (_ldLiveScanCard != null && !_ldLiveScanCard.IsDisposed)
                 {
                     _ldLiveScanCard.Visible = true;
-                    _ldLiveScanCard.SetBounds(padL, scanY, TripScoutLiveScanSlot, TripScoutLiveScanSlot);
+                    _ldLiveScanCard.SetBounds(x, scanY, TripScoutLiveScanSlot, TripScoutLiveScanSlot);
+                    x += TripScoutLiveScanSlot + gap;
+                }
+                if (_ldLiveBellCard != null && !_ldLiveBellCard.IsDisposed)
+                {
+                    _ldLiveBellCard.Visible = true;
+                    _ldLiveBellCard.SetBounds(x, bellY, TripScoutLiveBellSlot, TripScoutLiveBellSlot);
+                    x += TripScoutLiveBellSlot + gap;
                 }
                 if (_ldLiveCountdown != null && !_ldLiveCountdown.IsDisposed)
                 {
-                    int textX = padL + TripScoutLiveScanSlot + gap;
                     _ldLiveCountdown.SetBounds(
-                        textX, padV, Math.Max(24, chipW - textX - padR), innerH);
+                        x, padV, Math.Max(24, chipW - x - padR), innerH);
                 }
             }
         }
@@ -397,12 +447,18 @@ namespace Hiatme_Tool_Suite_v3
             }
             if (_ldLiveScan != null && !_ldLiveScan.IsDisposed)
                 _ldLiveScan.BackColor = SupeyTheme.SurfaceElevated;
+            if (_ldLiveBell != null && !_ldLiveBell.IsDisposed)
+                _ldLiveBell.SetHostBackColor(SupeyTheme.SurfaceElevated);
+            if (_ldLiveBellCard != null && !_ldLiveBellCard.IsDisposed)
+                _ldLiveBellCard.BackColor = Color.Transparent;
             if (_ldLiveTimerCard != null && !_ldLiveTimerCard.IsDisposed)
             {
                 _ldLiveTimerCard.ShowBorder = true;
                 _ldLiveTimerCard.SurfaceLevel = SupeyCard.Surface.Elevated;
             }
+            StyleLateDriversBellAlertTheme();
             LateDriversUpdateLivePollCountdownLabel();
+            LateDriversUpdateLiveBellIndicator();
         }
     }
 }

@@ -15,6 +15,7 @@ namespace Hiatme_Tool_Suite_v3
         private bool _shaking;
         private bool _hover;
         private int _badgeCount;
+        private bool _hostOwnsBackColor;
 
         public event EventHandler BellClicked;
 
@@ -47,6 +48,17 @@ namespace Hiatme_Tool_Suite_v3
             SupeyThemeManager.ThemeChanged += OnThemeChanged;
         }
 
+        /// <summary>
+        /// Host chips (e.g. Driver Habits elevated live strip) set an explicit fill so the bell
+        /// does not paint the darker <see cref="SupeyTheme.Surface"/> square.
+        /// </summary>
+        public void SetHostBackColor(Color color)
+        {
+            _hostOwnsBackColor = true;
+            BackColor = color;
+            Invalidate();
+        }
+
         protected override void Dispose(bool disposing)
         {
             if (disposing)
@@ -62,7 +74,8 @@ namespace Hiatme_Tool_Suite_v3
             if (IsDisposed)
                 return;
 
-            BackColor = SupeyTheme.Surface;
+            if (!_hostOwnsBackColor)
+                BackColor = SupeyTheme.Surface;
             Invalidate();
         }
 
@@ -106,7 +119,8 @@ namespace Hiatme_Tool_Suite_v3
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.PixelOffsetMode = PixelOffsetMode.HighQuality;
 
-            using (var bg = new SolidBrush(SupeyTheme.Surface))
+            Color fillBg = BackColor.IsEmpty ? SupeyTheme.Surface : BackColor;
+            using (var bg = new SolidBrush(fillBg))
                 g.FillRectangle(bg, ClientRectangle);
 
             float angle = 0f;

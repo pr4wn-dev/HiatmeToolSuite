@@ -214,6 +214,8 @@
     <Compile Include="MCCalculateAccuracies.cs" />
     <Compile Include="TimeCorrectionAccuracySnapshot.cs" />
     <Compile Include="TimeCorrectionBatchHistoryStore.cs" />
+    <Compile Include="LateDriversAlertSeenStore.cs" />
+    <Compile Include="LateDriversBellAckStore.cs" />
     <Compile Include="Form1.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -225,6 +227,10 @@
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="Form1.LateDrivers.Live.cs">
+      <DependentUpon>Form1.cs</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Form1.LateDrivers.Bell.cs">
       <DependentUpon>Form1.cs</DependentUpon>
       <SubType>Form</SubType>
     </Compile>
@@ -819,6 +825,9 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="Resources\law-and-order-alert.mp3">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Resources\will-call-bell.wav">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <None Include="Resources\MUSCPerc_Drum roll 3 m %28ID 2407%29_BSB.wav" />

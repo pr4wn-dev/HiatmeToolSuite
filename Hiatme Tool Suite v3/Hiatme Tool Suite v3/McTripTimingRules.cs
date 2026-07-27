@@ -5,6 +5,7 @@ namespace Hiatme_Tool_Suite_v3
     /// <summary>
     /// Modivcare / Hiatme scoreboard timing windows (same as Supey builder and website checks).
     /// PU late: A-leg 0–14 min, B/C 0–29 min. A-leg PU early: up to 29 min. DO: not late (0 min).
+    /// Caps are whole minutes: A-leg PU at 14:59 past sched is still OK; late only at 15:00 past.
     /// </summary>
     internal static class McTripTimingRules
     {
@@ -46,49 +47,64 @@ namespace Hiatme_Tool_Suite_v3
             (scheduled - actual).TotalMinutes;
 
         /// <summary>
-        /// Minutes past the allowed late window (not raw vs schedule).
+        /// Completed whole minutes that <paramref name="actual"/> is past <paramref name="scheduled"/> (floor).
+        /// 14:59 past → 14; 15:00 past → 15.
+        /// </summary>
+        public static int WholeMinutesLate(DateTime actual, DateTime scheduled)
+        {
+            double secs = (actual - scheduled).TotalSeconds;
+            if (secs <= 0)
+                return 0;
+            return (int)Math.Floor(secs / 60.0);
+        }
+
+        /// <summary>Completed whole minutes that <paramref name="actual"/> is before <paramref name="scheduled"/> (floor).</summary>
+        public static int WholeMinutesEarly(DateTime scheduled, DateTime actual) =>
+            WholeMinutesLate(scheduled, actual);
+
+        /// <summary>Floor a fractional minute delta; negatives clamp to 0.</summary>
+        public static int FloorMinutes(double value) =>
+            (int)Math.Floor(Math.Max(0, value));
+
+        /// <summary>
+        /// Whole minutes past the allowed late window (not raw vs schedule).
         /// A-leg PU 17 after sched with 14 grace → 3.
         /// </summary>
         public static double ExcessLateMinutes(string tripNumber, double lateVsSched, bool isDo)
         {
-            double late = Math.Max(0, lateVsSched);
+            int late = FloorMinutes(lateVsSched);
             int grace = isDo ? DoLateMaxMinutes : PuLateMaxMinutes(tripNumber);
             return Math.Max(0, late - grace);
         }
 
         /// <summary>
-        /// Minutes past the allowed early window. PU uses scoreboard early cap (A 29 / B-C 0);
+        /// Whole minutes past the allowed early window. PU uses scoreboard early cap (A 29 / B-C 0);
         /// DO uses the lenient early flag threshold (30).
         /// </summary>
         public static double ExcessEarlyMinutes(string tripNumber, double earlyVsSched, bool isDo)
         {
-            double early = Math.Max(0, earlyVsSched);
+            int early = FloorMinutes(earlyVsSched);
             int cap = isDo ? LenientDoEarlyMinMinutes : PuEarlyMaxMinutes(tripNumber);
             return Math.Max(0, early - cap);
         }
 
         /// <summary>Driver PU is within scoreboard late allowance (not early-checked).</summary>
-        public static bool PuLateMinutesOk(string tripNumber, DateTime driverPu, DateTime schedPu)
-        {
-            double late = MinutesLate(driverPu, schedPu);
-            if (late <= 0)
-                return true;
-            return late <= PuLateMaxMinutes(tripNumber);
-        }
+        public static bool PuLateMinutesOk(string tripNumber, DateTime driverPu, DateTime schedPu) =>
+            WholeMinutesLate(driverPu, schedPu) <= PuLateMaxMinutes(tripNumber);
 
         /// <summary>Driver PU early is allowed only on A-legs (up to 29 min). B/C early is never OK.</summary>
         public static bool PuEarlyMinutesOk(string tripNumber, DateTime driverPu, DateTime schedPu)
         {
-            double early = MinutesEarly(schedPu, driverPu);
+            int early = WholeMinutesEarly(schedPu, driverPu);
             if (early <= 0)
                 return true;
             int cap = PuEarlyMaxMinutes(tripNumber);
             return cap > 0 && early <= cap;
         }
 
-        /// <summary>DO at or before scheduled (scoreboard: 0 min late).</summary>
+        /// <summary>DO within scoreboard late allowance (0 whole minutes late).</summary>
         public static bool DoLateMinutesOk(DateTime driverDo, DateTime schedDo) =>
-            MinutesLate(driverDo, schedDo) <= DoLateMaxMinutes;
+            WholeMinutesLate(driverDo, schedDo) <= DoLateMaxMinutes;
 
         /// <summary>Random shift cap when nudging a late PU onto scheduled time.</summary>
         public static int RandomLatePuCap(string tripNumber) => PuLateMaxMinutes(tripNumber);
@@ -101,7 +117,7 @@ namespace Hiatme_Tool_Suite_v3
         /// </summary>
         public static bool IsLenientPuLateViolation(string tripNumber, DateTime driverPu, DateTime schedPu)
         {
-            double late = MinutesLate(driverPu, schedPu);
+            int late = WholeMinutesLate(driverPu, schedPu);
             if (late <= LenientNaturalSlackMinutes)
                 return false;
             return late > PuLateMaxMinutes(tripNumber);
@@ -113,7 +129,7 @@ namespace Hiatme_Tool_Suite_v3
         /// </summary>
         public static bool IsLenientPuEarlyViolation(string tripNumber, DateTime driverPu, DateTime schedPu)
         {
-            double early = MinutesEarly(schedPu, driverPu);
+            int early = WholeMinutesEarly(schedPu, driverPu);
             if (early <= LenientNaturalSlackMinutes)
                 return false;
             if (!IsALeg(tripNumber))
@@ -124,7 +140,7 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>Lenient DO late: small delays are acceptable; only severe lateness is flagged.</summary>
         public static bool IsLenientDoLateViolation(DateTime driverDo, DateTime schedDo)
         {
-            double late = MinutesLate(driverDo, schedDo);
+            int late = WholeMinutesLate(driverDo, schedDo);
             if (late <= LenientNaturalSlackMinutes)
                 return false;
             return late > LenientDoLateMinMinutes;
@@ -132,7 +148,7 @@ namespace Hiatme_Tool_Suite_v3
 
         public static bool IsLenientDoEarlyViolation(DateTime driverDo, DateTime schedDo)
         {
-            double early = MinutesEarly(schedDo, driverDo);
+            int early = WholeMinutesEarly(schedDo, driverDo);
             return early > LenientNaturalSlackMinutes && early > LenientDoEarlyMinMinutes;
         }
 

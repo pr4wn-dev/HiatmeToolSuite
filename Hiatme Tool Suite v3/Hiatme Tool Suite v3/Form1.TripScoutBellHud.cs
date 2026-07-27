@@ -353,10 +353,8 @@ namespace Hiatme_Tool_Suite_v3
             else if (badge <= 0)
                 badge = cached;
 
+            // Respect ack — do not re-shake just because the API left has_new sticky.
             bool shouldShake = badge > 0 && !_tripScoutIsBellAcked();
-            if (_tripScoutLastBellStatus != null && _tripScoutLastBellStatus.HasNew)
-                shouldShake = badge > 0 || (_tripScoutLastBellStatus.WillcallCount > 0);
-
             _tripScoutLiveBell.SetNotificationState(badge, shouldShake);
         }
 
