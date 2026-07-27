@@ -2143,7 +2143,7 @@ namespace Hiatme_Tool_Suite_v3
         {
 
             FsCancelRerouteProbe();
-            SetScheduleBuilderStatus("Checking connections…");
+            SetScheduleBuilderStatus("Checking Modivcare sign-in…");
 
             _fsHasPreview = false;
             _fsPreferredSavePath = null;
@@ -2179,7 +2179,7 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-            ShowTabLoadingOverlay(tabPage6, "Checking connections…");
+            ShowTabLoadingOverlay(tabPage6, "Checking Modivcare sign-in…");
 
             try
 
@@ -2187,7 +2187,7 @@ namespace Hiatme_Tool_Suite_v3
                 if (FsSafeBuildModeEnabled)
                     SetScheduleBuilderStatus("Safe Build Mode ON — running template-first build…");
 
-                if (!await EnsureModivcareSessionAsync())
+                if (!await EnsureModivcareSessionAsync(OnBuildStatus))
 
                 {
 
@@ -2373,7 +2373,7 @@ namespace Hiatme_Tool_Suite_v3
                     analyzer.SetWellRydePortalSession(null);
 
                 AlertStatus("Connecting to Modivcare for trip alerts…");
-                if (!await EnsureModivcareSessionAsync().ConfigureAwait(true))
+                if (!await EnsureModivcareSessionAsync(AlertStatus).ConfigureAwait(true))
                     return;
 
                 AlertStatus("Downloading Modivcare trips and checking alerts…");

@@ -1838,12 +1838,13 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             SetLateDriversStatus("Status: Downloading Modivcare schedule for " + serviceDateIso + "…");
-            if (!await EnsureModivcareSessionAsync().ConfigureAwait(true))
+            if (!await EnsureModivcareSessionAsync(msg => SetLateDriversStatus("Status: " + msg)).ConfigureAwait(true))
                 return (false, "Need Modivcare login to load schedule for " + serviceDateIso, false);
 
             List<MCDownloadedTrip> downloaded = null;
             try
             {
+                SetLateDriversStatus("Status: Pulling Modivcare trips for " + serviceDateIso + "…");
                 var dler = new MCTripDownloader { SuppressUiDialogs = true };
                 downloaded = await dler.DownloadTripRecords(day, mcLoginHandler).ConfigureAwait(true);
                 if (dler.InvalidDate)
@@ -1861,6 +1862,9 @@ namespace Hiatme_Tool_Suite_v3
             if (downloaded == null || downloaded.Count == 0)
                 return (false, "No Modivcare trips for " + serviceDateIso + " (day off / empty)", false);
 
+            SetLateDriversStatus(
+                "Status: Storing " + downloaded.Count + " Modivcare trips on AI server for "
+                + serviceDateIso + "…");
             var rows = HiatmeAiClient.ModivcareDayTripsFromDownloaded(downloaded);
             var put = await HiatmeAiClient.PutModivcareDayAsync(
                     settings, serviceDateIso, rows, source: "late-drivers")
@@ -1947,6 +1951,7 @@ namespace Hiatme_Tool_Suite_v3
                         // Live may pull Modivcare for today. Day mode must NEVER call the
                         // Modivcare portal — its HttpClient has no timeout and freezes the app
                         // on off-days / empty calendar dates.
+                        SetLateDriversStatus("Status: Checking Modivcare day file for " + sd + "…");
                         var ensured = await EnsureModivcareDaySnapshotAsync(settings, sd)
                             .ConfigureAwait(true);
                         if (!ensured.Ok)
@@ -1954,20 +1959,26 @@ namespace Hiatme_Tool_Suite_v3
                             SetLateDriversStatus("Status: " + ensured.Message);
                             return;
                         }
+                        SetLateDriversStatus("Status: " + ensured.Message
+                            + (ensured.Downloaded ? "" : " · uploading schedule assignments…"));
                         await UploadLateDriversScheduleAssignAsync(settings, sd)
                             .ConfigureAwait(true);
                         // Upload already warmed the workbook; this is a cheap cache hit unless stale.
+                        SetLateDriversStatus("Status: Loading printed schedule workbook for " + sd + "…");
                         await EnsureLateDriversScheduleCacheAsync(sd, forceReload: false)
                             .ConfigureAwait(true);
                     }
                     else
                     {
                         // Day: use whatever is already on the AI server / Desktop only.
-                        SetLateDriversStatus("Status: Loading " + sd + "…");
+                        SetLateDriversStatus("Status: Checking AI Modivcare day status for " + sd + "…");
                         var st = await HiatmeAiClient.GetModivcareDayStatusAsync(settings, sd)
                             .ConfigureAwait(true);
                         if (st != null && st.Ok && st.Exists && st.TripCount > 0)
                         {
+                            SetLateDriversStatus(
+                                "Status: Modivcare day on file (" + st.TripCount
+                                + " trips) · uploading schedule assignments…");
                             // Upload → EnsureScheduleCacheAsync (off-thread parse). No second parse.
                             await UploadLateDriversScheduleAssignAsync(settings, sd)
                                 .ConfigureAwait(true);
@@ -1975,6 +1986,9 @@ namespace Hiatme_Tool_Suite_v3
                         else
                         {
                             // Off-day / no MC: Desktop or local cache only — don't wait on server download.
+                            SetLateDriversStatus(
+                                "Status: No Modivcare day on AI server — using local schedule cache for "
+                                + sd + "…");
                             EnsureLateDriversScheduleCache(sd, forceReload: false);
                         }
                     }
@@ -1995,10 +2009,13 @@ namespace Hiatme_Tool_Suite_v3
                         && string.Equals(habitsHash, _ldHabitsHash ?? "", StringComparison.Ordinal))
                     {
                         // Habits unchanged — still refresh WR so status/actuals keep moving.
+                        SetLateDriversStatus("Status: Habits unchanged — refreshing WellRyde trips for " + sd + "…");
                         await EnsureLateDriversWrTripsAsync(settings, sd, forceRefresh: true)
                             .ConfigureAwait(true);
+                        SetLateDriversStatus("Status: Checking schedule-change alerts for " + sd + "…");
                         await RefreshLateDriversScheduleChangesAsync(settings, sd)
                             .ConfigureAwait(true);
+                        SetLateDriversStatus("Status: Checking will-call bell for " + sd + "…");
                         await RefreshLateDriversBellAsync(settings, autoShowIfNew: true)
                             .ConfigureAwait(true);
                         if (!string.IsNullOrWhiteSpace(_ldSelectedDriver)
@@ -2016,7 +2033,9 @@ namespace Hiatme_Tool_Suite_v3
                     }
                 }
 
-                SetLateDriversStatus("Status: Loading " + mode + "…");
+                SetLateDriversStatus(
+                    "Status: Loading " + mode + " for " + sd
+                    + " — habits, WellRyde trips, schedule changes, will-call bell…");
 
                 string habitPeriod = mode == "live" ? "day" : mode;
                 var habitsTask = HiatmeAiClient.GetLateDriversHabitsAsync(settings, habitPeriod, sd);

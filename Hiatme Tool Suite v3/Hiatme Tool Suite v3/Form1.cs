@@ -5603,6 +5603,28 @@ namespace Hiatme_Tool_Suite_v3
                 // Settings may be unavailable in odd hosting scenarios; swallow — the manual login path still works.
             }
         }
+        /// <summary>On-screen Modivcare fields when filled; otherwise remembered credentials from settings.</summary>
+        private bool TryGetModivcareCredentials(out string username, out string password)
+        {
+            username = "";
+            password = "";
+
+            // Prefer the Modivcare tab fields only when that provider is selected and both are filled.
+            // Otherwise (or if fields were cleared) fall back to saved settings — same pattern as WellRyde.
+            if (loginCB != null && loginCB.SelectedIndex == 1)
+            {
+                username = (loginUserTB.Text ?? "").Trim();
+                password = loginPassTB.Text ?? "";
+            }
+
+            if (string.IsNullOrEmpty(username))
+                username = (Properties.Settings.Default.mcUserName ?? "").Trim();
+            if (string.IsNullOrEmpty(password))
+                password = Properties.Settings.Default.mcUserPass ?? "";
+
+            return !string.IsNullOrEmpty(username) && !string.IsNullOrEmpty(password);
+        }
+
         private async Task MCLogin()
         {
             if (manuallogin)
@@ -5610,9 +5632,7 @@ namespace Hiatme_Tool_Suite_v3
                 ShowLoadingGif();
             }
             loginCB.SelectedIndex = 1; loginCB.Focus();
-            string username = loginUserTB.Text ?? "";
-            string password = loginPassTB.Text ?? "";
-            if (username == "" || password == "")
+            if (!TryGetModivcareCredentials(out string username, out string password))
             {
                 hidegiftimer.Start();
                 MessageBox.Show("Login information not entered.");
@@ -5659,11 +5679,18 @@ namespace Hiatme_Tool_Suite_v3
         /// silently expired the session is caught here rather than failing the user's first click. Caller continues
         /// the same action after this returns true.
         /// </summary>
-        private async Task<bool> EnsureModivcareSessionAsync()
+        /// <param name="reportStatus">Optional tool status label updater (Schedule Builder, Driver Habits, etc.).</param>
+        private async Task<bool> EnsureModivcareSessionAsync(Action<string> reportStatus = null)
         {
+            async Task Report(string message)
+            {
+                try { reportStatus?.Invoke(message); } catch { /* tool label may be disposed */ }
+                await SetLoadingGifLabel(message);
+            }
+
             if (mcLoginHandler != null && mcLoginHandler.Connected)
             {
-                await SetLoadingGifLabel("Checking connections");
+                await Report("Checking Modivcare session…");
                 bool alive;
                 try
                 {
@@ -5674,10 +5701,14 @@ namespace Hiatme_Tool_Suite_v3
                     alive = false;
                 }
                 if (alive)
+                {
+                    await Report("Modivcare session OK");
                     return true;
+                }
 
                 if (mcLoginHandler.LastProbeWasUnreachable)
                 {
+                    await Report("Modivcare unreachable — check network");
                     MessageBox.Show(
                         ModivcareRequestErrors.UnreachableMessage,
                         "Modivcare",
@@ -5692,7 +5723,7 @@ namespace Hiatme_Tool_Suite_v3
                 bool reconnected = false;
                 try
                 {
-                    await SetLoadingGifLabel("Reconnecting to Modivcare");
+                    await Report("Modivcare session expired — reconnecting…");
                     reconnected = await mcLoginHandler.ReconnectAsync();
                 }
                 catch
@@ -5707,30 +5738,20 @@ namespace Hiatme_Tool_Suite_v3
                 if (reconnected && mcLoginHandler.Connected)
                 {
                     DisableMCLogin();
+                    await Report("Modivcare reconnected");
                     return true;
                 }
                 // Fall through to credential-based login below (handles first-run / no cached creds).
             }
 
-            string username;
-            string password;
-            if (loginCB.SelectedIndex == 1)
+            if (!TryGetModivcareCredentials(out string username, out string password))
             {
-                username = (loginUserTB.Text ?? "").Trim();
-                password = loginPassTB.Text ?? "";
-            }
-            else
-            {
-                username = (Properties.Settings.Default.mcUserName ?? "").Trim();
-                password = Properties.Settings.Default.mcUserPass ?? "";
-            }
-            if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
-            {
+                await Report("Modivcare not signed in — save credentials on the Modivcare login tab");
                 MessageBox.Show("Modivcare is not signed in. Use the Modivcare tab to sign in, or save credentials with Remember credentials.");
                 return false;
             }
 
-            await SetLoadingGifLabel("Signing in to Modivcare");
+            await Report("Signing in to Modivcare as " + username + "…");
             mcLoginHandler.PropertyChanged -= UpdateMCConnectionStatus;
             try
             {
@@ -5746,6 +5767,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 if (mcLoginHandler.LastProbeWasUnreachable)
                 {
+                    await Report("Modivcare unreachable — check network");
                     MessageBox.Show(
                         ModivcareRequestErrors.UnreachableMessage,
                         "Modivcare",
@@ -5754,12 +5776,14 @@ namespace Hiatme_Tool_Suite_v3
                 }
                 else
                 {
+                    await Report("Modivcare login was not accepted");
                     MessageBox.Show("Modivcare login was not accepted.");
                 }
                 EnableMCLogin();
                 return false;
             }
             DisableMCLogin();
+            await Report("Modivcare signed in");
             return true;
         }
         private void LoadMCCredentials()
@@ -6135,8 +6159,8 @@ namespace Hiatme_Tool_Suite_v3
         private async void tcfindbatchesbtn_Click(object sender, EventArgs e)
         {
             loadinggifhandler_showscreen();
-            await SetLoadingGifLabel("Checking connections");
-            if (!await EnsureModivcareSessionAsync())
+            await SetLoadingGifLabel("Checking Modivcare sign-in…");
+            if (!await EnsureModivcareSessionAsync(msg => SetTimeCorrectionStatus(msg)))
             {
                 loadinggifhandler_hidescreen();
                 return;
@@ -6212,8 +6236,8 @@ namespace Hiatme_Tool_Suite_v3
 
             try
             {
-                await SetLoadingGifLabel("Checking connections…");
-                if (!await EnsureModivcareSessionAsync())
+                await SetLoadingGifLabel("Checking Modivcare sign-in…");
+                if (!await EnsureModivcareSessionAsync(msg => SetTimeCorrectionStatus(msg)))
                     return;
 
                 WellRydePortalSession wrForBatch = null;
@@ -6281,8 +6305,8 @@ namespace Hiatme_Tool_Suite_v3
             tcloadbtn.Enabled = false;
             tcexebtn.Enabled = false;
             loadinggifhandler_showscreen();
-            await SetLoadingGifLabel("Checking connections");
-            if (!await EnsureModivcareSessionAsync())
+            await SetLoadingGifLabel("Checking Modivcare sign-in…");
+            if (!await EnsureModivcareSessionAsync(msg => SetTimeCorrectionStatus(msg)))
             {
                 timer1.Enabled = false;
                 tcfindbatchesbtn.Enabled = true;
@@ -8105,14 +8129,14 @@ namespace Hiatme_Tool_Suite_v3
         //Auto Ass
         private async void aaloadbtn_Click(object sender, EventArgs e)
         {
-            StartAnalyzerStatusSpinner("Status: Checking connections...");
+            StartAnalyzerStatusSpinner("Status: Checking Modivcare and WellRyde…");
             try
             {
                 if (await EnsureWellRydePortalSessionForBillingAsync())
                     analyzer.SetWellRydePortalSession(_wellRydeSession);
                 else
                     analyzer.SetWellRydePortalSession(null);
-                if (!await EnsureModivcareSessionAsync())
+                if (!await EnsureModivcareSessionAsync(msg => UpdateAnalyzerStatus("Status: " + msg)))
                     return;
 
                 analyzer.IntializeAnalyzer(mcLoginHandler);
@@ -8281,12 +8305,12 @@ namespace Hiatme_Tool_Suite_v3
         }
         private async void aareservesbtn_Click(object sender, EventArgs e)
         {
-            StartAnalyzerStatusSpinner("Status: Checking connections...");
+            StartAnalyzerStatusSpinner("Status: Checking Modivcare and WellRyde…");
             if (await EnsureWellRydePortalSessionForBillingAsync())
                 analyzer.SetWellRydePortalSession(_wellRydeSession);
             else
                 analyzer.SetWellRydePortalSession(null);
-            if (!await EnsureModivcareSessionAsync())
+            if (!await EnsureModivcareSessionAsync(msg => UpdateAnalyzerStatus("Status: " + msg)))
             {
                 StopAnalyzerStatusSpinner("Status: Could not connect to Modivcare.");
                 return;
@@ -8318,7 +8342,7 @@ namespace Hiatme_Tool_Suite_v3
                 if (await EnsureWellRydePortalSessionForBillingAsync())
                     wrSession = _wellRydeSession;
                 manager.SetLoadingOverlayMessage("Connecting to Modivcare...");
-                if (!await EnsureModivcareSessionAsync())
+                if (!await EnsureModivcareSessionAsync(manager.SetLoadingOverlayMessage))
                     return;
                 manager.SetLoadingOverlayMessage("Loading Production dashboard...");
                 await empStatManager.InitializeEmployeeDler(this, wrSession, null, loadToken);

@@ -99,7 +99,7 @@ namespace Hiatme_Tool_Suite_v3
             bool mcReady;
             try
             {
-                mcReady = await EnsureModivcareSessionAsync().ConfigureAwait(true);
+                mcReady = await EnsureModivcareSessionAsync(ProbeStatus).ConfigureAwait(true);
             }
             catch
             {

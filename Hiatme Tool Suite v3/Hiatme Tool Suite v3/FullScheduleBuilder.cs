@@ -309,9 +309,14 @@ namespace Hiatme_Tool_Suite_v3
             {
                 MCTripListDLer = new MCTripDownloader();
                 MCTripList = new List<MCDownloadedTrip>();
-                await AsyncUpdateLoadingScreen("Checking connections");
-                await AsyncUpdateLoadingScreen("Downloading trips…");
+                string dateLabel = mcdate.ToString("M/d/yyyy");
+                await AsyncUpdateLoadingScreen("Downloading Modivcare trips for " + dateLabel + "…");
                 MCTripList = await MCTripListDLer.DownloadTripRecords(mcdate, mcLoginHandler);
+                int count = MCTripList?.Count ?? 0;
+                await AsyncUpdateLoadingScreen(
+                    count == 0
+                        ? "No Modivcare trips for " + dateLabel
+                        : "Downloaded " + count + " Modivcare trip" + (count == 1 ? "" : "s") + " for " + dateLabel);
                 if (MCTripList != null)
                 {
                     foreach (MCDownloadedTrip mcrtr in MCTripList)
@@ -350,11 +355,11 @@ namespace Hiatme_Tool_Suite_v3
                         new InvalidOperationException("No trips were downloaded. Check your Modivcare connection and date."));
                 }
 
-                await AsyncUpdateLoadingScreen("Loading rules").ConfigureAwait(false);
+                await AsyncUpdateLoadingScreen("Loading assignment rules…").ConfigureAwait(false);
                 await RefreshNoGoAreasAsync().ConfigureAwait(false);
                 ScheduleBuilderBannedClients.ReloadCache();
 
-                await AsyncUpdateLoadingScreen("Loading template files").ConfigureAwait(false);
+                await AsyncUpdateLoadingScreen("Matching trips to " + NameOfDay + " templates…").ConfigureAwait(false);
                 LoadTemplateFiles();
                 EnsureMatchedTripsOrThrow();
             }

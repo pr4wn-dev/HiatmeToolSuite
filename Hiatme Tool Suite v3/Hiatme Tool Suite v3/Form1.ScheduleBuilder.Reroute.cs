@@ -102,7 +102,7 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             ProbeStatus("Connecting to Modivcare…");
-            if (!await EnsureModivcareSessionAsync().ConfigureAwait(true))
+            if (!await EnsureModivcareSessionAsync(ProbeStatus).ConfigureAwait(true))
                 return " Reroute verify skipped — Modivcare not available.";
 
             int marked = 0;
@@ -266,7 +266,7 @@ namespace Hiatme_Tool_Suite_v3
 
                     session?.ResetAfterReconnect();
                     await HandleModivcareSessionExpiredAsync().ConfigureAwait(true);
-                    if (!await EnsureModivcareSessionAsync().ConfigureAwait(true))
+                    if (!await EnsureModivcareSessionAsync(msg => SetScheduleBuilderStatus(msg)).ConfigureAwait(true))
                         throw new ModivcareSessionExpiredException();
                 }
             }
@@ -373,7 +373,7 @@ namespace Hiatme_Tool_Suite_v3
                 return;
             }
 
-            if (!await EnsureModivcareSessionAsync())
+            if (!await EnsureModivcareSessionAsync(msg => SetScheduleBuilderStatus(msg)))
             {
                 SetScheduleBuilderStatus("Modivcare sign-in required.");
                 return;

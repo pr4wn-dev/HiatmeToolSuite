@@ -2434,7 +2434,7 @@ namespace Hiatme_Tool_Suite_v3
             try
             {
                 SetSupeyToolbarBusy(true, "Loading Modivcare trips...");
-                if (!await EnsureModivcareSessionAsync())
+                if (!await EnsureModivcareSessionAsync(msg => SetSupeyStatus(msg)))
                 {
                     SetSupeyStatus("Modivcare sign-in required.");
                     return;

@@ -160,10 +160,13 @@ namespace Hiatme_Tool_Suite_v3
 
             MCTripDownloader mctd = new MCTripDownloader();
             modivcareDownloadedTrips = new List<MCDownloadedTrip>();
+            await AsyncUpdateLoadingScreen("Downloading Modivcare trips for " + mcdate.ToString("M/d/yyyy") + "…");
             modivcareDownloadedTrips = await mctd.DownloadTripRecords(mcdate, modivcareloginHandler);
             LastModivcareDownloadCount = modivcareDownloadedTrips?.Count ?? 0;
             LastModivcareRequestedIdCount = mctd.LastRequestedTripIdCount;
 
+            await AsyncUpdateLoadingScreen(
+                "Downloaded " + LastModivcareDownloadCount + " Modivcare trips — loading WellRyde…");
             await TryLoadWellRydeTripsAndDriversAsync(mcdate);
             LastWellRydeDownloadCount = wellrydeDownloadedTrips?.Count ?? 0;
 
@@ -1336,7 +1339,8 @@ namespace Hiatme_Tool_Suite_v3
 
         public async Task PullReserves(string longdatestr, int dayint, int yearint, DateTime mcdate)
         {
-            await AsyncUpdateLoadingScreen("Checking connections");
+            string dateLabel = mcdate.ToString("M/d/yyyy");
+            await AsyncUpdateLoadingScreen("Downloading Modivcare trips for " + dateLabel + "…");
             List<MCDownloadedTrip> resservedtrips = new List<MCDownloadedTrip>();
 
             wellrydeDownloadedTrips = new List<WRDownloadedTrip>();
@@ -1344,10 +1348,13 @@ namespace Hiatme_Tool_Suite_v3
             MCTripDownloader mctd = new MCTripDownloader();
             modivcareDownloadedTrips = new List<MCDownloadedTrip>();
             modivcareDownloadedTrips = await mctd.DownloadTripRecords(mcdate, modivcareloginHandler);
-            await AsyncUpdateLoadingScreen("Downloading trips");
+            await AsyncUpdateLoadingScreen(
+                "Downloaded " + (modivcareDownloadedTrips?.Count ?? 0)
+                + " Modivcare trips — loading WellRyde for " + dateLabel + "…");
             await TryLoadWellRydeTripsAndDriversAsync(mcdate);
             if (wellrydeDownloadedTrips.Any() & modivcareDownloadedTrips.Any())
             {
+                await AsyncUpdateLoadingScreen("Matching Reserved WellRyde trips to Modivcare…");
                 foreach (MCDownloadedTrip mcdt in modivcareDownloadedTrips)
                 {
                     foreach (WRDownloadedTrip wrdt in wellrydeDownloadedTrips)
@@ -1362,9 +1369,13 @@ namespace Hiatme_Tool_Suite_v3
                     }
                 }
 
-                await AsyncUpdateLoadingScreen("Saving to file");
+                await AsyncUpdateLoadingScreen("Saving " + resservedtrips.Count + " reserved trips…");
                 SaveFinalBatchToFile(resservedtrips);
-                await AsyncUpdateLoadingScreen("Finalizing process..");
+                await AsyncUpdateLoadingScreen("Reserve pull finished — " + resservedtrips.Count + " trips");
+            }
+            else
+            {
+                await AsyncUpdateLoadingScreen("No matching Reserved trips found for " + dateLabel);
             }
         }
         public void SaveFinalBatchToFile(List<MCDownloadedTrip> trips)

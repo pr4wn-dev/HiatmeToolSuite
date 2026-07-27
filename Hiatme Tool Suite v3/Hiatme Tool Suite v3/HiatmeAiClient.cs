@@ -306,6 +306,46 @@ namespace Hiatme_Tool_Suite_v3
             Timeout = TimeSpan.FromMinutes(60),
         };
 
+        /// <summary>
+        /// Turn opaque HttpClient failures ("An error occurred while sending the request.") into something
+        /// actionable — almost always "AI panel is down / unreachable".
+        /// </summary>
+        internal static string DescribeRequestError(Exception ex, string baseUrl = null)
+        {
+            if (ex == null)
+                return "unknown error";
+
+            while (ex is AggregateException ae && ae.InnerException != null)
+                ex = ae.InnerException;
+
+            string where = string.IsNullOrWhiteSpace(baseUrl)
+                ? "http://127.0.0.1:8787"
+                : baseUrl.Trim().TrimEnd('/');
+
+            if (ex is TaskCanceledException || ex is OperationCanceledException)
+                return "AI panel timed out at " + where + " — is it busy or hung?";
+
+            bool sendFail = ex is HttpRequestException
+                || (ex.Message != null
+                    && ex.Message.IndexOf("sending the request", StringComparison.OrdinalIgnoreCase) >= 0)
+                || (ex.Message != null
+                    && ex.Message.IndexOf("while sending", StringComparison.OrdinalIgnoreCase) >= 0)
+                || (ex.InnerException is System.Net.Sockets.SocketException)
+                || (ex.InnerException is System.Net.WebException);
+
+            if (sendFail)
+            {
+                string detail = ex.InnerException?.Message ?? ex.Message;
+                if (string.IsNullOrWhiteSpace(detail)
+                    || detail.IndexOf("sending the request", StringComparison.OrdinalIgnoreCase) >= 0)
+                    detail = "connection refused / panel not running";
+                return "AI panel unreachable at " + where
+                    + " — restart it (scripts\\restart-panel.ps1). (" + detail + ")";
+            }
+
+            return ex.Message;
+        }
+
         public sealed class BuildReadyStatus
         {
             public bool Ok { get; set; }
@@ -1412,7 +1452,7 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     Ok = false,
                     Exists = false,
-                    Error = ex.Message,
+                    Error = DescribeRequestError(ex),
                 };
             }
         }
@@ -1522,7 +1562,7 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     Ok = false,
                     Exists = false,
-                    Error = ex.Message,
+                    Error = DescribeRequestError(ex),
                 };
             }
         }
@@ -2229,7 +2269,7 @@ namespace Hiatme_Tool_Suite_v3
             }
             catch (Exception ex)
             {
-                return new TripScoutServerStatus { Ok = false, Error = ex.Message };
+                return new TripScoutServerStatus { Ok = false, Error = DescribeRequestError(ex) };
             }
         }
 
@@ -2271,7 +2311,7 @@ namespace Hiatme_Tool_Suite_v3
             }
             catch (Exception ex)
             {
-                return new TripScoutServerTrips { Ok = false, Error = ex.Message };
+                return new TripScoutServerTrips { Ok = false, Error = DescribeRequestError(ex) };
             }
         }
 
@@ -2311,7 +2351,7 @@ namespace Hiatme_Tool_Suite_v3
             }
             catch (Exception ex)
             {
-                return new WellRydeBellStatus { Ok = false, Error = ex.Message };
+                return new WellRydeBellStatus { Ok = false, Error = DescribeRequestError(ex) };
             }
         }
 
@@ -2357,7 +2397,7 @@ namespace Hiatme_Tool_Suite_v3
             }
             catch (Exception ex)
             {
-                return new TripScoutDayChanges { Ok = false, Error = ex.Message };
+                return new TripScoutDayChanges { Ok = false, Error = DescribeRequestError(ex) };
             }
         }
 
@@ -2417,7 +2457,7 @@ namespace Hiatme_Tool_Suite_v3
             }
             catch (Exception ex)
             {
-                return new TripScoutDayChanges { Ok = false, Error = ex.Message };
+                return new TripScoutDayChanges { Ok = false, Error = DescribeRequestError(ex) };
             }
         }
 
@@ -2678,7 +2718,7 @@ namespace Hiatme_Tool_Suite_v3
             }
             catch (Exception ex)
             {
-                return new LateDriversStatus { Ok = false, Error = ex.Message };
+                return new LateDriversStatus { Ok = false, Error = DescribeRequestError(ex) };
             }
         }
 
@@ -2722,7 +2762,7 @@ namespace Hiatme_Tool_Suite_v3
             }
             catch (Exception ex)
             {
-                return new LateDriversLiveDoc { Ok = false, Error = ex.Message };
+                return new LateDriversLiveDoc { Ok = false, Error = DescribeRequestError(ex) };
             }
         }
 
@@ -2765,7 +2805,7 @@ namespace Hiatme_Tool_Suite_v3
             }
             catch (Exception ex)
             {
-                return new LateDriversDayDoc { Ok = false, Error = ex.Message };
+                return new LateDriversDayDoc { Ok = false, Error = DescribeRequestError(ex) };
             }
         }
 
@@ -2824,7 +2864,7 @@ namespace Hiatme_Tool_Suite_v3
             }
             catch (Exception ex)
             {
-                return new LateDriversPeriodDoc { Ok = false, Error = ex.Message };
+                return new LateDriversPeriodDoc { Ok = false, Error = DescribeRequestError(ex) };
             }
         }
 
@@ -2990,7 +3030,7 @@ namespace Hiatme_Tool_Suite_v3
             }
             catch (Exception ex)
             {
-                return new LateDriversHabitsDoc { Ok = false, Error = ex.Message };
+                return new LateDriversHabitsDoc { Ok = false, Error = DescribeRequestError(ex) };
             }
         }
 
@@ -3143,7 +3183,7 @@ namespace Hiatme_Tool_Suite_v3
             }
             catch (Exception ex)
             {
-                return new DriverHabitsReviewDoc { Ok = false, Error = ex.Message };
+                return new DriverHabitsReviewDoc { Ok = false, Error = DescribeRequestError(ex) };
             }
         }
 
@@ -3247,7 +3287,7 @@ namespace Hiatme_Tool_Suite_v3
             }
             catch (Exception ex)
             {
-                return new ModivcareDayStatus { Ok = false, Error = ex.Message };
+                return new ModivcareDayStatus { Ok = false, Error = DescribeRequestError(ex) };
             }
         }
 
@@ -3303,7 +3343,7 @@ namespace Hiatme_Tool_Suite_v3
             }
             catch (Exception ex)
             {
-                return new ModivcareDayStatus { Ok = false, Error = ex.Message };
+                return new ModivcareDayStatus { Ok = false, Error = DescribeRequestError(ex) };
             }
         }
 
@@ -3414,7 +3454,7 @@ namespace Hiatme_Tool_Suite_v3
             }
             catch (Exception ex)
             {
-                return new ScheduleAssignDayStatus { Ok = false, Error = ex.Message };
+                return new ScheduleAssignDayStatus { Ok = false, Error = DescribeRequestError(ex) };
             }
         }
 
@@ -3594,7 +3634,7 @@ namespace Hiatme_Tool_Suite_v3
             }
             catch (Exception ex)
             {
-                return new ModivcareMarketScorecard { Ok = false, Error = ex.Message };
+                return new ModivcareMarketScorecard { Ok = false, Error = DescribeRequestError(ex) };
             }
         }
 
@@ -3636,7 +3676,7 @@ namespace Hiatme_Tool_Suite_v3
             }
             catch (Exception ex)
             {
-                return new ModivcareMarketStatus { Ok = false, Error = ex.Message };
+                return new ModivcareMarketStatus { Ok = false, Error = DescribeRequestError(ex) };
             }
         }
 
@@ -3677,7 +3717,7 @@ namespace Hiatme_Tool_Suite_v3
             }
             catch (Exception ex)
             {
-                return new ModivcareMarketPullResult { Ok = false, Error = ex.Message };
+                return new ModivcareMarketPullResult { Ok = false, Error = DescribeRequestError(ex) };
             }
         }
 
@@ -3732,7 +3772,7 @@ namespace Hiatme_Tool_Suite_v3
             }
             catch (Exception ex)
             {
-                return new DriverDisciplineListResult { Ok = false, Error = ex.Message };
+                return new DriverDisciplineListResult { Ok = false, Error = DescribeRequestError(ex) };
             }
         }
 
@@ -3779,7 +3819,7 @@ namespace Hiatme_Tool_Suite_v3
             }
             catch (Exception ex)
             {
-                return new DriverDisciplinePriorsResult { Ok = false, Error = ex.Message };
+                return new DriverDisciplinePriorsResult { Ok = false, Error = DescribeRequestError(ex) };
             }
         }
 
@@ -3903,7 +3943,7 @@ namespace Hiatme_Tool_Suite_v3
             }
             catch (Exception ex)
             {
-                return new DriverDisciplineServerSaveResult { Ok = false, Error = ex.Message };
+                return new DriverDisciplineServerSaveResult { Ok = false, Error = DescribeRequestError(ex) };
             }
         }
     }
