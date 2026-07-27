@@ -3168,6 +3168,9 @@ namespace Hiatme_Tool_Suite_v3
 
             public string Source { get; set; }
             public string Error { get; set; }
+
+            [JsonProperty("trips")]
+            public List<ModivcareDayTripRow> Trips { get; set; }
         }
 
         public sealed class ModivcareDayTripRow
@@ -3193,6 +3196,17 @@ namespace Hiatme_Tool_Suite_v3
             string serviceDateIso,
             CancellationToken cancellationToken = default)
         {
+            return await GetModivcareDayStatusAsync(
+                    settings, serviceDateIso, includeTrips: false, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        public static async Task<ModivcareDayStatus> GetModivcareDayStatusAsync(
+            HiatmeAiSettings settings,
+            string serviceDateIso,
+            bool includeTrips,
+            CancellationToken cancellationToken = default)
+        {
             if (settings == null)
                 return new ModivcareDayStatus { Ok = false, Error = "settings missing" };
 
@@ -3201,8 +3215,13 @@ namespace Hiatme_Tool_Suite_v3
                 return new ModivcareDayStatus { Ok = false, Error = "AI server URL not configured" };
 
             string url = baseUrl + "/api/hiatme/modivcare/day";
+            var qs = new List<string>();
             if (!string.IsNullOrWhiteSpace(serviceDateIso))
-                url += "?service_date=" + Uri.EscapeDataString(serviceDateIso.Trim());
+                qs.Add("service_date=" + Uri.EscapeDataString(serviceDateIso.Trim()));
+            if (includeTrips)
+                qs.Add("include_trips=1");
+            if (qs.Count > 0)
+                url += "?" + string.Join("&", qs);
 
             try
             {

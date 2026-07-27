@@ -102,8 +102,8 @@ namespace Hiatme_Tool_Suite_v3
         private const string LateDriversAlertSoundFileName = "law-and-order-alert.mp3";
         private const string LateDriversBellSoundFileName = "will-call-bell.wav";
         /// <summary>
-        /// Event keys already chirped for the current open episode (so Live refresh doesn't spam).
-        /// Cleared when the event leaves the episode (resolved / gone), so a real re-open can ding again.
+        /// Event keys already announced today (persisted). Survives restart; not pruned mid-day
+        /// when the habits merge briefly misses an early row.
         /// </summary>
         private readonly HashSet<string> _ldAlertChirpKeys =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -184,6 +184,9 @@ namespace Hiatme_Tool_Suite_v3
             /// Other-tile category: unassigned | on_driver | reserves | cancelled.
             /// </summary>
             public string OffScheduleKind;
+            /// <summary>Inserted expand row under a schedule trip (WR time/address/driver change).</summary>
+            public bool IsChangeDetail;
+            public HiatmeAiClient.TripScoutChangeRow ChangeEvent;
         }
 
         private static bool LateDriversIsOtherSelected(string driverKey) =>
@@ -1966,6 +1969,8 @@ namespace Hiatme_Tool_Suite_v3
                         // Habits unchanged — still refresh WR so status/actuals keep moving.
                         await EnsureLateDriversWrTripsAsync(settings, sd, forceRefresh: true)
                             .ConfigureAwait(true);
+                        await RefreshLateDriversScheduleChangesAsync(settings, sd)
+                            .ConfigureAwait(true);
                         await RefreshLateDriversBellAsync(settings, autoShowIfNew: true)
                             .ConfigureAwait(true);
                         if (!string.IsNullOrWhiteSpace(_ldSelectedDriver))
@@ -1986,6 +1991,9 @@ namespace Hiatme_Tool_Suite_v3
                 var habitsTask = HiatmeAiClient.GetLateDriversHabitsAsync(settings, habitPeriod, sd);
                 // WR actuals/status for every trip (habits alone only cover alert sides).
                 var wrTask = EnsureLateDriversWrTripsAsync(settings, sd, forceRefresh: true);
+                var changesTask = (mode == "live" || mode == "day")
+                    ? RefreshLateDriversScheduleChangesAsync(settings, sd)
+                    : Task.CompletedTask;
                 var bellTask = (mode == "live" || mode == "day")
                     ? RefreshLateDriversBellAsync(settings, autoShowIfNew: mode == "live")
                     : Task.CompletedTask;
@@ -2010,6 +2018,7 @@ namespace Hiatme_Tool_Suite_v3
                         }
                         var habits = await habitsTask.ConfigureAwait(true);
                         await wrTask.ConfigureAwait(true);
+                        await changesTask.ConfigureAwait(true);
                         await bellTask.ConfigureAwait(true);
                         _ldDayPerf = doc.DayPerformance;
                         ApplyLateDriversEventPayload(
@@ -2033,6 +2042,7 @@ namespace Hiatme_Tool_Suite_v3
                         var habits = await habitsTask.ConfigureAwait(true);
                         var doc = await dayTask.ConfigureAwait(true);
                         await wrTask.ConfigureAwait(true);
+                        await changesTask.ConfigureAwait(true);
                         await bellTask.ConfigureAwait(true);
 
                         if ((doc == null || !doc.Ok) && (habits == null || !habits.Ok))
@@ -2930,32 +2940,66 @@ namespace Hiatme_Tool_Suite_v3
                 && _ldAlertChirpKeys.Contains(e.EventId.Trim()))
                 return true;
 
-            string want = LateDriversAlertFingerprint(
-                e?.TripNo,
-                string.IsNullOrEmpty(HabitKeyOf(e)) ? e?.Side : HabitKeyOf(e));
-            if (string.IsNullOrEmpty(want) || want == "|")
+            string wantHabit = HabitKeyOf(e);
+            if (string.IsNullOrEmpty(wantHabit))
+                wantHabit = (e?.Side ?? "").Trim().ToLowerInvariant();
+            if (wantHabit == "pu") wantHabit = "late_pu";
+            else if (wantHabit == "do") wantHabit = "late_do";
+
+            string wantTrip = (e?.TripNo ?? "").Trim();
+            if (string.IsNullOrEmpty(wantHabit) || string.IsNullOrEmpty(wantTrip))
                 return false;
+
             foreach (string k in _ldAlertChirpKeys)
             {
+                if (string.IsNullOrEmpty(k))
+                    continue;
+                string[] parts = k.Split('|');
+                if (parts.Length < 2)
+                    continue;
+                string storedHabit = parts[parts.Length - 1].Trim();
+                if (storedHabit == "pu") storedHabit = "late_pu";
+                else if (storedHabit == "do") storedHabit = "late_do";
+                if (!string.Equals(storedHabit, wantHabit, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                // date|trip|habit — trip may contain dashes but not pipes.
+                string storedTrip = parts.Length >= 3 ? parts[1] : parts[0];
+
+                if (TripScoutTripNosMatch(storedTrip, wantTrip)
+                    || ScheduleBuilderPreviewDrag.TripLegKeysMatch(storedTrip, wantTrip))
+                    return true;
+
+                // Fingerprint fallback (leg-normalized).
                 if (string.Equals(
                         LateDriversAlertFingerprintFromKey(k),
-                        want,
+                        LateDriversAlertFingerprint(wantTrip, wantHabit),
                         StringComparison.OrdinalIgnoreCase))
                     return true;
             }
             return false;
         }
 
+        private void LateDriversRememberAlertKey(string stableKey, HiatmeAiClient.LateDriversEventRow e)
+        {
+            bool added = false;
+            if (!string.IsNullOrEmpty(stableKey) && _ldAlertChirpKeys.Add(stableKey))
+                added = true;
+            if (e != null && !string.IsNullOrWhiteSpace(e.EventId)
+                && _ldAlertChirpKeys.Add(e.EventId.Trim()))
+                added = true;
+            if (added)
+                PersistLateDriversAlertChirpKeys();
+        }
+
         /// <summary>
         /// Build the set of keys that should blink now. Starts a ~75s local window the first
-        /// time the Suite sees each open late/early episode (not gated on detected_at age).
+        /// time the Suite sees each open late / fresh early episode.
         /// </summary>
         private HashSet<string> CollectLateDriversActiveAlertKeys()
         {
             EnsureLateDriversAlertChirpKeysLoaded();
 
-            var episodeKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var episodeFingerprints = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var activeKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var freshKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             DateTime now = DateTime.UtcNow;
@@ -2965,6 +3009,7 @@ namespace Hiatme_Tool_Suite_v3
             if (!_ldAlertSnapshotReady || _ldEventRows == null)
                 return activeKeys;
 
+            bool rememberedQuiet = false;
             foreach (var e in _ldEventRows)
             {
                 if (!LateDriversEventIsTimingAlertCandidate(e))
@@ -2972,10 +3017,6 @@ namespace Hiatme_Tool_Suite_v3
                 string key = LateDriversAlertEventKey(e);
                 if (string.IsNullOrEmpty(key))
                     continue;
-                episodeKeys.Add(key);
-                episodeFingerprints.Add(LateDriversAlertFingerprint(
-                    e.TripNo,
-                    string.IsNullOrEmpty(HabitKeyOf(e)) ? e.Side : HabitKeyOf(e)));
 
                 DateTime until;
                 if (_ldAlertHotUntil.TryGetValue(key, out until) && now <= until)
@@ -2986,35 +3027,49 @@ namespace Hiatme_Tool_Suite_v3
 
                 if (LateDriversAlertAlreadySeen(key, e))
                 {
-                    if (_ldAlertChirpKeys.Add(key))
-                        PersistLateDriversAlertChirpKeys();
+                    LateDriversRememberAlertKey(key, e);
                     _ldAlertHotUntil.Remove(key);
                     continue;
                 }
 
-                // First Suite observation — mark seen immediately so restart mid-blink is quiet.
+                string hk = HabitKeyOf(e);
+                // Early from earlier today: do not re-chirp on every app launch.
+                // Only hot if the actual early is still inside the blink window.
+                if (hk.StartsWith("early", StringComparison.Ordinal))
+                {
+                    double? earlyTs = LateDriversEarlyEventTs(e);
+                    if (!LateDriversTsStillHot(earlyTs))
+                    {
+                        LateDriversRememberAlertKey(key, e);
+                        _ldAlertHotUntil.Remove(key);
+                        rememberedQuiet = true;
+                        continue;
+                    }
+                }
+
+                // First Suite observation (or still-hot early) — mark seen so restart mid-blink is quiet.
                 _ldAlertHotUntil[key] = now.AddSeconds(LateDriversAlertWindowSeconds);
-                _ldAlertChirpKeys.Add(key);
+                LateDriversRememberAlertKey(key, e);
                 activeKeys.Add(key);
                 freshKeys.Add(key);
             }
 
-            int before = _ldAlertChirpKeys.Count;
-            _ldAlertChirpKeys.RemoveWhere(k =>
+            // Drop hot windows for trips no longer in the board — but NEVER prune the
+            // day-long seen store (brief habits-miss / empty merge used to wipe disk and
+            // re-alert the same early every launch).
+            var liveKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var e in _ldEventRows)
             {
-                if (string.IsNullOrEmpty(k))
-                    return true;
-                if (episodeKeys.Contains(k))
-                    return false;
-                string fp = LateDriversAlertFingerprintFromKey(k);
-                if (!string.IsNullOrEmpty(fp) && episodeFingerprints.Contains(fp))
-                    return false;
-                return true;
-            });
-            foreach (string stale in _ldAlertHotUntil.Keys.Where(k => !episodeKeys.Contains(k)).ToList())
+                if (!LateDriversEventIsTimingAlertCandidate(e))
+                    continue;
+                string k = LateDriversAlertEventKey(e);
+                if (!string.IsNullOrEmpty(k))
+                    liveKeys.Add(k);
+            }
+            foreach (string stale in _ldAlertHotUntil.Keys.Where(k => !liveKeys.Contains(k)).ToList())
                 _ldAlertHotUntil.Remove(stale);
 
-            if (freshKeys.Count > 0 || _ldAlertChirpKeys.Count != before)
+            if (freshKeys.Count > 0 || rememberedQuiet)
                 PersistLateDriversAlertChirpKeys();
 
             _ldAlertFreshChirpKeys = freshKeys;
@@ -3223,7 +3278,8 @@ namespace Hiatme_Tool_Suite_v3
             {
                 if (item == null)
                     continue;
-                if (item.Tag is LateDriversTripRowTag sep && (sep.IsGroupHeader || sep.IsGap))
+                if (item.Tag is LateDriversTripRowTag sep
+                    && (sep.IsGroupHeader || sep.IsGap || sep.IsChangeDetail))
                     continue;
 
                 string tripNo = null;
@@ -3501,7 +3557,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 if (item?.Tag is LateDriversTripRowTag wrap)
                 {
-                    if (wrap.IsGroupHeader || wrap.IsGap)
+                    if (wrap.IsGroupHeader || wrap.IsGap || wrap.IsChangeDetail)
                         continue;
                     if (LateDriversTripQueryMatches(wrap.TripNo, tripNo))
                     {
@@ -4073,6 +4129,9 @@ namespace Hiatme_Tool_Suite_v3
             bool singleDay = mode == "day" || mode == "live";
             string q = LateDriversSearchQuery;
 
+            if (singleDay)
+                LateDriversEnsureChangesLoadedForBind(LateDriversSelectedServiceDateIso());
+
             // Live search (Trip Scout style): flat matches across the day while typing.
             if (singleDay && q.Length > 0)
             {
@@ -4424,8 +4483,16 @@ namespace Hiatme_Tool_Suite_v3
             try
             {
                 ldTripLv.Items.Clear();
+                LateDriversPruneExpandedTrips();
                 foreach (var e in trips)
-                    ldTripLv.Items.Add(CreateLateDriversHabitListItem(e, showDriver));
+                {
+                    if (e == null) continue;
+                    var item = CreateLateDriversHabitListItem(e, showDriver);
+                    string tripDisp = e.TripNo ?? "";
+                    LateDriversApplyExpandChrome(item, e.TripNo, tripDisp);
+                    ldTripLv.Items.Add(item);
+                    LateDriversAppendExpandedChangeRows(ldTripLv.Items, e.TripNo, showDriver);
+                }
             }
             finally
             {
@@ -4448,6 +4515,7 @@ namespace Hiatme_Tool_Suite_v3
         private void BindLateDriversMergedTripRows(List<LateDriversTripRowTag> rows, bool showDriver)
         {
             EnsureLateDriversTripColumns(showDriver);
+            LateDriversPruneExpandedTrips();
 
             ldTripLv.BeginUpdate();
             try
@@ -4456,7 +4524,10 @@ namespace Hiatme_Tool_Suite_v3
                 foreach (var row in rows ?? new List<LateDriversTripRowTag>())
                 {
                     if (row == null) continue;
-                    ldTripLv.Items.Add(CreateLateDriversMergedListItem(row, showDriver));
+                    var item = CreateLateDriversMergedListItem(row, showDriver);
+                    LateDriversApplyExpandChrome(item, row, showDriver);
+                    ldTripLv.Items.Add(item);
+                    LateDriversAppendExpandedChangeRows(ldTripLv.Items, row, showDriver);
                 }
             }
             finally
@@ -4538,7 +4609,8 @@ namespace Hiatme_Tool_Suite_v3
             chip = (chip ?? "all").Trim().ToLowerInvariant();
             if (chip == "all")
                 return true;
-            if (tag is LateDriversTripRowTag sep && (sep.IsGroupHeader || sep.IsGap))
+            if (tag is LateDriversTripRowTag sep
+                && (sep.IsGroupHeader || sep.IsGap || sep.IsChangeDetail))
                 return true;
 
             // Habit-only list: one event per row — match that event only.
@@ -4597,7 +4669,8 @@ namespace Hiatme_Tool_Suite_v3
             string chip = (_ldHabitChip ?? "all").Trim().ToLowerInvariant();
             if (chip == "all")
                 return;
-            if (tag is LateDriversTripRowTag sep && (sep.IsGroupHeader || sep.IsGap))
+            if (tag is LateDriversTripRowTag sep
+                && (sep.IsGroupHeader || sep.IsGap || sep.IsChangeDetail))
                 return;
 
             if (LateDriversRowMatchesChip(tag, chip))
@@ -4618,7 +4691,8 @@ namespace Hiatme_Tool_Suite_v3
             foreach (ListViewItem item in ldTripLv.Items)
             {
                 if (item == null) continue;
-                if (item.Tag is LateDriversTripRowTag sep && (sep.IsGroupHeader || sep.IsGap))
+                if (item.Tag is LateDriversTripRowTag sep
+                    && (sep.IsGroupHeader || sep.IsGap || sep.IsChangeDetail))
                     continue;
                 if (!LateDriversRowMatchesChip(item.Tag, chip))
                     continue;
@@ -4703,7 +4777,8 @@ namespace Hiatme_Tool_Suite_v3
             if (!isPu && !isDo)
                 isPu = true;
 
-            // Start from WellRyde day row (both sides), then overlay this habit's side.
+            // Start from WellRyde day row (both sides). Habit actuals overlay the alert
+            // side; habit sched only fills when WR has no clock (live ticket wins).
             string schedPu = "—", actPu = "—", schedDo = "—", actDo = "—";
             var wr = FindLateDriversWrTrip(e?.TripNo);
             if (wr != null)
@@ -4717,12 +4792,14 @@ namespace Hiatme_Tool_Suite_v3
             string habitActual = FormatLateDriversTime(e?.ActualIso, blank: "—");
             if (isPu)
             {
-                if (habitSched != "—") schedPu = habitSched;
+                if (habitSched != "—" && (string.IsNullOrWhiteSpace(schedPu) || schedPu == "—"))
+                    schedPu = habitSched;
                 if (habitActual != "—") actPu = habitActual;
             }
             if (isDo)
             {
-                if (habitSched != "—") schedDo = habitSched;
+                if (habitSched != "—" && (string.IsNullOrWhiteSpace(schedDo) || schedDo == "—"))
+                    schedDo = habitSched;
                 if (habitActual != "—") actDo = habitActual;
             }
 
@@ -4742,9 +4819,9 @@ namespace Hiatme_Tool_Suite_v3
                 ? "—"
                 : LateDriversDisplayHabitMinutes(e).ToString("0", CultureInfo.InvariantCulture) + "m";
             item.SubItems.Add(minsText);
-            string status = !string.IsNullOrWhiteSpace(e.StatusLatest)
-                ? e.StatusLatest.Trim()
-                : (wr?.Status ?? "").Trim();
+            string status = !string.IsNullOrWhiteSpace(wr?.Status)
+                ? wr.Status.Trim()
+                : (!string.IsNullOrWhiteSpace(e.StatusLatest) ? e.StatusLatest.Trim() : "");
             item.SubItems.Add(string.IsNullOrEmpty(status) ? "—" : status);
             item.SubItems.Add(e.Open ? "Open" : "Closed");
             item.Tag = e;
@@ -5244,7 +5321,84 @@ namespace Hiatme_Tool_Suite_v3
                 InsertLateDriversRowInGroup(rows, added);
             }
 
+            AppendLateDriversWrChangedTripsMissingFromSchedule(
+                rows, serviceDateIso, driverName, habits, matchedHabitKeys);
+
             return rows;
+        }
+
+        /// <summary>
+        /// WR trips with time/address/driver changes assigned to this driver but missing from
+        /// the printed sheet (e.g. added mid-day) still need ▶ expand on their tile.
+        /// </summary>
+        private void AppendLateDriversWrChangedTripsMissingFromSchedule(
+            List<LateDriversTripRowTag> rows,
+            string serviceDateIso,
+            string driverName,
+            List<HiatmeAiClient.LateDriversEventRow> habits,
+            HashSet<string> matchedHabitKeys)
+        {
+            if (rows == null || _ldWrTripsByTripNo.Count == 0 || _ldChangesByTrip.Count == 0)
+                return;
+            if (string.IsNullOrWhiteSpace(driverName))
+                return;
+
+            var onList = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var r in rows)
+            {
+                if (r == null || r.IsGroupHeader || r.IsGap || string.IsNullOrWhiteSpace(r.TripNo))
+                    continue;
+                string k = LateDriversNormalizeChangeTripNo(r.TripNo);
+                if (k.Length > 0)
+                    onList.Add(k);
+                string leg = ScheduleBuilderPreviewDrag.TripLegKey(k);
+                if (!string.IsNullOrEmpty(leg))
+                    onList.Add(leg);
+            }
+
+            foreach (var wr in _ldWrTripsByTripNo.Values.Distinct())
+            {
+                if (wr == null || string.IsNullOrWhiteSpace(wr.TripNo))
+                    continue;
+                if (!LateDriversDriverNamesMatch(wr.Driver, driverName))
+                    continue;
+                string tripNo = wr.TripNo.Trim();
+                if (!LateDriversTripHasExpandableChanges(tripNo))
+                    continue;
+
+                string key = LateDriversNormalizeChangeTripNo(tripNo);
+                string leg = ScheduleBuilderPreviewDrag.TripLegKey(key);
+                if (onList.Contains(key) || (!string.IsNullOrEmpty(leg) && onList.Contains(leg)))
+                    continue;
+
+                DateTime sort = DateTime.MaxValue;
+                if (TryParseLateDriversIso(wr.SchedPuIso, out var pu))
+                    sort = pu;
+                int groupAt = InferLateDriversGroupNumberAtTime(rows, sort);
+                Color? groupColor = InferLateDriversGroupColor(rows, groupAt);
+                var added = new LateDriversTripRowTag
+                {
+                    ScheduleTrip = null,
+                    HabitEvent = null,
+                    FromSchedule = false,
+                    HabitOnly = true,
+                    GroupNumber = groupAt,
+                    GroupLabel = groupAt > 0 ? ("G" + groupAt) : "",
+                    GroupColor = groupColor,
+                    DriverDisplay = driverName,
+                    TripNo = tripNo,
+                    ServiceDate = serviceDateIso,
+                    Client = wr.Client ?? "",
+                    SortTime = sort,
+                    HabitChipKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                    HabitChipOpen = false,
+                };
+                ApplyLateDriversPuDoTimes(added, trip: null, habits: habits ?? new List<HiatmeAiClient.LateDriversEventRow>());
+                InsertLateDriversRowInGroup(rows, added);
+                onList.Add(key);
+                if (!string.IsNullOrEmpty(leg))
+                    onList.Add(leg);
+            }
         }
 
         /// <summary>
@@ -5472,24 +5626,28 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (row == null) return;
 
-            // Workbook times via SupeyTripTimes (Excel fractions, 0830, A/B-leg DO rules).
-            string schedPu = trip != null
-                ? SupeyTripTimes.FormatTimeOfDay(SupeyTripTimes.TryParsePU(trip))
-                : "—";
-            string schedDo = FormatLateDriversTripSchedDo(trip);
-
             var habitPu = FindBestLateDriversHabitForTripSide(habits, trip?.TripNumber ?? row.TripNo, "pu");
             var habitDo = FindBestLateDriversHabitForTripSide(habits, trip?.TripNumber ?? row.TripNo, "do");
             var wr = FindLateDriversWrTrip(trip?.TripNumber ?? row.TripNo);
+
+            // Live WellRyde ticket clocks first — dispatch edits land here in real time.
+            // Workbook / MC morning print is fallback when WR has no sched for that side.
+            string schedPu = wr != null
+                ? FormatLateDriversTime(wr.SchedPuIso, blank: "—")
+                : "—";
+            string schedDo = wr != null
+                ? FormatLateDriversTime(wr.SchedDoIso, blank: "—")
+                : "—";
+
+            if ((string.IsNullOrWhiteSpace(schedPu) || schedPu == "—") && trip != null)
+                schedPu = SupeyTripTimes.FormatTimeOfDay(SupeyTripTimes.TryParsePU(trip));
+            if ((string.IsNullOrWhiteSpace(schedDo) || schedDo == "—") && trip != null)
+                schedDo = FormatLateDriversTripSchedDo(trip);
 
             if ((string.IsNullOrWhiteSpace(schedPu) || schedPu == "—") && habitPu != null)
                 schedPu = FormatLateDriversTime(habitPu.SchedIso, blank: "—");
             if ((string.IsNullOrWhiteSpace(schedDo) || schedDo == "—") && habitDo != null)
                 schedDo = FormatLateDriversTime(habitDo.SchedIso, blank: "—");
-            if ((string.IsNullOrWhiteSpace(schedPu) || schedPu == "—") && wr != null)
-                schedPu = FormatLateDriversTime(wr.SchedPuIso, blank: "—");
-            if ((string.IsNullOrWhiteSpace(schedDo) || schedDo == "—") && wr != null)
-                schedDo = FormatLateDriversTime(wr.SchedDoIso, blank: "—");
 
             // Habit-only row with a single side: still show that side's times.
             if (trip == null && row.HabitEvent != null && habitPu == null && habitDo == null)
@@ -5524,16 +5682,18 @@ namespace Hiatme_Tool_Suite_v3
                 ? row.SchedPuDisplay
                 : row.SchedDoDisplay;
 
-            // Status for clean (non-habit) trips too — WellRyde day row is the source of truth.
+            // Status: WellRyde is source of truth (late events often freeze at resolve-time
+            // statuses like Pickup Departed). State Open/Closed still comes from the habit row.
             string status = "";
             string state = "—";
+            if (wr != null)
+                status = (wr.Status ?? "").Trim();
             if (row.HabitEvent != null)
             {
-                status = (row.HabitEvent.StatusLatest ?? "").Trim();
+                if (string.IsNullOrEmpty(status))
+                    status = (row.HabitEvent.StatusLatest ?? "").Trim();
                 state = row.HabitEvent.Open ? "Open" : "Closed";
             }
-            if (string.IsNullOrEmpty(status) && wr != null)
-                status = (wr.Status ?? "").Trim();
             if (state == "—" && !string.IsNullOrEmpty(status))
                 state = LateDriversStateFromStatus(status);
             row.StatusDisplay = string.IsNullOrEmpty(status) ? "—" : status;
@@ -7041,6 +7201,14 @@ namespace Hiatme_Tool_Suite_v3
         private void LdTripLv_DoubleClick(object sender, EventArgs e)
         {
             if (ldTripLv?.SelectedItems == null || ldTripLv.SelectedItems.Count == 0)
+                return;
+
+            if (ldTripLv.SelectedItems[0].Tag is LateDriversTripRowTag changeRow
+                && changeRow.IsChangeDetail)
+                return;
+
+            // On a driver's schedule: expand/collapse WR time/address/driver changes.
+            if (LateDriversTryToggleExpandFromListItem(ldTripLv.SelectedItems[0]))
                 return;
 
             string serviceDate = null;

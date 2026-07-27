@@ -9405,7 +9405,9 @@ namespace Hiatme_Tool_Suite_v3
                 ? e.Item.Font
                 : ListViewOwnerDrawFonts.Cell;
             TextRenderer.DrawText(e.Graphics,
-                SupeyListViewHelpers.GetCellDisplayText(listView, e.ColumnIndex, e.SubItem.Text),
+                ReferenceEquals(listView, ldTripLv)
+                    ? LateDriversTripColumnDisplayText(e.Item, e.ColumnIndex, e.SubItem.Text)
+                    : SupeyListViewHelpers.GetCellDisplayText(listView, e.ColumnIndex, e.SubItem.Text),
                 cellFont, bounds, textColor,
                 align | TextFormatFlags.SingleLine | TextFormatFlags.GlyphOverhangPadding | TextFormatFlags.VerticalCenter | TextFormatFlags.WordEllipsis);
         }
