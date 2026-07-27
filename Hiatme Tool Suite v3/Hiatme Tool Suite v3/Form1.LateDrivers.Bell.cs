@@ -321,9 +321,9 @@ namespace Hiatme_Tool_Suite_v3
                 _ldBellDismissedKeys.RemoveWhere(k => !liveKeys.Contains(k));
             }
 
-            // Will-calls feed the Other list — drop stale cache so Locate can find them.
+            // Will-calls no longer feed Reserved — still refresh if that tile is open.
             ClearLateDriversOffScheduleCache();
-            if (LateDriversOtherSelected || LateDriversSearchQuery.Length > 0)
+            if (LateDriversReservedSelected || LateDriversSearchQuery.Length > 0)
                 BindLateDriversTripPane();
             else
                 RefreshLateDriversOffScheduleCache();
@@ -560,27 +560,12 @@ namespace Hiatme_Tool_Suite_v3
             if (item == null || string.IsNullOrWhiteSpace(item.TripNo))
                 return;
 
-            // Clear search so Locate lands on the owning driver / Other tile.
+            // Clear search so Locate lands on the owning driver / Reserved tile.
             if (ldSearchBox != null && !string.IsNullOrEmpty(ldSearchBox.Text))
             {
                 _ldSuppressSearch = true;
                 try { ldSearchBox.Text = ""; }
                 finally { _ldSuppressSearch = false; }
-            }
-
-            // Prefer will-call → Other (reserves) so Locate lands on a visible row.
-            if (item.WillCall != null || LateDriversIsWillCallTrip(item.TripNo))
-            {
-                ClearLateDriversOffScheduleCache();
-                string focus = item.TripNo.Trim();
-                // Prefer schedule-style id when WR day already has the trip.
-                var wr = FindLateDriversWrTrip(focus) ?? FindLateDriversWrTripByQuery(focus);
-                if (wr != null && !string.IsNullOrWhiteSpace(wr.TripNo))
-                    focus = wr.TripNo.Trim();
-
-                SelectLateDriversDriver(LateDriversOtherKey, focus);
-                SetLateDriversStatus("Status: Found " + focus + " — Other (will-call)");
-                return;
             }
 
             GoToLateDriversTripSearch(item.TripNo);

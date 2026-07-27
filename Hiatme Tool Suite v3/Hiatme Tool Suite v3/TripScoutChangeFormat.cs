@@ -104,9 +104,15 @@ namespace Hiatme_Tool_Suite_v3
             if (client.Length > 0)
                 parts.Add(client);
 
-            string pu = FormatTimeOnly(trip?.PUTime ?? "");
-            if (!string.IsNullOrWhiteSpace(pu))
-                parts.Add("PU " + pu.Trim());
+            string puRaw = trip?.PUTime ?? "";
+            if (string.IsNullOrWhiteSpace(puRaw) || SupeyWillCallPickup.IsPickupWillCallTime(puRaw))
+                parts.Add("PU Will call");
+            else
+            {
+                string pu = FormatTimeOnly(puRaw);
+                if (!string.IsNullOrWhiteSpace(pu))
+                    parts.Add("PU " + pu.Trim());
+            }
 
             string dot = FormatTimeOnly(trip?.DOTime ?? "");
             if (!string.IsNullOrWhiteSpace(dot))
@@ -164,21 +170,49 @@ namespace Hiatme_Tool_Suite_v3
         private static string FormatFieldValue(string fieldName, object value)
         {
             string text = ValueToString(value);
+            bool schedPu = string.Equals(fieldName, "sched_pu_iso", StringComparison.OrdinalIgnoreCase);
+
             if (string.IsNullOrWhiteSpace(text))
-                return "—";
+            {
+                if (string.Equals(fieldName, "driver", StringComparison.OrdinalIgnoreCase))
+                    return "none";
+                return schedPu ? "Will call" : "—";
+            }
 
             if (fieldName != null && fieldName.EndsWith("_iso", StringComparison.OrdinalIgnoreCase))
             {
+                if (schedPu && IsWillCallSchedPuValue(text))
+                    return "Will call";
+
                 string formatted = FormatIsoTime(text);
                 if (!string.IsNullOrWhiteSpace(formatted))
+                {
+                    if (schedPu && IsWillCallFormattedClock(formatted))
+                        return "Will call";
                     return formatted;
+                }
             }
 
             if (string.Equals(fieldName, "driver", StringComparison.OrdinalIgnoreCase)
                 && IsUnassignedDriver(text))
-                return "Unassigned";
+                return "none";
 
             return text;
+        }
+
+        private static bool IsWillCallSchedPuValue(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw) || raw.Trim() == "—")
+                return true;
+            return SupeyWillCallPickup.IsPickupWillCallTime(raw);
+        }
+
+        private static bool IsWillCallFormattedClock(string formatted)
+        {
+            string s = (formatted ?? "").Trim();
+            return string.Equals(s, "12:00 AM", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(s, "12:00AM", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(s, "12:00 am", StringComparison.OrdinalIgnoreCase);
         }
 
         private static string FormatIsoTime(string iso)

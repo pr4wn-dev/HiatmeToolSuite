@@ -77,9 +77,12 @@ namespace Hiatme_Tool_Suite_v3
         private DateTime _ldDayDate = DateTime.Today;
         /// <summary>Week/Month/Year focus date (unit start for API via LateDriversApiAnchorDate).</summary>
         private DateTime _ldAnchorDate = DateTime.Today;
-        private string _ldSelectedDriver; // null = All drivers; LateDriversOtherKey = Other (not on schedule)
-        /// <summary>Pinned strip tile for WellRyde trips that are not on any printed sheet.</summary>
-        private const string LateDriversOtherKey = "__not_on_schedule__";
+        private string _ldSelectedDriver; // null = All drivers; LateDriversReservedKey = Reserved
+        /// <summary>Pinned strip tile for WellRyde trips with Reserved status.</summary>
+        private const string LateDriversReservedKey = "__reserved__";
+        /// <summary>Legacy Other-tile key — still treated as Reserved if selected.</summary>
+        private const string LateDriversOtherKeyLegacy = "__not_on_schedule__";
+        private const string LateDriversOtherKey = LateDriversReservedKey; // compat for SelectLateDriversDriver call sites
         private string _ldHabitChip = "all";
         private string _ldRangeLabel = "";
         private List<HiatmeAiClient.LateDriversEventRow> _ldEventRows;
@@ -134,7 +137,7 @@ namespace Hiatme_Tool_Suite_v3
         private string _ldWrTripsDateIso;
         private readonly Dictionary<string, HiatmeAiClient.TripScoutServerTripRow> _ldWrTripsByTripNo =
             new Dictionary<string, HiatmeAiClient.TripScoutServerTripRow>(StringComparer.OrdinalIgnoreCase);
-        /// <summary>Cached Other-tile rows (WR not on printed schedule).</summary>
+        /// <summary>Cached Reserved-tile rows (WR status Reserved).</summary>
         private string _ldOffScheduleCacheDateIso;
         private List<LateDriversTripRowTag> _ldOffScheduleCache;
         private int _ldOffScheduleCount;
@@ -181,7 +184,7 @@ namespace Hiatme_Tool_Suite_v3
             /// </summary>
             public string ReceivedFromDriver;
             /// <summary>
-            /// Other-tile category: unassigned | on_driver | reserves | cancelled.
+            /// Reserved-tile marker (non-empty when row is from the Reserved list).
             /// </summary>
             public string OffScheduleKind;
             /// <summary>Inserted expand row under a schedule trip (WR time/address/driver change).</summary>
@@ -189,10 +192,17 @@ namespace Hiatme_Tool_Suite_v3
             public HiatmeAiClient.TripScoutChangeRow ChangeEvent;
         }
 
-        private static bool LateDriversIsOtherSelected(string driverKey) =>
-            string.Equals(driverKey, LateDriversOtherKey, StringComparison.Ordinal);
+        private static bool LateDriversIsReservedSelected(string driverKey) =>
+            string.Equals(driverKey, LateDriversReservedKey, StringComparison.Ordinal)
+            || string.Equals(driverKey, LateDriversOtherKeyLegacy, StringComparison.Ordinal);
 
-        private bool LateDriversOtherSelected => LateDriversIsOtherSelected(_ldSelectedDriver);
+        private bool LateDriversReservedSelected => LateDriversIsReservedSelected(_ldSelectedDriver);
+
+        // Compat aliases used by locate/bell paths during rename.
+        private static bool LateDriversIsOtherSelected(string driverKey) =>
+            LateDriversIsReservedSelected(driverKey);
+
+        private bool LateDriversOtherSelected => LateDriversReservedSelected;
 
         private void InitializeLateDriversTab()
         {
@@ -1433,8 +1443,8 @@ namespace Hiatme_Tool_Suite_v3
                 return;
             if (string.IsNullOrEmpty(_ldSelectedDriver))
                 ldTripCaptionLbl.Text = "Trip habits — all drivers";
-            else if (LateDriversOtherSelected)
-                ldTripCaptionLbl.Text = "Other — WellRyde trips not on schedule";
+            else if (LateDriversReservedSelected)
+                ldTripCaptionLbl.Text = "Reserved — WellRyde trips with Reserved status";
             else
                 ldTripCaptionLbl.Text = "Trip habits — " + _ldSelectedDriver;
         }
@@ -2617,7 +2627,7 @@ namespace Hiatme_Tool_Suite_v3
                 return 1;
             int slot = LateDriversDriverTileW + LateDriversDriverTileGap;
             int inner = Math.Max(0, ldDriverStrip.ClientSize.Width - ldDriverStrip.Padding.Horizontal);
-            // Reserve slots for pinned "All drivers" + "Other" tiles.
+            // Reserve slots for pinned "All drivers" + "Reserved" tiles.
             int totalSlots = Math.Max(1, inner / Math.Max(1, slot));
             return Math.Max(1, totalSlots - 2);
         }
@@ -2685,29 +2695,29 @@ namespace Hiatme_Tool_Suite_v3
                 ldDriverStrip.Controls.Add(allTile);
                 _ldDriverTiles.Add(allTile);
 
-                // Pinned: WR trips not on any printed driver sheet.
+                // Pinned: WellRyde trips currently in Reserved status.
                 // Use cached count only — never rebuild/parse here (strip Resize would hang).
-                int otherN = Math.Max(0, _ldOffScheduleCount);
-                var otherSummary = new HiatmeAiClient.LateDriversDriverSummary
+                int reservedN = Math.Max(0, _ldOffScheduleCount);
+                var reservedSummary = new HiatmeAiClient.LateDriversDriverSummary
                 {
-                    Driver = LateDriversOtherKey,
-                    LateCount = otherN,
+                    Driver = LateDriversReservedKey,
+                    LateCount = reservedN,
                 };
-                var otherTile = CreateLateDriversDriverTile(
-                    "Other",
-                    otherN,
+                var reservedTile = CreateLateDriversDriverTile(
+                    "Reserved",
+                    reservedN,
                     0,
                     0,
                     0,
-                    summary: otherSummary);
-                var otherStats = otherTile.Controls["ldTileStats"] as Label;
-                if (otherStats != null)
-                    otherStats.Text = otherN == 1 ? "1 not on schedule" : (otherN + " not on schedule");
-                var otherMins = otherTile.Controls["ldTileMins"] as Label;
-                if (otherMins != null)
-                    otherMins.Text = "Unassigned · Reserves · …";
-                ldDriverStrip.Controls.Add(otherTile);
-                _ldDriverTiles.Add(otherTile);
+                    summary: reservedSummary);
+                var reservedStats = reservedTile.Controls["ldTileStats"] as Label;
+                if (reservedStats != null)
+                    reservedStats.Text = reservedN == 1 ? "1 reserved" : (reservedN + " reserved");
+                var reservedMins = reservedTile.Controls["ldTileMins"] as Label;
+                if (reservedMins != null)
+                    reservedMins.Text = "WR status · Reserved";
+                ldDriverStrip.Controls.Add(reservedTile);
+                _ldDriverTiles.Add(reservedTile);
 
                 int end = Math.Min(rows.Count, _ldDriverScrollOffset + page);
                 for (int i = _ldDriverScrollOffset; i < end; i++)
@@ -3510,9 +3520,9 @@ namespace Hiatme_Tool_Suite_v3
                 next ?? "",
                 StringComparison.OrdinalIgnoreCase);
 
-            // Other remaps score-tile captions/keys — always reset filter when crossing that boundary.
-            bool wasOther = LateDriversIsOtherSelected(_ldSelectedDriver);
-            bool nowOther = LateDriversIsOtherSelected(next);
+            // Reserved remaps score-tile captions — reset filter when crossing that boundary.
+            bool wasOther = LateDriversIsReservedSelected(_ldSelectedDriver);
+            bool nowOther = LateDriversIsReservedSelected(next);
             _ldSelectedDriver = next;
             if (wasOther != nowOther)
                 _ldHabitChip = "all";
@@ -3650,13 +3660,11 @@ namespace Hiatme_Tool_Suite_v3
                     && !string.IsNullOrWhiteSpace(owner))
                 {
                     focusTrip = ownedTrip ?? query;
-                    if (owner.Equals("Reserves", StringComparison.OrdinalIgnoreCase)
-                        || owner.Equals("Reserve", StringComparison.OrdinalIgnoreCase)
-                        || owner.StartsWith("Reserve ", StringComparison.OrdinalIgnoreCase))
+                    if (LateDriversIsReservesTabName(owner)
+                        || LateDriversIsReservedStatus(FindLateDriversWrTrip(focusTrip)?.Status))
                     {
-                        // No Reserves tile — will-calls / reserves live under Other.
-                        SelectLateDriversDriver(LateDriversOtherKey, focusTrip);
-                        SetLateDriversStatus("Status: Found " + focusTrip + " — Other (reserves / will-call)");
+                        SelectLateDriversDriver(LateDriversReservedKey, focusTrip);
+                        SetLateDriversStatus("Status: Found " + focusTrip + " — Reserved");
                         return;
                     }
 
@@ -3669,8 +3677,8 @@ namespace Hiatme_Tool_Suite_v3
 
                 if (TryFindLateDriversOffScheduleTrip(query, sd, out focusTrip))
                 {
-                    SelectLateDriversDriver(LateDriversOtherKey, focusTrip);
-                    SetLateDriversStatus("Status: Found " + focusTrip + " — Other (not on schedule)");
+                    SelectLateDriversDriver(LateDriversReservedKey, focusTrip);
+                    SetLateDriversStatus("Status: Found " + focusTrip + " — Reserved");
                     return;
                 }
             }
@@ -3708,9 +3716,15 @@ namespace Hiatme_Tool_Suite_v3
                 if (wr != null && !string.IsNullOrWhiteSpace(wr.TripNo))
                 {
                     focusTrip = wr.TripNo.Trim();
+                    if (LateDriversIsReservedStatus(wr.Status))
+                    {
+                        SelectLateDriversDriver(LateDriversReservedKey, focusTrip);
+                        SetLateDriversStatus("Status: Found " + focusTrip + " — Reserved");
+                        return;
+                    }
                     string owner2 = FindLateDriversWorkbookOwnerForTrip(focusTrip);
                     if (!string.IsNullOrWhiteSpace(owner2)
-                        && !owner2.Equals("Reserves", StringComparison.OrdinalIgnoreCase)
+                        && !LateDriversIsReservesTabName(owner2)
                         && owner2.IndexOf("unassign", StringComparison.OrdinalIgnoreCase) < 0)
                     {
                         string tile = MatchLateDriversStripDriver(owner2);
@@ -3719,8 +3733,9 @@ namespace Hiatme_Tool_Suite_v3
                             "Status: Found " + focusTrip + " — " + (tile ?? owner2));
                         return;
                     }
-                    SelectLateDriversDriver(LateDriversOtherKey, focusTrip);
-                    SetLateDriversStatus("Status: Found " + focusTrip + " — Other");
+                    // Unassigned / no sheet — show under All so search still lands somewhere.
+                    SelectLateDriversDriver(null, focusTrip);
+                    SetLateDriversStatus("Status: Found " + focusTrip + " — all drivers");
                     return;
                 }
             }
@@ -3869,9 +3884,9 @@ namespace Hiatme_Tool_Suite_v3
             if (_ldScoreValues.Count == 0)
                 return;
 
-            if (LateDriversOtherSelected)
+            if (LateDriversReservedSelected)
             {
-                RefreshLateDriversOtherScorecard();
+                RefreshLateDriversReservedScorecard();
                 return;
             }
 
@@ -3941,41 +3956,29 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         /// <summary>
-        /// Other tile: remap score filters to off-schedule categories
-        /// (reuse late_pu/late_do/early_pu/early_do keys).
+        /// Reserved tile: show reserved count under All; habit chips unused.
         /// </summary>
-        private void RefreshLateDriversOtherScorecard()
+        private void RefreshLateDriversReservedScorecard()
         {
             SetLateDriversScoreCaption("all", "All");
-            SetLateDriversScoreCaption("late_pu", "Unassigned");
-            SetLateDriversScoreCaption("late_do", "On a driver");
-            SetLateDriversScoreCaption("early_pu", "Reserves");
-            SetLateDriversScoreCaption("early_do", "Cancelled");
+            SetLateDriversScoreCaption("late_pu", "—");
+            SetLateDriversScoreCaption("late_do", "—");
+            SetLateDriversScoreCaption("early_pu", "—");
+            SetLateDriversScoreCaption("early_do", "—");
             SetLateDriversScoreCaption("unfinished_ticket", "—");
             SetLateDriversScoreCaption("billed_unfinished", "—");
             SetLateDriversScoreCaption("open", "—");
 
             string sd = LateDriversSelectedServiceDateIso();
-            EnsureLateDriversScheduleCache(sd, forceReload: false);
             var rows = BuildLateDriversOffScheduleRows(sd)
                 ?? new List<LateDriversTripRowTag>();
-            int allN = 0, unassigned = 0, onDriver = 0, reserves = 0, cancelled = 0;
-            foreach (var r in rows)
-            {
-                if (r == null || r.IsGroupHeader || r.IsGap) continue;
-                allN++;
-                string kind = (r.OffScheduleKind ?? "").Trim().ToLowerInvariant();
-                if (kind == "unassigned") unassigned++;
-                else if (kind == "on_driver") onDriver++;
-                else if (kind == "reserves") reserves++;
-                else if (kind == "cancelled") cancelled++;
-            }
+            int allN = rows.Count(r => r != null && !r.IsGroupHeader && !r.IsGap);
 
             SetLateDriversScoreValue("all", allN.ToString(CultureInfo.InvariantCulture));
-            SetLateDriversScoreValue("late_pu", unassigned.ToString(CultureInfo.InvariantCulture));
-            SetLateDriversScoreValue("late_do", onDriver.ToString(CultureInfo.InvariantCulture));
-            SetLateDriversScoreValue("early_pu", reserves.ToString(CultureInfo.InvariantCulture));
-            SetLateDriversScoreValue("early_do", cancelled.ToString(CultureInfo.InvariantCulture));
+            SetLateDriversScoreValue("late_pu", "—");
+            SetLateDriversScoreValue("late_do", "—");
+            SetLateDriversScoreValue("early_pu", "—");
+            SetLateDriversScoreValue("early_do", "—");
             SetLateDriversScoreValue("unfinished_ticket", "—");
             SetLateDriversScoreValue("billed_unfinished", "—");
             SetLateDriversScoreValue("open", "—");
@@ -3989,6 +3992,8 @@ namespace Hiatme_Tool_Suite_v3
             if (ldHeroCard != null && !ldHeroCard.IsDisposed)
                 ldHeroCard.Accent = SupeyCard.AccentEdge.Left;
         }
+
+        private void RefreshLateDriversOtherScorecard() => RefreshLateDriversReservedScorecard();
 
         private void SetLateDriversScoreCaption(string key, string text)
         {
@@ -4152,25 +4157,24 @@ namespace Hiatme_Tool_Suite_v3
 
             UpdateLateDriversTripCaption();
 
-            if (singleDay && LateDriversOtherSelected)
+            if (singleDay && LateDriversReservedSelected)
             {
                 string sd = LateDriversSelectedServiceDateIso();
-                EnsureLateDriversScheduleCache(sd, forceReload: false);
-                var other = BuildLateDriversOffScheduleRows(sd);
-                BindLateDriversMergedTripRows(other, showDriver: true);
-                int n = other?.Count(r => r != null && !r.IsGroupHeader && !r.IsGap) ?? 0;
+                var reserved = BuildLateDriversOffScheduleRows(sd);
+                BindLateDriversMergedTripRows(reserved, showDriver: true);
+                int n = reserved?.Count(r => r != null && !r.IsGroupHeader && !r.IsGap) ?? 0;
                 AppendLateDriversScheduleStatus(
                     n == 0
-                        ? "Other: no WellRyde trips off the printed schedule"
-                        : ("Other: " + n + " WellRyde trip" + (n == 1 ? "" : "s")
-                            + " not on schedule"));
+                        ? "Reserved: no WellRyde trips with Reserved status"
+                        : ("Reserved: " + n + " WellRyde trip" + (n == 1 ? "" : "s")
+                            + " with Reserved status"));
                 return;
             }
 
             // All drivers = habit alerts only (late/early/etc.). Full schedule is per-driver.
             bool useSchedule = singleDay
                 && !string.IsNullOrWhiteSpace(_ldSelectedDriver)
-                && !LateDriversOtherSelected;
+                && !LateDriversReservedSelected;
 
             if (useSchedule)
             {
@@ -4620,14 +4624,10 @@ namespace Hiatme_Tool_Suite_v3
             if (!(tag is LateDriversTripRowTag row))
                 return false;
 
-            // Other tile: score filters remapped to off-schedule categories.
+            // Other/Reserved tile rows: only All filter applies.
             if (!string.IsNullOrWhiteSpace(row.OffScheduleKind))
             {
-                if (chip == "all")
-                    return true;
-                string want = LateDriversOtherChipToKind(chip);
-                return !string.IsNullOrEmpty(want)
-                    && string.Equals(row.OffScheduleKind, want, StringComparison.OrdinalIgnoreCase);
+                return chip == "all";
             }
 
             // Reassigned away: still on this sheet, but not this driver's habit.
@@ -4802,6 +4802,9 @@ namespace Hiatme_Tool_Suite_v3
                     schedDo = habitSched;
                 if (habitActual != "—") actDo = habitActual;
             }
+
+            if (LateDriversSchedPuIsWillCall(schedPu, trip: null, wr))
+                schedPu = "Will call";
 
             var item = new ListViewItem("—");
             item.SubItems.Add(e.ServiceDate ?? "");
@@ -5130,10 +5133,10 @@ namespace Hiatme_Tool_Suite_v3
                 item.SubItems.Add(string.IsNullOrEmpty(status) ? "—" : status);
                 item.SubItems.Add(string.IsNullOrEmpty(state) ? "—" : state);
                 string kind = row.OffScheduleKind.Trim().ToLowerInvariant();
-                if (kind == "unassigned")
-                    item.ForeColor = Color.FromArgb(200, 120, 60);
-                else if (kind == "reserves")
+                if (kind == "reserved" || kind == "reserves")
                     item.ForeColor = Color.FromArgb(120, 140, 200);
+                else if (kind == "unassigned")
+                    item.ForeColor = Color.FromArgb(200, 120, 60);
                 else if (kind == "cancelled")
                     item.ForeColor = SupeyTheme.TextMuted;
                 else
@@ -5674,11 +5677,15 @@ namespace Hiatme_Tool_Suite_v3
             if ((string.IsNullOrWhiteSpace(actDo) || actDo == "—") && wr != null)
                 actDo = FormatLateDriversTime(wr.ActualDoIso, blank: "—");
 
+            // Blank / midnight sched PU = will-call (common on Reserved / B-leg returns).
+            if (LateDriversSchedPuIsWillCall(schedPu, trip, wr))
+                schedPu = "Will call";
+
             row.SchedPuDisplay = string.IsNullOrWhiteSpace(schedPu) || schedPu == "—" ? "—" : schedPu;
             row.SchedDoDisplay = string.IsNullOrWhiteSpace(schedDo) || schedDo == "—" ? "—" : schedDo;
             row.ActualPuDisplay = string.IsNullOrWhiteSpace(actPu) || actPu == "—" ? "—" : actPu;
             row.ActualDoDisplay = string.IsNullOrWhiteSpace(actDo) || actDo == "—" ? "—" : actDo;
-            row.SchedDisplay = row.SchedPuDisplay != "—"
+            row.SchedDisplay = !string.IsNullOrWhiteSpace(row.SchedPuDisplay) && row.SchedPuDisplay != "—"
                 ? row.SchedPuDisplay
                 : row.SchedDoDisplay;
 
@@ -6370,55 +6377,26 @@ namespace Hiatme_Tool_Suite_v3
                 new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries));
         }
 
-        /// <summary>
-        /// Score-tile key → Other category (while Other tile is selected).
-        /// </summary>
-        private static string LateDriversOtherChipToKind(string chip)
-        {
-            chip = (chip ?? "").Trim().ToLowerInvariant();
-            switch (chip)
-            {
-                case "late_pu": return "unassigned";
-                case "late_do": return "on_driver";
-                case "early_pu": return "reserves";
-                case "early_do": return "cancelled";
-                default: return null;
-            }
-        }
-
         private static string LateDriversOffScheduleKindLabel(string kind)
         {
             switch ((kind ?? "").Trim().ToLowerInvariant())
             {
+                case "reserved": return "Reserved";
                 case "unassigned": return "Unassigned";
                 case "on_driver": return "On a driver";
                 case "reserves": return "Reserves";
                 case "cancelled": return "Cancelled";
-                default: return "Not on schedule";
+                default: return "Reserved";
             }
         }
 
-        private static string ClassifyLateDriversOffScheduleKind(
-            HiatmeAiClient.TripScoutServerTripRow wr)
+        private static bool LateDriversIsReservedStatus(string status)
         {
-            if (wr == null)
-                return "unassigned";
-            string status = (wr.Status ?? "").Trim().ToLowerInvariant();
-            if (status.Contains("cancel") || status.Contains("no show") || status.Contains("noshow"))
-                return "cancelled";
-
-            string driver = (wr.Driver ?? "").Trim();
-            if (string.IsNullOrEmpty(driver)
-                || driver.Equals("(unassigned)", StringComparison.OrdinalIgnoreCase)
-                || driver.IndexOf("unassign", StringComparison.OrdinalIgnoreCase) >= 0)
-                return "unassigned";
-
-            if (driver.Equals("Reserves", StringComparison.OrdinalIgnoreCase)
-                || driver.Equals("Reserve", StringComparison.OrdinalIgnoreCase)
-                || driver.StartsWith("Reserve ", StringComparison.OrdinalIgnoreCase))
-                return "reserves";
-
-            return "on_driver";
+            if (string.IsNullOrWhiteSpace(status))
+                return false;
+            string s = status.Trim();
+            return s.Equals("Reserved", StringComparison.OrdinalIgnoreCase)
+                || s.Equals("Reserve", StringComparison.OrdinalIgnoreCase);
         }
 
         private void AddLateDriversWorkbookTripKeys(string tripNo, HashSet<string> keys)
@@ -6553,7 +6531,7 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         /// <summary>
-        /// Rebuild Other-tile cache after schedule + WR are ready. Safe to call from Present.
+        /// Rebuild Reserved-tile cache after WR trips are ready. Safe to call from Present.
         /// </summary>
         private void RefreshLateDriversOffScheduleCache()
         {
@@ -6570,8 +6548,7 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         /// <summary>
-        /// WellRyde trips not printed on a driver sheet. Reserves / will-calls count as Other
-        /// (Driver Habits has no Reserves tile). Also includes bell will-calls missing from WR day.
+        /// WellRyde trips whose live status is Reserved (not the printed Reserves sheet).
         /// </summary>
         private List<LateDriversTripRowTag> BuildLateDriversOffScheduleRows(string serviceDateIso)
         {
@@ -6584,12 +6561,7 @@ namespace Hiatme_Tool_Suite_v3
                 return _ldOffScheduleCache;
 
             var rows = new List<LateDriversTripRowTag>();
-            // Driver sheets only — Reserves/will-calls must still appear under Other.
-            var driverSheetKeys = CollectLateDriversDriverSheetTripKeys();
-            bool haveDriverSheets = driverSheetKeys.Count > 0;
-            if (!haveDriverSheets
-                && _ldWrTripsByTripNo.Count == 0
-                && (_ldWillCalls == null || _ldWillCalls.Count == 0))
+            if (_ldWrTripsByTripNo.Count == 0)
             {
                 _ldOffScheduleCacheDateIso = serviceDateIso;
                 _ldOffScheduleCache = rows;
@@ -6630,79 +6602,30 @@ namespace Hiatme_Tool_Suite_v3
                 return !string.IsNullOrEmpty(norm) && seen.Contains(norm);
             }
 
-            // With a printed roster: every WR trip not on a driver sheet (Reserves included).
-            // Without a roster: do not dump the whole WR day — only bell will-calls below.
-            if (haveDriverSheets)
+            foreach (var wr in _ldWrTripsByTripNo.Values.Distinct())
             {
-                foreach (var wr in _ldWrTripsByTripNo.Values.Distinct())
-                {
-                    if (wr == null || string.IsNullOrWhiteSpace(wr.TripNo))
-                        continue;
-                    string tripNo = wr.TripNo.Trim();
-                    if (AlreadyHave(tripNo))
-                        continue;
-                    if (LateDriversTripOnWorkbook(tripNo, driverSheetKeys))
-                        continue;
-
-                    Remember(tripNo);
-
-                    string kind = ClassifyLateDriversOffScheduleKind(wr);
-                    if (LateDriversIsWillCallTrip(tripNo) && kind == "on_driver")
-                        kind = "reserves";
-
-                    string driver = (wr.Driver ?? "").Trim();
-                    if (string.IsNullOrEmpty(driver)
-                        || driver.IndexOf("unassign", StringComparison.OrdinalIgnoreCase) >= 0)
-                        driver = "(unassigned)";
-
-                    DateTime sort = DateTime.MaxValue;
-                    if (TryParseLateDriversIso(wr.SchedPuIso, out var pu))
-                        sort = pu;
-                    else if (TryParseLateDriversIso(wr.SchedDoIso, out var dro))
-                        sort = dro;
-                    else if (TryParseLateDriversIso(wr.ActualPuIso, out var apu))
-                        sort = apu;
-
-                    var row = new LateDriversTripRowTag
-                    {
-                        ScheduleTrip = null,
-                        HabitEvent = null,
-                        FromSchedule = false,
-                        HabitOnly = false,
-                        OffScheduleKind = kind,
-                        DriverDisplay = driver,
-                        TripNo = tripNo,
-                        ServiceDate = serviceDateIso,
-                        Client = wr.Client ?? "",
-                        StatusDisplay = wr.Status ?? "",
-                        StateDisplay = LateDriversStateFromStatus(wr.Status),
-                        SortTime = sort,
-                        HabitChipKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-                        HabitChipOpen = false,
-                    };
-                    ApplyLateDriversPuDoTimes(row, trip: null, habits: emptyHabits);
-                    rows.Add(row);
-                }
-            }
-
-            // Bell will-calls may not be in the WR day trip dump yet — still show under Other.
-            foreach (var wc in _ldWillCalls ?? new List<HiatmeAiClient.WellRydeBellWillCall>())
-            {
-                if (wc == null || string.IsNullOrWhiteSpace(wc.TripNo))
+                if (wr == null || string.IsNullOrWhiteSpace(wr.TripNo))
                     continue;
-                string tripNo = wc.TripNo.Trim();
+                if (!LateDriversIsReservedStatus(wr.Status))
+                    continue;
+
+                string tripNo = wr.TripNo.Trim();
                 if (AlreadyHave(tripNo))
                     continue;
-                if (LateDriversTripOnWorkbook(tripNo, driverSheetKeys))
-                    continue;
-
                 Remember(tripNo);
 
+                string driver = (wr.Driver ?? "").Trim();
+                if (string.IsNullOrEmpty(driver)
+                    || driver.IndexOf("unassign", StringComparison.OrdinalIgnoreCase) >= 0)
+                    driver = "(unassigned)";
+
                 DateTime sort = DateTime.MaxValue;
-                if (!string.IsNullOrWhiteSpace(wc.CreatedAt)
-                    && DateTime.TryParse(wc.CreatedAt, CultureInfo.InvariantCulture,
-                        DateTimeStyles.AssumeLocal, out var created))
-                    sort = created;
+                if (TryParseLateDriversIso(wr.SchedPuIso, out var pu))
+                    sort = pu;
+                else if (TryParseLateDriversIso(wr.SchedDoIso, out var dro))
+                    sort = dro;
+                else if (TryParseLateDriversIso(wr.ActualPuIso, out var apu))
+                    sort = apu;
 
                 var row = new LateDriversTripRowTag
                 {
@@ -6710,27 +6633,18 @@ namespace Hiatme_Tool_Suite_v3
                     HabitEvent = null,
                     FromSchedule = false,
                     HabitOnly = false,
-                    OffScheduleKind = "reserves",
-                    DriverDisplay = "(will-call)",
+                    OffScheduleKind = "reserved",
+                    DriverDisplay = driver,
                     TripNo = tripNo,
                     ServiceDate = serviceDateIso,
-                    Client = wc.Rider ?? "",
-                    StatusDisplay = "Will-call ready",
-                    StateDisplay = "Ready",
-                    SchedPuDisplay = "—",
-                    SchedDoDisplay = "—",
-                    ActualPuDisplay = "—",
-                    ActualDoDisplay = "—",
-                    SchedDisplay = "—",
+                    Client = wr.Client ?? "",
+                    StatusDisplay = wr.Status ?? "Reserved",
+                    StateDisplay = LateDriversStateFromStatus(wr.Status),
                     SortTime = sort,
                     HabitChipKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                     HabitChipOpen = false,
                 };
-                if (!string.IsNullOrWhiteSpace(wc.PuSchedule))
-                {
-                    row.SchedPuDisplay = wc.PuSchedule.Trim();
-                    row.SchedDisplay = row.SchedPuDisplay;
-                }
+                ApplyLateDriversPuDoTimes(row, trip: null, habits: emptyHabits);
                 rows.Add(row);
             }
 
@@ -7196,6 +7110,35 @@ namespace Hiatme_Tool_Suite_v3
                 || DateTime.TryParse(iso, out dt))
                 return dt.ToString("h:mm tt", CultureInfo.CurrentCulture);
             return iso;
+        }
+
+        /// <summary>
+        /// Missing or midnight scheduled pickup means will-call (not a literal dash).
+        /// </summary>
+        private static bool LateDriversSchedPuIsWillCall(
+            string schedPuDisplay,
+            MCDownloadedTrip trip,
+            HiatmeAiClient.TripScoutServerTripRow wr)
+        {
+            if (trip != null && SupeyWillCallPickup.IsPickupWillCall(trip))
+                return true;
+            if (wr != null)
+            {
+                if (SupeyWillCallPickup.IsPickupWillCallTime(wr.SchedPuIso))
+                    return true;
+                // WR ticket with no PU clock (typical Reserved will-call).
+                if (string.IsNullOrWhiteSpace(wr.SchedPuIso)
+                    && (string.IsNullOrWhiteSpace(schedPuDisplay) || schedPuDisplay.Trim() == "—"))
+                    return true;
+            }
+            if (SupeyWillCallPickup.IsPickupWillCallTime(schedPuDisplay))
+                return true;
+            // FormatLateDriversTime turns 00:00 into "12:00 AM".
+            string shown = (schedPuDisplay ?? "").Trim();
+            if (string.Equals(shown, "12:00 AM", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(shown, "12:00AM", StringComparison.OrdinalIgnoreCase))
+                return true;
+            return false;
         }
 
         private void LdTripLv_DoubleClick(object sender, EventArgs e)
