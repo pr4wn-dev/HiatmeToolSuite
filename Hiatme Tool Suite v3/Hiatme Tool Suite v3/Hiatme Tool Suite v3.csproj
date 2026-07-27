@@ -238,6 +238,10 @@
       <DependentUpon>Form1.cs</DependentUpon>
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="Form1.LateDrivers.Assign.cs">
+      <DependentUpon>Form1.cs</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="DashcamVideoLibrary.cs" />
     <Compile Include="DashcamVideoStore.cs" />
     <Compile Include="Form1.DashcamVideos.cs">

@@ -752,6 +752,7 @@ namespace Hiatme_Tool_Suite_v3
             ldTripLv = CreateLateDriversListView("ldTripLv");
             EnsureLateDriversTripColumns(showDriver: true);
             ldTripLv.DoubleClick += LdTripLv_DoubleClick;
+            WireLateDriversTripContextMenu(ldTripLv);
 
             ldStageHost.Controls.Add(ldTripLv);
             ldStageHost.Controls.Add(ldTripHeader);
