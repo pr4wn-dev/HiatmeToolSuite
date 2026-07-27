@@ -104,6 +104,7 @@ namespace Hiatme_Tool_Suite_v3
         private const int LateDriversAlertWindowSeconds = 75;
         private const string LateDriversAlertSoundFileName = "law-and-order-alert.mp3";
         private const string LateDriversBellSoundFileName = "will-call-bell.wav";
+        private const string LateDriversCancelSoundFileName = "the-price-is-right-losing-horn.mp3";
         /// <summary>
         /// Event keys already announced today (persisted). Survives restart; not pruned mid-day
         /// when the habits merge briefly misses an early row.
@@ -175,6 +176,10 @@ namespace Hiatme_Tool_Suite_v3
             public string ActualPuDisplay;
             public string SchedDoDisplay;
             public string ActualDoDisplay;
+            public string PuStreetDisplay;
+            public string PuCityDisplay;
+            public string DoStreetDisplay;
+            public string DoCityDisplay;
             public string StatusDisplay;
             public string StateDisplay;
             public DateTime SortTime;
@@ -3105,6 +3110,9 @@ namespace Hiatme_Tool_Suite_v3
         private static void TryPlayLateDriversBellSoundOnce() =>
             TryPlayLateDriversSoundOnce(LateDriversBellSoundFileName, "LateDriversBellSound");
 
+        private static void TryPlayLateDriversCancelSoundOnce() =>
+            TryPlayLateDriversSoundOnce(LateDriversCancelSoundFileName, "LateDriversCancelSound");
+
         private static void TryPlayLateDriversSoundOnce(string fileName, string threadName)
         {
             try
@@ -3967,6 +3975,15 @@ namespace Hiatme_Tool_Suite_v3
                 return;
             }
 
+            // Fix-times uses printed will-call (00:00 PU) — need the workbook loaded.
+            string mode = LateDriversSelectedMode();
+            if (mode == "day" || mode == "live")
+            {
+                string sd = LateDriversSelectedServiceDateIso();
+                if (!string.IsNullOrWhiteSpace(sd))
+                    EnsureLateDriversScheduleCache(sd, forceReload: false);
+            }
+
             SetLateDriversScoreCaption("all", "All");
             SetLateDriversScoreCaption("late_pu", "Late PU");
             SetLateDriversScoreCaption("late_do", "Late DO");
@@ -4227,14 +4244,25 @@ namespace Hiatme_Tool_Suite_v3
 
         private bool LateDriversTripLooksLikeWillCall(string tripNo)
         {
+            // Prefer printed workbook PU — WR often fills a real clock after the will-call
+            // is activated, which would hide these from a WR-only check.
+            var schedTrip = FindLateDriversScheduleTripAnywhere(tripNo);
             var wr = FindLateDriversWrTrip(tripNo);
-            string schedPu = wr != null
-                ? FormatLateDriversTime(wr.SchedPuIso, blank: "—")
-                : "—";
-            if (LateDriversSchedPuIsWillCall(schedPu, trip: null, wr))
+
+            string schedPuDisplay = "—";
+            if (wr != null && !string.IsNullOrWhiteSpace(wr.SchedPuIso))
+                schedPuDisplay = FormatLateDriversTime(wr.SchedPuIso, blank: "—");
+            else if (schedTrip != null)
+            {
+                string fromSheet = SupeyTripTimes.FormatTimeOfDay(SupeyTripTimes.TryParsePU(schedTrip));
+                if (!string.IsNullOrWhiteSpace(fromSheet))
+                    schedPuDisplay = fromSheet;
+            }
+
+            if (LateDriversSchedPuIsWillCall(schedPuDisplay, schedTrip, wr))
                 return true;
 
-            // Period / no WR: treat blank/midnight habit PU sched as will-call.
+            // Period / no schedule cache: treat blank/midnight habit PU sched as will-call.
             foreach (var e in _ldEventRows ?? Enumerable.Empty<HiatmeAiClient.LateDriversEventRow>())
             {
                 if (e == null || !LateDriversTripQueryMatches(e.TripNo, tripNo))
@@ -4246,6 +4274,81 @@ namespace Hiatme_Tool_Suite_v3
                     return true;
             }
             return false;
+        }
+
+        /// <summary>
+        /// Find the printed trip on any driver / Reserves sheet (will-call detection).
+        /// </summary>
+        private MCDownloadedTrip FindLateDriversScheduleTripAnywhere(string tripNo)
+        {
+            if (_ldScheduleCache == null || string.IsNullOrWhiteSpace(tripNo))
+                return null;
+
+            MCDownloadedTrip hit = null;
+            void Consider(MCDownloadedTrip t)
+            {
+                if (t == null || string.IsNullOrWhiteSpace(t.TripNumber))
+                    return;
+                if (!LateDriversTripNosEqualForChip(t.TripNumber, tripNo)
+                    && !LateDriversTripQueryMatches(t.TripNumber, tripNo))
+                    return;
+                // Prefer a real driver sheet over Reserves when both exist.
+                if (hit == null)
+                {
+                    hit = t;
+                    return;
+                }
+            }
+
+            if (_ldScheduleCache.DriverTrips != null)
+            {
+                foreach (var kv in _ldScheduleCache.DriverTrips)
+                {
+                    if (kv.Value == null || LateDriversIsReservesTabName(kv.Key))
+                        continue;
+                    foreach (var t in kv.Value)
+                        Consider(t);
+                }
+                foreach (var kv in _ldScheduleCache.DriverTrips)
+                {
+                    if (kv.Value == null || !LateDriversIsReservesTabName(kv.Key))
+                        continue;
+                    foreach (var t in kv.Value)
+                        Consider(t);
+                }
+            }
+
+            if (hit != null)
+                return hit;
+
+            if (_ldScheduleCache.DriverLines != null)
+            {
+                foreach (var kv in _ldScheduleCache.DriverLines)
+                {
+                    if (kv.Value == null || LateDriversIsReservesTabName(kv.Key))
+                        continue;
+                    foreach (var line in kv.Value)
+                        Consider(line?.Trip);
+                }
+                foreach (var kv in _ldScheduleCache.DriverLines)
+                {
+                    if (kv.Value == null || !LateDriversIsReservesTabName(kv.Key))
+                        continue;
+                    foreach (var line in kv.Value)
+                        Consider(line?.Trip);
+                }
+            }
+
+            if (hit != null)
+                return hit;
+
+            if (_ldScheduleCache.ReserveFileTrips != null)
+            {
+                foreach (var t in _ldScheduleCache.ReserveFileTrips)
+                    Consider(t);
+            }
+
+            return hit;
         }
 
         /// <summary>Habit column text — prefix Fix when will-call done + off-time.</summary>
@@ -4643,6 +4746,10 @@ namespace Hiatme_Tool_Suite_v3
                 row.ReceivedFromDriver,
                 row.StatusDisplay,
                 row.StateDisplay,
+                row.PuStreetDisplay,
+                row.PuCityDisplay,
+                row.DoStreetDisplay,
+                row.DoCityDisplay,
                 habit,
                 row.OffScheduleKind);
         }
@@ -4951,16 +5058,28 @@ namespace Hiatme_Tool_Suite_v3
                 && string.Equals(ldTripLv.Columns[3].Text, "Driver", StringComparison.OrdinalIgnoreCase);
             bool tripBeforeHabit = ldTripLv.Columns.Count > 2
                 && string.Equals(ldTripLv.Columns[2].Text, "Trip", StringComparison.OrdinalIgnoreCase);
+            // Force rebuild when address/time column order drifts (PU block then DO block).
             bool hasPuDoCols = false;
+            bool hasAddrCols = false;
+            bool puBlockOrdered = false;
             for (int i = 0; i < ldTripLv.Columns.Count; i++)
             {
-                if (string.Equals(ldTripLv.Columns[i].Text, "Sched PU", StringComparison.OrdinalIgnoreCase))
-                {
+                string col = ldTripLv.Columns[i].Text ?? "";
+                if (string.Equals(col, "Sched PU", StringComparison.OrdinalIgnoreCase))
                     hasPuDoCols = true;
-                    break;
+                if (string.Equals(col, "PU Street", StringComparison.OrdinalIgnoreCase))
+                {
+                    hasAddrCols = true;
+                    // PU Street, PU City, Sched PU, Actual PU…
+                    if (i + 3 < ldTripLv.Columns.Count
+                        && string.Equals(ldTripLv.Columns[i + 1].Text, "PU City", StringComparison.OrdinalIgnoreCase)
+                        && string.Equals(ldTripLv.Columns[i + 2].Text, "Sched PU", StringComparison.OrdinalIgnoreCase)
+                        && string.Equals(ldTripLv.Columns[i + 3].Text, "Actual PU", StringComparison.OrdinalIgnoreCase))
+                        puBlockOrdered = true;
                 }
             }
-            if (ldTripLv.Columns.Count > 0 && hasDriverCol == showDriver && hasPuDoCols && tripBeforeHabit)
+            if (ldTripLv.Columns.Count > 0 && hasDriverCol == showDriver && hasPuDoCols
+                && hasAddrCols && puBlockOrdered && tripBeforeHabit)
                 return;
 
             ldTripLv.BeginUpdate();
@@ -4975,8 +5094,12 @@ namespace Hiatme_Tool_Suite_v3
                     ldTripLv.Columns.Add("Driver", 140);
                 ldTripLv.Columns.Add("Habit", 96);
                 ldTripLv.Columns.Add("Client", 160);
+                ldTripLv.Columns.Add("PU Street", 120);
+                ldTripLv.Columns.Add("PU City", 72);
                 ldTripLv.Columns.Add("Sched PU", 78);
                 ldTripLv.Columns.Add("Actual PU", 78);
+                ldTripLv.Columns.Add("DO Street", 120);
+                ldTripLv.Columns.Add("DO City", 72);
                 ldTripLv.Columns.Add("Sched DO", 78);
                 ldTripLv.Columns.Add("Actual DO", 78);
                 ldTripLv.Columns.Add("Mins", 56);
@@ -5032,6 +5155,11 @@ namespace Hiatme_Tool_Suite_v3
             if (LateDriversSchedPuIsWillCall(schedPu, trip: null, wr))
                 schedPu = "Will call";
 
+            string puStreet = wr?.PuStreet ?? "";
+            string puCity = wr?.PuCity ?? "";
+            string doStreet = wr?.DoStreet ?? "";
+            string doCity = wr?.DoCity ?? "";
+
             var item = new ListViewItem("—");
             item.SubItems.Add(e.ServiceDate ?? "");
             item.SubItems.Add(e.TripNo ?? "");
@@ -5039,8 +5167,12 @@ namespace Hiatme_Tool_Suite_v3
                 item.SubItems.Add(driver);
             item.SubItems.Add(habit);
             item.SubItems.Add(e.Client ?? "");
+            item.SubItems.Add(LateDriversBlankDash(puStreet));
+            item.SubItems.Add(LateDriversBlankDash(puCity));
             item.SubItems.Add(schedPu);
             item.SubItems.Add(actPu);
+            item.SubItems.Add(LateDriversBlankDash(doStreet));
+            item.SubItems.Add(LateDriversBlankDash(doCity));
             item.SubItems.Add(schedDo);
             item.SubItems.Add(actDo);
             bool noActual = string.IsNullOrWhiteSpace(e.ActualIso);
@@ -5243,10 +5375,10 @@ namespace Hiatme_Tool_Suite_v3
 
         private ListViewItem CreateLateDriversMergedListItem(LateDriversTripRowTag row, bool showDriver)
         {
-            // After Trip (+ optional Driver) + Habit: Client, 4 times, Mins, Status, State
+            // After Trip (+ optional Driver) + Habit: Client, 4 addresses, 4 times, Mins, Status, State
             // Group/gap notes live in Tag.GroupLabel and paint as a full-row merged bar
             // (not Habit cell text — that would widen the Habit column via autofit).
-            int subCount = showDriver ? 12 : 11;
+            int subCount = showDriver ? 16 : 15;
 
             if (row.IsGap)
             {
@@ -5309,6 +5441,10 @@ namespace Hiatme_Tool_Suite_v3
             string actPu = string.IsNullOrWhiteSpace(row.ActualPuDisplay) ? "—" : row.ActualPuDisplay;
             string schedDo = string.IsNullOrWhiteSpace(row.SchedDoDisplay) ? "—" : row.SchedDoDisplay;
             string actDo = string.IsNullOrWhiteSpace(row.ActualDoDisplay) ? "—" : row.ActualDoDisplay;
+            string puStreet = string.IsNullOrWhiteSpace(row.PuStreetDisplay) ? "—" : row.PuStreetDisplay;
+            string puCity = string.IsNullOrWhiteSpace(row.PuCityDisplay) ? "—" : row.PuCityDisplay;
+            string doStreet = string.IsNullOrWhiteSpace(row.DoStreetDisplay) ? "—" : row.DoStreetDisplay;
+            string doCity = string.IsNullOrWhiteSpace(row.DoCityDisplay) ? "—" : row.DoCityDisplay;
 
             var item = new ListViewItem(groupCol);
             item.UseItemStyleForSubItems = false;
@@ -5318,8 +5454,12 @@ namespace Hiatme_Tool_Suite_v3
                 item.SubItems.Add(string.IsNullOrEmpty(driverCol) ? "—" : driverCol);
             item.SubItems.Add(habitLabel);
             item.SubItems.Add(client);
+            item.SubItems.Add(puStreet);
+            item.SubItems.Add(puCity);
             item.SubItems.Add(schedPu);
             item.SubItems.Add(actPu);
+            item.SubItems.Add(doStreet);
+            item.SubItems.Add(doCity);
             item.SubItems.Add(schedDo);
             item.SubItems.Add(actDo);
 
@@ -5951,6 +6091,36 @@ namespace Hiatme_Tool_Suite_v3
 
             if (string.IsNullOrWhiteSpace(row.Client) && wr != null && !string.IsNullOrWhiteSpace(wr.Client))
                 row.Client = wr.Client.Trim();
+
+            ApplyLateDriversAddressFields(row, trip, wr);
+        }
+
+        private static string LateDriversBlankDash(string value)
+        {
+            string s = (value ?? "").Trim();
+            return string.IsNullOrEmpty(s) ? "—" : s;
+        }
+
+        /// <summary>
+        /// Fill PU/DO street + city from WR first, then workbook schedule trip.
+        /// </summary>
+        private static void ApplyLateDriversAddressFields(
+            LateDriversTripRowTag row,
+            MCDownloadedTrip trip,
+            HiatmeAiClient.TripScoutServerTripRow wr)
+        {
+            if (row == null)
+                return;
+
+            string puStreet = PreferNonEmpty(wr?.PuStreet, trip?.PUStreet);
+            string puCity = PreferNonEmpty(wr?.PuCity, trip?.PUCity);
+            string doStreet = PreferNonEmpty(wr?.DoStreet, trip?.DOStreet);
+            string doCity = PreferNonEmpty(wr?.DoCity, trip?.DOCITY);
+
+            row.PuStreetDisplay = LateDriversBlankDash(puStreet);
+            row.PuCityDisplay = LateDriversBlankDash(puCity);
+            row.DoStreetDisplay = LateDriversBlankDash(doStreet);
+            row.DoCityDisplay = LateDriversBlankDash(doCity);
         }
 
         private static string LateDriversStateFromStatus(string status)

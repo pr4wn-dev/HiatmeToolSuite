@@ -342,7 +342,7 @@ namespace Hiatme_Tool_Suite_v3
                 return;
 
             _ldPendingCancelFocusTrip = focusTrip;
-            // Dedicated cancel sound later — do not reuse late/early chirp.
+            TryPlayLateDriversCancelSoundOnce();
             SyncLateDriversDriverAlertBlink();
         }
 
@@ -890,14 +890,18 @@ namespace Hiatme_Tool_Suite_v3
             if (showDriver)
                 item.SubItems.Add(string.IsNullOrWhiteSpace(tag.DriverDisplay) ? "—" : tag.DriverDisplay);
             item.SubItems.Add(""); // Habit
-            item.SubItems.Add(diff);
-            item.SubItems.Add("");
-            item.SubItems.Add("");
-            item.SubItems.Add("");
-            item.SubItems.Add("");
-            item.SubItems.Add("");
-            item.SubItems.Add("");
-            item.SubItems.Add("");
+            item.SubItems.Add(diff); // Client column holds the change summary
+            item.SubItems.Add(""); // PU Street
+            item.SubItems.Add(""); // PU City
+            item.SubItems.Add(""); // Sched PU
+            item.SubItems.Add(""); // Actual PU
+            item.SubItems.Add(""); // DO Street
+            item.SubItems.Add(""); // DO City
+            item.SubItems.Add(""); // Sched DO
+            item.SubItems.Add(""); // Actual DO
+            item.SubItems.Add(""); // Mins
+            item.SubItems.Add(""); // Status
+            item.SubItems.Add(""); // State
             item.BackColor = LateDriversChangeDetailBg;
             item.ForeColor = LateDriversChangeDetailFg;
             foreach (ListViewItem.ListViewSubItem si in item.SubItems)
