@@ -427,6 +427,7 @@ namespace Hiatme_Tool_Suite_v3
                 merged.AddRange(journal);
 
             bool journalHasSched = false;
+            bool journalHasDriver = false;
             foreach (var row in merged)
             {
                 if (row?.Tags == null) continue;
@@ -434,12 +435,10 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     if (string.Equals(tag, "sched_time_changed", StringComparison.OrdinalIgnoreCase)
                         || string.Equals(tag, "time_changed", StringComparison.OrdinalIgnoreCase))
-                    {
                         journalHasSched = true;
-                        break;
-                    }
+                    if (string.Equals(tag, "driver_changed", StringComparison.OrdinalIgnoreCase))
+                        journalHasDriver = true;
                 }
-                if (journalHasSched) break;
             }
 
             // WR often already has the new clock on first pull — never journals sched_time_changed —
@@ -450,6 +449,15 @@ namespace Hiatme_Tool_Suite_v3
                 var mcDiff = LateDriversBuildMcVsWrSchedChange(key);
                 if (mcDiff != null)
                     merged.Insert(0, mcDiff);
+            }
+
+            // Print sheet owner ≠ live WR driver (reassign) — expandable even when WR never
+            // journaled driver_changed (already on the new driver at first pull).
+            if (!journalHasDriver)
+            {
+                var driverDiff = LateDriversBuildPrintVsWrDriverChange(key);
+                if (driverDiff != null)
+                    merged.Insert(0, driverDiff);
             }
 
             return merged.Count > 0 ? merged : null;
@@ -567,6 +575,59 @@ namespace Hiatme_Tool_Suite_v3
                 Tags = new List<string> { "sched_time_changed", "time_changed", "mc_vs_wr", "updated" },
                 Fields = fields,
                 Summary = "Schedule time differs from Modivcare",
+            };
+        }
+
+        /// <summary>
+        /// Synthetic driver change when printed sheet owner differs from live WellRyde driver.
+        /// </summary>
+        private HiatmeAiClient.TripScoutChangeRow LateDriversBuildPrintVsWrDriverChange(string tripNo)
+        {
+            var wr = FindLateDriversWrTrip(tripNo);
+            if (wr == null)
+                return null;
+
+            string wrDriver = (wr.Driver ?? "").Trim();
+            bool wrUnassigned = string.IsNullOrEmpty(wrDriver)
+                || wrDriver.Equals("(unassigned)", StringComparison.OrdinalIgnoreCase)
+                || wrDriver.IndexOf("unassign", StringComparison.OrdinalIgnoreCase) >= 0;
+
+            string sheetOwner = FindLateDriversWorkbookOwnerForTrip(tripNo) ?? "";
+            bool sheetEmpty = string.IsNullOrWhiteSpace(sheetOwner)
+                || LateDriversIsReservesTabName(sheetOwner);
+
+            string before = sheetEmpty ? null : sheetOwner.Trim();
+            string after = wrUnassigned ? null : wrDriver;
+
+            if (string.IsNullOrWhiteSpace(before) && string.IsNullOrWhiteSpace(after))
+                return null;
+            if (!string.IsNullOrWhiteSpace(before)
+                && !string.IsNullOrWhiteSpace(after)
+                && LateDriversDriverNamesMatch(before, after))
+                return null;
+
+            string sd = LateDriversSelectedServiceDateIso();
+            if (string.IsNullOrWhiteSpace(sd))
+                sd = DateTime.Today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+            return new HiatmeAiClient.TripScoutChangeRow
+            {
+                ServiceDate = sd,
+                TripNo = LateDriversNormalizeChangeTripNo(tripNo),
+                Client = wr.Client,
+                Driver = wrDriver,
+                Kind = "updated",
+                Tags = new List<string> { "driver_changed", "print_vs_wr", "updated" },
+                Fields = new List<HiatmeAiClient.TripScoutChangeFieldRow>
+                {
+                    new HiatmeAiClient.TripScoutChangeFieldRow
+                    {
+                        Field = "driver",
+                        Before = before,
+                        After = after,
+                    },
+                },
+                Summary = "Driver differs from printed sheet",
             };
         }
 
