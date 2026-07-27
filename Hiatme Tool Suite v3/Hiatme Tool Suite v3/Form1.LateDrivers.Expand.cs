@@ -243,6 +243,8 @@ namespace Hiatme_Tool_Suite_v3
                         RebuildLateDriversChangesByTrip(payload.Changes);
                         LateDriversPruneExpandedTrips();
                     }
+
+                    ProcessLateDriversCancelAlerts(payload.Changes, sd);
                 }
 
                 var mc = await mcTask.ConfigureAwait(true);
@@ -266,6 +268,113 @@ namespace Hiatme_Tool_Suite_v3
             {
                 // Expand is optional — don't fail the habits refresh.
                 _ldExpandSourcesAttempted = true;
+            }
+        }
+
+        /// <summary>
+        /// First load baselines cancel ts (no alert). Later cancels: amber blink, sound,
+        /// expand, and queue a jump to the newest trip after the list rebinds.
+        /// </summary>
+        private void ProcessLateDriversCancelAlerts(
+            IEnumerable<HiatmeAiClient.TripScoutChangeRow> changes,
+            string serviceDateIso)
+        {
+            string sd = (serviceDateIso ?? "").Trim();
+            if (string.IsNullOrEmpty(sd) || changes == null)
+                return;
+
+            if (!string.Equals(sd, _ldCancelAlertServiceDate, StringComparison.Ordinal))
+            {
+                _ldCancelAlertServiceDate = sd;
+                _ldCancelAlertCursorTs = 0;
+                _ldCancelAlertNeedsBaseline = true;
+                _ldCancelHotUntil.Clear();
+                _ldPendingCancelFocusTrip = null;
+            }
+
+            var cancels = changes
+                .Where(r => r != null && LateDriversChangeIsCancelAlert(r))
+                .ToList();
+
+            if (_ldCancelAlertNeedsBaseline)
+            {
+                _ldCancelAlertNeedsBaseline = false;
+                _ldCancelAlertCursorTs = cancels.Count == 0
+                    ? 0
+                    : cancels.Max(r => r.Ts ?? 0);
+                return;
+            }
+
+            var incoming = cancels
+                .Where(r => (r.Ts ?? 0) > _ldCancelAlertCursorTs)
+                .OrderByDescending(r => r.Ts ?? 0)
+                .ToList();
+            if (incoming.Count == 0)
+                return;
+
+            double maxTs = incoming.Max(r => r.Ts ?? 0);
+            if (maxTs > _ldCancelAlertCursorTs)
+                _ldCancelAlertCursorTs = maxTs;
+
+            DateTime until = DateTime.UtcNow.AddSeconds(LateDriversAlertWindowSeconds);
+            string focusTrip = null;
+            foreach (var row in incoming)
+            {
+                string trip = LateDriversNormalizeChangeTripNo(row.TripNo);
+                if (trip.Length == 0)
+                    continue;
+
+                _ldCancelHotUntil[trip] = until;
+                string canon = LateDriversCanonicalChangeTripKey(trip);
+                if (canon.Length > 0 && !string.Equals(canon, trip, StringComparison.OrdinalIgnoreCase))
+                    _ldCancelHotUntil[canon] = until;
+
+                if (canon.Length > 0)
+                    _ldExpandedTripNos.Add(canon);
+                else
+                    _ldExpandedTripNos.Add(trip);
+
+                if (focusTrip == null)
+                    focusTrip = trip;
+            }
+
+            if (string.IsNullOrEmpty(focusTrip))
+                return;
+
+            _ldPendingCancelFocusTrip = focusTrip;
+            // Dedicated cancel sound later — do not reuse late/early chirp.
+            SyncLateDriversDriverAlertBlink();
+        }
+
+        private static bool LateDriversChangeIsCancelAlert(HiatmeAiClient.TripScoutChangeRow row)
+        {
+            if (row == null)
+                return false;
+            string kind = (row.Kind ?? "").Trim().ToLowerInvariant();
+            if (kind == "removed")
+                return true;
+            return TripScoutChangeIsCancelled(row);
+        }
+
+        /// <summary>
+        /// Jump to the newest cancel after BindLateDriversTripPane so selection sticks.
+        /// </summary>
+        private void FlushLateDriversPendingCancelFocus()
+        {
+            string trip = (_ldPendingCancelFocusTrip ?? "").Trim();
+            _ldPendingCancelFocusTrip = null;
+            if (trip.Length == 0)
+                return;
+
+            try
+            {
+                GoToLateDriversTripSearch(trip);
+                FocusLateDriversTripInList(trip);
+                SetLateDriversStatus("Status: Cancelled trip " + trip);
+            }
+            catch
+            {
+                /* navigation best-effort */
             }
         }
 
