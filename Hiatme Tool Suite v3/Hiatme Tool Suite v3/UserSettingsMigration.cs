@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Configuration;
 using System.IO;
 using System.Linq;
@@ -28,15 +29,47 @@ namespace Hiatme_Tool_Suite_v3
 
                 settings.Upgrade();
 
+                bool recovered = false;
                 if (CredentialsEmpty(settings))
-                    TryRecoverFromSiblingUserConfigs(settings);
+                    recovered = TryRecoverFromSiblingUserConfigs(settings);
 
                 settings.LastRunAssemblyVersion = current;
                 settings.Save();
+
+                // Tell the AI server what happened. Credentials silently vanishing on
+                // update is the single worst failure for a desk, and it only shows up
+                // on machines we cannot inspect — so make it visible.
+                TryReportOutcome(last, current, recovered, CredentialsEmpty(settings));
             }
             catch
             {
                 // Never block startup if migration fails.
+            }
+        }
+
+        private static void TryReportOutcome(
+            string previous, string current, bool recovered, bool stillEmpty)
+        {
+            try
+            {
+                HiatmeEventReporter.Report(
+                    stillEmpty ? "settings_migration_failed" : "settings_migration",
+                    "UserSettingsMigration",
+                    stillEmpty
+                        ? "Credentials empty after upgrade from " + (previous ?? "")
+                        : "Settings carried forward to " + current,
+                    null,
+                    new Newtonsoft.Json.Linq.JObject
+                    {
+                        ["previous_version"] = previous ?? "",
+                        ["current_version"] = current ?? "",
+                        ["recovered_from_sibling"] = recovered,
+                        ["credentials_empty"] = stillEmpty,
+                    });
+            }
+            catch
+            {
+                /* telemetry must never disrupt startup */
             }
         }
 
@@ -50,24 +83,26 @@ namespace Hiatme_Tool_Suite_v3
 
         /// <summary>
         /// If a prior release already created a newer empty user.config (e.g. 3.0.1.4 without Upgrade),
-        /// pull creds from an older sibling version folder that still has data.
+        /// pull creds from an older version folder that still has data.
+        ///
+        /// The per-version folder sits under an evidence-hash folder derived from the exe path, so a desk
+        /// that ends up running from a new location gets a brand-new hash folder with no history and
+        /// Settings.Upgrade() finds nothing. Scan every hash folder for this app, not just the current one,
+        /// or those desks silently lose their saved logins on update.
         /// </summary>
-        private static void TryRecoverFromSiblingUserConfigs(Settings settings)
+        private static bool TryRecoverFromSiblingUserConfigs(Settings settings)
         {
             var config = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.PerUserRoamingAndLocal);
             if (config == null || string.IsNullOrEmpty(config.FilePath))
-                return;
+                return false;
 
             string currentVersionDir = Path.GetDirectoryName(config.FilePath);
             string versionsRoot = Path.GetDirectoryName(currentVersionDir);
             if (string.IsNullOrEmpty(versionsRoot) || !Directory.Exists(versionsRoot))
-                return;
+                return false;
 
-            foreach (string dir in Directory.GetDirectories(versionsRoot).OrderByDescending(d => d, StringComparer.OrdinalIgnoreCase))
+            foreach (string dir in EnumerateCandidateVersionDirs(versionsRoot, currentVersionDir))
             {
-                if (string.Equals(dir, currentVersionDir, StringComparison.OrdinalIgnoreCase))
-                    continue;
-
                 string userConfig = Path.Combine(dir, "user.config");
                 if (!File.Exists(userConfig))
                     continue;
@@ -90,7 +125,72 @@ namespace Hiatme_Tool_Suite_v3
                 settings.hiatmeUserPass = hmPass ?? string.Empty;
                 settings.gmailUserName = gmUser ?? string.Empty;
                 settings.gmailUserPass = gmPass ?? string.Empty;
-                return;
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Every version folder that could hold saved creds, best candidate first: newest real version
+        /// wins, then most recently written. Ordering by folder name is wrong — as strings "4.0.0.9"
+        /// sorts above "4.0.0.21", which would restore months-old credentials over yesterday's.
+        /// </summary>
+        private static IEnumerable<string> EnumerateCandidateVersionDirs(
+            string versionsRoot, string currentVersionDir)
+        {
+            var dirs = new List<string>();
+
+            // Sibling versions under the current exe-path hash.
+            dirs.AddRange(SafeGetDirectories(versionsRoot));
+
+            // Same app, different exe path (updater moved / reinstalled elsewhere).
+            string appRoot = Path.GetDirectoryName(versionsRoot);
+            if (!string.IsNullOrEmpty(appRoot) && Directory.Exists(appRoot))
+            {
+                foreach (string hashDir in SafeGetDirectories(appRoot))
+                {
+                    if (string.Equals(hashDir, versionsRoot, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    dirs.AddRange(SafeGetDirectories(hashDir));
+                }
+            }
+
+            return dirs
+                .Where(d => !string.Equals(d, currentVersionDir, StringComparison.OrdinalIgnoreCase))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderByDescending(d => ParseVersionOrZero(Path.GetFileName(d)))
+                .ThenByDescending(SafeLastWriteUtc);
+        }
+
+        private static string[] SafeGetDirectories(string path)
+        {
+            try
+            {
+                return Directory.Exists(path) ? Directory.GetDirectories(path) : new string[0];
+            }
+            catch
+            {
+                return new string[0];
+            }
+        }
+
+        private static Version ParseVersionOrZero(string name)
+        {
+            Version v;
+            return Version.TryParse(name, out v) ? v : new Version(0, 0, 0, 0);
+        }
+
+        private static DateTime SafeLastWriteUtc(string dir)
+        {
+            try
+            {
+                string cfg = Path.Combine(dir, "user.config");
+                return File.Exists(cfg) ? File.GetLastWriteTimeUtc(cfg) : DateTime.MinValue;
+            }
+            catch
+            {
+                return DateTime.MinValue;
             }
         }
 
