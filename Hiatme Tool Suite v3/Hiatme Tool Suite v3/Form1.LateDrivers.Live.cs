@@ -336,8 +336,24 @@ namespace Hiatme_Tool_Suite_v3
             {
                 if (hiatmeTabControl?.SelectedTab != tabPageLateDrivers)
                     return;
-                if (!LateDriversLiveEnabled || _ldLoadInFlight)
+                if (!LateDriversLiveEnabled)
                     return;
+                if (_ldLoadInFlight)
+                {
+                    // Watchdog: a refresh whose await chain never returned would otherwise
+                    // block every future poll. After the timeout window, reclaim the flag so
+                    // live polling resumes (the zombie task's finally is a harmless double-reset).
+                    if (_ldLoadStartedUtc != DateTime.MinValue
+                        && DateTime.UtcNow - _ldLoadStartedUtc > LateDriversLoadWatchdog)
+                    {
+                        _ldLoadInFlight = false;
+                        SetLateDriversStatus("Status: Previous refresh timed out — retrying…");
+                    }
+                    else
+                    {
+                        return;
+                    }
+                }
                 _ = LateDriversRefreshAsync(force: false);
             };
         }

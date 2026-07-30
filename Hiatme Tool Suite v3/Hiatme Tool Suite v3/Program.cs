@@ -82,8 +82,10 @@ namespace Hiatme_Tool_Suite_v3
             Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
             Application.ThreadException += (_, e) =>
             {
+                // Show the error but keep running. Previously every UI-thread exception called
+                // Application.Exit(), so a single recoverable paint/layout hiccup tore the whole
+                // Suite down mid-shift. WinForms can safely continue its message loop after this.
                 ShowExceptionChain("UI thread error", e.Exception);
-                Application.Exit();
             };
             AppDomain.CurrentDomain.UnhandledException += (_, e) =>
             {

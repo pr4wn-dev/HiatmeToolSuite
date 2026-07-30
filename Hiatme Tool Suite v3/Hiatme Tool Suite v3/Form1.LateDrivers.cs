@@ -68,6 +68,11 @@ namespace Hiatme_Tool_Suite_v3
         private string _ldLastHash;
         private string _ldHabitsHash;
         private bool _ldLoadInFlight;
+        private DateTime _ldLoadStartedUtc = DateTime.MinValue;
+        // If a refresh's await chain never returns (e.g. a request with no effective timeout),
+        // _ldLoadInFlight would stay true forever and freeze live polling. This watchdog lets a
+        // new poll reclaim the flag after the shared HTTP timeout (130s) has comfortably passed.
+        private static readonly TimeSpan LateDriversLoadWatchdog = TimeSpan.FromMinutes(4);
         private bool _ldBuilt;
         private bool _ldFirstLoadDone;
         private bool _ldSuppressDateChanged;
@@ -292,7 +297,7 @@ namespace Hiatme_Tool_Suite_v3
                     _ldPeriodButtons.Clear();
                     _ldScoreValues.Clear();
                     _ldScoreCards.Clear();
-                    _ldDriverTiles.Clear();
+                    DisposeLateDriversDriverTiles();
                 }
                 if (tabImageList != null && tabImageList.Images.ContainsKey("driver-habits.png"))
                     tabPageLateDrivers.ImageKey = "driver-habits.png";
@@ -1924,6 +1929,7 @@ namespace Hiatme_Tool_Suite_v3
             if (!_ldBuilt || _ldLoadInFlight || IsDisposed)
                 return;
             _ldLoadInFlight = true;
+            _ldLoadStartedUtc = DateTime.UtcNow;
             bool liveMode = LateDriversLiveEnabled;
             if (ldRefreshBtn != null && !ldRefreshBtn.IsDisposed)
                 ldRefreshBtn.Enabled = false;
@@ -2584,22 +2590,25 @@ namespace Hiatme_Tool_Suite_v3
             return list;
         }
 
+        /// <summary>Total habit flags — late, early, and unfinished count the same.</summary>
+        private static int LateDriversFuckupCount(HiatmeAiClient.LateDriversDriverSummary d)
+        {
+            if (d == null) return 0;
+            return d.LateCount + d.EarlyCount + d.Unfinished;
+        }
+
         private static void SortLateDriversByMinutes(List<HiatmeAiClient.LateDriversDriverSummary> list)
         {
             if (list == null || list.Count < 2)
                 return;
-            // Worst-first: unfinished → late count → early count → late minutes (tiebreak).
-            // Minutes alone used to bury multi-hit drivers under one long late.
+            // Worst-first: total fuck-ups (L+E+U equal), then late minutes as tiebreak.
+            // Do not treat late as worse than early — 2 early beats 1 late.
             list.Sort((a, b) =>
             {
                 if (a == null && b == null) return 0;
                 if (a == null) return 1;
                 if (b == null) return -1;
-                int cmp = b.UnfinishedOpen.CompareTo(a.UnfinishedOpen);
-                if (cmp != 0) return cmp;
-                cmp = b.LateCount.CompareTo(a.LateCount);
-                if (cmp != 0) return cmp;
-                cmp = b.EarlyCount.CompareTo(a.EarlyCount);
+                int cmp = LateDriversFuckupCount(b).CompareTo(LateDriversFuckupCount(a));
                 if (cmp != 0) return cmp;
                 return b.TotalMinutes.CompareTo(a.TotalMinutes);
             });
@@ -2687,6 +2696,28 @@ namespace Hiatme_Tool_Suite_v3
             RenderLateDriversDriverStripPage();
         }
 
+        /// <summary>
+        /// Dispose the driver-strip tiles (SupeyCards) and drop their references so their
+        /// window handles, child labels and static ThemeChanged subscriptions are released.
+        /// Must be called instead of a bare Controls.Clear()/list.Clear() on every rebuild.
+        /// </summary>
+        private void DisposeLateDriversDriverTiles()
+        {
+            if (ldDriverStrip != null && !ldDriverStrip.IsDisposed)
+            {
+                try { ldDriverStrip.Controls.Clear(); }
+                catch { /* strip handle may be gone during teardown */ }
+            }
+            foreach (var tile in _ldDriverTiles)
+            {
+                if (tile == null || tile.IsDisposed)
+                    continue;
+                try { tile.Dispose(); }
+                catch { /* best-effort; never block a refresh on cleanup */ }
+            }
+            _ldDriverTiles.Clear();
+        }
+
         private void RenderLateDriversDriverStripPage()
         {
             if (ldDriverStrip == null || ldDriverStrip.IsDisposed || _ldDriverStripRendering)
@@ -2720,8 +2751,12 @@ namespace Hiatme_Tool_Suite_v3
                 if (ldDriverNextBtn != null && !ldDriverNextBtn.IsDisposed)
                     ldDriverNextBtn.Enabled = canPage && _ldDriverScrollOffset < maxOff;
 
-                ldDriverStrip.Controls.Clear();
-                _ldDriverTiles.Clear();
+                // Dispose the previous tiles before dropping them. Just calling
+                // Controls.Clear()/_ldDriverTiles.Clear() orphaned each SupeyCard (and its
+                // child labels + window handles), and every card stayed rooted to the static
+                // SupeyThemeManager.ThemeChanged event — a per-refresh HWND/GDI leak that
+                // eventually made ListView.CreateHandle fail and crashed the Suite.
+                DisposeLateDriversDriverTiles();
 
                 int allLates = rows.Sum(d => d.LateCount);
                 int allEarly = rows.Sum(d => d.EarlyCount);
@@ -3516,6 +3551,9 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     var tip = new ToolTip();
                     tip.SetToolTip(reviewBtn, "Performance review");
+                    // ToolTip is an unparented Component — dispose it with the button so it
+                    // doesn't leak once the tile is torn down on the next refresh.
+                    reviewBtn.Disposed += (_, __) => { try { tip.Dispose(); } catch { } };
                 }
                 catch { }
                 string driverForReview = summary.Driver.Trim();
@@ -5146,30 +5184,40 @@ namespace Hiatme_Tool_Suite_v3
             if (!isPu && !isDo)
                 isPu = true;
 
-            // Start from WellRyde day row (both sides). Habit actuals overlay the alert
-            // side; habit sched only fills when WR has no clock (live ticket wins).
+            // Start from WellRyde for actuals + addresses. Sched clocks prefer the habit
+            // scoring time (Modivcare / printed), then fall back to WR ticket sched.
             string schedPu = "—", actPu = "—", schedDo = "—", actDo = "—";
             var wr = FindLateDriversWrTrip(e?.TripNo);
             if (wr != null)
             {
-                schedPu = FormatLateDriversTime(wr.SchedPuIso, blank: "—");
                 actPu = FormatLateDriversTime(wr.ActualPuIso, blank: "—");
-                schedDo = FormatLateDriversTime(wr.SchedDoIso, blank: "—");
                 actDo = FormatLateDriversTime(wr.ActualDoIso, blank: "—");
             }
             string habitSched = FormatLateDriversTime(e?.SchedIso, blank: "—");
             string habitActual = FormatLateDriversTime(e?.ActualIso, blank: "—");
             if (isPu)
             {
-                if (habitSched != "—" && (string.IsNullOrWhiteSpace(schedPu) || schedPu == "—"))
+                if (habitSched != "—")
                     schedPu = habitSched;
+                else if (wr != null)
+                    schedPu = FormatLateDriversTime(wr.SchedPuIso, blank: "—");
                 if (habitActual != "—") actPu = habitActual;
+            }
+            else if (wr != null)
+            {
+                schedPu = FormatLateDriversTime(wr.SchedPuIso, blank: "—");
             }
             if (isDo)
             {
-                if (habitSched != "—" && (string.IsNullOrWhiteSpace(schedDo) || schedDo == "—"))
+                if (habitSched != "—")
                     schedDo = habitSched;
+                else if (wr != null)
+                    schedDo = FormatLateDriversTime(wr.SchedDoIso, blank: "—");
                 if (habitActual != "—") actDo = habitActual;
+            }
+            else if (wr != null)
+            {
+                schedDo = FormatLateDriversTime(wr.SchedDoIso, blank: "—");
             }
 
             if (LateDriversSchedPuIsWillCall(schedPu, trip: null, wr))
@@ -6036,24 +6084,29 @@ namespace Hiatme_Tool_Suite_v3
             var habitDo = FindBestLateDriversHabitForTripSide(habits, trip?.TripNumber ?? row.TripNo, "do");
             var wr = FindLateDriversWrTrip(trip?.TripNumber ?? row.TripNo);
 
-            // Live WellRyde ticket clocks first — dispatch edits land here in real time.
-            // Workbook / MC morning print is fallback when WR has no sched for that side.
-            string schedPu = wr != null
-                ? FormatLateDriversTime(wr.SchedPuIso, blank: "—")
-                : "—";
-            string schedDo = wr != null
-                ? FormatLateDriversTime(wr.SchedDoIso, blank: "—")
-                : "—";
-
-            if ((string.IsNullOrWhiteSpace(schedPu) || schedPu == "—") && trip != null)
+            // Sched columns = Modivcare / printed workbook clocks (what late/early scoring uses).
+            // WellRyde ticket sched is only a fallback — WR often carries a computed dropoff
+            // (e.g. 7:52) that is not the appointment/print time (e.g. 8:00).
+            string schedPu = "—";
+            string schedDo = "—";
+            if (trip != null)
+            {
                 schedPu = SupeyTripTimes.FormatTimeOfDay(SupeyTripTimes.TryParsePU(trip));
-            if ((string.IsNullOrWhiteSpace(schedDo) || schedDo == "—") && trip != null)
                 schedDo = FormatLateDriversTripSchedDo(trip);
+            }
 
+            // Habit sched_iso is the exact clock the scorer used (MC overlay, or WR override
+            // after a same-day sched_time_changed). Prefer it when the workbook side is blank.
             if ((string.IsNullOrWhiteSpace(schedPu) || schedPu == "—") && habitPu != null)
                 schedPu = FormatLateDriversTime(habitPu.SchedIso, blank: "—");
             if ((string.IsNullOrWhiteSpace(schedDo) || schedDo == "—") && habitDo != null)
                 schedDo = FormatLateDriversTime(habitDo.SchedIso, blank: "—");
+
+            // Last resort: live WR ticket sched (better than a blank cell).
+            if ((string.IsNullOrWhiteSpace(schedPu) || schedPu == "—") && wr != null)
+                schedPu = FormatLateDriversTime(wr.SchedPuIso, blank: "—");
+            if ((string.IsNullOrWhiteSpace(schedDo) || schedDo == "—") && wr != null)
+                schedDo = FormatLateDriversTime(wr.SchedDoIso, blank: "—");
 
             // Habit-only row with a single side: still show that side's times.
             if (trip == null && row.HabitEvent != null && habitPu == null && habitDo == null)

@@ -216,6 +216,13 @@ namespace Hiatme_Tool_Suite_v3
             if (!Visible)
                 return;
 
+            // Re-check: CreateGraphics forces handle creation, which can throw
+            // Win32Exception ("Error creating window handle") under GDI/USER object
+            // pressure. That exception previously bubbled out of the native WndProc
+            // callback and killed the whole Suite (KERNELBASE c000041d). This overlay
+            // is purely cosmetic, so swallow any paint failure and let the next tick retry.
+            if (IsDisposed || !IsHandleCreated || !Visible)
+                return;
             try
             {
                 using (var g = CreateGraphics())
@@ -232,6 +239,14 @@ namespace Hiatme_Tool_Suite_v3
             catch (ArgumentException)
             {
                 // Handle destroyed between WM_PAINT and CreateGraphics.
+            }
+            catch (System.ComponentModel.Win32Exception)
+            {
+                // Out of window handles / GDI objects — skip this overlay, never crash the desk.
+            }
+            catch (InvalidOperationException)
+            {
+                // Cross-thread / handle-recreation race during teardown.
             }
         }
 
