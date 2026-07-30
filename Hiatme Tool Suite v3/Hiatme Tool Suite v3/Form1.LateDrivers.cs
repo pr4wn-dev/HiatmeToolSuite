@@ -4198,6 +4198,9 @@ namespace Hiatme_Tool_Suite_v3
                 case "billed_skip":
                 case "billed_unfinished":
                     return "billed_unfinished";
+                case "billed_too_soon":
+                case "billed_early":
+                    return "billed_too_soon";
             }
             if (!string.IsNullOrEmpty(h))
                 return h;
@@ -4217,6 +4220,7 @@ namespace Hiatme_Tool_Suite_v3
                 case "fix_times": return "Fix times";
                 case "unfinished_ticket": return "Unfinished";
                 case "billed_unfinished": return "Billed skip";
+                case "billed_too_soon": return "Billed too soon";
                 default: return string.IsNullOrEmpty(key) ? "Late" : key;
             }
         }
