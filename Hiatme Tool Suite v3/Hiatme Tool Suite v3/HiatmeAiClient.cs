@@ -2510,6 +2510,22 @@ namespace Hiatme_Tool_Suite_v3
             [JsonProperty("actual_iso")]
             public string ActualIso { get; set; }
 
+            // Per-leg clocks. On ticket rows (Unfinished / Billed skip) SchedIso is
+            // the DROP-OFF and ActualIso the PICK-UP, so the grid must use these to
+            // place each leg in its own column instead of showing a scheduled
+            // drop-off under "Sched PU".
+            [JsonProperty("sched_pu_iso")]
+            public string SchedPuIso { get; set; }
+
+            [JsonProperty("sched_do_iso")]
+            public string SchedDoIso { get; set; }
+
+            [JsonProperty("actual_pu_iso")]
+            public string ActualPuIso { get; set; }
+
+            [JsonProperty("actual_do_iso")]
+            public string ActualDoIso { get; set; }
+
             [JsonProperty("grace_minutes")]
             public int GraceMinutes { get; set; }
 

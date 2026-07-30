@@ -6065,6 +6065,22 @@ namespace Hiatme_Tool_Suite_v3
             return "h:" + trip + "|" + HabitKeyOf(e) + "|" + (e.Side ?? "").Trim().ToLowerInvariant();
         }
 
+        private static bool LateDriversHabitIsTicket(HiatmeAiClient.LateDriversEventRow e)
+        {
+            if (e == null) return false;
+            string s = (e.Side ?? "").Trim().ToLowerInvariant();
+            if (s == "ticket") return true;
+            switch (HabitKeyOf(e))
+            {
+                case "unfinished_ticket":
+                case "billed_unfinished":
+                case "billed_too_soon":
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
         private static bool LateDriversHabitIsSide(HiatmeAiClient.LateDriversEventRow e, string side)
         {
             if (e == null || string.IsNullOrWhiteSpace(side))
@@ -6112,8 +6128,21 @@ namespace Hiatme_Tool_Suite_v3
             if ((string.IsNullOrWhiteSpace(schedDo) || schedDo == "—") && wr != null)
                 schedDo = FormatLateDriversTime(wr.SchedDoIso, blank: "—");
 
+            // Ticket rows (Unfinished / Billed skip) carry BOTH legs explicitly.
+            // Their single SchedIso is the DROP-OFF and ActualIso the PICK-UP, so
+            // without this the grid showed a scheduled drop-off under "Sched PU"
+            // next to the actual pick-up — a phantom "early pickup". Use the real
+            // per-leg clocks and let each land in its own column.
+            bool ticketRow = LateDriversHabitIsTicket(row.HabitEvent);
+            if (ticketRow)
+            {
+                string tSchedPu = FormatLateDriversTime(row.HabitEvent.SchedPuIso, blank: "—");
+                string tSchedDo = FormatLateDriversTime(row.HabitEvent.SchedDoIso, blank: "—");
+                if (tSchedPu != "—") schedPu = tSchedPu;
+                if (tSchedDo != "—") schedDo = tSchedDo;
+            }
             // Habit-only row with a single side: still show that side's times.
-            if (trip == null && row.HabitEvent != null && habitPu == null && habitDo == null)
+            else if (trip == null && row.HabitEvent != null && habitPu == null && habitDo == null)
             {
                 if (LateDriversHabitIsSide(row.HabitEvent, "do"))
                     habitDo = row.HabitEvent;
@@ -6136,6 +6165,14 @@ namespace Hiatme_Tool_Suite_v3
                 actPu = FormatLateDriversTime(wr.ActualPuIso, blank: "—");
             if ((string.IsNullOrWhiteSpace(actDo) || actDo == "—") && wr != null)
                 actDo = FormatLateDriversTime(wr.ActualDoIso, blank: "—");
+            // Ticket per-leg actuals win (explicit pick-up / drop-off from the event).
+            if (ticketRow)
+            {
+                string tActPu = FormatLateDriversTime(row.HabitEvent.ActualPuIso, blank: "—");
+                string tActDo = FormatLateDriversTime(row.HabitEvent.ActualDoIso, blank: "—");
+                if (tActPu != "—") actPu = tActPu;
+                if (tActDo != "—") actDo = tActDo;
+            }
 
             // Blank / midnight sched PU = will-call (common on Reserved / B-leg returns).
             if (LateDriversSchedPuIsWillCall(schedPu, trip, wr))
