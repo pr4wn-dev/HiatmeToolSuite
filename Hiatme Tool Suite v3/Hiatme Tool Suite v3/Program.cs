@@ -82,15 +82,21 @@ namespace Hiatme_Tool_Suite_v3
             Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
             Application.ThreadException += (_, e) =>
             {
-                // Show the error but keep running. Previously every UI-thread exception called
-                // Application.Exit(), so a single recoverable paint/layout hiccup tore the whole
-                // Suite down mid-shift. WinForms can safely continue its message loop after this.
+                // Auto-report to the AI server so the tool tells us when it's unhappy,
+                // then show the error but keep running. Previously every UI-thread exception
+                // called Application.Exit(), so a single recoverable paint/layout hiccup tore
+                // the whole Suite down mid-shift. WinForms can safely continue after this.
+                TryReport(() => HiatmeEventReporter.ReportError("UI thread", e.Exception));
                 ShowExceptionChain("UI thread error", e.Exception);
             };
             AppDomain.CurrentDomain.UnhandledException += (_, e) =>
             {
                 if (e.ExceptionObject is Exception ex)
+                {
+                    // Fatal / unhandled: report as a crash (blocks briefly so it lands on exit).
+                    TryReport(() => HiatmeEventReporter.ReportCrash("AppDomain", ex));
                     ShowExceptionChain("Fatal error", ex);
+                }
             };
 
             Application.EnableVisualStyles();
@@ -127,13 +133,31 @@ namespace Hiatme_Tool_Suite_v3
             GMapInitializer.EnsureInitialized();
             UserSettingsMigration.ApplyAfterVersionChange();
             ScheduleBuilderGmailDefaults.ApplyBundledOfficePreferenceIfAvailable();
+            TryReport(() => HiatmeEventReporter.Report(
+                "startup", "Program", "Tool Suite started"));
             try
             {
                 Application.Run(new Form1());
             }
             catch (Exception ex)
             {
+                TryReport(() => HiatmeEventReporter.ReportCrash("Startup", ex));
                 ShowExceptionChain("Startup error", ex);
+            }
+            TryReport(() => HiatmeEventReporter.Report(
+                "shutdown", "Program", "Tool Suite exited"));
+        }
+
+        /// <summary>Runs a telemetry action, swallowing any failure so reporting never disrupts the app.</summary>
+        private static void TryReport(Action report)
+        {
+            try
+            {
+                report?.Invoke();
+            }
+            catch
+            {
+                /* telemetry must never disrupt the app */
             }
         }
 

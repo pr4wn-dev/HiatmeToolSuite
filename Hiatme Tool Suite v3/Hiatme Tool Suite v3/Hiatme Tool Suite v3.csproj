@@ -716,6 +716,7 @@
     <Compile Include="HiatmeSchedulePatchApplier.cs" />
     <Compile Include="HiatmeAiScheduleMapper.cs" />
     <Compile Include="HiatmeTripLookup.cs" />
+    <Compile Include="HiatmeEventReporter.cs" />
     <Compile Include="HiatmeGeoClient.cs" />
     <Compile Include="HiatmeGeoSettings.cs" />
     <Compile Include="HiatmeScheduleSummary.cs" />

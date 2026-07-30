@@ -82,6 +82,27 @@ namespace Hiatme_Tool_Suite_v3
                     SendMessage(fromAddress, password, msg);
                 }
             }, cancellationToken).ConfigureAwait(false);
+
+            // Tell the AI server an email went out (so it can "remember emails").
+            try
+            {
+                HiatmeEventReporter.Report(
+                    "email_sent",
+                    "ScheduleBuilder",
+                    "Schedule to " + driver + " for " + serviceDate.ToString("yyyy-MM-dd"),
+                    null,
+                    new Newtonsoft.Json.Linq.JObject
+                    {
+                        ["to"] = toAddress,
+                        ["driver"] = driver,
+                        ["service_date"] = serviceDate.ToString("yyyy-MM-dd"),
+                        ["subject"] = subject,
+                    });
+            }
+            catch
+            {
+                /* telemetry must never disrupt a real send */
+            }
         }
 
         private static void SendMessage(string user, string pass, MailMessage msg)
