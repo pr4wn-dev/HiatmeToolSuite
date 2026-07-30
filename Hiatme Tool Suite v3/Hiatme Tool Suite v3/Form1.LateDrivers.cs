@@ -5184,8 +5184,13 @@ namespace Hiatme_Tool_Suite_v3
                 : e.Driver.Trim();
             bool isPu = LateDriversHabitIsSide(e, "pu");
             bool isDo = LateDriversHabitIsSide(e, "do");
+            // Ticket rows (Unfinished / Billed skip) cover BOTH legs, so they must not
+            // be folded onto one side: their SchedIso is the DROP-OFF and ActualIso the
+            // PICK-UP, which showed a scheduled drop-off under "Sched PU" beside the
+            // actual pick-up and looked like a phantom early pickup.
+            bool isTicket = LateDriversHabitIsTicket(e);
             // Unfinished / unknown: treat as PU so the row is not blank.
-            if (!isPu && !isDo)
+            if (!isPu && !isDo && !isTicket)
                 isPu = true;
 
             // Start from WellRyde for actuals + addresses. Sched clocks prefer the habit
@@ -5199,7 +5204,23 @@ namespace Hiatme_Tool_Suite_v3
             }
             string habitSched = FormatLateDriversTime(e?.SchedIso, blank: "—");
             string habitActual = FormatLateDriversTime(e?.ActualIso, blank: "—");
-            if (isPu)
+            if (isTicket)
+            {
+                // Use the explicit per-leg clocks so each lands in its own column.
+                string tSchedPu = FormatLateDriversTime(e?.SchedPuIso, blank: "—");
+                string tSchedDo = FormatLateDriversTime(e?.SchedDoIso, blank: "—");
+                string tActPu = FormatLateDriversTime(e?.ActualPuIso, blank: "—");
+                string tActDo = FormatLateDriversTime(e?.ActualDoIso, blank: "—");
+                schedPu = tSchedPu != "—"
+                    ? tSchedPu
+                    : (wr != null ? FormatLateDriversTime(wr.SchedPuIso, blank: "—") : "—");
+                schedDo = tSchedDo != "—"
+                    ? tSchedDo
+                    : (wr != null ? FormatLateDriversTime(wr.SchedDoIso, blank: "—") : "—");
+                if (tActPu != "—") actPu = tActPu;
+                if (tActDo != "—") actDo = tActDo;
+            }
+            else if (isPu)
             {
                 if (habitSched != "—")
                     schedPu = habitSched;
@@ -5211,7 +5232,12 @@ namespace Hiatme_Tool_Suite_v3
             {
                 schedPu = FormatLateDriversTime(wr.SchedPuIso, blank: "—");
             }
-            if (isDo)
+            if (isTicket)
+            {
+                // Already resolved both legs above — do not fold the DO column back
+                // onto the ticket's single clock.
+            }
+            else if (isDo)
             {
                 if (habitSched != "—")
                     schedDo = habitSched;
