@@ -780,7 +780,6 @@ namespace Hiatme_Tool_Suite_v3
                 ("early_do", "Early DO"),
                 ("fix_times", "Fix times"),
                 ("unfinished_ticket", "Unfinished"),
-                ("billed_unfinished", "Billed skip"),
                 ("open", "Open now"),
             };
             for (int i = 0; i < metrics.Length; i++)
@@ -4049,12 +4048,11 @@ namespace Hiatme_Tool_Suite_v3
             SetLateDriversScoreCaption("early_do", "Early DO");
             SetLateDriversScoreCaption("fix_times", "Fix times");
             SetLateDriversScoreCaption("unfinished_ticket", "Unfinished");
-            SetLateDriversScoreCaption("billed_unfinished", "Billed skip");
             SetLateDriversScoreCaption("open", "Open now");
 
             // Totals stay stable while a filter is active (use full roster / selected driver).
             int latePu = 0, lateDo = 0, earlyPu = 0, earlyDo = 0;
-            int unfinished = 0, billed = 0, openN = 0, allN = 0;
+            int unfinished = 0, openN = 0, allN = 0;
             IEnumerable<HiatmeAiClient.LateDriversEventRow> events;
             if (!string.IsNullOrEmpty(_ldSelectedDriver))
             {
@@ -4079,7 +4077,6 @@ namespace Hiatme_Tool_Suite_v3
                 else if (hk == "early_pu") earlyPu++;
                 else if (hk == "early_do") earlyDo++;
                 else if (hk == "unfinished_ticket") unfinished++;
-                else if (hk == "billed_unfinished") billed++;
             }
 
             int fixTimes = CountLateDriversFixTimesTrips(eventList);
@@ -4091,7 +4088,6 @@ namespace Hiatme_Tool_Suite_v3
             SetLateDriversScoreValue("early_do", earlyDo.ToString(CultureInfo.InvariantCulture));
             SetLateDriversScoreValue("fix_times", fixTimes.ToString(CultureInfo.InvariantCulture));
             SetLateDriversScoreValue("unfinished_ticket", unfinished.ToString(CultureInfo.InvariantCulture));
-            SetLateDriversScoreValue("billed_unfinished", billed.ToString(CultureInfo.InvariantCulture));
             SetLateDriversScoreValue("open", openN.ToString(CultureInfo.InvariantCulture));
 
             Color valueColor = string.IsNullOrEmpty(_ldSelectedDriver)
@@ -4123,7 +4119,6 @@ namespace Hiatme_Tool_Suite_v3
             SetLateDriversScoreCaption("early_do", "—");
             SetLateDriversScoreCaption("fix_times", "—");
             SetLateDriversScoreCaption("unfinished_ticket", "—");
-            SetLateDriversScoreCaption("billed_unfinished", "—");
             SetLateDriversScoreCaption("open", "—");
 
             string sd = LateDriversSelectedServiceDateIso();
@@ -4138,7 +4133,6 @@ namespace Hiatme_Tool_Suite_v3
             SetLateDriversScoreValue("early_do", "—");
             SetLateDriversScoreValue("fix_times", "—");
             SetLateDriversScoreValue("unfinished_ticket", "—");
-            SetLateDriversScoreValue("billed_unfinished", "—");
             SetLateDriversScoreValue("open", "—");
 
             foreach (var lbl in _ldScoreValues.Values)
@@ -4195,9 +4189,6 @@ namespace Hiatme_Tool_Suite_v3
                 case "unfinished":
                 case "unfinished_ticket":
                     return "unfinished_ticket";
-                case "billed_skip":
-                case "billed_unfinished":
-                    return "billed_unfinished";
                 case "billed_too_soon":
                 case "billed_early":
                     return "billed_too_soon";
@@ -4219,7 +4210,6 @@ namespace Hiatme_Tool_Suite_v3
                 case "early_do": return "Early DO";
                 case "fix_times": return "Fix times";
                 case "unfinished_ticket": return "Unfinished";
-                case "billed_unfinished": return "Billed skip";
                 case "billed_too_soon": return "Billed too soon";
                 default: return string.IsNullOrEmpty(key) ? "Late" : key;
             }
@@ -5184,7 +5174,7 @@ namespace Hiatme_Tool_Suite_v3
                 : e.Driver.Trim();
             bool isPu = LateDriversHabitIsSide(e, "pu");
             bool isDo = LateDriversHabitIsSide(e, "do");
-            // Ticket rows (Unfinished / Billed skip) cover BOTH legs, so they must not
+            // Ticket rows (Unfinished / Billed too soon) cover BOTH legs, so they must not
             // be folded onto one side: their SchedIso is the DROP-OFF and ActualIso the
             // PICK-UP, which showed a scheduled drop-off under "Sched PU" beside the
             // actual pick-up and looked like a phantom early pickup.
@@ -5289,7 +5279,7 @@ namespace Hiatme_Tool_Suite_v3
                 item.ForeColor = Color.FromArgb(200, 80, 60);
             else if (hk.StartsWith("early", StringComparison.Ordinal))
                 item.ForeColor = Color.FromArgb(180, 120, 40);
-            else if (hk == "unfinished_ticket" || hk == "billed_unfinished")
+            else if (hk == "unfinished_ticket" || hk == "billed_too_soon")
                 item.ForeColor = Color.FromArgb(160, 90, 40);
             return item;
         }
@@ -5612,7 +5602,7 @@ namespace Hiatme_Tool_Suite_v3
                 if (habit.Open || hk.StartsWith("early", StringComparison.Ordinal)
                     || hk.StartsWith("late", StringComparison.Ordinal))
                     item.ForeColor = Color.FromArgb(200, 80, 60);
-                else if (hk == "unfinished_ticket" || hk == "billed_unfinished")
+                else if (hk == "unfinished_ticket" || hk == "billed_too_soon")
                     item.ForeColor = Color.FromArgb(160, 90, 40);
                 else if (row.HabitOnly)
                     item.ForeColor = Color.FromArgb(120, 160, 220);
@@ -6099,7 +6089,6 @@ namespace Hiatme_Tool_Suite_v3
             switch (HabitKeyOf(e))
             {
                 case "unfinished_ticket":
-                case "billed_unfinished":
                 case "billed_too_soon":
                     return true;
                 default:
@@ -6154,7 +6143,7 @@ namespace Hiatme_Tool_Suite_v3
             if ((string.IsNullOrWhiteSpace(schedDo) || schedDo == "—") && wr != null)
                 schedDo = FormatLateDriversTime(wr.SchedDoIso, blank: "—");
 
-            // Ticket rows (Unfinished / Billed skip) carry BOTH legs explicitly.
+            // Ticket rows (Unfinished / Billed too soon) carry BOTH legs explicitly.
             // Their single SchedIso is the DROP-OFF and ActualIso the PICK-UP, so
             // without this the grid showed a scheduled drop-off under "Sched PU"
             // next to the actual pick-up — a phantom "early pickup". Use the real
