@@ -791,6 +791,7 @@ namespace Hiatme_Tool_Suite_v3
                     SurfaceLevel = SupeyCard.Surface.Standard,
                     ShowBorder = true,
                     CornerRadius = 8,
+                    AccentStyle = SupeyCard.AccentLook.Hud,
                     Dock = DockStyle.Fill,
                     Margin = new Padding(i == 0 ? 0 : 3, 0, i == metrics.Length - 1 ? 0 : 3, 0),
                     Padding = new Padding(4, 4, 4, 4),
@@ -904,6 +905,8 @@ namespace Hiatme_Tool_Suite_v3
                 card.ShowBorder = true;
                 card.Invalidate(true);
             }
+            // Selection just overwrote Accent — let any live alert re-claim its tile.
+            ApplyLateDriversScoreAlertBlinkPhase();
         }
 
         private void BuildLateDriversWeekStrip()
@@ -3238,10 +3241,40 @@ namespace Hiatme_Tool_Suite_v3
             _ldDriverAlertBlinkTimer = new System.Windows.Forms.Timer { Interval = 550 };
             _ldDriverAlertBlinkTimer.Tick += (_, __) =>
             {
+                // Self-stop once every window has expired. Sync() is the only other thing that
+                // stops us and it rides on the 60s live poll, which is off in Day/Week/Month —
+                // without this the timer spins forever repainting the whole trip grid.
+                PruneLateDriversCancelHot();
+                if (!LateDriversAnyAlertStillHot())
+                {
+                    _ldDriverAlertBlinkTimer.Stop();
+                    _ldDriverAlertBlinkOn = false;
+                    ApplyLateDriversAlertBlinkPhase();
+                    return;
+                }
                 _ldDriverAlertBlinkOn = !_ldDriverAlertBlinkOn;
-                ApplyLateDriversDriverAlertBlinkPhase();
-                ApplyLateDriversTripAlertBlinkPhase();
+                ApplyLateDriversAlertBlinkPhase();
             };
+        }
+
+        /// <summary>Cheap, side-effect-free "is any blink window still open".</summary>
+        private bool LateDriversAnyAlertStillHot()
+        {
+            DateTime now = DateTime.UtcNow;
+            foreach (var until in _ldAlertHotUntil.Values)
+            {
+                if (now <= until)
+                    return true;
+            }
+            return LateDriversAnyCancelAlertHot();
+        }
+
+        /// <summary>Repaint every surface that participates in the alert blink.</summary>
+        private void ApplyLateDriversAlertBlinkPhase()
+        {
+            ApplyLateDriversDriverAlertBlinkPhase();
+            ApplyLateDriversScoreAlertBlinkPhase();
+            ApplyLateDriversTripAlertBlinkPhase();
         }
 
         private void SyncLateDriversDriverAlertBlink()
@@ -3260,15 +3293,13 @@ namespace Hiatme_Tool_Suite_v3
                     _ldDriverAlertBlinkOn = true;
                     _ldDriverAlertBlinkTimer.Start();
                 }
-                ApplyLateDriversDriverAlertBlinkPhase();
-                ApplyLateDriversTripAlertBlinkPhase();
+                ApplyLateDriversAlertBlinkPhase();
             }
             else
             {
                 _ldDriverAlertBlinkTimer?.Stop();
                 _ldDriverAlertBlinkOn = false;
-                ApplyLateDriversDriverAlertBlinkPhase();
-                ApplyLateDriversTripAlertBlinkPhase();
+                ApplyLateDriversAlertBlinkPhase();
             }
         }
 
@@ -3406,6 +3437,70 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         /// <summary>
+        /// Scorecard tiles inside a live blink window, mapped to the color they flash.
+        /// Timing habits land on their own tile; cancels have no tile of their own so they
+        /// land on All.
+        /// </summary>
+        private Dictionary<string, Color> LateDriversHotScoreTiles()
+        {
+            var hot = new Dictionary<string, Color>(StringComparer.OrdinalIgnoreCase);
+            // Fast path — nothing has ever gone hot today, skip the per-row key rebuild.
+            if (_ldAlertHotUntil.Count == 0 && _ldCancelHotUntil.Count == 0)
+                return hot;
+
+            if (_ldEventRows != null)
+            {
+                foreach (var e in _ldEventRows)
+                {
+                    if (!LateDriversEventNeedsCallAlert(e))
+                        continue;
+                    string hk = HabitKeyOf(e);
+                    if (!string.IsNullOrEmpty(hk))
+                        hot[hk] = LateDriversAlertFlashColor();
+                }
+            }
+            if (LateDriversAnyCancelAlertHot())
+                hot["all"] = LateDriversCancelFlashColor();
+            return hot;
+        }
+
+        /// <summary>Flash the filter button matching each hot habit, in step with the driver tiles.</summary>
+        private void ApplyLateDriversScoreAlertBlinkPhase()
+        {
+            if (_ldScoreCards.Count == 0)
+                return;
+
+            var hot = LateDriversHotScoreTiles();
+            // Reserved blanks every habit tile to "—" — flashing one would point at nothing.
+            if (LateDriversReservedSelected)
+                hot.Clear();
+            string chip = (_ldHabitChip ?? "all").Trim().ToLowerInvariant();
+            foreach (var card in _ldScoreCards)
+            {
+                if (card == null || card.IsDisposed)
+                    continue;
+                string key = (card.Tag as string ?? "").Trim().ToLowerInvariant();
+                bool selected = key == chip;
+
+                Color flash;
+                if (!hot.TryGetValue(key, out flash) || !_ldDriverAlertBlinkOn)
+                {
+                    card.AccentColorOverride = null;
+                    card.BorderColorOverride = null;
+                    card.Accent = selected
+                        ? SupeyCard.AccentEdge.Top
+                        : SupeyCard.AccentEdge.None;
+                    continue;
+                }
+
+                card.AccentColorOverride = flash;
+                card.BorderColorOverride = flash;
+                card.Accent = SupeyCard.AccentEdge.Top;
+                card.ShowBorder = true;
+            }
+        }
+
+        /// <summary>
         /// Flash hot late/early / cancel rows in the trip grid (same window as driver tiles).
         /// Uses item BackColor — Supey owner-draw honors that for the row fill.
         /// </summary>
@@ -3501,6 +3596,7 @@ namespace Hiatme_Tool_Suite_v3
                 SurfaceLevel = SupeyCard.Surface.Elevated,
                 ShowBorder = true,
                 CornerRadius = 8,
+                AccentStyle = SupeyCard.AccentLook.Hud,
                 Margin = new Padding(0, 0, LateDriversDriverTileGap, 0),
                 Padding = new Padding(10, 8, 10, 8),
                 Size = new Size(LateDriversDriverTileW, LateDriversDriverTileH),
@@ -4099,12 +4195,6 @@ namespace Hiatme_Tool_Suite_v3
                     lbl.ForeColor = valueColor;
             }
             StyleLateDriversScoreFilters();
-            if (ldHeroCard != null && !ldHeroCard.IsDisposed)
-            {
-                ldHeroCard.Accent = string.IsNullOrEmpty(_ldSelectedDriver)
-                    ? SupeyCard.AccentEdge.None
-                    : SupeyCard.AccentEdge.Left;
-            }
         }
 
         /// <summary>
@@ -4141,8 +4231,6 @@ namespace Hiatme_Tool_Suite_v3
                     lbl.ForeColor = SupeyTheme.AccentPrimary;
             }
             StyleLateDriversScoreFilters();
-            if (ldHeroCard != null && !ldHeroCard.IsDisposed)
-                ldHeroCard.Accent = SupeyCard.AccentEdge.Left;
         }
 
         private void RefreshLateDriversOtherScorecard() => RefreshLateDriversReservedScorecard();
