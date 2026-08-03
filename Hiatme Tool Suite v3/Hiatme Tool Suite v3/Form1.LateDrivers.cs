@@ -6225,8 +6225,14 @@ namespace Hiatme_Tool_Suite_v3
             if ((string.IsNullOrWhiteSpace(schedDo) || schedDo == "—") && habitDo != null)
                 schedDo = FormatLateDriversTime(habitDo.SchedIso, blank: "—");
 
+            // A will-call has no scheduled pickup until someone calls it in — the 00:00
+            // is the marker, not a missing clock. Say so instead of borrowing WellRyde's
+            // time, which would invent a schedule the driver was never held to.
+            bool willCall = SupeyWillCallPickup.IsPickupWillCall(trip)
+                || (row.HabitEvent != null && row.HabitEvent.WillCall);
+
             // Last resort: live WR ticket sched (better than a blank cell).
-            if ((string.IsNullOrWhiteSpace(schedPu) || schedPu == "—") && wr != null)
+            if (!willCall && (string.IsNullOrWhiteSpace(schedPu) || schedPu == "—") && wr != null)
                 schedPu = FormatLateDriversTime(wr.SchedPuIso, blank: "—");
             if ((string.IsNullOrWhiteSpace(schedDo) || schedDo == "—") && wr != null)
                 schedDo = FormatLateDriversTime(wr.SchedDoIso, blank: "—");
@@ -6278,7 +6284,7 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             // Blank / midnight sched PU = will-call (common on Reserved / B-leg returns).
-            if (LateDriversSchedPuIsWillCall(schedPu, trip, wr))
+            if (LateDriversSchedPuIsWillCall(schedPu, trip, wr, willCall))
                 schedPu = "Will call";
 
             row.SchedPuDisplay = string.IsNullOrWhiteSpace(schedPu) || schedPu == "—" ? "—" : schedPu;
@@ -7748,8 +7754,13 @@ namespace Hiatme_Tool_Suite_v3
         private static bool LateDriversSchedPuIsWillCall(
             string schedPuDisplay,
             MCDownloadedTrip trip,
-            HiatmeAiClient.TripScoutServerTripRow wr)
+            HiatmeAiClient.TripScoutServerTripRow wr,
+            bool serverSaysWillCall = false)
         {
+            // History mode has no Modivcare trip and often no WellRyde row, so without
+            // the server's flag a will-call rendered as a blank cell days later.
+            if (serverSaysWillCall)
+                return true;
             if (trip != null && SupeyWillCallPickup.IsPickupWillCall(trip))
                 return true;
             if (wr != null)

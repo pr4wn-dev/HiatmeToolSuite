@@ -2526,6 +2526,11 @@ namespace Hiatme_Tool_Suite_v3
             [JsonProperty("actual_do_iso")]
             public string ActualDoIso { get; set; }
 
+            /// <summary>Modivcare marks will-calls with a 00:00 pickup, so an empty
+            /// SchedPuIso here means "not called in yet" rather than a missing schedule.</summary>
+            [JsonProperty("will_call")]
+            public bool WillCall { get; set; }
+
             [JsonProperty("grace_minutes")]
             public int GraceMinutes { get; set; }
 
