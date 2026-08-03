@@ -6,6 +6,7 @@ using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
@@ -180,7 +181,77 @@ namespace Hiatme_Tool_Suite_v3
                 add(u);
 
             add("http://127.0.0.1:" + DefaultPort);
-            return candidates;
+
+            // A desk that once ran in the office keeps the office LAN IP as its last
+            // good URL. Off-network that address is dead, or worse, some stranger's
+            // device on the same 192.168.x range — either way it should not get first
+            // crack at the probe budget ahead of a routable public URL.
+            return candidates
+                .OrderBy(u => IsLanUrl(u) && !IsOnThisMachinesSubnet(u) ? 1 : 0)
+                .ToList();
+        }
+
+        /// <summary>True for loopback and RFC1918 hosts — addresses only reachable on a local network.</summary>
+        private static bool IsLanUrl(string url)
+        {
+            try
+            {
+                var host = new Uri(url).Host;
+                if (string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase))
+                    return true;
+
+                IPAddress ip;
+                if (!IPAddress.TryParse(host, out ip))
+                    return false; // a DDNS/hostname is assumed routable
+
+                if (IPAddress.IsLoopback(ip))
+                    return true;
+
+                var b = ip.GetAddressBytes();
+                if (b.Length != 4)
+                    return false;
+                if (b[0] == 10) return true;
+                if (b[0] == 172 && b[1] >= 16 && b[1] <= 31) return true;
+                if (b[0] == 192 && b[1] == 168) return true;
+                if (b[0] == 169 && b[1] == 254) return true;
+                return false;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>True when the URL's host shares a /24 with one of this machine's own addresses.</summary>
+        private static bool IsOnThisMachinesSubnet(string url)
+        {
+            try
+            {
+                var host = new Uri(url).Host;
+                IPAddress ip;
+                if (!IPAddress.TryParse(host, out ip))
+                    return false;
+                if (IPAddress.IsLoopback(ip))
+                    return true;
+
+                var want = ip.GetAddressBytes();
+                if (want.Length != 4)
+                    return false;
+
+                foreach (var local in Dns.GetHostAddresses(Dns.GetHostName()))
+                {
+                    if (local.AddressFamily != AddressFamily.InterNetwork)
+                        continue;
+                    var have = local.GetAddressBytes();
+                    if (have[0] == want[0] && have[1] == want[1] && have[2] == want[2])
+                        return true;
+                }
+                return false;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         private sealed class PanelProbeResult
@@ -218,7 +289,11 @@ namespace Hiatme_Tool_Suite_v3
             for (int i = 0; i < urls.Count; i++)
             {
                 string url = urls[i];
-                bool quick = i > 0;
+                // A LAN address that is really there answers in milliseconds, so those
+                // can be rushed. A WAN round trip needs the full budget — cutting a
+                // public URL to 2s just because something else was tried first is what
+                // made off-network desks fail while the panel was up and reachable.
+                bool quick = i > 0 && IsLanUrl(url);
                 var result = ProbePanelDetailed(url, apiToken, quickTimeout: quick);
                 if (result.Ok)
                 {
@@ -321,7 +396,12 @@ namespace Hiatme_Tool_Suite_v3
             lines.Add("");
             lines.Add("Desks: set PublicPanelUrl (DDNS/public IP) in setup-desk.ps1, plus office/home LAN fallbacks.");
             if (!IsUsableApiToken(apiToken))
-                lines.Add("Optional: set ApiToken in hiatme_ai.defaults.json if the server requires it.");
+            {
+                lines.Add(
+                    "This desk has no usable ApiToken. On the office LAN the server lets that "
+                    + "pass, but from anywhere else every request is rejected — copy ApiToken "
+                    + "from the server's hiatme_ai.defaults.json into this desk's copy.");
+            }
             return string.Join("\r\n", lines);
         }
 
