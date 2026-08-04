@@ -64,7 +64,7 @@ namespace Hiatme_Tool_Suite_v3
         private const int LateDriversDriverTileW = 148;
         private const int LateDriversDriverTileH = 78;
         private const int LateDriversDriverTileGap = 8;
-        private const int LateDriversDriverNavBtnW = 28;
+        private const int LateDriversDriverNavBtnW = 36;
         private string _ldLastHash;
         private string _ldHabitsHash;
         private bool _ldLoadInFlight;
@@ -623,7 +623,10 @@ namespace Hiatme_Tool_Suite_v3
             {
                 Name = "ldDriverPrevBtn",
                 Text = "◀",
-                Type = SupeyMaterialButton.MaterialButtonType.Outlined,
+                Type = SupeyMaterialButton.MaterialButtonType.Contained,
+                UseAccentColor = true,
+                CornerRadius = 8,
+                Font = new Font("Segoe UI Semibold", 10f, FontStyle.Bold),
                 Margin = Padding.Empty,
                 Size = new Size(LateDriversDriverNavBtnW, LateDriversDriverTileH),
                 Enabled = false,
@@ -633,7 +636,10 @@ namespace Hiatme_Tool_Suite_v3
             {
                 Name = "ldDriverNextBtn",
                 Text = "▶",
-                Type = SupeyMaterialButton.MaterialButtonType.Outlined,
+                Type = SupeyMaterialButton.MaterialButtonType.Contained,
+                UseAccentColor = true,
+                CornerRadius = 8,
+                Font = new Font("Segoe UI Semibold", 10f, FontStyle.Bold),
                 Margin = Padding.Empty,
                 Size = new Size(LateDriversDriverNavBtnW, LateDriversDriverTileH),
                 Enabled = false,
@@ -1565,9 +1571,15 @@ namespace Hiatme_Tool_Suite_v3
             if (ldDriverStrip != null && !ldDriverStrip.IsDisposed)
                 ldDriverStrip.BackColor = Color.Transparent;
             if (ldDriverPrevBtn != null && !ldDriverPrevBtn.IsDisposed)
-                ldDriverPrevBtn.Type = SupeyMaterialButton.MaterialButtonType.Outlined;
+            {
+                ldDriverPrevBtn.Type = SupeyMaterialButton.MaterialButtonType.Contained;
+                ldDriverPrevBtn.UseAccentColor = true;
+            }
             if (ldDriverNextBtn != null && !ldDriverNextBtn.IsDisposed)
-                ldDriverNextBtn.Type = SupeyMaterialButton.MaterialButtonType.Outlined;
+            {
+                ldDriverNextBtn.Type = SupeyMaterialButton.MaterialButtonType.Contained;
+                ldDriverNextBtn.UseAccentColor = true;
+            }
             if (ldTripHeader != null && !ldTripHeader.IsDisposed)
                 ldTripHeader.BackColor = Color.Transparent;
             if (ldScorecardHost != null && !ldScorecardHost.IsDisposed)
@@ -2674,12 +2686,23 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
-        private int LateDriversDriverStripPageSize()
+        private int LateDriversDriverStripPageSize(bool assumeNavVisible = false)
         {
             if (ldDriverStrip == null || ldDriverStrip.IsDisposed)
                 return 1;
             int slot = LateDriversDriverTileW + LateDriversDriverTileGap;
-            int inner = Math.Max(0, ldDriverStrip.ClientSize.Width - ldDriverStrip.Padding.Horizontal);
+            int inner = ldDriverStrip.ClientSize.Width;
+            if (assumeNavVisible && ldDriverStripRow != null && !ldDriverStripRow.IsDisposed)
+            {
+                // Render calculation uses strip width after nav reservation.
+                int rowW = ldDriverStripRow.ClientSize.Width;
+                int gap = 4;
+                inner = Math.Max(
+                    0,
+                    rowW - (LateDriversDriverNavBtnW * 2) - (gap * 2)
+                );
+            }
+            inner = Math.Max(0, inner - ldDriverStrip.Padding.Horizontal);
             // Reserve slots for pinned "All drivers" + "Reserved" tiles.
             int totalSlots = Math.Max(1, inner / Math.Max(1, slot));
             return Math.Max(1, totalSlots - 2);
@@ -2733,16 +2756,16 @@ namespace Hiatme_Tool_Suite_v3
                 int rowW = ldDriverStripRow != null && !ldDriverStripRow.IsDisposed
                     ? ldDriverStripRow.ClientSize.Width
                     : 0;
-                // Decide nav from full row width first, then lay out so strip width is correct.
-                int slotsNoNav = Math.Max(1, rowW / Math.Max(1, slot));
-                bool canPage = rows.Count > Math.Max(1, slotsNoNav - 2);
+                // Decide overflow from the real page capacity (without nav first).
+                int pageNoNav = Math.Max(1, Math.Max(1, rowW / Math.Max(1, slot)) - 2);
+                bool canPage = rows.Count > pageNoNav;
                 if (ldDriverPrevBtn != null && !ldDriverPrevBtn.IsDisposed)
                     ldDriverPrevBtn.Visible = canPage;
                 if (ldDriverNextBtn != null && !ldDriverNextBtn.IsDisposed)
                     ldDriverNextBtn.Visible = canPage;
                 LayoutLateDriversDriverStripRow();
 
-                int page = LateDriversDriverStripPageSize();
+                int page = LateDriversDriverStripPageSize(assumeNavVisible: canPage);
                 int maxOff = Math.Max(0, rows.Count - page);
                 if (_ldDriverScrollOffset > maxOff)
                     _ldDriverScrollOffset = maxOff;
