@@ -929,8 +929,11 @@ namespace Hiatme_Tool_Suite_v3
             {
                 Name = "ldWeekPrevBtn",
                 Text = "◀",
-                Type = SupeyMaterialButton.MaterialButtonType.Outlined,
-                Size = new Size(30, 30),
+                Type = SupeyMaterialButton.MaterialButtonType.Contained,
+                UseAccentColor = true,
+                CornerRadius = 8,
+                Font = new Font("Segoe UI Semibold", 9f, FontStyle.Bold),
+                Size = new Size(34, 30),
                 Margin = Padding.Empty,
                 Location = new Point(0, 0),
             };
@@ -943,10 +946,13 @@ namespace Hiatme_Tool_Suite_v3
             {
                 Name = "ldWeekNextBtn",
                 Text = "▶",
-                Type = SupeyMaterialButton.MaterialButtonType.Outlined,
-                Size = new Size(30, 30),
+                Type = SupeyMaterialButton.MaterialButtonType.Contained,
+                UseAccentColor = true,
+                CornerRadius = 8,
+                Font = new Font("Segoe UI Semibold", 9f, FontStyle.Bold),
+                Size = new Size(34, 30),
                 Margin = Padding.Empty,
-                Location = new Point(250, 0),
+                Location = new Point(246, 0),
             };
             ldWeekNextBtn.Click += (_, __) =>
             {
@@ -959,8 +965,8 @@ namespace Hiatme_Tool_Suite_v3
                 AutoSize = false,
                 TextAlign = ContentAlignment.MiddleCenter,
                 BackColor = Color.Transparent,
-                Location = new Point(34, 0),
-                Size = new Size(212, 30),
+                Location = new Point(38, 0),
+                Size = new Size(204, 30),
                 Text = "",
             };
             ldWeekStrip.Controls.Add(ldWeekPrevBtn);
@@ -1198,10 +1204,13 @@ namespace Hiatme_Tool_Suite_v3
             else if (!live && mode == "week" && ldWeekStrip != null && !ldWeekStrip.IsDisposed)
             {
                 const int stripW = 280, stripH = 30;
+                const int navW = 34;
+                const int gap = 4;
                 ldWeekStrip.SetBounds(x, y + Math.Max(0, (innerH - stripH) / 2), stripW, stripH);
-                if (ldWeekPrevBtn != null) ldWeekPrevBtn.SetBounds(0, 0, 30, 30);
-                if (ldWeekRangeLbl != null) ldWeekRangeLbl.SetBounds(34, 0, 212, 30);
-                if (ldWeekNextBtn != null) ldWeekNextBtn.SetBounds(stripW - 30, 0, 30, 30);
+                if (ldWeekPrevBtn != null) ldWeekPrevBtn.SetBounds(0, 0, navW, stripH);
+                if (ldWeekRangeLbl != null)
+                    ldWeekRangeLbl.SetBounds(navW + gap, 0, stripW - (navW * 2) - (gap * 2), stripH);
+                if (ldWeekNextBtn != null) ldWeekNextBtn.SetBounds(stripW - navW, 0, navW, stripH);
                 x = ldWeekStrip.Right + 12;
             }
             else if (!live && mode == "month")
