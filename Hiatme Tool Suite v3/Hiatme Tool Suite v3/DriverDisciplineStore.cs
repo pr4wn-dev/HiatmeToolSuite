@@ -13,7 +13,8 @@ namespace Hiatme_Tool_Suite_v3
 {
     /// <summary>
     /// Local library + AI panel sync for Driver Discipline write-ups.
-    /// Canonical folder: <c>F:\Write ups</c> (override with env HIATME_DISCIPLINE_ROOT).
+    /// Uses AI panel as the source of truth; local cache is best-effort.
+    /// Default local cache: <c>F:\Write ups</c> when available, otherwise AppData.
     /// </summary>
     internal static class DriverDisciplineStore
     {
@@ -24,7 +25,16 @@ namespace Hiatme_Tool_Suite_v3
                 string env = (Environment.GetEnvironmentVariable("HIATME_DISCIPLINE_ROOT") ?? "").Trim();
                 if (!string.IsNullOrEmpty(env))
                     return env;
-                return @"F:\Write ups";
+                try
+                {
+                    if (Directory.Exists(@"F:\"))
+                        return @"F:\Write ups";
+                }
+                catch { /* ignore drive probe errors */ }
+                return Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "Hiatme Tool Suite v3",
+                    "DriverDisciplineCache");
             }
         }
 
@@ -245,6 +255,22 @@ namespace Hiatme_Tool_Suite_v3
             var meta = ToMeta(record);
             result.Meta = meta;
 
+            string localError = null;
+            DriverDisciplineServerSaveResult server = null;
+
+            if (settings != null)
+            {
+                server = await HiatmeAiClient.SaveDriverDisciplineAsync(
+                    settings, meta, docxBytes, meta.UpdatedBy, cancellationToken).ConfigureAwait(false);
+                result.ServerOk = server != null && server.Ok;
+                if (result.ServerOk && !string.IsNullOrWhiteSpace(server.Path))
+                    result.ServerPath = server.Path;
+            }
+            else
+            {
+                result.ServerOk = false;
+            }
+
             try
             {
                 result.LocalFolder = SaveLocal(meta, docxBytes);
@@ -253,24 +279,41 @@ namespace Hiatme_Tool_Suite_v3
             catch (Exception ex)
             {
                 result.LocalOk = false;
-                result.Error = "Local save failed: " + ex.Message;
-                return result;
+                localError = ex.Message;
             }
 
-            if (settings == null)
+            if (result.ServerOk && result.LocalOk)
             {
-                result.ServerOk = false;
-                result.Error = "Saved locally; AI panel settings missing.";
                 return result;
             }
 
-            var server = await HiatmeAiClient.SaveDriverDisciplineAsync(
-                settings, meta, docxBytes, meta.UpdatedBy, cancellationToken).ConfigureAwait(false);
-            result.ServerOk = server != null && server.Ok;
-            if (!result.ServerOk)
-                result.Error = server?.Error ?? "Panel save failed.";
-            else if (server.Path != null)
-                result.ServerPath = server.Path;
+            if (result.ServerOk && !result.LocalOk)
+            {
+                result.Error = string.IsNullOrWhiteSpace(localError)
+                    ? "Saved to AI panel; local cache unavailable."
+                    : "Saved to AI panel; local cache unavailable: " + localError;
+                return result;
+            }
+
+            if (!result.ServerOk && result.LocalOk)
+            {
+                string panelErr = settings == null
+                    ? "AI panel settings missing."
+                    : (server?.Error ?? "Panel save failed.");
+                result.Error = "Saved locally; panel sync failed: " + panelErr;
+                return result;
+            }
+
+            if (!result.ServerOk && !result.LocalOk)
+            {
+                string panelErr = settings == null
+                    ? "AI panel settings missing."
+                    : (server?.Error ?? "Panel save failed.");
+                if (!string.IsNullOrWhiteSpace(localError))
+                    result.Error = "Local save failed: " + localError + " | " + panelErr;
+                else
+                    result.Error = panelErr;
+            }
 
             return result;
         }

@@ -372,7 +372,7 @@ namespace Hiatme_Tool_Suite_v3
 
             ddStack.Controls.Add(MakeDdSectionCard(
                 "Corrective action write-up",
-                "Work top to bottom: who & when → what happened → evidence → action. Save stores Word + meta under F:\\Write ups.",
+                "Work top to bottom: who & when → what happened → evidence → action. Save stores to the AI panel library (local cache is optional).",
                 BuildDdAccentStripe(),
                 contentHeight: 6));
 
@@ -1208,6 +1208,9 @@ namespace Hiatme_Tool_Suite_v3
                 if (result.LocalOk && result.ServerOk)
                     msg = "Saved locally + AI panel"
                         + (string.IsNullOrEmpty(result.ServerPath) ? "" : " · " + result.ServerPath);
+                else if (result.ServerOk)
+                    msg = "Saved to AI panel"
+                        + (string.IsNullOrEmpty(result.Error) ? "" : " · " + result.Error);
                 else if (result.LocalOk)
                     msg = "Saved locally (panel sync failed"
                         + (string.IsNullOrEmpty(result.Error) ? ")" : ": " + result.Error + ")");
@@ -1234,7 +1237,7 @@ namespace Hiatme_Tool_Suite_v3
 
                 string where = !string.IsNullOrEmpty(result.ServerPath)
                     ? result.ServerPath
-                    : (result.LocalFolder ?? @"F:\Write ups");
+                    : (!string.IsNullOrEmpty(result.LocalFolder) ? result.LocalFolder : "AI panel library");
                 var ask = SupeyMessageDialog.Ask(
                     this,
                     SupeyMessageDialog.Kind.Success,
