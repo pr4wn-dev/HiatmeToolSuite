@@ -3378,9 +3378,8 @@ namespace Hiatme_Tool_Suite_v3
             HiatmeAiClient.LateDriversDriverSummary summary)
         {
             if (summary == null)
-                return LateDriversAnyCancelAlertHot();
-            if (LateDriversIsOtherSelected(summary.Driver))
                 return false;
+            bool reservedTile = LateDriversIsOtherSelected(summary.Driver);
             if (_ldCancelHotUntil.Count == 0)
                 return false;
 
@@ -3394,8 +3393,16 @@ namespace Hiatme_Tool_Suite_v3
                 if (now > kv.Value || string.IsNullOrWhiteSpace(kv.Key))
                     continue;
                 string trip = kv.Key;
+                if (reservedTile)
+                {
+                    if (LateDriversTripIsReservedOwned(trip))
+                        return true;
+                    continue;
+                }
+
                 string owner = FindLateDriversWorkbookOwnerForTrip(trip);
                 if (!string.IsNullOrWhiteSpace(owner)
+                    && !LateDriversIsReservesTabName(owner)
                     && string.Equals(owner, driver, StringComparison.OrdinalIgnoreCase))
                     return true;
                 var wr = FindLateDriversWrTrip(trip);
@@ -3409,6 +3416,19 @@ namespace Hiatme_Tool_Suite_v3
                     return true;
             }
             return false;
+        }
+
+        private bool LateDriversTripIsReservedOwned(string tripNo)
+        {
+            if (string.IsNullOrWhiteSpace(tripNo))
+                return false;
+
+            string owner = FindLateDriversWorkbookOwnerForTrip(tripNo);
+            if (!string.IsNullOrWhiteSpace(owner) && LateDriversIsReservesTabName(owner))
+                return true;
+
+            var wr = FindLateDriversWrTrip(tripNo);
+            return LateDriversIsReservedStatus(wr?.Status);
         }
 
         private void ApplyLateDriversDriverAlertBlinkPhase()
