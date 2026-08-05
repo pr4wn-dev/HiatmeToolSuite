@@ -37,6 +37,9 @@ namespace Hiatme_Tool_Suite_v3
         private SupeyMaterialButton ddGenerateBtn;
         private SupeyMaterialButton ddExportBtn;
         private SupeyMaterialButton ddRefreshHistoryBtn;
+        private Panel ddHistoryLoadingHost;
+        private TripScoutLiveScanIndicator ddHistoryLoadingScan;
+        private Label ddHistoryLoadingLbl;
         private Label ddPriorsLbl;
         private SupeyListView ddHistoryLv;
 
@@ -50,6 +53,8 @@ namespace Hiatme_Tool_Suite_v3
         private List<DriverDisciplineIndexItem> _ddHistoryCache = new List<DriverDisciplineIndexItem>();
         private System.Windows.Forms.Timer _ddDriverFilterTimer;
         private bool _ddDriverFilterSuppress;
+        private bool _ddLoadingSelectedReport;
+        private string _ddLoadedCaseId = "";
 
         private SupeyTextBox ddCaseTb;
         private SupeyTextBox ddPreparedTb;
@@ -475,12 +480,45 @@ namespace Hiatme_Tool_Suite_v3
                 await RefreshDriverDisciplinePriorsAsync();
             };
 
+            ddHistoryLoadingHost = new Panel
+            {
+                Name = "ddHistoryLoadingHost",
+                Dock = DockStyle.Left,
+                Width = 154,
+                Visible = false,
+                BackColor = SupeyTheme.SurfaceElevated,
+            };
+            ddHistoryLoadingScan = new TripScoutLiveScanIndicator
+            {
+                Name = "ddHistoryLoadingScan",
+                Size = new Size(20, 20),
+                Location = new Point(4, 4),
+                BackColor = SupeyTheme.SurfaceElevated,
+            };
+            ddHistoryLoadingLbl = new Label
+            {
+                Name = "ddHistoryLoadingLbl",
+                AutoSize = false,
+                Location = new Point(28, 0),
+                Size = new Size(122, 28),
+                TextAlign = ContentAlignment.MiddleLeft,
+                Font = SupeyTheme.CaptionFont,
+                ForeColor = SupeyTheme.AccentPrimary,
+                BackColor = SupeyTheme.SurfaceElevated,
+                Text = "Loading reports…",
+            };
+            ddHistoryLoadingHost.Controls.Add(ddHistoryLoadingScan);
+            ddHistoryLoadingHost.Controls.Add(ddHistoryLoadingLbl);
+
             var top = new Panel
             {
                 Dock = DockStyle.Top,
                 Height = 28,
                 BackColor = SupeyTheme.SurfaceElevated,
             };
+            top.Controls.Add(ddHistoryLoadingHost);
+            // Keep Refresh pinned to the right; the loading indicator uses the empty
+            // left side of this toolbar so it does not disturb the button.
             top.Controls.Add(ddRefreshHistoryBtn);
 
             ddHistoryLv = new SupeyListView
@@ -508,6 +546,12 @@ namespace Hiatme_Tool_Suite_v3
             ListViewHeaderEmptyAreaPainter.Attach(ddHistoryLv);
             SupeyListViewHelpers.EnableDoubleBufferRecursively(ddHistoryLv);
             ddHistoryLv.DoubleClick += async (_, __) => await OpenSelectedDriverDisciplineAsync();
+            ddHistoryLv.MouseUp += async (_, e) =>
+            {
+                if (e.Button == MouseButtons.Left
+                    && ddHistoryLv.HitTest(e.Location).Item != null)
+                    await LoadSelectedDriverDisciplineAsync();
+            };
 
             var ctx = new ContextMenuStrip
             {
@@ -548,11 +592,15 @@ namespace Hiatme_Tool_Suite_v3
                     await RefreshDriverDisciplineHistoryAsync(it.DriverName);
                     await RefreshDriverDisciplinePriorsAsync();
                 });
+            var deleteItem = MakeItem("Delete report", MenuIconFactory.GetClearIcon(),
+                async (_, __) => await DeleteSelectedDriverDisciplineAsync());
 
             ctx.Items.Add(openItem);
             ctx.Items.Add(loadItem);
             ctx.Items.Add(new ToolStripSeparator());
             ctx.Items.Add(filterItem);
+            ctx.Items.Add(new ToolStripSeparator());
+            ctx.Items.Add(deleteItem);
             ctx.Opening += (_, e) =>
             {
                 // Select the row under the cursor so right-click without a prior selection still works.
@@ -568,6 +616,7 @@ namespace Hiatme_Tool_Suite_v3
                 openItem.Enabled = has;
                 loadItem.Enabled = has;
                 filterItem.Enabled = has;
+                deleteItem.Enabled = has;
                 if (!has) e.Cancel = true;
             };
             ddHistoryLv.ContextMenuStrip = ctx;
@@ -1124,6 +1173,7 @@ namespace Hiatme_Tool_Suite_v3
             _ddClipPaths.Clear();
             RefreshDriverDisciplineClipList();
             _ddPriorsDriverKey = "";
+            _ddLoadedCaseId = "";
             ApplyDdHistoryFilterFromDriverBox();
         }
 
@@ -1464,6 +1514,7 @@ namespace Hiatme_Tool_Suite_v3
             if (ddHistoryLv == null) return;
             int gen = ++_ddHistoryLoadGen;
             _ddHistoryLoading = true;
+            SetDriverDisciplineHistoryLoading(true, "Loading reports…");
             try
             {
                 var settings = HiatmeAiSettings.Load();
@@ -1479,8 +1530,22 @@ namespace Hiatme_Tool_Suite_v3
             finally
             {
                 if (gen == _ddHistoryLoadGen)
+                {
                     _ddHistoryLoading = false;
+                    SetDriverDisciplineHistoryLoading(false);
+                }
             }
+        }
+
+        private void SetDriverDisciplineHistoryLoading(bool loading, string message = null)
+        {
+            if (ddHistoryLoadingHost == null || ddHistoryLoadingHost.IsDisposed)
+                return;
+            if (!string.IsNullOrWhiteSpace(message) && ddHistoryLoadingLbl != null)
+                ddHistoryLoadingLbl.Text = message;
+            ddHistoryLoadingHost.Visible = loading;
+            if (ddHistoryLoadingScan != null && !ddHistoryLoadingScan.IsDisposed)
+                ddHistoryLoadingScan.Scanning = loading;
         }
 
         private DriverDisciplineIndexItem SelectedDriverDisciplineItem()
@@ -1537,35 +1602,107 @@ namespace Hiatme_Tool_Suite_v3
         {
             var it = SelectedDriverDisciplineItem();
             if (it == null || string.IsNullOrWhiteSpace(it.Id)) return;
+            if (_ddLoadingSelectedReport
+                || string.Equals(_ddLoadedCaseId, it.Id, StringComparison.OrdinalIgnoreCase))
+                return;
 
             DriverDisciplineMeta meta = null;
-            string localMeta = Path.Combine(
-                DriverDisciplineStore.CaseFolder(it.DriverName, it.Id), "meta.json");
+            _ddLoadingSelectedReport = true;
+            SetDriverDisciplineHistoryLoading(true, "Loading report…");
             try
             {
-                if (File.Exists(localMeta))
-                    meta = Newtonsoft.Json.JsonConvert.DeserializeObject<DriverDisciplineMeta>(
-                        File.ReadAllText(localMeta));
-            }
-            catch { /* try server */ }
-
-            if (meta == null)
-            {
+                // The AI panel is authoritative. A local cache may be stale after another
+                // dispatcher edits the same report, so only use it when the panel is unavailable.
                 var settings = HiatmeAiSettings.Load();
                 meta = await HiatmeAiClient.GetDriverDisciplineMetaAsync(settings, it.Id)
                     .ConfigureAwait(true);
             }
+            catch { /* fall back to local cache */ }
+
             if (meta == null)
             {
-                SupeyMessageDialog.ShowWarning(this, "Driver Discipline",
-                    "Couldn’t load write-up",
-                    "Metadata for this case wasn’t found locally or on the AI panel.");
-                return;
+                string localMeta = Path.Combine(
+                    DriverDisciplineStore.CaseFolder(it.DriverName, it.Id), "meta.json");
+                try
+                {
+                    if (File.Exists(localMeta))
+                        meta = Newtonsoft.Json.JsonConvert.DeserializeObject<DriverDisciplineMeta>(
+                            File.ReadAllText(localMeta));
+                }
+                catch { /* report the unavailable metadata below */ }
             }
+            try
+            {
+                if (meta == null)
+                {
+                    SupeyMessageDialog.ShowWarning(this, "Driver Discipline",
+                        "Couldn’t load write-up",
+                        "Metadata for this case wasn’t found locally or on the AI panel.");
+                    return;
+                }
 
-            ApplyDriverDisciplineRecord(DriverDisciplineStore.ToRecord(meta));
-            SetDriverDisciplineStatus("Loaded " + (meta.CaseNumber ?? meta.Id) + " into the form for review.");
-            await RefreshDriverDisciplinePriorsAsync().ConfigureAwait(true);
+                ApplyDriverDisciplineRecord(DriverDisciplineStore.ToRecord(meta));
+                _ddLoadedCaseId = meta.Id ?? it.Id;
+                SetDriverDisciplineStatus("Loaded " + (meta.CaseNumber ?? meta.Id) + " into the form for review.");
+                await RefreshDriverDisciplinePriorsAsync().ConfigureAwait(true);
+            }
+            finally
+            {
+                _ddLoadingSelectedReport = false;
+                if (!_ddHistoryLoading)
+                    SetDriverDisciplineHistoryLoading(false);
+            }
+        }
+
+        private async Task DeleteSelectedDriverDisciplineAsync()
+        {
+            var it = SelectedDriverDisciplineItem();
+            if (it == null || string.IsNullOrWhiteSpace(it.Id)) return;
+
+            string label = string.IsNullOrWhiteSpace(it.CaseNumber) ? it.Id : it.CaseNumber;
+            if (SupeyMessageDialog.Confirm(
+                    this,
+                    SupeyMessageDialog.Kind.Warning,
+                    "Driver Discipline",
+                    "Delete " + label + "?",
+                    "This permanently deletes the Word document and saved report from the shared library.",
+                    "Delete report",
+                    "Keep report") != DialogResult.Yes)
+                return;
+
+            SetDriverDisciplineStatus("Deleting " + label + "…");
+            SetDriverDisciplineHistoryLoading(true, "Deleting report…");
+            try
+            {
+                var result = await DriverDisciplineStore.DeleteAndSyncAsync(
+                    it, HiatmeAiSettings.Load()).ConfigureAwait(true);
+                if (!result.ServerOk)
+                {
+                    SetDriverDisciplineStatus("Delete failed.");
+                    SupeyMessageDialog.ShowWarning(this, "Driver Discipline", "Delete failed",
+                        "The report was not deleted from the shared library.", result.Error);
+                    return;
+                }
+
+                if (string.Equals(_ddLoadedCaseId, it.Id, StringComparison.OrdinalIgnoreCase))
+                    ResetDriverDisciplineForm(seedCase: true);
+                await RefreshDriverDisciplineHistoryAsync().ConfigureAwait(true);
+                await RefreshDriverDisciplinePriorsAsync().ConfigureAwait(true);
+                SetDriverDisciplineStatus(result.LocalOk
+                    ? "Deleted " + label + "."
+                    : "Deleted " + label + " from AI panel; local cache cleanup failed.");
+            }
+            catch (Exception ex)
+            {
+                SetDriverDisciplineStatus("Delete failed.");
+                SupeyMessageDialog.ShowWarning(this, "Driver Discipline", "Delete failed",
+                    "The report was not deleted from the shared library.", ex.Message);
+            }
+            finally
+            {
+                if (!_ddHistoryLoading)
+                    SetDriverDisciplineHistoryLoading(false);
+            }
         }
 
         private void ApplyDriverDisciplineRecord(DriverDisciplineRecord r)

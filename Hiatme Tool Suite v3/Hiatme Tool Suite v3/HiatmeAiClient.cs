@@ -3905,6 +3905,53 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        public static async Task<DriverDisciplineServerDeleteResult> DeleteDriverDisciplineAsync(
+            HiatmeAiSettings settings,
+            string caseId,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null)
+                return new DriverDisciplineServerDeleteResult { Ok = false, Error = "settings missing" };
+            if (string.IsNullOrWhiteSpace(caseId))
+                return new DriverDisciplineServerDeleteResult { Ok = false, Error = "case ID required" };
+
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl))
+                return new DriverDisciplineServerDeleteResult { Ok = false, Error = "AI server URL not configured" };
+
+            string url = baseUrl + "/api/hiatme/driver-discipline/"
+                + Uri.EscapeDataString(caseId.Trim());
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Delete, url))
+                {
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
+                    {
+                        var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        if (!resp.IsSuccessStatusCode)
+                            return new DriverDisciplineServerDeleteResult
+                            {
+                                Ok = false,
+                                Error = "HTTP " + (int)resp.StatusCode + ": " + body,
+                            };
+                        var root = JObject.Parse(body);
+                        return new DriverDisciplineServerDeleteResult
+                        {
+                            Ok = root.Value<bool?>("ok") ?? true,
+                            Id = root.Value<string>("id"),
+                        };
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                return new DriverDisciplineServerDeleteResult { Ok = false, Error = DescribeRequestError(ex) };
+            }
+        }
+
         public static async Task<DriverDisciplineServerSaveResult> SaveDriverDisciplineAsync(
             HiatmeAiSettings settings,
             DriverDisciplineMeta meta,

@@ -245,6 +245,67 @@ namespace Hiatme_Tool_Suite_v3
             return folder;
         }
 
+        /// <summary>Remove one locally cached write-up and its index entry.</summary>
+        public static void DeleteLocal(DriverDisciplineIndexItem item)
+        {
+            if (item == null || string.IsNullOrWhiteSpace(item.Id))
+                throw new ArgumentException("write-up ID required", nameof(item));
+
+            string caseId = CaseIdSafe(item.Id);
+            string folder = CaseFolder(item.DriverName, caseId);
+            if (!Directory.Exists(folder))
+            {
+                string drivers = Path.Combine(LocalRoot, "drivers");
+                if (Directory.Exists(drivers))
+                {
+                    folder = Directory.GetDirectories(drivers)
+                        .Select(driverFolder => Path.Combine(driverFolder, caseId))
+                        .FirstOrDefault(Directory.Exists);
+                }
+            }
+            if (!string.IsNullOrWhiteSpace(folder) && Directory.Exists(folder))
+                Directory.Delete(folder, recursive: true);
+
+            var index = LoadLocalIndex();
+            index.RemoveAll(i => string.Equals(i.Id, item.Id, StringComparison.OrdinalIgnoreCase));
+            SaveLocalIndex(index);
+        }
+
+        /// <summary>
+        /// Delete from the AI panel first, then remove the matching local cache entry.
+        /// The panel remains authoritative so an offline delete cannot be mistaken for a full deletion.
+        /// </summary>
+        public static async Task<DriverDisciplineDeleteResult> DeleteAndSyncAsync(
+            DriverDisciplineIndexItem item,
+            HiatmeAiSettings settings,
+            CancellationToken cancellationToken = default)
+        {
+            if (item == null || string.IsNullOrWhiteSpace(item.Id))
+                return new DriverDisciplineDeleteResult { Error = "write-up ID required" };
+
+            var server = await HiatmeAiClient.DeleteDriverDisciplineAsync(
+                settings, item.Id, cancellationToken).ConfigureAwait(false);
+            if (server == null || !server.Ok)
+                return new DriverDisciplineDeleteResult
+                {
+                    Error = server?.Error ?? "AI panel delete failed.",
+                };
+
+            try
+            {
+                DeleteLocal(item);
+                return new DriverDisciplineDeleteResult { ServerOk = true, LocalOk = true };
+            }
+            catch (Exception ex)
+            {
+                return new DriverDisciplineDeleteResult
+                {
+                    ServerOk = true,
+                    Error = "Deleted from AI panel; local cache cleanup failed: " + ex.Message,
+                };
+            }
+        }
+
         public static async Task<DriverDisciplineSaveResult> SaveAndSyncAsync(
             DriverDisciplineRecord record,
             byte[] docxBytes,
@@ -396,6 +457,13 @@ namespace Hiatme_Tool_Suite_v3
         public string ServerPath { get; set; }
         public string Error { get; set; }
         public DriverDisciplineMeta Meta { get; set; }
+    }
+
+    internal sealed class DriverDisciplineDeleteResult
+    {
+        public bool LocalOk { get; set; }
+        public bool ServerOk { get; set; }
+        public string Error { get; set; }
     }
 
     internal sealed class DriverDisciplineIndexItem
@@ -557,6 +625,13 @@ namespace Hiatme_Tool_Suite_v3
         public bool Ok { get; set; }
         public string Id { get; set; }
         public string Path { get; set; }
+        public string Error { get; set; }
+    }
+
+    internal sealed class DriverDisciplineServerDeleteResult
+    {
+        public bool Ok { get; set; }
+        public string Id { get; set; }
         public string Error { get; set; }
     }
 }
