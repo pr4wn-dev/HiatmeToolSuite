@@ -44,9 +44,9 @@ namespace Hiatme_Tool_Suite_v3
             MinimizeBox = false;
             ShowInTaskbar = false;
             StartPosition = FormStartPosition.CenterParent;
-            ClientSize = new Size(780, 600);
-            MinimumSize = new Size(780, 600);
-            MaximumSize = new Size(780, 600);
+            ClientSize = new Size(780, 640);
+            MinimumSize = new Size(780, 640);
+            MaximumSize = new Size(780, 640);
             BackColor = SupeyTheme.Surface;
 
             var footer = new Panel
@@ -89,7 +89,9 @@ namespace Hiatme_Tool_Suite_v3
                 RowCount = 4,
                 BackColor = SupeyTheme.Surface,
             };
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 96));
+            // Name + date + status + one headline line — keep this tall enough so
+            // Dock.Top labels are not crushed under the Supey title chrome.
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 118));
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 72));
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
@@ -200,15 +202,15 @@ namespace Hiatme_Tool_Suite_v3
             {
                 Dock = DockStyle.Fill,
                 BackColor = SupeyTheme.Surface,
-                Padding = new Padding(0, 0, 0, 6),
+                Padding = new Padding(0, 2, 0, 4),
             };
 
-            var statusLbl = new Label
+            var nameLbl = new Label
             {
                 Dock = DockStyle.Top,
-                Height = 22,
-                Text = statusText,
-                Font = new Font("Segoe UI Semibold", 11f, FontStyle.Bold),
+                Height = 24,
+                Text = driver,
+                Font = new Font("Segoe UI Semibold", 12f, FontStyle.Bold),
                 ForeColor = SupeyTheme.TextPrimary,
                 BackColor = SupeyTheme.Surface,
                 TextAlign = ContentAlignment.MiddleLeft,
@@ -216,26 +218,27 @@ namespace Hiatme_Tool_Suite_v3
             var dateLbl = new Label
             {
                 Dock = DockStyle.Top,
-                Height = 18,
+                Height = 20,
                 Text = dateLabel,
                 Font = new Font("Segoe UI", 9f),
                 ForeColor = SupeyTheme.TextSecondary,
                 BackColor = SupeyTheme.Surface,
                 TextAlign = ContentAlignment.MiddleLeft,
             };
-            var nameLbl = new Label
+            var statusLbl = new Label
             {
                 Dock = DockStyle.Top,
-                Height = 22,
-                Text = driver,
-                Font = new Font("Segoe UI Semibold", 12f, FontStyle.Bold),
+                Height = 24,
+                Text = statusText,
+                Font = new Font("Segoe UI Semibold", 11f, FontStyle.Bold),
                 ForeColor = SupeyTheme.TextPrimary,
                 BackColor = SupeyTheme.Surface,
                 TextAlign = ContentAlignment.MiddleLeft,
             };
             var headlineLbl = new Label
             {
-                Dock = DockStyle.Fill,
+                Dock = DockStyle.Top,
+                Height = 36,
                 Text = BuildHeadlineText(assessment, review.Headline),
                 Font = new Font("Segoe UI", 9.5f),
                 ForeColor = SupeyTheme.TextPrimary,
@@ -243,11 +246,11 @@ namespace Hiatme_Tool_Suite_v3
                 TextAlign = ContentAlignment.TopLeft,
             };
 
-            // Dock Top: last added sits highest.
+            // Dock Top: last added sits highest — add bottom-up so name is on top.
             host.Controls.Add(headlineLbl);
-            host.Controls.Add(nameLbl);
-            host.Controls.Add(dateLbl);
             host.Controls.Add(statusLbl);
+            host.Controls.Add(dateLbl);
+            host.Controls.Add(nameLbl);
             return host;
         }
 
@@ -375,11 +378,13 @@ namespace Hiatme_Tool_Suite_v3
 
         private static string BuildHeadlineText(DailyIssueAssessment assessment, string serverHeadline)
         {
-            string statusLead = "Performance status: " + (assessment?.Status ?? StatusExcellent) + ".";
+            // Status already has its own line — don't stack a second "Performance status:" copy.
             string detail = (serverHeadline ?? "").Trim();
             if (string.IsNullOrEmpty(detail))
-                return statusLead;
-            return statusLead + Environment.NewLine + detail;
+                return "Day performance note for this driver.";
+            if (detail.StartsWith("Performance status:", StringComparison.OrdinalIgnoreCase))
+                return detail;
+            return detail;
         }
 
         private void PopulateList(List<HiatmeAiClient.DriverHabitsReviewTrip> improve)

@@ -147,7 +147,9 @@ namespace Hiatme_Tool_Suite_v3
             detail = BuildProbeFailureMessage(candidates, probe.Errors, merged.ApiToken);
             _lastConnectionDetail = detail;
             HiatmePanelLanDiscovery.DiscoverInBackground();
-            return candidates[0];
+            // Never pin a dead WAN/LAN winner — loopback is the only safe default
+            // when every probe failed (otherwise SharedHttp burns 130s per click).
+            return "http://127.0.0.1:" + DefaultPort;
         }
 
         internal static IReadOnlyList<string> CollectPanelCandidateUrls(HiatmeAiSettings merged)

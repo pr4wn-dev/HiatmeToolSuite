@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
@@ -3164,40 +3165,88 @@ namespace Hiatme_Tool_Suite_v3
             if (string.IsNullOrWhiteSpace(driver))
                 return new DriverHabitsReviewDoc { Ok = false, Error = "driver required" };
 
-            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
-            if (string.IsNullOrEmpty(baseUrl))
+            // Prefer the resolved session URL, then fall through configured backups.
+            // A dead office/public host must not sit on SharedHttp's 130s timeout —
+            // that is exactly what made the performance-review button look stuck.
+            var bases = new List<string>();
+            void addBase(string u)
+            {
+                u = (u ?? "").Trim().TrimEnd('/');
+                if (string.IsNullOrEmpty(u)) return;
+                if (!bases.Any(b => string.Equals(b, u, StringComparison.OrdinalIgnoreCase)))
+                    bases.Add(u);
+            }
+            addBase(settings.BaseUrl);
+            addBase(settings.LastResolvedBaseUrl);
+            if (settings.FallbackBaseUrls != null)
+            {
+                foreach (var u in settings.FallbackBaseUrls)
+                    addBase(u);
+            }
+            addBase("http://127.0.0.1:" + HiatmeAiSettings.DefaultPort);
+            if (bases.Count == 0)
                 return new DriverHabitsReviewDoc { Ok = false, Error = "AI server URL not configured" };
 
-            string url = baseUrl + "/api/hiatme/driver-habits/review?service_date="
+            string path = "/api/hiatme/driver-habits/review?service_date="
                 + Uri.EscapeDataString(serviceDateIso.Trim())
                 + "&driver=" + Uri.EscapeDataString(driver.Trim());
 
-            try
+            var errors = new List<string>();
+            foreach (var baseUrl in bases)
             {
-                using (var req = new HttpRequestMessage(HttpMethod.Get, url))
+                cancellationToken.ThrowIfCancellationRequested();
+                string url = baseUrl + path;
+                try
                 {
-                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
-                        req.Headers.Authorization = new AuthenticationHeaderValue(
-                            "Bearer", settings.ApiToken.Trim());
-                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken)
-                        .ConfigureAwait(false))
+                    // Hard ceiling per host — fail over instead of spinning the status bar.
+                    using (var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
                     {
-                        var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
-                        if (!resp.IsSuccessStatusCode)
-                            return new DriverHabitsReviewDoc
+                        attemptCts.CancelAfter(TimeSpan.FromSeconds(8));
+                        using (var req = new HttpRequestMessage(HttpMethod.Get, url))
+                        {
+                            if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                                req.Headers.Authorization = new AuthenticationHeaderValue(
+                                    "Bearer", settings.ApiToken.Trim());
+                            using (var resp = await SharedHttp.SendAsync(req, attemptCts.Token)
+                                .ConfigureAwait(false))
                             {
-                                Ok = false,
-                                Error = "HTTP " + (int)resp.StatusCode + ": " + body,
-                            };
-                        return JsonConvert.DeserializeObject<DriverHabitsReviewDoc>(body)
-                            ?? new DriverHabitsReviewDoc { Ok = false, Error = "empty response" };
+                                var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                                if (!resp.IsSuccessStatusCode)
+                                {
+                                    errors.Add(baseUrl + " → HTTP " + (int)resp.StatusCode);
+                                    continue;
+                                }
+                                var doc = JsonConvert.DeserializeObject<DriverHabitsReviewDoc>(body)
+                                    ?? new DriverHabitsReviewDoc { Ok = false, Error = "empty response" };
+                                if (!doc.Ok)
+                                {
+                                    errors.Add(baseUrl + " → " + (doc.Error ?? "not ok"));
+                                    continue;
+                                }
+                                // Stick the winner so the next click does not re-probe dead hosts first.
+                                if (!string.Equals(settings.BaseUrl, baseUrl, StringComparison.OrdinalIgnoreCase))
+                                    settings.BaseUrl = baseUrl;
+                                return doc;
+                            }
+                        }
                     }
                 }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    errors.Add(baseUrl + " → timed out");
+                }
+                catch (Exception ex)
+                {
+                    errors.Add(baseUrl + " → " + DescribeRequestError(ex, baseUrl));
+                }
             }
-            catch (Exception ex)
+
+            return new DriverHabitsReviewDoc
             {
-                return new DriverHabitsReviewDoc { Ok = false, Error = DescribeRequestError(ex) };
-            }
+                Ok = false,
+                Error = "Could not reach AI panel for review. Tried: "
+                    + string.Join("; ", errors),
+            };
         }
 
         // ── Modivcare day snapshot (Driver Habits sched source) ───────────

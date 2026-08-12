@@ -3771,21 +3771,32 @@ namespace Hiatme_Tool_Suite_v3
             SetLateDriversStatus("Status: Loading performance review for " + driverName.Trim() + "…");
             try
             {
-                var review = await HiatmeAiClient.GetDriverHabitsReviewAsync(
-                        settings, sd, driverName.Trim())
-                    .ConfigureAwait(true);
-                if (review == null || !review.Ok)
+                using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(25)))
                 {
-                    SupeyMessageDialog.ShowWarning(
-                        this,
-                        "Performance review",
-                        "Could not load review",
-                        review?.Error ?? "unknown error");
-                    return;
-                }
+                    var review = await HiatmeAiClient.GetDriverHabitsReviewAsync(
+                            settings, sd, driverName.Trim(), cts.Token)
+                        .ConfigureAwait(true);
+                    if (review == null || !review.Ok)
+                    {
+                        SupeyMessageDialog.ShowWarning(
+                            this,
+                            "Performance review",
+                            "Could not load review",
+                            review?.Error ?? "unknown error");
+                        return;
+                    }
 
-                using (var form = new DriverHabitsReviewForm(review))
-                    form.ShowDialog(this);
+                    using (var form = new DriverHabitsReviewForm(review))
+                        form.ShowDialog(this);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                SupeyMessageDialog.ShowWarning(
+                    this,
+                    "Performance review",
+                    "Review timed out",
+                    "AI panel did not answer in time. Check that the panel is running.");
             }
             catch (Exception ex)
             {
