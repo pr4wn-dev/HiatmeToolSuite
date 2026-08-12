@@ -3090,6 +3090,9 @@ namespace Hiatme_Tool_Suite_v3
 
             [JsonProperty("trip_count")]
             public int TripCount { get; set; }
+
+            [JsonProperty("admin_count")]
+            public int AdminCount { get; set; }
         }
 
         public sealed class DriverHabitsReviewTrip
@@ -3131,16 +3134,11 @@ namespace Hiatme_Tool_Suite_v3
             public string Headline { get; set; }
             public string Tone { get; set; }
 
-            public int? Rank { get; set; }
+            [JsonProperty("status_label")]
+            public string StatusLabel { get; set; }
 
-            [JsonProperty("rank_of")]
-            public int RankOf { get; set; }
-
-            [JsonProperty("rank_label")]
-            public string RankLabel { get; set; }
-
-            [JsonProperty("rank_line")]
-            public string RankLine { get; set; }
+            [JsonProperty("total_issues")]
+            public int TotalIssues { get; set; }
 
             [JsonProperty("email_intro")]
             public string EmailIntro { get; set; }

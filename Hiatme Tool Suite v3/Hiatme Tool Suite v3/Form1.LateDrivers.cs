@@ -2624,8 +2624,8 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (list == null || list.Count < 2)
                 return;
-            // Worst-first: total fuck-ups (L+E+U equal), then late minutes as tiebreak.
-            // Do not treat late as worse than early — 2 early beats 1 late.
+            // Worst-first: total issue count only (L+E+U equal).
+            // Use driver name as deterministic tiebreak so equal scorers do not jitter.
             list.Sort((a, b) =>
             {
                 if (a == null && b == null) return 0;
@@ -2633,7 +2633,10 @@ namespace Hiatme_Tool_Suite_v3
                 if (b == null) return -1;
                 int cmp = LateDriversFuckupCount(b).CompareTo(LateDriversFuckupCount(a));
                 if (cmp != 0) return cmp;
-                return b.TotalMinutes.CompareTo(a.TotalMinutes);
+                return string.Compare(
+                    (a.Driver ?? "").Trim(),
+                    (b.Driver ?? "").Trim(),
+                    StringComparison.OrdinalIgnoreCase);
             });
         }
 

@@ -12,6 +12,22 @@ namespace Hiatme_Tool_Suite_v3
     internal sealed class DriverHabitsReviewForm : SupeyForm
     {
         private readonly SupeyListView _list;
+        private const string StatusExcellent = "Excellent";
+        private const string StatusVeryGood = "Very Good";
+        private const string StatusGood = "Good";
+        private const string StatusPoor = "Poor";
+        private const string StatusCritical = "Critical";
+
+        private sealed class DailyIssueAssessment
+        {
+            public int Late { get; set; }
+            public int Early { get; set; }
+            public int Unfinished { get; set; }
+            // Ops billed the ticket before the driver could finish — shown, never scored.
+            public int BilledEarly { get; set; }
+            public int Total => Late + Early + Unfinished;
+            public string Status { get; set; } = StatusExcellent;
+        }
 
         public DriverHabitsReviewForm(HiatmeAiClient.DriverHabitsReviewDoc review)
         {
@@ -79,7 +95,7 @@ namespace Hiatme_Tool_Suite_v3
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
 
             root.Controls.Add(BuildHero(review, driver), 0, 0);
-            root.Controls.Add(BuildSummaryStrip(review.Summary), 0, 1);
+            root.Controls.Add(BuildSummaryStrip(review.Summary, review.Improve), 0, 1);
 
             int tripN = review.Improve?.Count ?? 0;
             var section = new Label
@@ -169,18 +185,16 @@ namespace Hiatme_Tool_Suite_v3
             HiatmeAiClient.DriverHabitsReviewDoc review,
             string driver)
         {
+            var assessment = BuildAssessment(review);
             string dateLabel = !string.IsNullOrWhiteSpace(review.DateLabel)
                 ? review.DateLabel.Trim()
                 : (review.ServiceDate ?? "");
 
-            string rankText = !string.IsNullOrWhiteSpace(review.RankLine)
-                ? review.RankLine.Trim()
-                : (!string.IsNullOrWhiteSpace(review.RankLabel)
-                    ? review.RankLabel.Trim()
-                    : (review.Rank.HasValue && review.RankOf > 0
-                        ? ("Your daily rank: " + review.Rank.Value.ToString(CultureInfo.InvariantCulture)
-                            + " of " + review.RankOf.ToString(CultureInfo.InvariantCulture) + " drivers.")
-                        : ""));
+            string statusText = "Daily status: "
+                + assessment.Status
+                + " — "
+                + assessment.Total.ToString(CultureInfo.InvariantCulture)
+                + (assessment.Total == 1 ? " issue" : " issues");
 
             var host = new Panel
             {
@@ -189,11 +203,11 @@ namespace Hiatme_Tool_Suite_v3
                 Padding = new Padding(0, 0, 0, 6),
             };
 
-            var rankLbl = new Label
+            var statusLbl = new Label
             {
                 Dock = DockStyle.Top,
                 Height = 22,
-                Text = string.IsNullOrEmpty(rankText) ? "Daily rank: —" : rankText,
+                Text = statusText,
                 Font = new Font("Segoe UI Semibold", 11f, FontStyle.Bold),
                 ForeColor = SupeyTheme.TextPrimary,
                 BackColor = SupeyTheme.Surface,
@@ -222,7 +236,7 @@ namespace Hiatme_Tool_Suite_v3
             var headlineLbl = new Label
             {
                 Dock = DockStyle.Fill,
-                Text = review.Headline ?? "",
+                Text = BuildHeadlineText(assessment, review.Headline),
                 Font = new Font("Segoe UI", 9.5f),
                 ForeColor = SupeyTheme.TextPrimary,
                 BackColor = SupeyTheme.Surface,
@@ -233,13 +247,19 @@ namespace Hiatme_Tool_Suite_v3
             host.Controls.Add(headlineLbl);
             host.Controls.Add(nameLbl);
             host.Controls.Add(dateLbl);
-            host.Controls.Add(rankLbl);
+            host.Controls.Add(statusLbl);
             return host;
         }
 
-        private static Control BuildSummaryStrip(HiatmeAiClient.DriverHabitsReviewSummary s)
+        private static Control BuildSummaryStrip(
+            HiatmeAiClient.DriverHabitsReviewSummary s,
+            List<HiatmeAiClient.DriverHabitsReviewTrip> improve)
         {
-            s = s ?? new HiatmeAiClient.DriverHabitsReviewSummary();
+            var assessment = BuildAssessment(new HiatmeAiClient.DriverHabitsReviewDoc
+            {
+                Summary = s,
+                Improve = improve,
+            });
             var host = new FlowLayoutPanel
             {
                 Dock = DockStyle.Fill,
@@ -248,15 +268,12 @@ namespace Hiatme_Tool_Suite_v3
                 BackColor = SupeyTheme.Surface,
                 Padding = new Padding(0, 2, 0, 6),
             };
-            host.Controls.Add(StatChip("Late PU", s.LatePu));
-            host.Controls.Add(StatChip("Late DO", s.LateDo));
-            host.Controls.Add(StatChip("Early PU", s.EarlyPu));
-            host.Controls.Add(StatChip("Early DO", s.EarlyDo));
-            host.Controls.Add(StatChip("Unfinished", s.Unfinished));
-            host.Controls.Add(StatChip(
-                "Late mins",
-                (int)Math.Round(s.LateMinutes),
-                s.LateMinutes.ToString("0", CultureInfo.InvariantCulture) + "m"));
+            host.Controls.Add(StatChip("Total issues", assessment.Total));
+            host.Controls.Add(StatChip("Status", 0, assessment.Status));
+            host.Controls.Add(StatChip("Late", assessment.Late));
+            host.Controls.Add(StatChip("Early", assessment.Early));
+            host.Controls.Add(StatChip("Unfinished", assessment.Unfinished));
+            host.Controls.Add(StatChip("Billed early", assessment.BilledEarly));
             return host;
         }
 
@@ -294,6 +311,75 @@ namespace Hiatme_Tool_Suite_v3
             card.Controls.Add(val);
             card.Controls.Add(cap);
             return card;
+        }
+
+        private static DailyIssueAssessment BuildAssessment(HiatmeAiClient.DriverHabitsReviewDoc review)
+        {
+            var s = review?.Summary ?? new HiatmeAiClient.DriverHabitsReviewSummary();
+            var trips = review?.Improve ?? new List<HiatmeAiClient.DriverHabitsReviewTrip>();
+
+            int late = Math.Max(0, s.LateCount);
+            int early = Math.Max(0, s.EarlyCount);
+            int unfinished = Math.Max(0, s.Unfinished);
+            int admin = Math.Max(0, s.AdminCount);
+
+            if (admin == 0)
+            {
+                if (s.EventCount > 0)
+                {
+                    admin = Math.Max(0, s.EventCount - (late + early + unfinished));
+                }
+                else if (trips.Count > 0)
+                {
+                    int derivedAdmin = 0;
+                    foreach (var t in trips)
+                    {
+                        string key = (
+                                t?.HabitLabel
+                                ?? t?.Habit
+                                ?? t?.Status
+                                ?? t?.Note
+                                ?? "")
+                            .Trim()
+                            .ToLowerInvariant();
+                        if (string.IsNullOrEmpty(key))
+                            continue;
+                        if (key.Contains("late")
+                            || key.Contains("early")
+                            || key.Contains("unfinished")
+                            || key.Contains("open ticket"))
+                            continue;
+                        derivedAdmin++;
+                    }
+                    admin = derivedAdmin;
+                }
+            }
+
+            int total = late + early + unfinished;
+            string status;
+            if (total <= 0) status = StatusExcellent;
+            else if (total == 1) status = StatusVeryGood;
+            else if (total == 2) status = StatusGood;
+            else if (total == 3) status = StatusPoor;
+            else status = StatusCritical;
+
+            return new DailyIssueAssessment
+            {
+                Late = late,
+                Early = early,
+                Unfinished = unfinished,
+                BilledEarly = admin,
+                Status = status,
+            };
+        }
+
+        private static string BuildHeadlineText(DailyIssueAssessment assessment, string serverHeadline)
+        {
+            string statusLead = "Performance status: " + (assessment?.Status ?? StatusExcellent) + ".";
+            string detail = (serverHeadline ?? "").Trim();
+            if (string.IsNullOrEmpty(detail))
+                return statusLead;
+            return statusLead + Environment.NewLine + detail;
         }
 
         private void PopulateList(List<HiatmeAiClient.DriverHabitsReviewTrip> improve)
