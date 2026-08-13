@@ -264,6 +264,94 @@ namespace Hiatme_Tool_Suite_v3
         public HiatmeProposedAddressChange ProposedAddressChange { get; set; }
     }
 
+    /// <summary>Global Tool Suite assistant response (chat help + structured drafts).</summary>
+    internal sealed class HiatmeAssistantResponse
+    {
+        [JsonProperty("mode")]
+        public string Mode { get; set; }
+
+        [JsonProperty("intent")]
+        public string Intent { get; set; }
+
+        [JsonProperty("message")]
+        public string Message { get; set; }
+
+        [JsonProperty("thinking")]
+        public string Thinking { get; set; }
+
+        [JsonProperty("trace_id")]
+        public string TraceId { get; set; }
+
+        [JsonProperty("draft")]
+        public JObject Draft { get; set; }
+
+        [JsonProperty("missing_fields")]
+        public List<string> MissingFields { get; set; }
+
+        [JsonProperty("confidence")]
+        public string Confidence { get; set; }
+
+        [JsonProperty("preview")]
+        public HiatmeAssistantDraftPreview Preview { get; set; }
+
+        [JsonProperty("actions")]
+        public List<HiatmeAssistantAction> Actions { get; set; }
+    }
+
+    internal sealed class HiatmeAssistantAction
+    {
+        [JsonProperty("id")]
+        public string Id { get; set; }
+
+        [JsonProperty("label")]
+        public string Label { get; set; }
+
+        [JsonProperty("args")]
+        public HiatmeAssistantActionArgs Args { get; set; }
+    }
+
+    internal sealed class HiatmeAssistantActionArgs
+    {
+        [JsonProperty("tab")]
+        public string Tab { get; set; }
+
+        [JsonProperty("driver")]
+        public string Driver { get; set; }
+
+        [JsonProperty("trip")]
+        public string Trip { get; set; }
+    }
+
+    internal sealed class HiatmeAssistantDraftPreview
+    {
+        [JsonProperty("confidence")]
+        public string Confidence { get; set; }
+
+        [JsonProperty("ready")]
+        public bool Ready { get; set; }
+
+        [JsonProperty("missing_fields")]
+        public List<string> MissingFields { get; set; }
+
+        [JsonProperty("missing_labels")]
+        public List<string> MissingLabels { get; set; }
+
+        [JsonProperty("driver_name")]
+        public string DriverName { get; set; }
+
+        [JsonProperty("action_level")]
+        public string ActionLevel { get; set; }
+
+        [JsonProperty("incident_date")]
+        public string IncidentDate { get; set; }
+
+        [JsonProperty("violations")]
+        public List<string> Violations { get; set; }
+
+        [JsonProperty("narrative")]
+        public string Narrative { get; set; }
+    }
+
     /// <summary>Driver address-change proposal queued by the AI; awaits dispatcher confirmation.</summary>
     internal sealed class HiatmeProposedAddressChange
     {
@@ -1897,6 +1985,51 @@ namespace Hiatme_Tool_Suite_v3
                     if (!resp.IsSuccessStatusCode)
                         throw new InvalidOperationException("AI message failed: " + text);
                     return JsonConvert.DeserializeObject<HiatmeAiMessageResponse>(text);
+                }
+            }
+        }
+
+        public static async Task<HiatmeAssistantResponse> SendAssistantAsync(
+            HiatmeAiSettings settings,
+            JObject context,
+            string message,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null) throw new ArgumentNullException(nameof(settings));
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl))
+                throw new InvalidOperationException("AI server URL is not configured.");
+
+            var body = new JObject
+            {
+                ["client_id"] = settings.ResolvedClientId(),
+                ["context"] = context ?? new JObject(),
+                ["message"] = message ?? "",
+            };
+
+            using (var req = new HttpRequestMessage(HttpMethod.Post, baseUrl + "/api/hiatme/assistant"))
+            {
+                req.Content = new StringContent(body.ToString(Formatting.None), Encoding.UTF8, "application/json");
+                if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                    req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", settings.ApiToken.Trim());
+
+                using (var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+                {
+                    timeoutCts.CancelAfter(TimeSpan.FromSeconds(55));
+                    using (var resp = await SharedHttp.SendAsync(req, timeoutCts.Token).ConfigureAwait(false))
+                    {
+                        var text = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        if (!resp.IsSuccessStatusCode)
+                        {
+                            if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized
+                                || resp.StatusCode == System.Net.HttpStatusCode.Forbidden)
+                                throw new InvalidOperationException(
+                                    "AI panel rejected the API token. Check ApiToken vs HIATME_API_TOKEN.");
+                            throw new InvalidOperationException(
+                                "AI assistant failed (HTTP " + (int)resp.StatusCode + ").");
+                        }
+                        return JsonConvert.DeserializeObject<HiatmeAssistantResponse>(text);
+                    }
                 }
             }
         }

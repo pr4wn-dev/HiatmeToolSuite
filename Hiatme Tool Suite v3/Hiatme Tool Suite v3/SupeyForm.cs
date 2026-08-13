@@ -324,6 +324,10 @@ namespace Hiatme_Tool_Suite_v3
 
         private bool _themeBtnHot;
 
+        private bool _aiBtnHot;
+
+        private bool _titleBarAiOpen;
+
         private bool _themePickerOpen;
 
         private FormWindowState _lastWindowState = FormWindowState.Normal;
@@ -335,6 +339,7 @@ namespace Hiatme_Tool_Suite_v3
         private int _contentLeftGutter;
 
         private int _contentSidePad = 3;
+        private int _contentRightGutter;
 
         private ResizeDirection _resizeDir = ResizeDirection.None;
 
@@ -351,6 +356,10 @@ namespace Hiatme_Tool_Suite_v3
         private const int ThemeMinWidth = 176;
 
         private const int ThemeLabelInnerWidth = 44;
+
+        private const int AiButtonWidth = 52;
+
+        private const int AiButtonHeight = 30;
 
 
 
@@ -406,6 +415,35 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>Raised when the painted theme chip is clicked.</summary>
 
         public event EventHandler TitleBarThemeClick;
+
+
+
+        /// <summary>When true, an AI toggle chip is painted in the title bar (left of the theme picker).</summary>
+
+        public bool ShowTitleBarAiButton { get; set; }
+
+
+
+        /// <summary>True while the global AI dock is open (highlights the title-bar chip).</summary>
+
+        public bool TitleBarAiOpen
+        {
+            get => _titleBarAiOpen;
+            set
+            {
+                if (_titleBarAiOpen == value)
+                    return;
+                _titleBarAiOpen = value;
+                if (IsHandleCreated)
+                    Invalidate(AiButtonRect);
+            }
+        }
+
+
+
+        /// <summary>Raised when the painted title-bar AI chip is clicked.</summary>
+
+        public event EventHandler TitleBarAiClick;
 
 
 
@@ -674,11 +712,16 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>Repaint the painted title bar (no child HWND — chrome is drawn on the form).</summary>
 
         /// <summary>MaterialForm-style content inset — explicit bounds, not Form.Padding (native TabControl ignores padding during live resize).</summary>
-        public void SetMaterialContent(Control content, int leftGutter, int sidePad = 3)
+        public void SetMaterialContent(
+            Control content,
+            int leftGutter,
+            int sidePad = 3,
+            int rightGutter = 0)
         {
             _materialContent = content;
             _contentLeftGutter = leftGutter;
             _contentSidePad = sidePad;
+            _contentRightGutter = Math.Max(0, rightGutter);
             TitleLeadingGutterWidth = leftGutter;
             Padding = Padding.Empty;
 
@@ -702,6 +745,19 @@ namespace Hiatme_Tool_Suite_v3
             SetMaterialContent(_materialContent, leftGutter, sidePad);
         }
 
+        /// <summary>
+        /// Update left and right content gutters after startup (e.g., when side rails collapse/expand).
+        /// </summary>
+        public void SetMaterialContentGutters(int leftGutter, int rightGutter, int sidePad = 3)
+        {
+            _contentLeftGutter = Math.Max(0, leftGutter);
+            _contentRightGutter = Math.Max(0, rightGutter);
+            _contentSidePad = Math.Max(0, sidePad);
+            TitleLeadingGutterWidth = _contentLeftGutter;
+            if (IsHandleCreated)
+                LayoutMaterialContent();
+        }
+
         /// <summary>Keep the main content HWND strictly below the painted title bar on every size change.</summary>
         private void LayoutMaterialContent()
         {
@@ -710,7 +766,8 @@ namespace Hiatme_Tool_Suite_v3
 
             int left = Math.Max(_contentLeftGutter, _contentSidePad);
             int top = TitleBarHeight;
-            int w = Math.Max(0, ClientSize.Width - left - _contentSidePad);
+            int rightInset = Math.Max(_contentSidePad, _contentRightGutter);
+            int w = Math.Max(0, ClientSize.Width - left - rightInset);
             int h = Math.Max(0, ClientSize.Height - top - _contentSidePad);
 
             var b = _materialContent.Bounds;
@@ -792,9 +849,10 @@ namespace Hiatme_Tool_Suite_v3
                 TextFormatFlags.SingleLine | TextFormatFlags.NoPadding).Width;
 
             int innerW = ThemeLabelInnerWidth + 1 + 10 + valueW + ThemeArrowWidth + 14;
-            int w = Math.Max(ThemeMinWidth, Math.Min(innerW, barWidth - ButtonWidth * 3 - 56));
+            int chromeRight = ButtonWidth * 3 + TitleBarAiReserve();
+            int w = Math.Max(ThemeMinWidth, Math.Min(innerW, barWidth - chromeRight - 56));
             int h = ThemeComboHeight;
-            int x = Math.Max(TitleLeadingGutterWidth + 8, barWidth - ButtonWidth * 3 - w - 8);
+            int x = Math.Max(TitleLeadingGutterWidth + 8, barWidth - chromeRight - w - 8);
             int y = 0;
 
             return new Rectangle(x, y, w, h);
@@ -803,6 +861,35 @@ namespace Hiatme_Tool_Suite_v3
 
 
         private Rectangle ThemeButtonRect => ThemeButtonRectFor(ClientSize.Width);
+
+
+
+        private int TitleBarAiReserve()
+        {
+            if (!ShowTitleBarAiButton)
+                return 0;
+            return AiButtonWidth + 8;
+        }
+
+
+
+        private Rectangle AiButtonRectFor(int barWidth)
+        {
+            if (!ShowTitleBarAiButton)
+                return Rectangle.Empty;
+            int w = AiButtonWidth;
+            int h = AiButtonHeight;
+            int x = Math.Max(TitleLeadingGutterWidth + 8, barWidth - ButtonWidth * 3 - w - 8);
+            return new Rectangle(x, 0, w, h);
+        }
+
+
+
+        private Rectangle AiButtonRect => AiButtonRectFor(ClientSize.Width);
+
+
+
+        public Rectangle TitleBarAiButtonBounds => AiButtonRect;
 
 
 
@@ -829,6 +916,14 @@ namespace Hiatme_Tool_Suite_v3
             var themeRect = ThemeButtonRect;
 
             if (!themeRect.IsEmpty && themeRect.Contains(p))
+
+                return true;
+
+
+
+            var aiRect = AiButtonRect;
+
+            if (!aiRect.IsEmpty && aiRect.Contains(p))
 
                 return true;
 
@@ -1468,6 +1563,14 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
+            bool prevAiHot = _aiBtnHot;
+
+            var aiRect = AiButtonRect;
+
+            _aiBtnHot = !aiRect.IsEmpty && aiRect.Contains(p);
+
+
+
             if (prevNavHot != _navMenuHot)
 
             {
@@ -1482,9 +1585,13 @@ namespace Hiatme_Tool_Suite_v3
 
                 Invalidate(themeRect);
 
+            if (prevAiHot != _aiBtnHot && !aiRect.IsEmpty)
+
+                Invalidate(aiRect);
 
 
-            var hand = _navMenuHot || _themeBtnHot || _hoverButton != -1;
+
+            var hand = _navMenuHot || _themeBtnHot || _aiBtnHot || _hoverButton != -1;
 
             if (hand)
 
@@ -1528,6 +1635,18 @@ namespace Hiatme_Tool_Suite_v3
 
             }
 
+            if (_aiBtnHot)
+
+            {
+
+                _aiBtnHot = false;
+
+                var r = AiButtonRect;
+
+                if (!r.IsEmpty) Invalidate(r);
+
+            }
+
             if (_hoverButton != -1)
 
             {
@@ -1561,6 +1680,18 @@ namespace Hiatme_Tool_Suite_v3
             {
 
                 try { NavMenuClick?.Invoke(this, EventArgs.Empty); } catch { }
+
+                return;
+
+            }
+
+
+
+            if (!AiButtonRect.IsEmpty && AiButtonRect.Contains(p))
+
+            {
+
+                try { TitleBarAiClick?.Invoke(this, EventArgs.Empty); } catch { }
 
                 return;
 
@@ -1716,6 +1847,8 @@ namespace Hiatme_Tool_Suite_v3
 
             DrawThemeButton(g, barWidth);
 
+            DrawAiButton(g, barWidth);
+
             DrawWindowButtons(g, barWidth);
 
         }
@@ -1760,6 +1893,33 @@ namespace Hiatme_Tool_Suite_v3
                 | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
 
             DrawThemeDropdownArrow(g, r, hot);
+        }
+
+        private void DrawAiButton(Graphics g, int barWidth)
+        {
+            var r = AiButtonRectFor(barWidth);
+            if (r.IsEmpty)
+                return;
+
+            bool hot = _aiBtnHot || TitleBarAiOpen;
+            Color bg = TitleBarAiOpen
+                ? SupeyTheme.AccentPrimary
+                : hot ? SupeyTheme.SurfaceElevated : SupeyTheme.Surface;
+            Color border = TitleBarAiOpen
+                ? SupeyTheme.AccentPrimary
+                : hot ? SupeyTheme.BorderSubtle : SupeyTheme.Divider;
+            Color fg = TitleBarAiOpen
+                ? SupeyTheme.OnAccentText
+                : hot ? SupeyTheme.TextPrimary : SupeyTheme.TextSecondary;
+
+            using (var bgBrush = new SolidBrush(bg))
+                g.FillRectangle(bgBrush, r);
+            using (var pen = new Pen(border, 1f))
+                g.DrawRectangle(pen, r.X, r.Y, r.Width - 1, r.Height - 1);
+
+            TextRenderer.DrawText(g, "AI", SupeyTheme.HeaderFont, r, fg,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter
+                | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix);
         }
 
         private static void DrawThemeDropdownArrow(Graphics g, Rectangle comboBounds, bool hot)
@@ -1832,6 +1992,12 @@ namespace Hiatme_Tool_Suite_v3
         {
 
             int right = barWidth - ButtonWidth * 3 - 8;
+
+            var ai = AiButtonRectFor(barWidth);
+
+            if (!ai.IsEmpty)
+
+                right = Math.Min(right, ai.Left - 8);
 
             var theme = ThemeButtonRectFor(barWidth);
 

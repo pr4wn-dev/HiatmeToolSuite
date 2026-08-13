@@ -255,6 +255,10 @@
       <DependentUpon>Form1.cs</DependentUpon>
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="Form1.GlobalAi.cs">
+      <DependentUpon>Form1.cs</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="MarketMeterControl.cs">
       <SubType>Component</SubType>
     </Compile>

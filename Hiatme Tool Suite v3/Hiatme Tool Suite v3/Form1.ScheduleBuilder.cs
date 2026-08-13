@@ -2143,6 +2143,10 @@ namespace Hiatme_Tool_Suite_v3
         {
 
             FsCancelRerouteProbe();
+            HiatmeEventReporter.Report(
+                "build_ran",
+                "schedule_builder",
+                "BUILD " + (fsbdatepicker != null ? fsbdatepicker.Value.ToString("yyyy-MM-dd") : ""));
             SetScheduleBuilderStatus("Checking Modivcare sign-in…");
 
             _fsHasPreview = false;

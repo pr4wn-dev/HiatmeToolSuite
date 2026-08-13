@@ -81,7 +81,8 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
-        /// <summary>Re-probe the current panel URL without blocking LAN scan.</summary>
+        /// <summary>Re-probe panel URLs. Loopback first so the office server
+        /// does not hairpin the public WAN IP and look "offline".</summary>
         public static async Task<bool> RefreshPanelConnectionAsync(CancellationToken cancellationToken = default)
         {
             return await Task.Run(() =>
@@ -92,8 +93,30 @@ namespace Hiatme_Tool_Suite_v3
                 lock (LoadLock)
                 {
                     settings = _sessionCache ?? LoadAndConfigureLocked(forceResolve: false);
-                    ok = ProbePanelPublic(settings.BaseUrl, settings.ApiToken);
+                    string token = settings.ApiToken;
+                    string loopbackUrl = "http://127.0.0.1:" + DefaultPort;
+                    var probe = ProbePanelDetailed(loopbackUrl, token, quickTimeout: true);
+                    if (probe.Ok)
+                    {
+                        settings.BaseUrl = probe.Url;
+                    }
+                    else
+                    {
+                        probe = ProbePanelDetailed(settings.BaseUrl, token);
+                        if (!probe.Ok)
+                        {
+                            settings.BaseUrl = ResolvePanelBaseUrl(settings, out _);
+                            probe = ProbePanelDetailed(settings.BaseUrl, token);
+                        }
+                    }
+                    ok = probe.Ok;
                     _sessionPanelReachable = ok;
+                    _lastConnectionDetail = ok
+                        ? ("Connected: " + settings.BaseUrl)
+                        : (string.IsNullOrWhiteSpace(probe.Message)
+                            ? ("Unreachable: " + settings.BaseUrl)
+                            : probe.Message);
+                    _sessionCache = settings;
                 }
                 HiatmeGeoSettings.Configure(settings, ok);
                 return ok;

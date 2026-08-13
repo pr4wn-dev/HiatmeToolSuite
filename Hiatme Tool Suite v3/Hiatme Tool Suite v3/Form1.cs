@@ -233,6 +233,7 @@ namespace Hiatme_Tool_Suite_v3
             // Left navigation drawer (icon rail + hamburger-expandable labels), replacing the old
             // MaterialSkin drawer with our own theme-driven control.
             BuildSupeyDrawer();
+            InitializeGlobalAiDock();
             // In-app theme switcher in the top bar + live recolor when the user picks a preset.
             BuildSupeyThemePicker();
             SupeyThemeManager.ThemeChanged += (s, e) => OnSupeyThemeChanged();
@@ -1902,6 +1903,8 @@ namespace Hiatme_Tool_Suite_v3
                 ApplyDashcamVisualTheme(layout: false);
                 ApplyDriverDisciplineVisualTheme(layout: false);
                 ApplyMarketPerformanceVisualTheme(layout: false);
+                ApplyGlobalAiDockTheme();
+                LayoutGlobalAiDock();
                 ApplyLoadingOverlayTheme();
                 SupeyListViewHelpers.RefreshThemeColors(this);
                 Invalidate(true);
@@ -9112,6 +9115,14 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     if (!_ddBuilt)
                         InitializeDriverDisciplineTab();
+                }
+
+                var opened = hiatmeTabControl.SelectedTab;
+                if (opened != null && opened != tabPage1)
+                {
+                    string label = (opened.Text ?? opened.Name ?? "tab").Trim();
+                    if (!string.IsNullOrEmpty(label))
+                        HiatmeEventReporter.ReportFeature("tab:" + label, "Opened " + label);
                 }
             }
             catch

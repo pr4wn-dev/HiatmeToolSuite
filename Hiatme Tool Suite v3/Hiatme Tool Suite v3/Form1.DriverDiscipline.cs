@@ -1275,6 +1275,10 @@ namespace Hiatme_Tool_Suite_v3
                 }
 
                 SetDriverDisciplineStatus(msg);
+                HiatmeEventReporter.Report(
+                    "feature_used",
+                    "driver_discipline",
+                    "Saved write-up for " + (record.DriverName ?? "").Trim());
                 await RefreshDriverDisciplineHistoryAsync().ConfigureAwait(true);
                 await RefreshDriverDisciplinePriorsAsync().ConfigureAwait(true);
 
@@ -1339,6 +1343,10 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     DriverDisciplineDocument.Save(dlg.FileName, record);
                     SetDriverDisciplineStatus("Exported copy: " + dlg.FileName);
+                    HiatmeEventReporter.Report(
+                        "feature_used",
+                        "driver_discipline",
+                        "Exported write-up for " + (record.DriverName ?? "").Trim());
                     if (SupeyMessageDialog.Ask(
                             this,
                             SupeyMessageDialog.Kind.Success,
