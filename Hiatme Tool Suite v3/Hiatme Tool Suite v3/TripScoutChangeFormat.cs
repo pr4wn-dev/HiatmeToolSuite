@@ -17,6 +17,9 @@ namespace Hiatme_Tool_Suite_v3
                 { "sched_do_iso", "Sched DO" },
                 { "actual_pu_iso", "Actual PU" },
                 { "actual_do_iso", "Actual DO" },
+                { "mc_pu_time", "MC PU" },
+                { "mc_do_time", "MC DO" },
+                { "mc_sched_do_time", "MC sched DO" },
                 { "status", "Status" },
                 { "alerts", "Alerts" },
                 { "pu_address", "PU address" },
@@ -30,6 +33,9 @@ namespace Hiatme_Tool_Suite_v3
                 { "cancelled", "Cancelled" },
                 { "driver_changed", "Driver changed" },
                 { "time_changed", "Time changed" },
+                { "mc_hurts", "MC rewrote after trip" },
+                { "mc_after_actual", "MC changed after trip" },
+                { "mc_sched_changed", "Modivcare time changed" },
                 { "address_changed", "Address changed" },
                 { "status_changed", "Status changed" },
                 { "early_dropoff", "Drop-off before sched" },
@@ -54,7 +60,14 @@ namespace Hiatme_Tool_Suite_v3
 
             var parts = FormatFieldDiffParts(row.Fields);
             if (parts.Count > 0)
-                return string.Join("   ·   ", parts);
+            {
+                string clocks = string.Join("   ·   ", parts);
+                if (IsMcHurtsRewrite(row))
+                    return "Would have dinged us   ·   " + clocks;
+                if (HasTag(row, "mc_sched_changed") || HasTag(row, "modivcare"))
+                    return "Modivcare   ·   " + clocks;
+                return clocks;
+            }
 
             string summary = (row.Summary ?? "").Trim();
             if (summary.Length > 0)
@@ -63,11 +76,29 @@ namespace Hiatme_Tool_Suite_v3
             return FormatHeadline(row) ?? "Trip updated";
         }
 
+        public static bool HasTag(HiatmeAiClient.TripScoutChangeRow row, string tag)
+        {
+            if (row?.Tags == null || string.IsNullOrWhiteSpace(tag))
+                return false;
+            foreach (var t in row.Tags)
+            {
+                if (string.Equals(t, tag, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+            return false;
+        }
+
+        public static bool IsMcHurtsRewrite(HiatmeAiClient.TripScoutChangeRow row)
+            => HasTag(row, "mc_hurts");
+
         /// <summary>Short category label from tags (expand row badge).</summary>
         public static string FormatHeadline(HiatmeAiClient.TripScoutChangeRow row)
         {
             if (row == null)
                 return null;
+
+            if (IsMcHurtsRewrite(row))
+                return TagHeadlines["mc_hurts"];
 
             if (row.Tags != null)
             {

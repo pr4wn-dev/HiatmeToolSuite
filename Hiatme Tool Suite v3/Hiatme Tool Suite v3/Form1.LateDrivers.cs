@@ -3450,14 +3450,13 @@ namespace Hiatme_Tool_Suite_v3
                 if (tile == null || tile.IsDisposed)
                     continue;
                 var summary = tile.Tag as HiatmeAiClient.LateDriversDriverSummary;
-                bool cancelAlert = summary == null
-                    ? LateDriversAnyCancelAlertHot()
-                    : LateDriversDriverNeedsCancelAlert(summary);
-                bool habitAlert = summary == null
-                    ? (_ldDriverRows ?? new List<HiatmeAiClient.LateDriversDriverSummary>())
-                        .Any(LateDriversDriverNeedsCallAlert)
-                    : (!LateDriversIsOtherSelected(summary.Driver)
-                        && LateDriversDriverNeedsCallAlert(summary));
+                // All-drivers tile (Tag null) never flashes — only the driver
+                // who owns the late/early/cancel, or Reserved for reserved trips.
+                bool cancelAlert = summary != null
+                    && LateDriversDriverNeedsCancelAlert(summary);
+                bool habitAlert = summary != null
+                    && !LateDriversIsOtherSelected(summary.Driver)
+                    && LateDriversDriverNeedsCallAlert(summary);
                 bool alert = cancelAlert || habitAlert;
 
                 var nameLbl = tile.Controls["ldTileName"] as Label;

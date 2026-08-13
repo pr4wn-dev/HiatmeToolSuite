@@ -17,6 +17,8 @@ namespace Hiatme_Tool_Suite_v3
     {
         private static readonly Color LateDriversChangeDetailBg = Color.FromArgb(58, 58, 62);
         private static readonly Color LateDriversChangeDetailFg = Color.FromArgb(255, 220, 160);
+        private static readonly Color LateDriversMcHurtsDetailBg = Color.FromArgb(78, 32, 32);
+        private static readonly Color LateDriversMcHurtsDetailFg = Color.FromArgb(255, 168, 140);
 
         private readonly HashSet<string> _ldExpandedTripNos =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -37,6 +39,9 @@ namespace Hiatme_Tool_Suite_v3
                 "address_changed",
                 "driver_changed",
                 "cancelled",
+                "mc_sched_changed",
+                "mc_hurts",
+                "mc_after_actual",
             };
 
         private static readonly HashSet<string> LateDriversScheduleChangeFields =
@@ -47,6 +52,9 @@ namespace Hiatme_Tool_Suite_v3
                 "pu_address",
                 "do_address",
                 "driver",
+                "mc_pu_time",
+                "mc_do_time",
+                "mc_sched_do_time",
             };
 
         private static string LateDriversNormalizeChangeTripNo(string tripNo)
@@ -543,7 +551,9 @@ namespace Hiatme_Tool_Suite_v3
                 foreach (var tag in row.Tags)
                 {
                     if (string.Equals(tag, "sched_time_changed", StringComparison.OrdinalIgnoreCase)
-                        || string.Equals(tag, "time_changed", StringComparison.OrdinalIgnoreCase))
+                        || string.Equals(tag, "time_changed", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(tag, "mc_sched_changed", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(tag, "mc_hurts", StringComparison.OrdinalIgnoreCase))
                         journalHasSched = true;
                     if (string.Equals(tag, "driver_changed", StringComparison.OrdinalIgnoreCase))
                         journalHasDriver = true;
@@ -746,6 +756,19 @@ namespace Hiatme_Tool_Suite_v3
             return list?.Count ?? 0;
         }
 
+        private bool LateDriversTripHasMcHurtsRewrite(string tripNo)
+        {
+            var list = LateDriversChangesForTrip(tripNo);
+            if (list == null)
+                return false;
+            foreach (var row in list)
+            {
+                if (TripScoutChangeFormat.IsMcHurtsRewrite(row))
+                    return true;
+            }
+            return false;
+        }
+
         private bool LateDriversTripHasExpandableChanges(string tripNo)
             => LateDriversScheduleChangeCount(tripNo) > 0;
 
@@ -840,6 +863,8 @@ namespace Hiatme_Tool_Suite_v3
             string body = LateDriversStripExpandChromeText(raw);
             if (string.IsNullOrWhiteSpace(body))
                 body = LateDriversNormalizeChangeTripNo(tripNo);
+            if (LateDriversTripHasMcHurtsRewrite(tripNo))
+                body += " · MC rewrite";
             return prefix + body;
         }
 
@@ -852,6 +877,8 @@ namespace Hiatme_Tool_Suite_v3
                 s = s.Substring(2).TrimStart();
             if (s.StartsWith("+", StringComparison.Ordinal))
                 s = s.Substring(1).TrimStart();
+            if (s.EndsWith(" · MC rewrite", StringComparison.OrdinalIgnoreCase))
+                s = s.Substring(0, s.Length - " · MC rewrite".Length).TrimEnd();
             // Drop trailing " (N)" change count from older builds.
             int idx = s.LastIndexOf(" (", StringComparison.Ordinal);
             if (idx > 0 && s.EndsWith(")", StringComparison.Ordinal))
@@ -871,6 +898,7 @@ namespace Hiatme_Tool_Suite_v3
             string when = LateDriversFormatChangeTime(change?.Ts);
             string headline = TripScoutChangeFormat.FormatHeadline(change) ?? "Updated";
             string diff = TripScoutChangeFormat.FormatDiff(change);
+            bool mcHurts = TripScoutChangeFormat.IsMcHurtsRewrite(change);
 
             var tag = new LateDriversTripRowTag
             {
@@ -902,12 +930,14 @@ namespace Hiatme_Tool_Suite_v3
             item.SubItems.Add(""); // Mins
             item.SubItems.Add(""); // Status
             item.SubItems.Add(""); // State
-            item.BackColor = LateDriversChangeDetailBg;
-            item.ForeColor = LateDriversChangeDetailFg;
+            Color bg = mcHurts ? LateDriversMcHurtsDetailBg : LateDriversChangeDetailBg;
+            Color fg = mcHurts ? LateDriversMcHurtsDetailFg : LateDriversChangeDetailFg;
+            item.BackColor = bg;
+            item.ForeColor = fg;
             foreach (ListViewItem.ListViewSubItem si in item.SubItems)
             {
-                si.BackColor = LateDriversChangeDetailBg;
-                si.ForeColor = LateDriversChangeDetailFg;
+                si.BackColor = bg;
+                si.ForeColor = fg;
             }
             return item;
         }
@@ -948,6 +978,8 @@ namespace Hiatme_Tool_Suite_v3
             if (string.IsNullOrWhiteSpace(rawTrip))
                 rawTrip = LateDriversNormalizeChangeTripNo(tripNo);
             rawTrip = LateDriversStripExpandChromeText(rawTrip);
+            if (LateDriversTripHasMcHurtsRewrite(tripNo))
+                rawTrip += " · MC rewrite";
             item.SubItems[tripCol].Text = prefix + rawTrip;
         }
 
