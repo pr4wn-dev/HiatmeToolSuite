@@ -59,6 +59,27 @@ namespace Hiatme_Tool_Suite_v3
         private const double HistoryHintTripDriverScoreBonusMeters = 1400.0;
         private const double HistoryHintClientAffinityScoreBonusMeters = 800.0;
         private const double HistoryHintGeneralDriverScoreBonusMeters = 500.0;
+        // Signed, so these both reward and penalise.
+        //
+        // Sized against the spread affinity actually has rather than its -1..+1 range,
+        // which it never approaches: across the corridor history the median pairing sits
+        // at 0.00, the 90th percentile at 0.07 and the strongest at 0.32. Scaled for the
+        // full range these terms round to nothing. At the weights below a strong pairing
+        // is worth roughly the client bonus, a merely good one a couple of hundred
+        // metres, and a typical one almost nothing — which is the intent, since the
+        // server has already shrunk thin samples toward zero.
+        //
+        // Both stay under the trip-match bonus on their own: outcome should order
+        // drivers the archive considers interchangeable, not overrule a trip that has
+        // plainly belonged to someone for months. Only corridor and client evidence
+        // agreeing strongly can reach that far.
+        private const double HistoryHintCorridorFitScoreMeters = 3300.0;
+        private const double HistoryHintClientFitScoreMeters = 1800.0;
+        // A leg the whole fleet misses is a short plan, so who drove it says less.
+        private const double HistoryHintUnderbuiltCorridorDamping = 0.5;
+        // How hard a bad record discounts "they have run it before". At 2.0 a pairing
+        // going 50 points worse than expected withdraws the frequency bonus entirely.
+        private const double HistoryHintOutcomeGateSlope = 2.0;
         private const double DoAnchorMatchMaxMinutes = 30.0;
 
         public static Task<List<ScheduleBuilderDriverSuggestion>> SuggestAsync(
@@ -1338,12 +1359,26 @@ namespace Hiatme_Tool_Suite_v3
             var tripHints = historicalHints.TripHints ?? new List<ScheduleBuilderHistoricalTripHint>();
             var driverHints = historicalHints.DriverHints ?? new List<ScheduleBuilderHistoricalDriverHint>();
 
-            double bonus = 0;
             bool tripMatch = false;
             bool clientMatch = false;
 
             string tripNum = (trip?.TripNumber ?? "").Trim();
             string client = (trip?.ClientFullName ?? "").Trim();
+
+            var dh = driverHints.FirstOrDefault(d =>
+                d != null && string.Equals((d.DriverName ?? "").Trim(), displayKey, StringComparison.OrdinalIgnoreCase));
+
+            // How often a trip has landed on a driver says it was workable, not that it
+            // went well. Where we know how it went, let that temper the frequency
+            // bonuses; where we do not, they stand as they always have.
+            double outcomeGate = 1.0;
+            if (dh != null && dh.HasOutcomeHistory)
+            {
+                double worst = Math.Min(0.0, Math.Min(dh.CorridorAffinity, dh.ClientAffinity));
+                outcomeGate = Math.Max(0.0, Math.Min(1.0, 1.0 + (worst * HistoryHintOutcomeGateSlope)));
+            }
+
+            double frequencyBonus = 0;
 
             if (tripNum.Length > 0)
             {
@@ -1358,32 +1393,52 @@ namespace Hiatme_Tool_Suite_v3
                     {
                         tripMatch = true;
                         double confidence = Math.Max(0, Math.Min(1, th.Confidence01 <= 0 ? 0.5 : th.Confidence01));
-                        bonus += HistoryHintTripDriverScoreBonusMeters * confidence;
+                        frequencyBonus += HistoryHintTripDriverScoreBonusMeters * confidence;
                     }
                 }
             }
 
-            var dh = driverHints.FirstOrDefault(d =>
-                d != null && string.Equals((d.DriverName ?? "").Trim(), displayKey, StringComparison.OrdinalIgnoreCase));
             if (dh != null)
             {
-                bonus += HistoryHintGeneralDriverScoreBonusMeters * Math.Max(0, Math.Min(1, dh.ObservedDays / 12.0));
+                frequencyBonus += HistoryHintGeneralDriverScoreBonusMeters
+                    * Math.Max(0, Math.Min(1, dh.ObservedDays / 12.0));
                 if (client.Length > 0
                     && (dh.FrequentClients ?? new List<string>()).Any(c =>
                         string.Equals((c ?? "").Trim(), client, StringComparison.OrdinalIgnoreCase)))
                 {
                     clientMatch = true;
-                    bonus += HistoryHintClientAffinityScoreBonusMeters;
+                    frequencyBonus += HistoryHintClientAffinityScoreBonusMeters;
                 }
             }
 
-            if (bonus <= 0)
+            double bonus = frequencyBonus * outcomeGate;
+
+            // The signed part. Unlike everything above it can push a driver down, which
+            // is the whole point: a pairing that has gone badly should lose to one that
+            // has gone well, not merely fail to gain.
+            double corridorTerm = 0;
+            double clientTerm = 0;
+            if (dh != null)
+            {
+                double corridorWeight = historicalHints.CorridorUnderbuilt
+                    ? HistoryHintUnderbuiltCorridorDamping
+                    : 1.0;
+                corridorTerm = HistoryHintCorridorFitScoreMeters * dh.CorridorAffinity * corridorWeight;
+                clientTerm = HistoryHintClientFitScoreMeters * dh.ClientAffinity;
+                bonus += corridorTerm + clientTerm;
+            }
+
+            bonus = Math.Max(-HistoryHintMaxScoreBonusMeters,
+                Math.Min(HistoryHintMaxScoreBonusMeters, bonus));
+            if (Math.Abs(bonus) < 1.0)
                 return;
 
-            bonus = Math.Min(HistoryHintMaxScoreBonusMeters, bonus);
             eval.Score -= bonus;
 
-            if (tripMatch && clientMatch)
+            string outcomeNote = DescribeOutcome(dh, historicalHints);
+            if (outcomeNote != null)
+                eval.Reasons.Add(outcomeNote);
+            else if (tripMatch && clientMatch)
                 eval.Reasons.Add("History hint: this driver often runs this trip/client pattern.");
             else if (tripMatch)
                 eval.Reasons.Add("History hint: this trip has landed on this driver in past schedules.");
@@ -1391,6 +1446,44 @@ namespace Hiatme_Tool_Suite_v3
                 eval.Reasons.Add("History hint: this driver frequently serves this client.");
             else
                 eval.Reasons.Add("History hint: this driver is a strong historical fit.");
+        }
+
+        /// <summary>
+        /// Say what the outcome history was, in trips and percentage points, so a
+        /// dispatcher can weigh the suggestion instead of taking it on faith.
+        /// </summary>
+        private static string DescribeOutcome(
+            ScheduleBuilderHistoricalDriverHint dh,
+            ScheduleBuilderHistoricalHints hints)
+        {
+            if (dh == null || !dh.HasOutcomeHistory)
+                return null;
+
+            bool useCorridor = dh.CorridorTrips >= dh.ClientTrips && dh.CorridorTrips > 0;
+            double affinity = useCorridor ? dh.CorridorAffinity : dh.ClientAffinity;
+            int trips = useCorridor ? dh.CorridorTrips : dh.ClientTrips;
+            if (trips <= 0)
+                return null;
+
+            string where = useCorridor
+                ? (string.IsNullOrWhiteSpace(hints?.Corridor) ? "this leg" : hints.Corridor)
+                : "this client";
+            int points = (int)Math.Round(Math.Abs(affinity) * 100.0);
+
+            string body;
+            if (points < 2)
+                body = string.Format("{0} past run(s) on {1}, about as expected.", trips, where);
+            else if (affinity > 0)
+                body = string.Format("{0} past run(s) on {1}, {2} pts fewer problems than expected.",
+                    trips, where, points);
+            else
+                body = string.Format("{0} past run(s) on {1}, {2} pts more problems than expected.",
+                    trips, where, points);
+
+            if (useCorridor && hints != null && hints.CorridorUnderbuilt)
+                body += " Leg runs late for everyone, so this counts for less.";
+
+            return "History: " + body;
         }
 
         private static async Task<ScheduleBuilderHistoricalHints> LoadHistoricalHintsAsync(
@@ -1411,6 +1504,8 @@ namespace Hiatme_Tool_Suite_v3
                 string weekday = serviceDate.HasValue ? serviceDate.Value.DayOfWeek.ToString() : "";
                 string tripNum = (trip?.TripNumber ?? "").Trim();
                 string client = (trip?.ClientFullName ?? "").Trim();
+                string puCity = (trip?.PUCity ?? "").Trim();
+                string doCity = (trip?.DOCITY ?? "").Trim();
 
                 var response = await HiatmeAiClient.QueryArchiveAsync(
                     settings,
@@ -1419,10 +1514,19 @@ namespace Hiatme_Tool_Suite_v3
                     driver: "",
                     client: client,
                     tripNumber: tripNum,
+                    puCity: puCity,
+                    doCity: doCity,
                     limit: 36,
                     cancellationToken: token).ConfigureAwait(false);
 
-                if (response == null || !response.Ok || response.Matches == null || response.Matches.Count == 0)
+                if (response == null || !response.Ok)
+                    return null;
+
+                // Outcome history stands on its own: a driver can be the right call for
+                // this corridor without this exact trip ever having run before.
+                bool haveMatches = response.Matches != null && response.Matches.Count > 0;
+                bool haveFit = response.Fit != null;
+                if (!haveMatches && !haveFit)
                     return null;
 
                 return BuildHistoricalHintsFromQuery(response, tripNum, client, sd);
@@ -1470,7 +1574,8 @@ namespace Hiatme_Tool_Suite_v3
             var driverClients = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
             var tripPreferred = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
 
-            for (int i = 0; i < response.Matches.Count; i++)
+            int matchCount = response.Matches?.Count ?? 0;
+            for (int i = 0; i < matchCount; i++)
             {
                 var day = response.Matches[i] as Newtonsoft.Json.Linq.JObject;
                 if (day == null)
@@ -1525,14 +1630,34 @@ namespace Hiatme_Tool_Suite_v3
                 }
             }
 
+            var corridorFit = ReadFitEntries(response.Fit, "drivers");
+            var clientFit = ReadFitEntries(response.Fit, "client_drivers");
+
+            hints.Corridor = (response.Fit?["corridor"]?.ToString() ?? "").Trim();
+            var corridorContext = response.Fit?["corridor_context"] as Newtonsoft.Json.Linq.JObject;
+            hints.CorridorUnderbuilt = corridorContext?["underbuilt"]?.ToObject<bool?>() ?? false;
+
             var orderedDrivers = driverScore
                 .OrderByDescending(kv => kv.Value)
                 .Take(14)
                 .Select(kv => kv.Key)
                 .ToList();
 
+            // A driver who runs this corridor well every week may never have had this
+            // particular trip, so outcome history has to be able to introduce them
+            // rather than only annotate the drivers frequency already surfaced.
+            var seen = new HashSet<string>(orderedDrivers, StringComparer.OrdinalIgnoreCase);
+            foreach (var name in corridorFit.Keys.Concat(clientFit.Keys))
+            {
+                if (seen.Add(name))
+                    orderedDrivers.Add(name);
+            }
+
             foreach (var name in orderedDrivers)
             {
+                corridorFit.TryGetValue(name, out var cFit);
+                clientFit.TryGetValue(name, out var kFit);
+
                 hints.DriverHints.Add(new ScheduleBuilderHistoricalDriverHint
                 {
                     DriverName = name,
@@ -1542,6 +1667,10 @@ namespace Hiatme_Tool_Suite_v3
                         .Take(6)
                         .ToList(),
                     TypicalWaveKeys = new List<string>(),
+                    CorridorAffinity = cFit?.Affinity ?? 0.0,
+                    CorridorTrips = cFit?.Trips ?? 0,
+                    ClientAffinity = kFit?.Affinity ?? 0.0,
+                    ClientTrips = kFit?.Trips ?? 0,
                 });
             }
 
@@ -1567,6 +1696,44 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             return hints;
+        }
+
+        private sealed class FitEntry
+        {
+            public double Affinity;
+            public int Trips;
+        }
+
+        /// <summary>
+        /// Pull one driver list out of the server's fit block. Anything missing or
+        /// malformed yields no entries, which downgrades ranking to frequency alone.
+        /// </summary>
+        private static Dictionary<string, FitEntry> ReadFitEntries(
+            Newtonsoft.Json.Linq.JObject fit,
+            string listName)
+        {
+            var outMap = new Dictionary<string, FitEntry>(StringComparer.OrdinalIgnoreCase);
+            var arr = fit?[listName] as Newtonsoft.Json.Linq.JArray;
+            if (arr == null)
+                return outMap;
+
+            foreach (var row in arr.OfType<Newtonsoft.Json.Linq.JObject>())
+            {
+                string name = (row["driver"]?.ToString() ?? "").Trim();
+                if (name.Length == 0)
+                    continue;
+
+                double affinity = row["affinity"]?.ToObject<double?>() ?? 0.0;
+                if (double.IsNaN(affinity) || double.IsInfinity(affinity))
+                    affinity = 0.0;
+
+                outMap[name] = new FitEntry
+                {
+                    Affinity = Math.Max(-1.0, Math.Min(1.0, affinity)),
+                    Trips = Math.Max(0, row["trips"]?.ToObject<int?>() ?? 0),
+                };
+            }
+            return outMap;
         }
 
         /// <summary>

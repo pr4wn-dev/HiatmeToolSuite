@@ -177,6 +177,14 @@ namespace Hiatme_Tool_Suite_v3
 
         [JsonProperty("matches")]
         public JArray Matches { get; set; }
+
+        /// <summary>
+        /// How past runs of this corridor and client actually went, per driver. Present
+        /// only when pu_city/do_city or client were supplied. Absent on older servers,
+        /// which is why ranking must still work without it.
+        /// </summary>
+        [JsonProperty("fit")]
+        public JObject Fit { get; set; }
     }
 
     /// <summary>GET /api/hiatme/schedules/workbook/meta</summary>
@@ -1737,6 +1745,8 @@ namespace Hiatme_Tool_Suite_v3
             string driver = "",
             string client = "",
             string tripNumber = "",
+            string puCity = "",
+            string doCity = "",
             int limit = 30,
             CancellationToken cancellationToken = default)
         {
@@ -1750,6 +1760,8 @@ namespace Hiatme_Tool_Suite_v3
             AppendQuery(qs, "driver", driver);
             AppendQuery(qs, "client", client);
             AppendQuery(qs, "trip_number", tripNumber);
+            AppendQuery(qs, "pu_city", puCity);
+            AppendQuery(qs, "do_city", doCity);
             AppendQuery(qs, "limit", Math.Max(1, limit).ToString());
 
             string url = baseUrl + "/api/hiatme/archive/query";

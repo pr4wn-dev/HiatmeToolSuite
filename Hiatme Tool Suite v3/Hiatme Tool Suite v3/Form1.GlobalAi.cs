@@ -11,17 +11,19 @@ namespace Hiatme_Tool_Suite_v3
 {
     public partial class Form1
     {
-        private const int GlobalAiDockExpandedWidth = 360;
-        private const int GlobalAiDockMinWidth = 280;
-        private const int GlobalAiDockRightPad = 3;
+        private const int GlobalAiDockExpandedWidth = 392;
+        private const int GlobalAiDockMinWidth = 300;
+        private const int GlobalAiDockRightPad = 6;
 
         private Panel _globalAiDock;
         private Panel _globalAiHeader;
         private Label _globalAiTitleLbl;
         private SupeyButton _globalAiCollapseBtn;
         private TextBox _globalAiTranscript;
+        private Label _globalAiEmptyHint;
         private TextBox _globalAiPrompt;
         private Label _globalAiPromptPlaceholder;
+        private Label _globalAiComposerHint;
         private SupeyButton _globalAiSendBtn;
         private Panel _globalAiDraftCard;
         private Label _globalAiDraftTitle;
@@ -62,9 +64,9 @@ namespace Hiatme_Tool_Suite_v3
             _globalAiHeader = new Panel
             {
                 Dock = DockStyle.Top,
-                Height = 36,
+                Height = 40,
                 BackColor = SupeyTheme.SurfaceHeader,
-                Padding = new Padding(10, 0, 6, 0),
+                Padding = new Padding(12, 0, 8, 0),
             };
             var headerAccent = new Panel
             {
@@ -80,7 +82,7 @@ namespace Hiatme_Tool_Suite_v3
                 BackColor = SupeyTheme.SurfaceHeader,
                 Font = SupeyTheme.HeaderFont,
                 TextAlign = ContentAlignment.MiddleLeft,
-                Padding = new Padding(8, 0, 0, 0),
+                Padding = new Padding(10, 0, 0, 0),
             };
             _globalAiCollapseBtn = new SupeyButton
             {
@@ -106,59 +108,88 @@ namespace Hiatme_Tool_Suite_v3
             {
                 Dock = DockStyle.Fill,
                 BackColor = SupeyTheme.Surface,
-                Padding = new Padding(10, 8, 10, 10),
+                Padding = new Padding(14, 12, 14, 14),
             };
 
-            _globalAiStatusPill = new SupeyStatusPill
+            var statusRow = new Panel
             {
                 Dock = DockStyle.Top,
+                Height = 32,
+                BackColor = SupeyTheme.Surface,
+                Padding = new Padding(0, 2, 0, 8),
+            };
+            _globalAiStatusPill = new SupeyStatusPill
+            {
+                Dock = DockStyle.None,
+                Location = new Point(0, 2),
                 Label = "Ready",
                 DotColor = SupeyTheme.SuccessText,
-                Margin = new Padding(0, 0, 0, 8),
             };
+            statusRow.Controls.Add(_globalAiStatusPill);
 
             var composer = new Panel
             {
                 Dock = DockStyle.Bottom,
-                Height = 118,
-                BackColor = SupeyTheme.Surface,
-                Padding = new Padding(0, 8, 0, 0),
-            };
-
-            var actionRow = new Panel
-            {
-                Dock = DockStyle.Bottom,
-                Height = 34,
+                Height = 104,
                 BackColor = SupeyTheme.Surface,
             };
-            _globalAiSendBtn = new SupeyButton
-            {
-                Text = "Send",
-                Kind = SupeyButton.Variant.Primary,
-                Dock = DockStyle.Right,
-                Size = new Size(88, 30),
-            };
-            _globalAiSendBtn.Click += async (_, __) => await OnGlobalAiSendClickedAsync().ConfigureAwait(true);
-            actionRow.Controls.Add(_globalAiSendBtn);
-
-            var promptCard = new Panel
+            var composerCard = new Panel
             {
                 Dock = DockStyle.Fill,
                 BackColor = SupeyTheme.Divider,
                 Padding = new Padding(1),
             };
-            var promptInner = new Panel
+            var composerInner = new Panel
             {
                 Dock = DockStyle.Fill,
                 BackColor = SupeyTheme.SurfaceElevated,
-                Padding = new Padding(8, 6, 8, 6),
+                Padding = new Padding(10, 8, 8, 8),
+            };
+            var sendCol = new Panel
+            {
+                Dock = DockStyle.Right,
+                Width = 84,
+                BackColor = SupeyTheme.SurfaceElevated,
+                Padding = new Padding(8, 0, 0, 0),
+            };
+            _globalAiSendBtn = new SupeyButton
+            {
+                Text = "Send",
+                Kind = SupeyButton.Variant.Primary,
+                Dock = DockStyle.Bottom,
+                Height = 36,
+                CornerRadius = 6,
+            };
+            _globalAiSendBtn.Click += async (_, __) => await OnGlobalAiSendClickedAsync().ConfigureAwait(true);
+            sendCol.Controls.Add(_globalAiSendBtn);
+
+            _globalAiComposerHint = new Label
+            {
+                Dock = DockStyle.Bottom,
+                Height = 16,
+                Text = "Enter to send  ·  Shift+Enter for a new line",
+                ForeColor = SupeyTheme.TextMuted,
+                BackColor = SupeyTheme.SurfaceElevated,
+                Font = SupeyTheme.CaptionFont,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Padding = new Padding(0, 2, 0, 0),
+            };
+
+            var promptHost = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = SupeyTheme.SurfaceElevated,
+                Padding = new Padding(2, 2, 4, 4),
             };
             _globalAiPrompt = new TextBox
             {
                 Dock = DockStyle.Fill,
                 Multiline = true,
+                AcceptsReturn = true,
+                AutoSize = false,
                 BorderStyle = BorderStyle.None,
-                ScrollBars = ScrollBars.Vertical,
+                ScrollBars = ScrollBars.None,
+                WordWrap = true,
                 BackColor = SupeyTheme.SurfaceElevated,
                 ForeColor = SupeyTheme.TextPrimary,
                 Font = SupeyTheme.BodyFont,
@@ -166,12 +197,12 @@ namespace Hiatme_Tool_Suite_v3
             _globalAiPromptPlaceholder = new Label
             {
                 AutoSize = false,
-                Text = "Ask about this screen…  Ctrl+Enter to send",
+                Text = "Ask about this screen…",
                 ForeColor = SupeyTheme.TextMuted,
                 BackColor = SupeyTheme.SurfaceElevated,
                 Font = SupeyTheme.BodyFont,
                 TextAlign = ContentAlignment.TopLeft,
-                Location = new Point(8, 6),
+                Location = new Point(2, 2),
                 Size = new Size(200, 36),
             };
             _globalAiPromptPlaceholder.Click += (_, __) => _globalAiPrompt.Focus();
@@ -183,28 +214,30 @@ namespace Hiatme_Tool_Suite_v3
                     && string.IsNullOrWhiteSpace(_globalAiPrompt.Text);
             _globalAiPrompt.KeyDown += async (_, e) =>
             {
-                if (e.KeyCode == Keys.Enter && e.Control)
+                if (e.KeyCode == Keys.Enter && !e.Shift)
                 {
                     e.SuppressKeyPress = true;
                     await OnGlobalAiSendClickedAsync().ConfigureAwait(true);
                 }
             };
-            promptInner.Resize += (_, __) =>
+            promptHost.Resize += (_, __) =>
             {
                 if (_globalAiPromptPlaceholder == null || _globalAiPromptPlaceholder.IsDisposed)
                     return;
                 _globalAiPromptPlaceholder.SetBounds(
-                    8, 6,
-                    Math.Max(40, promptInner.ClientSize.Width - 16),
-                    Math.Max(20, promptInner.ClientSize.Height - 12));
+                    2, 2,
+                    Math.Max(40, promptHost.ClientSize.Width - 6),
+                    Math.Max(20, promptHost.ClientSize.Height - 4));
             };
-            promptInner.Controls.Add(_globalAiPrompt);
-            promptInner.Controls.Add(_globalAiPromptPlaceholder);
+            promptHost.Controls.Add(_globalAiPrompt);
+            promptHost.Controls.Add(_globalAiPromptPlaceholder);
             _globalAiPromptPlaceholder.BringToFront();
-            promptCard.Controls.Add(promptInner);
 
-            composer.Controls.Add(promptCard);
-            composer.Controls.Add(actionRow);
+            composerInner.Controls.Add(promptHost);
+            composerInner.Controls.Add(_globalAiComposerHint);
+            composerInner.Controls.Add(sendCol);
+            composerCard.Controls.Add(composerInner);
+            composer.Controls.Add(composerCard);
 
             _globalAiDraftCard = new Panel
             {
@@ -212,7 +245,7 @@ namespace Hiatme_Tool_Suite_v3
                 Height = 168,
                 Visible = false,
                 BackColor = SupeyTheme.SurfaceElevated,
-                Padding = new Padding(8, 8, 8, 8),
+                Padding = new Padding(12, 10, 12, 10),
             };
             _globalAiDraftTitle = new Label
             {
@@ -268,10 +301,10 @@ namespace Hiatme_Tool_Suite_v3
             _globalAiActionCard = new Panel
             {
                 Dock = DockStyle.Bottom,
-                Height = 78,
+                Height = 86,
                 Visible = false,
                 BackColor = SupeyTheme.SurfaceElevated,
-                Padding = new Padding(8, 8, 8, 8),
+                Padding = new Padding(12, 10, 12, 10),
             };
             _globalAiActionTitle = new Label
             {
@@ -329,25 +362,56 @@ namespace Hiatme_Tool_Suite_v3
                 Dock = DockStyle.Fill,
                 Multiline = true,
                 ReadOnly = true,
+                AutoSize = false,
                 BorderStyle = BorderStyle.None,
                 ScrollBars = ScrollBars.Vertical,
+                WordWrap = true,
                 BackColor = SupeyTheme.SurfaceBase,
                 ForeColor = SupeyTheme.TextPrimary,
-                Font = SupeyTheme.MonoFont,
+                Font = SupeyTheme.BodyFont,
             };
+            _globalAiEmptyHint = new Label
+            {
+                Dock = DockStyle.Fill,
+                Text = "Ask about this screen — trips, drivers, times, whatever you're looking at.",
+                ForeColor = SupeyTheme.TextMuted,
+                BackColor = SupeyTheme.SurfaceBase,
+                Font = SupeyTheme.BodyFont,
+                TextAlign = ContentAlignment.MiddleCenter,
+                Padding = new Padding(24, 16, 24, 16),
+            };
+            _globalAiEmptyHint.Click += (_, __) => _globalAiPrompt?.Focus();
+            var transcriptPad = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = SupeyTheme.SurfaceBase,
+                Padding = new Padding(14, 12, 12, 12),
+            };
+            transcriptPad.Controls.Add(_globalAiTranscript);
+            transcriptPad.Controls.Add(_globalAiEmptyHint);
+            _globalAiEmptyHint.BringToFront();
             var transcriptCard = new Panel
             {
                 Dock = DockStyle.Fill,
                 BackColor = SupeyTheme.Divider,
                 Padding = new Padding(1),
             };
-            transcriptCard.Controls.Add(_globalAiTranscript);
+            transcriptCard.Controls.Add(transcriptPad);
+
+            Panel StackGap() => new Panel
+            {
+                Dock = DockStyle.Bottom,
+                Height = 8,
+                BackColor = SupeyTheme.Surface,
+            };
 
             body.Controls.Add(transcriptCard);
             body.Controls.Add(_globalAiDraftCard);
+            body.Controls.Add(StackGap());
             body.Controls.Add(_globalAiActionCard);
+            body.Controls.Add(StackGap());
             body.Controls.Add(composer);
-            body.Controls.Add(_globalAiStatusPill);
+            body.Controls.Add(statusRow);
 
             var leftEdge = new Panel
             {
@@ -439,6 +503,12 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     _globalAiTranscript.BackColor = SupeyTheme.SurfaceBase;
                     _globalAiTranscript.ForeColor = SupeyTheme.TextPrimary;
+                    _globalAiTranscript.Font = SupeyTheme.BodyFont;
+                }
+                if (_globalAiEmptyHint != null)
+                {
+                    _globalAiEmptyHint.BackColor = SupeyTheme.SurfaceBase;
+                    _globalAiEmptyHint.ForeColor = SupeyTheme.TextMuted;
                 }
                 if (_globalAiPrompt != null)
                 {
@@ -449,6 +519,11 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     _globalAiPromptPlaceholder.BackColor = SupeyTheme.SurfaceElevated;
                     _globalAiPromptPlaceholder.ForeColor = SupeyTheme.TextMuted;
+                }
+                if (_globalAiComposerHint != null)
+                {
+                    _globalAiComposerHint.BackColor = SupeyTheme.SurfaceElevated;
+                    _globalAiComposerHint.ForeColor = SupeyTheme.TextMuted;
                 }
                 if (_globalAiDraftCard != null)
                     _globalAiDraftCard.BackColor = SupeyTheme.SurfaceElevated;
@@ -995,6 +1070,8 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (_globalAiTranscript == null || string.IsNullOrWhiteSpace(text))
                 return;
+            if (_globalAiEmptyHint != null && !_globalAiEmptyHint.IsDisposed)
+                _globalAiEmptyHint.Visible = false;
             _globalAiTranscript.AppendText(
                 "[" + DateTime.Now.ToString("HH:mm", CultureInfo.InvariantCulture) + "] "
                 + role + ":\r\n" + text.Trim() + "\r\n\r\n");
@@ -1031,6 +1108,9 @@ namespace Hiatme_Tool_Suite_v3
             {
                 bool ok = await HiatmeAiSettings.RefreshPanelConnectionAsync().ConfigureAwait(true);
                 _globalAiSettings = HiatmeAiSettings.Load();
+                HiatmeAiSettings.LogProbe("dock probe ok=" + ok
+                    + " base=" + (_globalAiSettings?.BaseUrl ?? "")
+                    + " detail=" + HiatmeAiSettings.LastConnectionDetail);
                 if (ok)
                 {
                     SetGlobalAiStatus("Ready.", SupeyTheme.SuccessText);
@@ -1042,8 +1122,9 @@ namespace Hiatme_Tool_Suite_v3
                 else
                     SetGlobalAiStatus("Panel offline — other tools still work.", SupeyTheme.WarnText);
             }
-            catch
+            catch (Exception ex)
             {
+                HiatmeAiSettings.LogProbe("dock probe threw " + ex.GetType().Name + ": " + ex.Message);
                 SetGlobalAiStatus("Panel offline — other tools still work.", SupeyTheme.WarnText);
             }
         }

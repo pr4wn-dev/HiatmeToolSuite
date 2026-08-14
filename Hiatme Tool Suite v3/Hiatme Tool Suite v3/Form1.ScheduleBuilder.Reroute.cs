@@ -9,8 +9,6 @@ namespace Hiatme_Tool_Suite_v3
 {
     public partial class Form1
     {
-        private bool _fsCutTripRerouted;
-
         private CancellationTokenSource _fsRerouteProbeCts;
 
         private void FsCancelRerouteProbe()
@@ -546,7 +544,7 @@ namespace Hiatme_Tool_Suite_v3
                 return;
 
             string tab = _fsActiveDriverTab;
-            var trips = FsCollectSelectedTripsForReserveSectionMove();
+            var trips = FsCollectSelectedTrips();
             if (trips.Count == 0)
                 return;
 

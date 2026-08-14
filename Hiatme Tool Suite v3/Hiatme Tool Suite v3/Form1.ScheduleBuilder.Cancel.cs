@@ -14,7 +14,7 @@ namespace Hiatme_Tool_Suite_v3
                 return;
 
             string tab = _fsActiveDriverTab;
-            var trips = FsCollectSelectedTripsForReserveSectionMove();
+            var trips = FsCollectSelectedTrips();
             if (trips.Count == 0)
                 return;
 
@@ -110,9 +110,11 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         /// <summary>
-        /// Selected trip rows in the preview list, plus the right-clicked trip if it wasn't selected.
+        /// Selected trip rows in the preview list, in row order, plus the right-clicked trip if it
+        /// wasn't part of the selection. Every action on trip rows scopes itself with this, so
+        /// cut, delete, reroute and cancel all agree on what "the selection" means.
         /// </summary>
-        private List<MCDownloadedTrip> FsCollectSelectedTripsForReserveSectionMove()
+        private List<MCDownloadedTrip> FsCollectSelectedTrips()
         {
             var trips = new List<MCDownloadedTrip>();
             var seenKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

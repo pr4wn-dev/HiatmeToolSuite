@@ -128,6 +128,17 @@ namespace Hiatme_Tool_Suite_v3
             }
             catch { /* fail silent — leaves whatever the OS default was */ }
 
+            // .NET Framework allows only 2 connections per endpoint. Every AI panel client
+            // (chat, geo, status probe, event reporter) points at the same host:port, so two
+            // slow background calls starve the rest and the dock reports "Panel offline" while
+            // the panel is up and answering.
+            try
+            {
+                ServicePointManager.DefaultConnectionLimit = 32;
+                ServicePointManager.Expect100Continue = false;
+            }
+            catch { }
+
             // Set GMap.NET's User-Agent / Referer / cache path before any tile fetches so OSM
             // doesn't 403 us with the "Access blocked" warning tiles.
             GMapInitializer.EnsureInitialized();

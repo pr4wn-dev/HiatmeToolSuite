@@ -23,8 +23,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 Label = label,
                 LinesByTab = ScheduleBuilderPreviewUndo.CloneLinesByTab(_fsLinesByTab),
-                CutTrip = _fsCutTrip,
-                CutTripReserveBand = _fsCutTripReserveBand,
+                CutTrips = ScheduleBuilderPreviewUndo.CloneCutTrips(_fsCutTrips),
             };
         }
 
@@ -70,8 +69,9 @@ namespace Hiatme_Tool_Suite_v3
 
             FsApplyAllPreviewLinesFromDictionary(entry.LinesByTab);
 
-            _fsCutTrip = entry.CutTrip;
-            _fsCutTripReserveBand = entry.CutTripReserveBand;
+            _fsCutTrips.Clear();
+            if (entry.CutTrips != null)
+                _fsCutTrips.AddRange(entry.CutTrips);
             FsUpdateCutTripBar();
 
             string tab = string.IsNullOrWhiteSpace(_fsActiveDriverTab)
@@ -191,6 +191,11 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        /// <summary>
+        /// Anchor the keyboard action on the first selected row. This only fixes where an insert
+        /// lands and which row kind is being acted on — cut and delete take the whole selection,
+        /// which they read themselves via <see cref="FsCollectSelectedTrips"/>.
+        /// </summary>
         private bool FsTryPrepareKeyboardDeleteAction()
         {
             if (_fsTripsLv == null || _fsTripsLv.SelectedItems.Count == 0)
@@ -202,6 +207,7 @@ namespace Hiatme_Tool_Suite_v3
             return true;
         }
 
+        /// <summary>Anchor row for a keyboard cut or paste; see the note on the delete variant.</summary>
         private bool FsTryPrepareKeyboardTripAction(out MCDownloadedTrip trip)
         {
             trip = null;

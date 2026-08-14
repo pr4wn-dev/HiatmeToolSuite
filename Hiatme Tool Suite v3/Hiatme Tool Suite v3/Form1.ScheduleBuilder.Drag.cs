@@ -378,22 +378,71 @@ namespace Hiatme_Tool_Suite_v3
 
         private void SelectFsTripInListView(MCDownloadedTrip trip)
         {
-            if (_fsTripsLv == null || trip == null) return;
+            if (trip == null) return;
+            SelectFsTripsInListView(new[] { trip });
+        }
 
-            _fsTripsLv.SelectedItems.Clear();
-            foreach (ListViewItem item in _fsTripsLv.Items)
+        /// <summary>
+        /// Re-highlight a batch after a move. ShowFsTripsForTab rebuilds every row from scratch,
+        /// so without this the selection vanishes and a multi-trip move looks like it half worked.
+        /// </summary>
+        private void SelectFsTripsInListView(IEnumerable<MCDownloadedTrip> trips)
+        {
+            if (_fsTripsLv == null || trips == null) return;
+
+            var wanted = new List<MCDownloadedTrip>();
+            foreach (var trip in trips)
             {
-                if (item.Tag is FsPreviewTripTag tag && tag.Trip != null
-                    && (ReferenceEquals(tag.Trip, trip)
-                        || (!string.IsNullOrEmpty(trip.TripNumber)
-                            && string.Equals(tag.Trip.TripNumber, trip.TripNumber, StringComparison.OrdinalIgnoreCase))))
+                if (trip != null)
+                    wanted.Add(trip);
+            }
+
+            if (wanted.Count == 0) return;
+
+            _fsTripsLv.BeginUpdate();
+            try
+            {
+                _fsTripsLv.SelectedItems.Clear();
+
+                ListViewItem first = null;
+                foreach (ListViewItem item in _fsTripsLv.Items)
                 {
+                    if (!(item.Tag is FsPreviewTripTag tag) || tag.Trip == null)
+                        continue;
+
+                    if (!FsTripMatchesAny(tag.Trip, wanted))
+                        continue;
+
                     item.Selected = true;
-                    item.Focused = true;
-                    item.EnsureVisible();
-                    return;
+                    if (first == null)
+                        first = item;
+                }
+
+                if (first != null)
+                {
+                    first.Focused = true;
+                    first.EnsureVisible();
                 }
             }
+            finally
+            {
+                _fsTripsLv.EndUpdate();
+            }
+        }
+
+        private static bool FsTripMatchesAny(MCDownloadedTrip candidate, List<MCDownloadedTrip> wanted)
+        {
+            foreach (var trip in wanted)
+            {
+                if (ReferenceEquals(candidate, trip))
+                    return true;
+
+                if (!string.IsNullOrEmpty(trip.TripNumber)
+                    && string.Equals(candidate.TripNumber, trip.TripNumber, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+
+            return false;
         }
 
         internal bool FsTripsIsDragSourceRow(ListViewItem item)

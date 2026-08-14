@@ -48,6 +48,19 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>Human-readable result from the last panel probe (for map overlay / status).</summary>
         public static string LastConnectionDetail => _lastConnectionDetail ?? "";
 
+        /// <summary>Append one line to bin\ai-probe.log. "Panel offline" while the panel is
+        /// demonstrably up is otherwise impossible to tell apart from a token or timeout miss.</summary>
+        internal static void LogProbe(string line)
+        {
+            try
+            {
+                File.AppendAllText(
+                    Path.Combine(BaseDir, "ai-probe.log"),
+                    DateTime.Now.ToString("HH:mm:ss.fff") + "  " + (line ?? "") + Environment.NewLine);
+            }
+            catch { }
+        }
+
         /// <summary>Result of the panel probe during the current session's <see cref="Load"/>.</summary>
         internal static bool? SessionPanelReachable => _sessionPanelReachable;
 
@@ -85,6 +98,7 @@ namespace Hiatme_Tool_Suite_v3
         /// does not hairpin the public WAN IP and look "offline".</summary>
         public static async Task<bool> RefreshPanelConnectionAsync(CancellationToken cancellationToken = default)
         {
+            LogProbe("RefreshPanelConnectionAsync: enter");
             return await Task.Run(() =>
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -92,7 +106,9 @@ namespace Hiatme_Tool_Suite_v3
                 bool ok;
                 lock (LoadLock)
                 {
-                    settings = _sessionCache ?? LoadAndConfigureLocked(forceResolve: false);
+                    // Fresh file URLs — never reuse a session that got pinned to 127.0.0.1
+                    // after a failed probe while the panel was bouncing.
+                    settings = LoadMerged();
                     string token = settings.ApiToken;
                     string loopbackUrl = "http://127.0.0.1:" + DefaultPort;
                     var probe = ProbePanelDetailed(loopbackUrl, token, quickTimeout: true);
@@ -102,12 +118,13 @@ namespace Hiatme_Tool_Suite_v3
                     }
                     else
                     {
-                        probe = ProbePanelDetailed(settings.BaseUrl, token);
-                        if (!probe.Ok)
-                        {
-                            settings.BaseUrl = ResolvePanelBaseUrl(settings, out _);
-                            probe = ProbePanelDetailed(settings.BaseUrl, token);
-                        }
+                        settings.BaseUrl = ResolvePanelBaseUrl(settings, out var resolveDetail);
+                        ok = _sessionPanelReachable == true;
+                        _sessionCache = settings;
+                        HiatmeGeoSettings.Configure(settings, ok);
+                        LogProbe("RefreshPanelConnectionAsync: loopback failed (" + probe.Message
+                            + "); resolved=" + settings.BaseUrl + " ok=" + ok + " detail=" + resolveDetail);
+                        return ok;
                     }
                     ok = probe.Ok;
                     _sessionPanelReachable = ok;
@@ -119,6 +136,7 @@ namespace Hiatme_Tool_Suite_v3
                     _sessionCache = settings;
                 }
                 HiatmeGeoSettings.Configure(settings, ok);
+                LogProbe("RefreshPanelConnectionAsync: loopback ok=" + ok + " base=" + settings.BaseUrl);
                 return ok;
             }, cancellationToken).ConfigureAwait(false);
         }
@@ -170,9 +188,11 @@ namespace Hiatme_Tool_Suite_v3
             detail = BuildProbeFailureMessage(candidates, probe.Errors, merged.ApiToken);
             _lastConnectionDetail = detail;
             HiatmePanelLanDiscovery.DiscoverInBackground();
-            // Never pin a dead WAN/LAN winner — loopback is the only safe default
-            // when every probe failed (otherwise SharedHttp burns 130s per click).
-            return "http://127.0.0.1:" + DefaultPort;
+            // Keep the office URL so the next click retries WAN/LAN. Pinning
+            // 127.0.0.1 makes every other desk look "offline" on their own PC.
+            return NormalizeBaseUrl(merged.LastResolvedBaseUrl)
+                ?? NormalizeBaseUrl(merged.BaseUrl)
+                ?? ("http://127.0.0.1:" + DefaultPort);
         }
 
         internal static IReadOnlyList<string> CollectPanelCandidateUrls(HiatmeAiSettings merged)
@@ -341,53 +361,64 @@ namespace Hiatme_Tool_Suite_v3
             if (string.IsNullOrWhiteSpace(baseUrl))
                 return PanelProbeResult.Fail(baseUrl, "Empty panel URL.");
 
-            string url = baseUrl.TrimEnd('/') + "/api/hiatme/geo/status";
+            // /api/status is public. "Offline" must mean the process is down — not a
+            // geo/token miss, and not an HttpClient deadlock on the WinForms UI thread.
+            string url = baseUrl.TrimEnd('/') + "/api/status";
             int timeoutSec = quickTimeout ? 2 : DefaultProbeTimeoutSeconds;
             var rawTimeout = Environment.GetEnvironmentVariable("HIATME_AI_PROBE_TIMEOUT_SEC");
             if (!string.IsNullOrWhiteSpace(rawTimeout) && int.TryParse(rawTimeout.Trim(), out var t) && t >= 2 && t <= 30)
                 timeoutSec = t;
 
+            var probeClock = System.Diagnostics.Stopwatch.StartNew();
             try
             {
-                using (var http = new HttpClient { Timeout = TimeSpan.FromSeconds(timeoutSec) })
-                using (var req = new HttpRequestMessage(HttpMethod.Get, url))
+                var req = (HttpWebRequest)WebRequest.Create(url);
+                req.Method = "GET";
+                req.Timeout = timeoutSec * 1000;
+                req.ReadWriteTimeout = timeoutSec * 1000;
+                req.Proxy = null;
+                req.KeepAlive = false;
+                if (req.ServicePoint != null && req.ServicePoint.ConnectionLimit < 16)
+                    req.ServicePoint.ConnectionLimit = 16;
+                req.AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate;
+                if (IsUsableApiToken(apiToken))
+                    req.Headers[HttpRequestHeader.Authorization] = "Bearer " + apiToken.Trim();
+
+                using (var resp = (HttpWebResponse)req.GetResponse())
                 {
-                    if (IsUsableApiToken(apiToken))
-                        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiToken.Trim());
-
-                    using (var resp = http.SendAsync(req).GetAwaiter().GetResult())
-                    {
-                        if (resp.IsSuccessStatusCode)
-                            return PanelProbeResult.Success(NormalizeBaseUrl(baseUrl));
-
-                        if (resp.StatusCode == HttpStatusCode.Unauthorized || resp.StatusCode == HttpStatusCode.Forbidden)
-                        {
-                            return PanelProbeResult.Fail(
-                                baseUrl,
-                                baseUrl + ": invalid API token (HTTP " + (int)resp.StatusCode + "). "
-                                + "ApiToken in hiatme_ai.defaults.json must match HIATME_API_TOKEN on the server.");
-                        }
-
-                        return PanelProbeResult.Fail(
-                            baseUrl,
-                            baseUrl + ": HTTP " + (int)resp.StatusCode + " " + resp.ReasonPhrase);
-                    }
+                    int code = (int)resp.StatusCode;
+                    LogProbe("probe " + url + " -> HTTP " + code + " in " + probeClock.ElapsedMilliseconds
+                        + "ms (timeout " + timeoutSec + "s)");
+                    if (code >= 200 && code < 300)
+                        return PanelProbeResult.Success(NormalizeBaseUrl(baseUrl));
+                    return PanelProbeResult.Fail(baseUrl, baseUrl + ": HTTP " + code);
                 }
             }
-            catch (TaskCanceledException)
+            catch (WebException ex)
             {
-                return PanelProbeResult.Fail(baseUrl, baseUrl + ": timed out after " + timeoutSec + "s.");
-            }
-            catch (OperationCanceledException)
-            {
-                return PanelProbeResult.Fail(baseUrl, baseUrl + ": cancelled.");
-            }
-            catch (HttpRequestException ex)
-            {
-                return PanelProbeResult.Fail(baseUrl, baseUrl + ": " + FlattenExceptionMessage(ex));
+                LogProbe("probe " + url + " -> WebException " + ex.Status + " in " + probeClock.ElapsedMilliseconds
+                    + "ms (timeout " + timeoutSec + "s): " + ex.Message);
+                var http = ex.Response as HttpWebResponse;
+                if (http != null)
+                {
+                    int code = (int)http.StatusCode;
+                    if (code == 401 || code == 403)
+                    {
+                        return PanelProbeResult.Fail(
+                            baseUrl,
+                            baseUrl + ": invalid API token (HTTP " + code + "). "
+                            + "ApiToken in hiatme_ai.defaults.json must match HIATME_API_TOKEN on the server.");
+                    }
+                    return PanelProbeResult.Fail(baseUrl, baseUrl + ": HTTP " + code);
+                }
+                if (ex.Status == WebExceptionStatus.Timeout)
+                    return PanelProbeResult.Fail(baseUrl, baseUrl + ": timed out after " + timeoutSec + "s.");
+                return PanelProbeResult.Fail(baseUrl, baseUrl + ": " + (ex.Message ?? "network error"));
             }
             catch (Exception ex)
             {
+                LogProbe("probe " + url + " -> " + ex.GetType().Name + " in " + probeClock.ElapsedMilliseconds
+                    + "ms: " + ex.Message);
                 return PanelProbeResult.Fail(baseUrl, baseUrl + ": " + ex.Message);
             }
         }

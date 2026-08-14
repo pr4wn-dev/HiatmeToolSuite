@@ -367,6 +367,12 @@ namespace Hiatme_Tool_Suite_v3
             FsBindContextTagsFromHitItem(_fsTripsCtxHitItem);
             if (_fsTripsCtxHitItem != null)
             {
+                // Right-clicking inside a selection keeps it, so cut and delete can act on the
+                // whole batch. Right-clicking outside one replaces it, the way Explorer does,
+                // rather than quietly widening what the next command will touch.
+                if (!_fsTripsCtxHitItem.Selected)
+                    _fsTripsLv.SelectedItems.Clear();
+
                 _fsTripsCtxHitItem.Selected = true;
                 _fsTripsCtxHitItem.Focused = true;
             }
@@ -395,7 +401,15 @@ namespace Hiatme_Tool_Suite_v3
             bool canInsertBlank = canInsertAt && !isReserves;
             bool canInsertCut = canInsertAt && FsHasCutTrip;
 
+            // Every trip-row command acts on the whole highlighted batch, so the labels have to
+            // say so — otherwise "Cut trip" on a five-row selection looks like it only took one.
+            int selectedTripCount = FsCollectSelectedTrips().Count;
+            string selectedTripNoun = selectedTripCount > 1
+                ? selectedTripCount + " trips"
+                : "trip";
+
             _fsTripsCtxCutTrip.Enabled = hasTrip && canMoveTrips && !FsHasCutTrip;
+            _fsTripsCtxCutTrip.Text = "Cut " + selectedTripNoun;
             bool canDeleteTrip = hasTrip && canMoveTrips;
             bool canDeleteGap = canMoveTrips && !isReserves
                 && _fsTripsCtxHitItem?.Tag is FsPreviewGapTag gapCtx
@@ -410,7 +424,9 @@ namespace Hiatme_Tool_Suite_v3
             if (canDeleteTrip)
             {
                 string num = (_fsTripsCtxTrip.TripNumber ?? "").Trim();
-                _fsTripsCtxDelete.Text = string.IsNullOrEmpty(num) ? "Delete trip" : "Delete trip " + num;
+                _fsTripsCtxDelete.Text = selectedTripCount > 1
+                    ? "Delete " + selectedTripNoun
+                    : (string.IsNullOrEmpty(num) ? "Delete trip" : "Delete trip " + num);
             }
             else if (canDeleteNote)
                 _fsTripsCtxDelete.Text = "Delete note";
@@ -419,7 +435,7 @@ namespace Hiatme_Tool_Suite_v3
             else
                 _fsTripsCtxDelete.Text = "Delete";
             _fsTripsCtxPasteTrip.Enabled = canInsertCut;
-            _fsTripsCtxPasteTrip.Text = "Paste trip" + FsCutTripMenuSuffix();
+            _fsTripsCtxPasteTrip.Text = "Paste " + FsCutTripMenuNoun();
             _fsTripsCtxUndo.Enabled = _fsUndoStack.CanUndo;
             _fsTripsCtxUndo.Text = FsUndoMenuText();
             _fsTripsCtxRedo.Enabled = _fsUndoStack.CanRedo;
@@ -431,8 +447,8 @@ namespace Hiatme_Tool_Suite_v3
             _fsTripsCtxInsertTripBelow.Visible = FsHasCutTrip;
             _fsTripsCtxInsertTripAbove.Enabled = canInsertCut;
             _fsTripsCtxInsertTripBelow.Enabled = canInsertCut;
-            _fsTripsCtxInsertTripAbove.Text = "Insert trip above" + FsCutTripMenuSuffix();
-            _fsTripsCtxInsertTripBelow.Text = "Insert trip below" + FsCutTripMenuSuffix();
+            _fsTripsCtxInsertTripAbove.Text = "Insert " + FsCutTripMenuNoun() + " above";
+            _fsTripsCtxInsertTripBelow.Text = "Insert " + FsCutTripMenuNoun() + " below";
             _fsTripsCtxClearCut.Enabled = FsHasCutTrip;
 
             _fsTripsCtxBanClient.Enabled = hasTrip;
@@ -451,18 +467,6 @@ namespace Hiatme_Tool_Suite_v3
             bool alreadyInReroutes = hasTrip && hasBuild
                 && !FsNeedsMoveToReservesReroutes(
                     _fsTripsCtxTrip, _fsActiveDriverTab ?? "", fsbuilder, reserveLinesForCtx);
-
-            int selectedTripCount = 0;
-            if (_fsTripsLv != null)
-            {
-                foreach (ListViewItem item in _fsTripsLv.SelectedItems)
-                {
-                    if (item?.Tag is FsPreviewTripTag tag && tag.Trip != null)
-                        selectedTripCount++;
-                }
-            }
-            if (selectedTripCount == 0 && hasTrip)
-                selectedTripCount = 1;
 
             bool canAddAnySelectedToReroutes = false;
             if (hasTrip && hasBuild && _fsTripsLv != null)
@@ -635,11 +639,16 @@ namespace Hiatme_Tool_Suite_v3
             _fsTripsCtxMenu.Show(_fsTripsLv, e.Location);
         }
 
-        private string FsCutTripMenuSuffix()
+        /// <summary>What a paste or insert would place: "trip 10001", or "3 trips" for a batch.</summary>
+        private string FsCutTripMenuNoun()
         {
-            if (_fsCutTrip == null) return "";
-            string num = (_fsCutTrip.TripNumber ?? "").Trim();
-            return string.IsNullOrEmpty(num) ? "" : " (" + num + ")";
+            if (_fsCutTrips.Count > 1)
+                return _fsCutTrips.Count + " trips";
+
+            string num = _fsCutTrips.Count == 1
+                ? (_fsCutTrips[0].Trip?.TripNumber ?? "").Trim()
+                : "";
+            return num.Length == 0 ? "trip" : "trip " + num;
         }
 
         private void FsCopyScheduleForAiReviewToClipboard()

@@ -9,82 +9,149 @@ namespace Hiatme_Tool_Suite_v3
 {
     public partial class Form1
     {
-        private MCDownloadedTrip _fsCutTrip;
-        private Color? _fsCutTripReserveBand;
+        /// <summary>
+        /// Cut clipboard. A list because the trip list is multi-select: cutting has to take
+        /// everything highlighted, not just the row the mouse happened to be over.
+        /// </summary>
+        private readonly List<ScheduleBuilderCutTrip> _fsCutTrips = new List<ScheduleBuilderCutTrip>();
+
         private ListViewItem _fsTripsCtxHitItem;
 
-        private bool FsHasCutTrip => _fsCutTrip != null;
+        private bool FsHasCutTrip => _fsCutTrips.Count > 0;
 
         private void FsClearCutTrip()
         {
-            _fsCutTrip = null;
-            _fsCutTripReserveBand = null;
-            _fsCutTripRerouted = false;
+            _fsCutTrips.Clear();
             FsUpdateCutTripBar();
         }
 
         private void FsCutSelectedTrip()
         {
-            if (_fsTripsCtxTrip == null || string.IsNullOrWhiteSpace(_fsActiveDriverTab) || !_fsHasPreview)
+            if (string.IsNullOrWhiteSpace(_fsActiveDriverTab) || !_fsHasPreview)
                 return;
 
             string tab = _fsActiveDriverTab;
             if (!_fsLinesByTab.TryGetValue(tab, out var lines) || lines == null)
                 return;
 
-            _fsCutTripReserveBand = FsFindTripReserveBand(lines, _fsTripsCtxTrip);
-            _fsCutTripRerouted = ScheduleBuilderReroutedTrips.IsMarked(lines, _fsTripsCtxTrip);
-            FsPushUndoSnapshot("cut trip");
-            if (!ScheduleBuilderPreviewDrag.TryRemoveTrip(lines, _fsTripsCtxTrip))
+            // Whole selection, snapshotted before anything is removed, in the order the rows
+            // appear so they paste back in the same order.
+            var trips = FsCollectSelectedTrips();
+            if (trips.Count == 0)
                 return;
 
-            _fsCutTrip = _fsTripsCtxTrip;
+            var cut = new List<ScheduleBuilderCutTrip>(trips.Count);
+            foreach (var trip in trips)
+            {
+                cut.Add(new ScheduleBuilderCutTrip
+                {
+                    Trip = trip,
+                    ReserveBand = FsFindTripReserveBand(lines, trip),
+                    Rerouted = ScheduleBuilderReroutedTrips.IsMarked(lines, trip),
+                });
+            }
+
+            FsPushUndoSnapshot(FsTripCountLabel("cut", cut.Count));
+
+            var removed = new List<ScheduleBuilderCutTrip>(cut.Count);
+            foreach (var entry in cut)
+            {
+                if (ScheduleBuilderPreviewDrag.TryRemoveTrip(lines, entry.Trip))
+                    removed.Add(entry);
+            }
+
+            if (removed.Count == 0)
+                return;
+
+            _fsCutTrips.Clear();
+            _fsCutTrips.AddRange(removed);
             FsUpdateCutTripBar();
             FsCommitPreviewLinesForTab(tab, lines);
             ShowFsTripsForTab(tab);
             RequestFsMapRefresh();
 
-            string num = (_fsCutTrip.TripNumber ?? "").Trim();
-            SetScheduleBuilderStatus(string.IsNullOrEmpty(num)
-                ? "Trip cut — right-click a row · Paste trip or Insert trip above/below."
-                : "Trip " + num + " cut — right-click a row · Paste trip or Insert trip above/below.");
+            if (removed.Count == 1)
+            {
+                string num = (removed[0].Trip.TripNumber ?? "").Trim();
+                SetScheduleBuilderStatus(string.IsNullOrEmpty(num)
+                    ? "Trip cut — right-click a row · Paste trip or Insert trip above/below."
+                    : "Trip " + num + " cut — right-click a row · Paste trip or Insert trip above/below.");
+            }
+            else
+            {
+                SetScheduleBuilderStatus(
+                    removed.Count + " trips cut — right-click a row · Paste trips or Insert above/below.");
+            }
         }
 
         private void FsDeleteSelectedTrip()
         {
-            if (_fsTripsCtxTrip == null || string.IsNullOrWhiteSpace(_fsActiveDriverTab) || !_fsHasPreview)
+            if (string.IsNullOrWhiteSpace(_fsActiveDriverTab) || !_fsHasPreview)
                 return;
 
             string tab = _fsActiveDriverTab;
             if (!_fsLinesByTab.TryGetValue(tab, out var lines) || lines == null)
                 return;
 
-            MCDownloadedTrip trip = _fsTripsCtxTrip;
-            string num = (trip.TripNumber ?? "").Trim();
+            var trips = FsCollectSelectedTrips();
+            if (trips.Count == 0)
+                return;
 
-            FsPushUndoSnapshot("delete trip");
-            if (!ScheduleBuilderPreviewDrag.TryRemoveTrip(lines, trip))
+            FsPushUndoSnapshot(FsTripCountLabel("delete", trips.Count));
+
+            var deleted = new List<MCDownloadedTrip>(trips.Count);
+            foreach (var trip in trips)
+            {
+                if (ScheduleBuilderPreviewDrag.TryRemoveTrip(lines, trip))
+                    deleted.Add(trip);
+            }
+
+            if (deleted.Count == 0)
             {
                 SetScheduleBuilderStatus("Could not delete trip.");
                 return;
             }
 
-            if (FsHasCutTrip
-                && (_fsCutTrip != null)
-                && (ReferenceEquals(_fsCutTrip, trip)
-                    || ScheduleBuilderPreviewDrag.TripEquals(_fsCutTrip, trip)))
-            {
-                FsClearCutTrip();
-            }
+            foreach (var trip in deleted)
+                FsForgetCutTrip(trip);
 
             FsCommitPreviewLinesForTab(tab, lines);
             ShowFsTripsForTab(tab);
             SyncFsPreviewCsvsForExport();
             RequestFsMapRefresh();
 
-            SetScheduleBuilderStatus(string.IsNullOrEmpty(num)
-                ? "Trip deleted from schedule."
-                : "Trip " + num + " deleted from schedule.");
+            if (deleted.Count == 1)
+            {
+                string num = (deleted[0].TripNumber ?? "").Trim();
+                SetScheduleBuilderStatus(string.IsNullOrEmpty(num)
+                    ? "Trip deleted from schedule."
+                    : "Trip " + num + " deleted from schedule.");
+            }
+            else
+            {
+                SetScheduleBuilderStatus(deleted.Count + " trips deleted from schedule.");
+            }
+        }
+
+        /// <summary>Drop a trip from the cut clipboard once it no longer exists to paste.</summary>
+        private void FsForgetCutTrip(MCDownloadedTrip trip)
+        {
+            if (trip == null || _fsCutTrips.Count == 0)
+                return;
+
+            for (int i = _fsCutTrips.Count - 1; i >= 0; i--)
+            {
+                var held = _fsCutTrips[i].Trip;
+                if (ReferenceEquals(held, trip) || ScheduleBuilderPreviewDrag.TripEquals(held, trip))
+                    _fsCutTrips.RemoveAt(i);
+            }
+
+            FsUpdateCutTripBar();
+        }
+
+        private static string FsTripCountLabel(string verb, int count)
+        {
+            return count == 1 ? verb + " trip" : verb + " " + count + " trips";
         }
 
         private void FsInsertFromContextMenu(bool below)
@@ -97,7 +164,7 @@ namespace Hiatme_Tool_Suite_v3
 
         private void FsInsertCutTrip(bool below)
         {
-            if (_fsCutTrip == null || string.IsNullOrWhiteSpace(_fsActiveDriverTab) || !_fsHasPreview)
+            if (!FsHasCutTrip || string.IsNullOrWhiteSpace(_fsActiveDriverTab) || !_fsHasPreview)
                 return;
 
             if (!TryResolveFsInsertBeforeLine(_fsTripsCtxHitItem, below, out int insertBeforeLine))
@@ -107,36 +174,66 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             string tab = _fsActiveDriverTab;
-            MCDownloadedTrip trip = _fsCutTrip;
-            Color? cutReserveBand = _fsCutTripReserveBand;
-            bool cutRerouted = _fsCutTripRerouted;
-            FsClearCutTrip();
 
-            _fsPreserveRouteChangeBaseline = true;
-            FsSnapshotPreMoveGroupMeters(tab, trip, merge: false, mergeTargetTrip: null);
-
+            // Resolve the destination before emptying the clipboard, or a tab with no lines
+            // would swallow the whole cut with nothing left to paste.
             if (!_fsLinesByTab.TryGetValue(tab, out var lines) || lines == null)
                 return;
 
-            Color? reserveBand = null;
-            if (tab.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
+            var cut = new List<ScheduleBuilderCutTrip>(_fsCutTrips);
+            FsClearCutTrip();
+
+            _fsPreserveRouteChangeBaseline = true;
+            FsSnapshotPreMoveGroupMeters(tab, cut[0].Trip, merge: false, mergeTargetTrip: null);
+
+            bool intoReserves = tab.Equals("Reserves", StringComparison.OrdinalIgnoreCase);
+            Color? fallbackBand = intoReserves
+                ? ScheduleBuilderPreviewDrag.ResolveReserveBandForInsert(lines, insertBeforeLine)
+                : (Color?)null;
+
+            FsPushUndoSnapshot(FsTripCountLabel("insert", cut.Count));
+
+            // Walk the insert point forward so the batch lands consecutively in the order it was
+            // cut, rather than every trip landing on the same index and reversing the run.
+            var inserted = new List<MCDownloadedTrip>(cut.Count);
+            int at = insertBeforeLine;
+            foreach (var entry in cut)
             {
-                reserveBand = cutReserveBand
-                    ?? ScheduleBuilderPreviewDrag.ResolveReserveBandForInsert(lines, insertBeforeLine);
+                int before = lines.Count;
+                Color? band = intoReserves ? (entry.ReserveBand ?? fallbackBand) : null;
+                ScheduleBuilderPreviewDrag.InsertTripLine(lines, entry.Trip, at, band, entry.Rerouted);
+
+                // InsertTripLine is a no-op when the trip is somehow already on this tab, so only
+                // advance when a row was really added.
+                if (lines.Count > before)
+                {
+                    inserted.Add(entry.Trip);
+                    at++;
+                }
             }
 
-            FsPushUndoSnapshot("insert trip");
-            ScheduleBuilderPreviewDrag.InsertTripLine(lines, trip, insertBeforeLine, reserveBand, cutRerouted);
+            if (inserted.Count == 0)
+            {
+                SetScheduleBuilderStatus("Nothing to insert here.");
+                return;
+            }
 
             FsCommitPreviewLinesForTab(tab, lines);
             ShowFsTripsForTab(tab);
-            SelectFsTripInListView(trip);
+            SelectFsTripsInListView(inserted);
             _ = FsRefreshAfterTripMoveAsync();
 
-            string num = (trip.TripNumber ?? "").Trim();
-            SetScheduleBuilderStatus(string.IsNullOrEmpty(num)
-                ? "Trip inserted — map updating…"
-                : "Trip " + num + " inserted — map updating…");
+            if (inserted.Count == 1)
+            {
+                string num = (inserted[0].TripNumber ?? "").Trim();
+                SetScheduleBuilderStatus(string.IsNullOrEmpty(num)
+                    ? "Trip inserted — map updating…"
+                    : "Trip " + num + " inserted — map updating…");
+            }
+            else
+            {
+                SetScheduleBuilderStatus(inserted.Count + " trips inserted — map updating…");
+            }
         }
 
         private void FsInsertBlankRowAt(int insertBeforeLine)
@@ -454,7 +551,7 @@ namespace Hiatme_Tool_Suite_v3
             if (_fsCutTripBar == null)
                 return;
 
-            if (_fsCutTrip == null)
+            if (_fsCutTrips.Count == 0)
             {
                 _fsCutTripBar.Visible = false;
                 _fsCutTripBar.Height = 0;
@@ -463,10 +560,38 @@ namespace Hiatme_Tool_Suite_v3
                 return;
             }
 
-            _fsCutTripBarLine1.Text = FsFormatCutTripSummaryLine(_fsCutTrip);
-            _fsCutTripBarLine2.Text = FsFormatCutTripAddressLine(_fsCutTrip);
+            if (_fsCutTrips.Count == 1)
+            {
+                _fsCutTripBarLine1.Text = FsFormatCutTripSummaryLine(_fsCutTrips[0].Trip);
+                _fsCutTripBarLine2.Text = FsFormatCutTripAddressLine(_fsCutTrips[0].Trip);
+            }
+            else
+            {
+                _fsCutTripBarLine1.Text = "CUT  ·  " + _fsCutTrips.Count + " trips";
+                _fsCutTripBarLine2.Text = FsFormatCutTripNumbersLine(_fsCutTrips);
+            }
+
             _fsCutTripBar.Visible = true;
             _fsCutTripBar.Height = FsCutTripBarHeight;
+        }
+
+        /// <summary>Trip numbers on the clipboard, trimmed so a big cut still fits one line.</summary>
+        private static string FsFormatCutTripNumbersLine(IList<ScheduleBuilderCutTrip> cut)
+        {
+            const int maxShown = 8;
+            var nums = new List<string>();
+
+            foreach (var entry in cut)
+            {
+                string num = (entry?.Trip?.TripNumber ?? "").Trim();
+                nums.Add(num.Length > 0 ? num : "(no trip #)");
+                if (nums.Count == maxShown)
+                    break;
+            }
+
+            string text = string.Join("  ·  ", nums);
+            int rest = cut.Count - nums.Count;
+            return rest > 0 ? text + "  ·  +" + rest + " more" : text;
         }
 
         private static string FsFormatCutTripSummaryLine(MCDownloadedTrip trip)

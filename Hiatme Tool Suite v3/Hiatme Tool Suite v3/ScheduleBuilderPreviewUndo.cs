@@ -4,12 +4,19 @@ using System.Drawing;
 
 namespace Hiatme_Tool_Suite_v3
 {
+    /// <summary>One trip on the cut clipboard, with the row state it has to carry to its new home.</summary>
+    internal sealed class ScheduleBuilderCutTrip
+    {
+        public MCDownloadedTrip Trip { get; set; }
+        public Color? ReserveBand { get; set; }
+        public bool Rerouted { get; set; }
+    }
+
     internal sealed class ScheduleBuilderUndoEntry
     {
         public string Label { get; set; }
         public Dictionary<string, List<ScheduleBuilderPreviewLine>> LinesByTab { get; set; }
-        public MCDownloadedTrip CutTrip { get; set; }
-        public Color? CutTripReserveBand { get; set; }
+        public List<ScheduleBuilderCutTrip> CutTrips { get; set; }
     }
 
     internal static class ScheduleBuilderPreviewUndo
@@ -46,6 +53,32 @@ namespace Hiatme_Tool_Suite_v3
                     ReroutedOnModivcare = line.ReroutedOnModivcare,
                     CancelledOnWellRyde = line.CancelledOnWellRyde,
                     ReserveBandColor = line.ReserveBandColor,
+                });
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Copy the cut clipboard so an undo entry keeps the list it was taken with. Sharing the
+        /// live list would let a later cut rewrite history.
+        /// </summary>
+        internal static List<ScheduleBuilderCutTrip> CloneCutTrips(IList<ScheduleBuilderCutTrip> src)
+        {
+            var result = new List<ScheduleBuilderCutTrip>(src?.Count ?? 0);
+            if (src == null)
+                return result;
+
+            foreach (var cut in src)
+            {
+                if (cut?.Trip == null)
+                    continue;
+
+                result.Add(new ScheduleBuilderCutTrip
+                {
+                    Trip = cut.Trip,
+                    ReserveBand = cut.ReserveBand,
+                    Rerouted = cut.Rerouted,
                 });
             }
 
