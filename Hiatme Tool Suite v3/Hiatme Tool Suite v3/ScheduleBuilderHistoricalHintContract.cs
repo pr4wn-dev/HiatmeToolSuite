@@ -25,6 +25,22 @@ namespace Hiatme_Tool_Suite_v3
         /// about the driver than usual.
         /// </summary>
         public bool CorridorUnderbuilt { get; set; }
+
+        /// <summary>
+        /// Whether placing this trip on each driver would be named late. Ranking only;
+        /// never shown as a builder warning. Empty when the server had no model or the
+        /// request failed — ranking then works as it did before.
+        /// </summary>
+        public Dictionary<string, ScheduleBuilderForecastCall> ForecastByDriver { get; set; } =
+            new Dictionary<string, ScheduleBuilderForecastCall>(StringComparer.OrdinalIgnoreCase);
+    }
+
+    internal sealed class ScheduleBuilderForecastCall
+    {
+        public string DriverName { get; set; } = "";
+        public double PredictedLate { get; set; }
+        public bool Called { get; set; }
+        public List<string> Why { get; set; } = new List<string>();
     }
 
     internal sealed class ScheduleBuilderHistoricalTripHint

@@ -187,6 +187,40 @@ namespace Hiatme_Tool_Suite_v3
         public JObject Fit { get; set; }
     }
 
+    /// <summary>POST /api/hiatme/forecast/placements — would this trip be named late here?</summary>
+    internal sealed class HiatmeForecastPlacementsResponse
+    {
+        [JsonProperty("ok")]
+        public bool Ok { get; set; }
+
+        [JsonProperty("reason")]
+        public string Reason { get; set; }
+
+        [JsonProperty("trip_number")]
+        public string TripNumber { get; set; }
+
+        [JsonProperty("call_threshold")]
+        public double? CallThreshold { get; set; }
+
+        [JsonProperty("placements")]
+        public List<HiatmeForecastPlacement> Placements { get; set; }
+    }
+
+    internal sealed class HiatmeForecastPlacement
+    {
+        [JsonProperty("driver")]
+        public string Driver { get; set; }
+
+        [JsonProperty("predicted_late")]
+        public double? PredictedLate { get; set; }
+
+        [JsonProperty("called")]
+        public bool Called { get; set; }
+
+        [JsonProperty("why")]
+        public List<string> Why { get; set; }
+    }
+
     /// <summary>GET /api/hiatme/schedules/workbook/meta</summary>
     internal sealed class HiatmeScheduleWorkbookMeta
     {
@@ -1780,6 +1814,41 @@ namespace Hiatme_Tool_Suite_v3
                         if (!resp.IsSuccessStatusCode) return null;
                         var text = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
                         return JsonConvert.DeserializeObject<HiatmeArchiveQueryResponse>(text);
+                    }
+                }
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Would this trip be named late on each candidate driver's current route?
+        /// Ranking signal only. Does not write a prediction to the ledger.
+        /// </summary>
+        public static async Task<HiatmeForecastPlacementsResponse> ScoreForecastPlacementsAsync(
+            HiatmeAiSettings settings,
+            object body,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null || body == null) return null;
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl)) return null;
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Post, baseUrl + "/api/hiatme/forecast/placements"))
+                {
+                    req.Content = new StringContent(
+                        JsonConvert.SerializeObject(body), Encoding.UTF8, "application/json");
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
+                    {
+                        if (!resp.IsSuccessStatusCode) return null;
+                        var text = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        return JsonConvert.DeserializeObject<HiatmeForecastPlacementsResponse>(text);
                     }
                 }
             }

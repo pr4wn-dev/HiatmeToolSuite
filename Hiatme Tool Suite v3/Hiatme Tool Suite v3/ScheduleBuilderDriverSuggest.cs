@@ -80,6 +80,10 @@ namespace Hiatme_Tool_Suite_v3
         // How hard a bad record discounts "they have run it before". At 2.0 a pairing
         // going 50 points worse than expected withdraws the frequency bonus entirely.
         private const double HistoryHintOutcomeGateSlope = 2.0;
+        // A named-late placement. Sized to flip a close affinity fight without beating
+        // a trip that has belonged to someone for months (1400 × confidence). Kept
+        // outside the history-hint clamp so the name can actually move rank.
+        private const double ForecastCallScoreMeters = 2800.0;
         private const double DoAnchorMatchMaxMinutes = 30.0;
 
         public static Task<List<ScheduleBuilderDriverSuggestion>> SuggestAsync(
@@ -130,6 +134,12 @@ namespace Hiatme_Tool_Suite_v3
             var driverJobs = BuildDriverJobs(linesByTab, roster);
             if (driverJobs.Count == 0)
                 return results;
+
+            if (historicalHints == null)
+                historicalHints = new ScheduleBuilderHistoricalHints();
+            await AttachForecastPlacementsAsync(
+                historicalHints, trip, driverJobs, pickupByTrip, dropoffByTrip, serviceDate, token)
+                .ConfigureAwait(false);
 
             var resultsLock = new object();
             int driversStarted = 0;
@@ -1344,6 +1354,7 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             ApplyHistoricalHintBonus(eval, displayName, trip, historicalHints);
+            ApplyForecastCall(eval, displayName, historicalHints);
         }
 
         private static void ApplyHistoricalHintBonus(
@@ -1484,6 +1495,162 @@ namespace Hiatme_Tool_Suite_v3
                 body += " Leg runs late for everyone, so this counts for less.";
 
             return "History: " + body;
+        }
+
+        /// <summary>
+        /// A named-late placement costs rank. A quiet one does not. This is the weld:
+        /// the model that names trips now changes who Suggest Driver offers first.
+        /// Feasibility gates stay deterministic and this never becomes a banner.
+        /// </summary>
+        private static void ApplyForecastCall(
+            PlacementEval eval,
+            string displayName,
+            ScheduleBuilderHistoricalHints historicalHints)
+        {
+            if (eval == null || historicalHints?.ForecastByDriver == null || string.IsNullOrWhiteSpace(displayName))
+                return;
+
+            ScheduleBuilderForecastCall call;
+            if (!historicalHints.ForecastByDriver.TryGetValue(displayName.Trim(), out call) || call == null)
+                return;
+            if (!call.Called)
+                return;
+
+            eval.Score += ForecastCallScoreMeters;
+            string why = (call.Why ?? new List<string>()).FirstOrDefault(w => !string.IsNullOrWhiteSpace(w));
+            eval.Reasons.Add(string.IsNullOrWhiteSpace(why)
+                ? "This placement is one the model names as late."
+                : "Named late: " + why.Trim());
+        }
+
+        private static async Task AttachForecastPlacementsAsync(
+            ScheduleBuilderHistoricalHints hints,
+            MCDownloadedTrip trip,
+            IReadOnlyList<DriverSuggestJob> driverJobs,
+            Dictionary<string, GeoPoint> pickupByTrip,
+            Dictionary<string, GeoPoint> dropoffByTrip,
+            DateTime? serviceDate,
+            CancellationToken token)
+        {
+            if (hints == null || trip == null || driverJobs == null || driverJobs.Count == 0)
+                return;
+
+            try
+            {
+                var settings = HiatmeAiSettings.Load();
+                if (settings == null)
+                    return;
+
+                object tripPayload = ForecastTripPayload(trip, pickupByTrip, dropoffByTrip, serviceDate);
+                if (tripPayload == null)
+                    return;
+
+                var candidates = new List<object>();
+                foreach (var job in driverJobs)
+                {
+                    if (job == null || string.IsNullOrWhiteSpace(job.DisplayName))
+                        continue;
+                    var existing = new List<object>();
+                    foreach (var line in job.Lines ?? new List<ScheduleBuilderPreviewLine>())
+                    {
+                        if (line?.Kind != ScheduleBuilderPreviewLine.LineKind.Trip || line.Trip == null)
+                            continue;
+                        object payload = ForecastTripPayload(line.Trip, pickupByTrip, dropoffByTrip, serviceDate);
+                        if (payload != null)
+                            existing.Add(payload);
+                    }
+                    candidates.Add(new { driver = job.DisplayName.Trim(), trips = existing });
+                }
+                if (candidates.Count == 0)
+                    return;
+
+                var response = await HiatmeAiClient.ScoreForecastPlacementsAsync(
+                    settings,
+                    new { trip = tripPayload, candidates },
+                    token).ConfigureAwait(false);
+                if (response == null || !response.Ok || response.Placements == null)
+                    return;
+
+                var map = hints.ForecastByDriver
+                    ?? new Dictionary<string, ScheduleBuilderForecastCall>(StringComparer.OrdinalIgnoreCase);
+                foreach (var p in response.Placements)
+                {
+                    if (p == null || string.IsNullOrWhiteSpace(p.Driver))
+                        continue;
+                    map[p.Driver.Trim()] = new ScheduleBuilderForecastCall
+                    {
+                        DriverName = p.Driver.Trim(),
+                        PredictedLate = p.PredictedLate ?? 0,
+                        Called = p.Called,
+                        Why = p.Why ?? new List<string>(),
+                    };
+                }
+                hints.ForecastByDriver = map;
+            }
+            catch
+            {
+                // Ranking still works without a call. Same as a missing archive hint.
+            }
+        }
+
+        private static object ForecastTripPayload(
+            MCDownloadedTrip trip,
+            Dictionary<string, GeoPoint> pickupByTrip,
+            Dictionary<string, GeoPoint> dropoffByTrip,
+            DateTime? serviceDate)
+        {
+            if (trip == null)
+                return null;
+            string tn = (trip.TripNumber ?? "").Trim();
+            if (tn.Length == 0)
+                return null;
+
+            DateTime? day = serviceDate;
+            DateTime parsed;
+            if (!day.HasValue && DateTime.TryParse(trip.Date, out parsed))
+                day = parsed.Date;
+            if (!day.HasValue)
+                return null;
+
+            TimeSpan? pu = SupeyTripTimes.TryParsePU(trip);
+            TimeSpan? dof = SupeyTripTimes.TryParseDO(trip);
+            if (!pu.HasValue || !dof.HasValue)
+                return null;
+
+            string puCity = (trip.PUCity ?? "").Trim();
+            string doCity = (trip.DOCITY ?? "").Trim();
+            string corridor = (puCity.Length > 0 && doCity.Length > 0)
+                ? (puCity + "|" + doCity).ToLowerInvariant()
+                : "";
+
+            double? puLat = null, puLon = null, doLat = null, doLon = null;
+            GeoPoint puPt, doPt;
+            if (pickupByTrip != null && pickupByTrip.TryGetValue(tn, out puPt))
+            {
+                puLat = puPt.Lat;
+                puLon = puPt.Lng;
+            }
+            if (dropoffByTrip != null && dropoffByTrip.TryGetValue(tn, out doPt))
+            {
+                doLat = doPt.Lat;
+                doLon = doPt.Lng;
+            }
+
+            return new
+            {
+                trip_no = tn,
+                trip_number = tn,
+                sched_pu_iso = day.Value.Date.Add(pu.Value).ToString("yyyy-MM-ddTHH:mm:ss"),
+                sched_do_iso = day.Value.Date.Add(dof.Value).ToString("yyyy-MM-ddTHH:mm:ss"),
+                pu_lat = puLat,
+                pu_lon = puLon,
+                do_lat = doLat,
+                do_lon = doLon,
+                is_a_leg = McTripTimingRules.IsALeg(tn),
+                corridor = corridor,
+                pu_city = puCity,
+                do_city = doCity,
+            };
         }
 
         private static async Task<ScheduleBuilderHistoricalHints> LoadHistoricalHintsAsync(
