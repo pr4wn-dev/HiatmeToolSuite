@@ -222,6 +222,8 @@ namespace Hiatme_Tool_Suite_v3
 
             _fsPreviewUiReady = true;
 
+            RunWhenReady(ApplySavedFsMapPresentation);
+
             SetScheduleBuilderStatus("Ready. Pick a service date and click BUILD.");
 
             RunWhenReady(async () =>
@@ -757,6 +759,10 @@ namespace Hiatme_Tool_Suite_v3
             SupeyListViewHelpers.WireSplitContainerSmoothResize(_fsMainSplit);
 
             _fsMainHost.Controls.Add(_fsMainSplit);
+            if (_fsSideSplitter != null)
+                _fsMainHost.Controls.Add(_fsSideSplitter);
+            if (_fsSideTabPanel?.Panel != null)
+                _fsMainHost.Controls.Add(_fsSideTabPanel.Panel);
 
         }
 
@@ -1023,6 +1029,8 @@ namespace Hiatme_Tool_Suite_v3
             {
                 PopFsMapSelectionSuppress();
             }
+
+            UpdateFsMapFloatCaption();
 
             if (refreshMap && !_fsMapPreloadRunning)
                 _ = RefreshFsMapForCurrentTabAsync();
@@ -1520,6 +1528,8 @@ namespace Hiatme_Tool_Suite_v3
 
             if (_fsMainSplit == null) return;
 
+            if (_fsMapFloating || !_fsMapUiVisible) return;
+
             if (_fsTripsCollapsible != null && !_fsTripsCollapsible.Expanded)
 
                 ApplyFsTripsCollapsedSplit(saveSplitter: false);
@@ -1650,6 +1660,8 @@ namespace Hiatme_Tool_Suite_v3
         private void EnsureFsSplitDistance()
 
         {
+
+            if (_fsMapFloating || !_fsMapUiVisible) return;
 
             if (_fsMainSplit == null || _fsUserAdjustedMainSplit || _fsDefaultSplitApplied) return;
 

@@ -109,8 +109,11 @@ namespace Hiatme_Tool_Suite_v3
             };
             _fsTripsCtxFocusMap.Click += (s, e) =>
             {
-                if (_fsTripsCtxTrip != null && _fsMap != null && _fsMap.Visible)
-                    _fsMap.FocusTrip(_fsTripsCtxTrip);
+                if (_fsTripsCtxTrip == null || _fsMap == null)
+                    return;
+                if (!FsMapIsShownToUser())
+                    ShowFsMap();
+                _fsMap.FocusTrip(_fsTripsCtxTrip);
             };
 
             _fsTripsCtxCopyForAi = new ToolStripMenuItem("Copy for AI review (Cursor)")
@@ -534,7 +537,6 @@ namespace Hiatme_Tool_Suite_v3
 
             _fsTripsCtxFocusMap.Enabled = hasTrip
                 && _fsMap != null
-                && _fsMap.Visible
                 && ScheduleOsrmGate.PreviewRoutingOk;
             _fsTripsCtxAutoSortGroup.Enabled = canSortGroup && ScheduleOsrmGate.PreviewRoutingOk;
             _fsTripsCtxGeocodeDriverHome.Enabled = canGeocodeDriverHome;

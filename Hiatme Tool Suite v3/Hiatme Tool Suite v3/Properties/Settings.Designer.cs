@@ -250,5 +250,89 @@ namespace Hiatme_Tool_Suite_v3.Properties {
                 this["FsEnableAdvancedSuggestHistory"] = value;
             }
         }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("True")]
+        public bool FsMapFloating {
+            get {
+                return ((bool)(this["FsMapFloating"]));
+            }
+            set {
+                this["FsMapFloating"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("True")]
+        public bool FsMapUiVisible {
+            get {
+                return ((bool)(this["FsMapUiVisible"]));
+            }
+            set {
+                this["FsMapUiVisible"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("False")]
+        public bool FsMapFloatTopMost {
+            get {
+                return ((bool)(this["FsMapFloatTopMost"]));
+            }
+            set {
+                this["FsMapFloatTopMost"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("0")]
+        public int FsMapFloatX {
+            get {
+                return ((int)(this["FsMapFloatX"]));
+            }
+            set {
+                this["FsMapFloatX"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("0")]
+        public int FsMapFloatY {
+            get {
+                return ((int)(this["FsMapFloatY"]));
+            }
+            set {
+                this["FsMapFloatY"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("0")]
+        public int FsMapFloatW {
+            get {
+                return ((int)(this["FsMapFloatW"]));
+            }
+            set {
+                this["FsMapFloatW"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("0")]
+        public int FsMapFloatH {
+            get {
+                return ((int)(this["FsMapFloatH"]));
+            }
+            set {
+                this["FsMapFloatH"] = value;
+            }
+        }
     }
 }

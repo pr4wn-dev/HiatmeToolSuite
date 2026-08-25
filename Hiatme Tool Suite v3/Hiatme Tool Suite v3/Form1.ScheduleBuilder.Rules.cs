@@ -81,7 +81,7 @@ namespace Hiatme_Tool_Suite_v3
 
             };
 
-            SupeyCollapsibleSideLayout.EnsureWired(_fsMapWorkPanel);
+            SupeyCollapsibleSideLayout.EnsureWired(_fsMainHost);
 
             _fsSideTabPanel = new SupeyIconTabSidePanel();
 
@@ -107,16 +107,21 @@ namespace Hiatme_Tool_Suite_v3
 
             BuildFsMapOfflineOverlay();
 
-            _fsMapWorkPanel.Controls.Add(_fsMap);
-            _fsMapWorkPanel.Controls.Add(_fsMapOfflineOverlay);
-            _fsMapWorkPanel.Controls.Add(_fsSideSplitter);
-            _fsMapWorkPanel.Controls.Add(_fsSideTabPanel.Panel);
+            _fsMapSurface = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = SupeyTheme.SurfaceBase,
+            };
+            _fsMap.Dock = DockStyle.Fill;
+            _fsMapSurface.Controls.Add(_fsMap);
+            _fsMapSurface.Controls.Add(_fsMapOfflineOverlay);
+            _fsMapWorkPanel.Controls.Add(_fsMapSurface);
         }
 
 
 
         private Splitter MakeFsDockSplitter(DockStyle dock, SupeyCollapsiblePanel target) =>
-            SupeyCollapsiblePanel.CreateDockSplitter(dock, target, minExtra: 280, layoutRoot: _fsMapWorkPanel);
+            SupeyCollapsiblePanel.CreateDockSplitter(dock, target, minExtra: 280, layoutRoot: _fsMainHost);
 
 
 

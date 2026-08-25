@@ -117,24 +117,9 @@ namespace Hiatme_Tool_Suite_v3
 
         private const float SelectionRouteBorderExtraWidth = 3f;
 
-        private static readonly Font MileageValueFont = new Font("Segoe UI Semibold", 22f);
-        private static readonly Color MileageCardBack = Color.FromArgb(34, 38, 34);
-
-        private Panel _mileageHudHost;
+        private ScheduleBuilderMapMileageHud _mileageHud;
         private Panel _selectionHiddenHint;
         private Label _selectionHiddenHintLbl;
-        private Panel _groupMileageCard;
-        private Panel _tripMileageCard;
-        private Panel _efficiencyMileageCard;
-        private Label _groupMileageTitle;
-        private Label _groupMileageValue;
-        private Label _groupMileageDetail;
-        private Label _tripMileageTitle;
-        private Label _tripMileageValue;
-        private Label _tripMileageDetail;
-        private Label _efficiencyMileageTitle;
-        private Label _efficiencyMileageValue;
-        private Label _efficiencyMileageDetail;
 
         public SupeyMapWorkspace()
         {
@@ -306,8 +291,8 @@ namespace Hiatme_Tool_Suite_v3
             SyncMapLoadingOverlayBounds();
             _mapLoadingOverlay.Visible = true;
             _mapLoadingOverlay.BringToFront();
-            if (_mileageHudHost != null && _mileageHudHost.Visible)
-                _mileageHudHost.BringToFront();
+            if (_mileageHud != null && _mileageHud.Visible)
+                _mileageHud.BringToFront();
         }
 
         /// <summary>Ref-counted map loading veil (spinner). Pair with <see cref="PopMapLoading"/>.</summary>
@@ -564,7 +549,7 @@ namespace Hiatme_Tool_Suite_v3
             CenterOnMaineHub();
         }
 
-        /// <summary>Schedule Builder: separate panels for group tour miles, trip PU→DO miles, and route efficiency.</summary>
+        /// <summary>Schedule Builder: compact group / efficiency / trip mileage overlay.</summary>
         public void SetMileageHud(
             SupeyTripCluster group,
             MCDownloadedTrip trip,
@@ -576,138 +561,39 @@ namespace Hiatme_Tool_Suite_v3
             bool efficiencyApprox,
             double? routeChangeMeters)
         {
-            if (_mileageHudHost == null || group == null)
+            if (_mileageHud == null || group == null)
             {
                 ClearMileageHud();
                 return;
             }
 
-            _groupMileageTitle.Text = "Group Mileage";
-            _groupMileageValue.ForeColor = SupeyTheme.AccentPrimary;
-            _groupMileageValue.Text = SupeyTripTimes.FormatMiles(groupMeters);
-            _groupMileageDetail.Text = "Group " + group.GroupNumber
-                + (group.IsStraightLineFallback ? " · estimated straight-line" : " · road route");
-
-            if (trip != null)
-            {
-                string tn = (trip.TripNumber ?? "").Trim();
-                _tripMileageTitle.Text = "Trip Mileage";
-                _tripMileageValue.Text = tripMeters.HasValue
-                    ? SupeyTripTimes.FormatMiles(tripMeters.Value)
-                    : "—";
-                _tripMileageValue.ForeColor = tripMeters.HasValue
-                    ? SupeyTheme.AccentPrimary
-                    : SupeyTheme.TextMuted;
-                _tripMileageDetail.Text = string.IsNullOrEmpty(tn)
-                    ? "Pickup → dropoff"
-                    : tn + " · PU → DO"
-                    + (tripApprox ? " · estimated" : "");
-                _tripMileageCard.Visible = true;
-            }
-            else
-            {
-                _tripMileageCard.Visible = false;
-            }
-
-            _efficiencyMileageTitle.Text = "Route Efficiency";
-            if (efficiencyScorePercent.HasValue)
-            {
-                _efficiencyMileageValue.Text = efficiencyScorePercent.Value.ToString("0") + "%";
-                double score = efficiencyScorePercent.Value;
-                _efficiencyMileageValue.ForeColor = score >= 85
-                    ? SupeyTheme.AccentPrimary
-                    : score >= 70
-                        ? Color.FromArgb(220, 180, 70)
-                        : Color.FromArgb(220, 120, 90);
-                _efficiencyMileageDetail.Text = "";
-                _efficiencyMileageDetail.Visible = false;
-                _efficiencyMileageCard.Visible = true;
-            }
-            else
-            {
-                _efficiencyMileageValue.Text = "—";
-                _efficiencyMileageValue.ForeColor = SupeyTheme.TextMuted;
-                _efficiencyMileageDetail.Text = "";
-                _efficiencyMileageDetail.Visible = false;
-                _efficiencyMileageCard.Visible = group.RiderCount > 0;
-            }
-
-            _groupMileageCard.Visible = true;
-            FitMileageCardHeights();
-            _mileageHudHost.Visible = true;
-            _mileageHudHost.BringToFront();
+            _mileageHud.SetValues(
+                group,
+                trip,
+                groupMeters,
+                tripMeters,
+                tripApprox,
+                efficiencyScorePercent,
+                efficiencyApprox,
+                routeChangeMeters);
             PositionMileageHudHost();
-        }
-
-        private void FitMileageCardHeights()
-        {
-            FitMileageCard(_groupMileageCard, _groupMileageTitle, _groupMileageValue, _groupMileageDetail);
-            FitMileageCard(_tripMileageCard, _tripMileageTitle, _tripMileageValue, _tripMileageDetail);
-            FitMileageCard(_efficiencyMileageCard, _efficiencyMileageTitle, _efficiencyMileageValue, _efficiencyMileageDetail);
-            _mileageHudHost?.PerformLayout();
-        }
-
-        private static void FitMileageCard(Panel card, Label title, Label value, Label detail)
-        {
-            if (card == null || !card.Visible || detail == null) return;
-
-            int textWidth = card.Width - 4 - 20;
-            if (textWidth < 80) textWidth = 156;
-
-            int detailH = string.IsNullOrEmpty(detail.Text)
-                ? 0
-                : TextRenderer.MeasureText(
-                    detail.Text,
-                    detail.Font,
-                    new Size(textWidth, int.MaxValue),
-                    TextFormatFlags.WordBreak).Height;
-
-            int contentH = 8 + title.PreferredHeight + 2 + value.PreferredHeight + 2 + detailH + 8;
-            card.Height = Math.Max(80, contentH);
         }
 
         public void ClearMileageHud()
         {
-            if (_mileageHudHost != null)
-                _mileageHudHost.Visible = false;
+            _mileageHud?.HideHud();
         }
 
-        /// <summary>Show mileage panels immediately with placeholders while OSRM work runs.</summary>
+        /// <summary>Show mileage overlay immediately with placeholders while OSRM work runs.</summary>
         public void SetMileageHudBusy(SupeyTripCluster group, MCDownloadedTrip trip)
         {
-            if (_mileageHudHost == null || group == null)
+            if (_mileageHud == null || group == null)
             {
                 ClearMileageHud();
                 return;
             }
 
-            _groupMileageTitle.Text = "Group Mileage";
-            _groupMileageValue.Text = "…";
-            _groupMileageValue.ForeColor = SupeyTheme.TextMuted;
-            _groupMileageDetail.Text = "Group " + group.GroupNumber + " · calculating…";
-
-            if (trip != null)
-            {
-                string tn = (trip.TripNumber ?? "").Trim();
-                _tripMileageTitle.Text = "Trip Mileage";
-                _tripMileageValue.Text = "…";
-                _tripMileageValue.ForeColor = SupeyTheme.TextMuted;
-                _tripMileageDetail.Text = string.IsNullOrEmpty(tn) ? "Pickup → dropoff" : tn + " · PU → DO";
-                _tripMileageCard.Visible = true;
-            }
-            else
-            {
-                _tripMileageCard.Visible = false;
-            }
-
-            _efficiencyMileageTitle.Text = "Route Efficiency";
-            _efficiencyMileageValue.Text = "…";
-            _efficiencyMileageValue.ForeColor = SupeyTheme.TextMuted;
-            _efficiencyMileageDetail.Text = "Comparing trip orders…";
-            _efficiencyMileageDetail.Visible = true;
-            _efficiencyMileageCard.Visible = true;
-
-            _mileageHudHost.Visible = true;
+            _mileageHud.SetBusy(group, trip);
             PositionMileageHudHost();
         }
 
@@ -744,49 +630,8 @@ namespace Hiatme_Tool_Suite_v3
 
         private void BuildMileageHud()
         {
-            _mileageHudHost = new Panel
-            {
-                AutoSize = true,
-                BackColor = Color.Transparent,
-                Location = new Point(12, 12),
-                Visible = false,
-            };
-
-            var stack = new FlowLayoutPanel
-            {
-                AutoSize = true,
-                FlowDirection = FlowDirection.TopDown,
-                WrapContents = false,
-                BackColor = Color.Transparent,
-                Padding = new Padding(0),
-            };
-
-            _groupMileageCard = CreateMileageCard(
-                "Group Mileage",
-                out _groupMileageTitle,
-                out _groupMileageValue,
-                out _groupMileageDetail);
-            _tripMileageCard = CreateMileageCard(
-                "Trip Mileage",
-                out _tripMileageTitle,
-                out _tripMileageValue,
-                out _tripMileageDetail);
-            _tripMileageCard.Margin = new Padding(0, 8, 0, 0);
-            _tripMileageCard.Visible = false;
-
-            _efficiencyMileageCard = CreateMileageCard(
-                "Route Efficiency",
-                out _efficiencyMileageTitle,
-                out _efficiencyMileageValue,
-                out _efficiencyMileageDetail);
-            _efficiencyMileageCard.Margin = new Padding(0, 8, 0, 0);
-            _efficiencyMileageCard.Visible = false;
-
-            stack.Controls.Add(_groupMileageCard);
-            stack.Controls.Add(_tripMileageCard);
-            stack.Controls.Add(_efficiencyMileageCard);
-            _mileageHudHost.Controls.Add(stack);
-            Controls.Add(_mileageHudHost);
+            _mileageHud = new ScheduleBuilderMapMileageHud();
+            Controls.Add(_mileageHud);
             Resize += (s, e) => PositionMileageHudHost();
         }
 
@@ -834,88 +679,7 @@ namespace Hiatme_Tool_Suite_v3
 
         private void PositionMileageHudHost()
         {
-            if (_mileageHudHost == null) return;
-            _mileageHudHost.Location = new Point(12, 12);
-            _mileageHudHost.BringToFront();
-        }
-
-        private static Panel CreateMileageCard(
-            string defaultTitle,
-            out Label title,
-            out Label value,
-            out Label detail)
-        {
-            var card = new Panel
-            {
-                Width = 200,
-                MinimumSize = new Size(200, 80),
-                Height = 88,
-                BackColor = MileageCardBack,
-                Margin = new Padding(0),
-            };
-            card.Paint += MileageCard_Paint;
-
-            var stripe = new Panel
-            {
-                Dock = DockStyle.Left,
-                Width = 4,
-                BackColor = SupeyTheme.AccentStripe,
-            };
-
-            var body = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                ColumnCount = 1,
-                RowCount = 3,
-                BackColor = MileageCardBack,
-                Padding = new Padding(10, 8, 10, 8),
-            };
-            body.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            body.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            body.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-
-            title = new Label
-            {
-                Text = defaultTitle,
-                AutoSize = true,
-                ForeColor = SupeyTheme.TextSecondary,
-                Font = SupeyTheme.SubHeaderFont,
-                BackColor = MileageCardBack,
-                Margin = new Padding(0, 0, 0, 2),
-            };
-            value = new Label
-            {
-                Text = "0.0 mi",
-                AutoSize = true,
-                ForeColor = SupeyTheme.AccentPrimary,
-                Font = MileageValueFont,
-                BackColor = MileageCardBack,
-                Margin = new Padding(0, 0, 0, 2),
-            };
-            detail = new Label
-            {
-                Text = "",
-                AutoSize = true,
-                MaximumSize = new Size(176, 0),
-                ForeColor = SupeyTheme.TextMuted,
-                Font = SupeyTheme.CaptionFont,
-                BackColor = MileageCardBack,
-            };
-
-            body.Controls.Add(title, 0, 0);
-            body.Controls.Add(value, 0, 1);
-            body.Controls.Add(detail, 0, 2);
-            card.Controls.Add(stripe);
-            card.Controls.Add(body);
-            return card;
-        }
-
-        private static void MileageCard_Paint(object sender, PaintEventArgs e)
-        {
-            var card = sender as Panel;
-            if (card == null) return;
-            using (var pen = new Pen(SupeyTheme.BorderSubtle))
-                e.Graphics.DrawRectangle(pen, 0, 0, card.Width - 1, card.Height - 1);
+            _mileageHud?.FitToMap(ClientSize);
         }
 
         /// <summary>

@@ -61,6 +61,39 @@ namespace Hiatme_Tool_Suite_v3
             flow.Controls.Add(_fsMapModeGroupBtn);
             flow.Controls.Add(_fsMapModeAllBtn);
 
+            var present = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Left,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = false,
+                BackColor = SupeyTheme.Surface,
+                Margin = new Padding(0),
+                Padding = new Padding(0),
+            };
+
+            _fsMapHideBtn = new SupeyButton
+            {
+                Text = "Hide map",
+                Kind = SupeyButton.Variant.Secondary,
+                Size = new Size(84, 26),
+                Margin = new Padding(0, 1, 6, 0),
+            };
+            _fsMapHideBtn.Click += (s, e) => ToggleFsMapVisible();
+
+            _fsMapFloatBtn = new SupeyButton
+            {
+                Text = "Float map",
+                Kind = SupeyButton.Variant.Secondary,
+                Size = new Size(88, 26),
+                Margin = new Padding(0, 1, 8, 0),
+            };
+            _fsMapFloatBtn.Click += (s, e) => ToggleFsMapFloating();
+
+            present.Controls.Add(_fsMapHideBtn);
+            present.Controls.Add(_fsMapFloatBtn);
+
             _fsMapModeHintLbl = new Label
             {
                 Dock = DockStyle.Fill,
@@ -72,6 +105,7 @@ namespace Hiatme_Tool_Suite_v3
             };
 
             _fsMapModeToolbar.Controls.Add(flow);
+            _fsMapModeToolbar.Controls.Add(present);
             _fsMapModeToolbar.Controls.Add(_fsMapModeHintLbl);
             host.Controls.Add(_fsMapModeToolbar);
 
@@ -81,6 +115,11 @@ namespace Hiatme_Tool_Suite_v3
             _fsMapModeTip.SetToolTip(_fsMapModeTripsBtn, FsMapModeCaption(FsMapDisplayMode.SelectedTrips));
 
             SetFsMapDisplayMode(_fsMapDisplayMode, applyFilter: false);
+            UpdateFsMapPresentationButtons();
+
+            var mapTip = SupeyToolTip.Create(initialDelay: 250);
+            mapTip.SetToolTip(_fsMapHideBtn, "Hide or show the map. Works for the docked pane and the floating window.");
+            mapTip.SetToolTip(_fsMapFloatBtn, "Pop the map into its own window, or dock it back into Schedule Builder.");
         }
 
         private FsMapModeIconButton CreateFsMapModeButton(FsMapDisplayMode mode, Bitmap icon)
@@ -130,7 +169,7 @@ namespace Hiatme_Tool_Suite_v3
 
         private void ApplyFsMapDisplayFilter(bool autoFit = true)
         {
-            if (_fsMap == null || !_fsMap.Visible || !ScheduleOsrmGate.PreviewRoutingOk)
+            if (_fsMap == null || !FsMapIsShownToUser() || !ScheduleOsrmGate.PreviewRoutingOk)
                 return;
 
             ResolveFsMapFilterSelection(
@@ -143,7 +182,7 @@ namespace Hiatme_Tool_Suite_v3
 
         private void ApplyFsMapTripSelectionHighlight()
         {
-            if (_fsMap == null || !_fsMap.Visible || !ScheduleOsrmGate.PreviewRoutingOk)
+            if (_fsMap == null || !FsMapIsShownToUser() || !ScheduleOsrmGate.PreviewRoutingOk)
                 return;
 
             var tripNumbers = new List<string>();

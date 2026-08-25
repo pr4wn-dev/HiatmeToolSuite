@@ -12,6 +12,7 @@ namespace Hiatme_Tool_Suite_v3
         private CheckBox _fsSettingsShowGaps;
         private CheckBox _fsSettingsMultiRowGaps;
         private CheckBox _fsSettingsShowGroupColors;
+        private CheckBox _fsSettingsFloatMap;
         private CheckBox _fsSettingsSafeBuildMode;
         private CheckBox _fsSettingsAdvancedSuggestHistory;
 
@@ -72,6 +73,13 @@ namespace Hiatme_Tool_Suite_v3
                 _fsShowGroupColors,
                 out _fsSettingsShowGroupColors,
                 OnFsSettingsShowGroupColorsChanged));
+
+            layout.Controls.Add(MakeFsSettingsOption(
+                "Float map window",
+                "Keep the map in a movable window so the trip list can use the full schedule height. Dock or Float from the map or the trip toolbar.",
+                _fsMapFloating,
+                out _fsSettingsFloatMap,
+                OnFsSettingsFloatMapChanged));
 
             _fsAdvancedSettingControls.Clear();
 
@@ -240,6 +248,20 @@ namespace Hiatme_Tool_Suite_v3
             Settings.Default.FsShowGroupColors = _fsShowGroupColors;
             Settings.Default.Save();
             ApplyFsDisplaySettings();
+        }
+
+        private void OnFsSettingsFloatMapChanged(object sender, EventArgs e)
+        {
+            if (_fsSettingsFloatMap == null) return;
+            SetFsMapFloating(_fsSettingsFloatMap.Checked);
+        }
+
+        private void SyncFsSettingsFloatMapCheck()
+        {
+            if (_fsSettingsFloatMap == null) return;
+            _fsSettingsFloatMap.CheckedChanged -= OnFsSettingsFloatMapChanged;
+            _fsSettingsFloatMap.Checked = _fsMapFloating;
+            _fsSettingsFloatMap.CheckedChanged += OnFsSettingsFloatMapChanged;
         }
 
         private void OnFsSettingsSafeBuildModeChanged(object sender, EventArgs e)

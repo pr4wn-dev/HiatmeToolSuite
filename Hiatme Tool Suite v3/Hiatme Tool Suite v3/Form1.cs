@@ -3232,6 +3232,8 @@ namespace Hiatme_Tool_Suite_v3
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
+            try { ReleaseFsMapFloatForShutdown(); } catch { }
+
             _applicationExitRequested = true;
 
             _employeeStatsLoadCts?.Cancel();
