@@ -1,8 +1,8 @@
 {
-  "BaseUrl": "http://YOUR-PUBLIC-HOST:8787",
+  "BaseUrl": "http://192.168.1.4:8787",
   "FallbackBaseUrls": [
-    "http://192.168.1.23:8787",
-    "http://192.168.0.50:8787"
+    "http://YOUR.PUBLIC.IP:8787",
+    "http://127.0.0.1:8787"
   ],
   "ApiToken": "",
   "UseServerGeo": true,

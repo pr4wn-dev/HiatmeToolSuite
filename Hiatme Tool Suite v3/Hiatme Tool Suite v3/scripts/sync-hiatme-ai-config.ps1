@@ -1,14 +1,14 @@
 # Writes hiatme_ai.defaults.json (+ optional hiatme_ai.json) from AIagent .env token.
 # Run after pull or when HIATME_API_TOKEN changes. Safe to re-run.
 #
-# Connect-from-anywhere (port forward + DDNS):
-#   -PublicPanelUrl "http://hiatme.yourdomain.com:8787" `
-#   -OfficePanelUrl "http://192.168.1.23:8787" `
+# Office LAN is BaseUrl (desks on site connect fast). Public/home are fallbacks
+# for remote desks (LAN URLs off-subnet are demoted automatically).
+#   -PublicPanelUrl "http://YOUR.PUBLIC.IP:8787" `
+#   -OfficePanelUrl "http://192.168.1.4:8787" `
 #   -HomePanelUrl "http://192.168.0.50:8787"
-# Public URL is BaseUrl (works off-LAN). Office/home LAN IPs are fallbacks when on those Wi‑Fi networks.
 param(
     [string]$PublicPanelUrl = $(if ($env:HIATME_PUBLIC_PANEL_URL) { $env:HIATME_PUBLIC_PANEL_URL } else { "" }),
-    [string]$OfficePanelUrl = $(if ($env:HIATME_OFFICE_PANEL_URL) { $env:HIATME_OFFICE_PANEL_URL } else { "http://192.168.1.23:8787" }),
+    [string]$OfficePanelUrl = $(if ($env:HIATME_OFFICE_PANEL_URL) { $env:HIATME_OFFICE_PANEL_URL } else { "http://192.168.1.4:8787" }),
     [string]$HomePanelUrl = $(if ($env:HIATME_HOME_PANEL_URL) { $env:HIATME_HOME_PANEL_URL } else { "" }),
     [string]$RemotePanelUrl = $(if ($env:HIATME_REMOTE_PANEL_URL) { $env:HIATME_REMOTE_PANEL_URL } else { "" }),
     [string]$LocalPanelUrl = "http://127.0.0.1:8787",
@@ -68,10 +68,11 @@ function Add-UniqueUrl($list, $url) {
     if (-not $list.Contains($u)) { [void]$list.Add($u) }
 }
 
-$primary = if ($PublicPanelUrl) { $PublicPanelUrl.TrimEnd('/') } else { $OfficePanelUrl.TrimEnd('/') }
+# Prefer office LAN as BaseUrl so site desks do not wait on a dead/slow public IP.
+$primary = $OfficePanelUrl.TrimEnd('/')
 
 $fallbacks = New-Object System.Collections.Generic.List[string]
-foreach ($u in @($OfficePanelUrl, $HomePanelUrl, $RemotePanelUrl)) { Add-UniqueUrl $fallbacks $u }
+foreach ($u in @($PublicPanelUrl, $HomePanelUrl, $RemotePanelUrl, $OfficePanelUrl)) { Add-UniqueUrl $fallbacks $u }
 if ($IncludeLocalFallback) { Add-UniqueUrl $fallbacks $LocalPanelUrl }
 # Drop primary from fallbacks so we do not duplicate BaseUrl.
 $fallbacks = @($fallbacks | Where-Object { $_ -ne $primary })

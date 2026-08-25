@@ -1,10 +1,10 @@
 # Configure and build Hiatme Tool Suite on a dispatch desk.
 # Usage:
-#   powershell -ExecutionPolicy Bypass -File scripts\setup-desk.ps1 -OfficePanelUrl "http://192.168.1.23:8787"
-# Connect from anywhere (port forward + DDNS on the server router):
+#   powershell -ExecutionPolicy Bypass -File scripts\setup-desk.ps1 -OfficePanelUrl "http://192.168.1.4:8787"
+# Connect from anywhere (port forward + current public IP on the server router):
 #   powershell -ExecutionPolicy Bypass -File scripts\setup-desk.ps1 `
-#     -PublicPanelUrl "http://hiatme.yourdomain.com:8787" `
-#     -OfficePanelUrl "http://192.168.1.23:8787" `
+#     -PublicPanelUrl "http://72.71.232.164:8787" `
+#     -OfficePanelUrl "http://192.168.1.4:8787" `
 #     -HomePanelUrl "http://192.168.0.50:8787"
 param(
     [string]$PublicPanelUrl = "",

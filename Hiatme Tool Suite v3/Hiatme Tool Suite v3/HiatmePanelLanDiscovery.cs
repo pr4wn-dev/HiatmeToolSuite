@@ -14,10 +14,10 @@ namespace Hiatme_Tool_Suite_v3
     /// <summary>Find the office AI panel on the local LAN — async only, never blocks the UI thread.</summary>
     internal static class HiatmePanelLanDiscovery
     {
-        private const int MaxHostsPerScan = 12;
-        private const int MaxParallel = 4;
-        private static readonly TimeSpan ScanBudget = TimeSpan.FromSeconds(1.5);
-        private static readonly TimeSpan RequestTimeout = TimeSpan.FromMilliseconds(350);
+        private const int MaxHostsPerScan = 32;
+        private const int MaxParallel = 8;
+        private static readonly TimeSpan ScanBudget = TimeSpan.FromSeconds(3.5);
+        private static readonly TimeSpan RequestTimeout = TimeSpan.FromMilliseconds(450);
 
         private static readonly object CacheLock = new object();
         private static DateTime _discoveredUtc = DateTime.MinValue;
@@ -130,7 +130,7 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
-        /// <summary>Local IP ± a few neighbors and .1 — not the whole subnet.</summary>
+        /// <summary>Local subnet neighbors, gateway .1, and known office host .4.</summary>
         private static List<string> CollectProbeHosts()
         {
             var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -153,13 +153,15 @@ namespace Hiatme_Tool_Suite_v3
 
                         set.Add(ip.ToString());
                         set.Add(FromUInt32(prefix | 1));
+                        // Office AI server is .4 on the Hiatme LAN — always probe it.
+                        set.Add(FromUInt32(prefix | 4));
                         for (uint n = 1; n <= MaxHostsPerScan && set.Count < MaxHostsPerScan; n++)
                         {
                             uint o = lastOctet + n;
                             if (o == 0 || o > 254) break;
                             set.Add(FromUInt32(prefix | o));
                         }
-                        for (uint n = 1; n <= 8 && set.Count < MaxHostsPerScan; n++)
+                        for (uint n = 1; n <= 12 && set.Count < MaxHostsPerScan; n++)
                         {
                             if (lastOctet <= n) break;
                             set.Add(FromUInt32(prefix | (lastOctet - n)));
@@ -169,6 +171,8 @@ namespace Hiatme_Tool_Suite_v3
             }
             catch { }
 
+            // Built-in office host even when this NIC is APIPA / weird.
+            set.Add("192.168.1.4");
             return set.Take(MaxHostsPerScan).ToList();
         }
 

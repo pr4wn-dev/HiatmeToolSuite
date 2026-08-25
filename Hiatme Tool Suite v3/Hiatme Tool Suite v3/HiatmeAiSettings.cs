@@ -19,7 +19,19 @@ namespace Hiatme_Tool_Suite_v3
         public const int DefaultPort = 8787;
         private const int DefaultProbeTimeoutSeconds = 6;
 
-        public string BaseUrl { get; set; } = "http://127.0.0.1:" + DefaultPort;
+        /// <summary>Office LAN panel — always tried from desks on the same network.</summary>
+        public const string BuiltInOfficePanelUrl = "http://192.168.1.4:8787";
+
+        /// <summary>Current public / port-forwarded panel (updates when ISP IP changes).</summary>
+        public const string BuiltInPublicPanelUrl = "http://72.71.232.164:8787";
+
+        /// <summary>Retired public IPs that must never win the probe race.</summary>
+        private static readonly string[] DeadPanelHosts =
+        {
+            "24.59.64.222",
+        };
+
+        public string BaseUrl { get; set; } = BuiltInOfficePanelUrl;
         public string ApiToken { get; set; } = "";
         public string ClientId { get; set; } = "";
 
@@ -157,7 +169,104 @@ namespace Hiatme_Tool_Suite_v3
             TryMergeFile(merged, PersonalConfigPath);
             ApplyAppConfigOverrides(merged);
             ApplyEnvironmentOverrides(merged);
+            SanitizePanelUrls(merged);
             return merged;
+        }
+
+        /// <summary>
+        /// Drop retired public IPs, inject current office + public hosts, and rewrite
+        /// personal config so desks stop pinning a dead address after an ISP change.
+        /// </summary>
+        private static void SanitizePanelUrls(HiatmeAiSettings merged)
+        {
+            if (merged == null) return;
+
+            bool dirty = false;
+            string scrub(string url)
+            {
+                url = NormalizeBaseUrl(url);
+                if (string.IsNullOrEmpty(url)) return "";
+                if (!IsDeadPanelUrl(url)) return url;
+                dirty = true;
+                return "";
+            }
+
+            merged.BaseUrl = scrub(merged.BaseUrl);
+            merged.LastResolvedBaseUrl = scrub(merged.LastResolvedBaseUrl);
+
+            var fallbacks = new List<string>();
+            void addFb(string u)
+            {
+                u = scrub(u);
+                if (string.IsNullOrEmpty(u)) return;
+                if (!fallbacks.Any(x => string.Equals(x, u, StringComparison.OrdinalIgnoreCase)))
+                    fallbacks.Add(u);
+            }
+
+            if (merged.FallbackBaseUrls != null)
+            {
+                foreach (var u in merged.FallbackBaseUrls)
+                    addFb(u);
+            }
+            addFb(BuiltInPublicPanelUrl);
+            addFb(BuiltInOfficePanelUrl);
+            addFb("http://127.0.0.1:" + DefaultPort);
+            merged.FallbackBaseUrls = fallbacks;
+
+            if (string.IsNullOrWhiteSpace(merged.BaseUrl))
+            {
+                merged.BaseUrl = BuiltInOfficePanelUrl;
+                dirty = true;
+            }
+
+            if (dirty || string.IsNullOrWhiteSpace(merged.LastResolvedBaseUrl))
+            {
+                try
+                {
+                    // Keep a working office URL as last-resolved when we just scrubbed a dead public IP.
+                    if (string.IsNullOrWhiteSpace(merged.LastResolvedBaseUrl))
+                        merged.LastResolvedBaseUrl = BuiltInOfficePanelUrl;
+                    PersistSanitizedUrls(merged);
+                }
+                catch { }
+            }
+        }
+
+        private static bool IsDeadPanelUrl(string url)
+        {
+            try
+            {
+                var host = new Uri(url).Host;
+                foreach (var dead in DeadPanelHosts)
+                {
+                    if (string.Equals(host, dead, StringComparison.OrdinalIgnoreCase))
+                        return true;
+                }
+            }
+            catch { }
+            return false;
+        }
+
+        private static void PersistSanitizedUrls(HiatmeAiSettings settings)
+        {
+            string path = File.Exists(PersonalConfigPath) ? PersonalConfigPath : DefaultsConfigPath;
+            JObject jobj;
+            if (File.Exists(path))
+            {
+                try { jobj = JObject.Parse(File.ReadAllText(path)); }
+                catch { jobj = new JObject(); }
+            }
+            else
+            {
+                jobj = new JObject();
+            }
+
+            jobj["BaseUrl"] = settings.BaseUrl ?? BuiltInOfficePanelUrl;
+            jobj["LastResolvedBaseUrl"] = settings.LastResolvedBaseUrl ?? BuiltInOfficePanelUrl;
+            jobj["FallbackBaseUrls"] = JArray.FromObject(
+                settings.FallbackBaseUrls ?? new List<string> { BuiltInPublicPanelUrl });
+            File.WriteAllText(path, jobj.ToString(Formatting.Indented));
+            LogProbe("SanitizePanelUrls: rewrote " + path);
         }
 
         internal static bool ProbePanelPublic(string baseUrl, string apiToken) =>
@@ -202,11 +311,13 @@ namespace Hiatme_Tool_Suite_v3
             {
                 u = NormalizeBaseUrl(u);
                 if (string.IsNullOrEmpty(u)) return;
+                if (IsDeadPanelUrl(u)) return;
                 if (!candidates.Any(c => string.Equals(c, u, StringComparison.OrdinalIgnoreCase)))
                     candidates.Add(u);
             }
 
-            // Last good URL first — one quick probe on relaunch instead of timing out every fallback.
+            // Same-subnet office LAN first so site desks never wait on a public IP.
+            add(BuiltInOfficePanelUrl);
             add(merged.LastResolvedBaseUrl);
             add(merged.BaseUrl);
             if (merged.FallbackBaseUrls != null)
@@ -214,6 +325,8 @@ namespace Hiatme_Tool_Suite_v3
                 foreach (var u in merged.FallbackBaseUrls)
                     add(u);
             }
+
+            add(BuiltInPublicPanelUrl);
 
             var extra = Environment.GetEnvironmentVariable("HIATME_AI_URLS");
             if (!string.IsNullOrWhiteSpace(extra))
@@ -227,13 +340,32 @@ namespace Hiatme_Tool_Suite_v3
 
             add("http://127.0.0.1:" + DefaultPort);
 
-            // A desk that once ran in the office keeps the office LAN IP as its last
-            // good URL. Off-network that address is dead, or worse, some stranger's
-            // device on the same 192.168.x range — either way it should not get first
-            // crack at the probe budget ahead of a routable public URL.
+            // Priority: same-subnet LAN (0) → public/hostname (1) → foreign LAN (2) → loopback (3).
             return candidates
-                .OrderBy(u => IsLanUrl(u) && !IsOnThisMachinesSubnet(u) ? 1 : 0)
+                .OrderBy(u =>
+                {
+                    if (IsLoopbackUrl(u)) return 3;
+                    if (IsLanUrl(u) && IsOnThisMachinesSubnet(u)) return 0;
+                    if (IsLanUrl(u)) return 2;
+                    return 1;
+                })
                 .ToList();
+        }
+
+        private static bool IsLoopbackUrl(string url)
+        {
+            try
+            {
+                var host = new Uri(url).Host;
+                if (string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase))
+                    return true;
+                IPAddress ip;
+                return IPAddress.TryParse(host, out ip) && IPAddress.IsLoopback(ip);
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         /// <summary>True for loopback and RFC1918 hosts — addresses only reachable on a local network.</summary>

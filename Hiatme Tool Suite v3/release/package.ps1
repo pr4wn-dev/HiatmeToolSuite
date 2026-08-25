@@ -71,6 +71,8 @@ function Test-ExcludedFromPackage([string]$relativePath) {
     $rel = $relativePath -replace '/', '\'
     $top = ($rel -split '\\')[0]
     if ($alwaysExcludeTopDirs -contains $top) { return $true }
+    # Never overwrite a desk's personal panel URL / token with the build machine's.
+    if ($rel -eq 'hiatme_ai.json') { return $true }
     if ($PackageMode -eq 'Full') { return $false }
     if ($rel -match '^Resources\\login_backgrounds(\\|$)') { return $true }
     return $false
@@ -140,7 +142,24 @@ try {
     }
     Copy-ReleaseTree $mainRelease $staging
 
-    Write-Host "Staging Update.exe..."
+    # Ship office + public panel URLs, never the build machine's personal token/json.
+    $defaultsPath = Join-Path $staging 'hiatme_ai.defaults.json'
+    if (Test-Path $defaultsPath) {
+        try {
+            $dj = Get-Content $defaultsPath -Raw | ConvertFrom-Json
+            $dj.ApiToken = ''
+            if (-not $dj.BaseUrl) { $dj | Add-Member -NotePropertyName BaseUrl -NotePropertyValue 'http://192.168.1.4:8787' -Force }
+            $dj.BaseUrl = 'http://192.168.1.4:8787'
+            $dj.LastResolvedBaseUrl = 'http://192.168.1.4:8787'
+            $dj.FallbackBaseUrls = @('http://72.71.232.164:8787', 'http://127.0.0.1:8787')
+            $dj | ConvertTo-Json -Depth 5 | Set-Content -Path $defaultsPath -Encoding UTF8
+            Write-Host "  Scrubbed ApiToken from packaged hiatme_ai.defaults.json (office+public URLs kept)."
+        } catch {
+            Write-Warning "Could not scrub packaged defaults: $_"
+        }
+    }
+    $personalStaged = Join-Path $staging 'hiatme_ai.json'
+    if (Test-Path $personalStaged) { Remove-Item $personalStaged -Force }
     Copy-Item -Path (Join-Path $updRelease 'Update.exe') -Destination $staging -Force
     $updPdb = Join-Path $updRelease 'Update.pdb'
     if (Test-Path $updPdb) { Copy-Item -Path $updPdb -Destination $staging -Force }
