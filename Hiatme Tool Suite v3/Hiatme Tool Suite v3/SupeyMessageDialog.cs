@@ -20,7 +20,7 @@ namespace Hiatme_Tool_Suite_v3
 
         private const int DialogWidth = 480;
         private const int ContentPad = 24;
-        private const int ContentWidth = DialogWidth - ContentPad * 2 - 3; // minus accent stripe
+        private const int ContentWidth = DialogWidth - ContentPad * 2;
         private const int FooterHeight = 56;
 
         private SupeyMessageDialog(
@@ -35,19 +35,13 @@ namespace Hiatme_Tool_Suite_v3
             DialogResult secondaryResult)
         {
             Text = title ?? "Hiatme Tool Suite";
-            FormBorderStyle = FormBorderStyle.FixedDialog;
+            FormBorderStyle = FormBorderStyle.None;
             MaximizeBox = false;
             MinimizeBox = false;
+            Sizable = false;
             ShowInTaskbar = false;
             StartPosition = FormStartPosition.CenterParent;
             BackColor = SupeyTheme.Surface;
-
-            var accent = new Panel
-            {
-                Dock = DockStyle.Left,
-                Width = 3,
-                BackColor = AccentFor(kind),
-            };
 
             var footer = new Panel
             {
@@ -163,7 +157,6 @@ namespace Hiatme_Tool_Suite_v3
 
             Controls.Add(body_);
             Controls.Add(footer);
-            Controls.Add(accent);
 
             AcceptButton = primaryBtn;
             CancelButton = (IButtonControl)secondaryBtn ?? primaryBtn;
@@ -180,17 +173,6 @@ namespace Hiatme_Tool_Suite_v3
         {
             int len = (text ?? "").Trim().Length;
             return Math.Min(160, 28 + len * 8);
-        }
-
-        private static Color AccentFor(Kind kind)
-        {
-            switch (kind)
-            {
-                case Kind.Success: return SupeyTheme.SuccessText;
-                case Kind.Warning: return SupeyTheme.WarnText;
-                case Kind.Error: return SupeyTheme.ErrorText;
-                default: return SupeyTheme.AccentPrimary;
-            }
         }
 
         private static Color HeadingColorFor(Kind kind)
@@ -215,7 +197,10 @@ namespace Hiatme_Tool_Suite_v3
             using (var dlg = new SupeyMessageDialog(
                 kind, title, heading, body, details,
                 "OK", null, DialogResult.OK, DialogResult.Cancel))
+            {
+                SupeyForm.CenterOnWorkingArea(dlg, owner);
                 dlg.ShowDialog(owner);
+            }
         }
 
         public static void ShowInfo(IWin32Window owner, string title, string heading, string body)
@@ -241,6 +226,7 @@ namespace Hiatme_Tool_Suite_v3
                 kind, title, heading, body, null,
                 yesText, noText, DialogResult.Yes, DialogResult.No))
             {
+                SupeyForm.CenterOnWorkingArea(dlg, owner);
                 var result = dlg.ShowDialog(owner);
                 if (result == DialogResult.Yes || result == DialogResult.No)
                     return result;
@@ -266,6 +252,7 @@ namespace Hiatme_Tool_Suite_v3
                 kind, title, heading, body, details,
                 primaryText, secondaryText, DialogResult.Yes, DialogResult.No))
             {
+                SupeyForm.CenterOnWorkingArea(dlg, owner);
                 var result = dlg.ShowDialog(owner);
                 if (result == DialogResult.Yes || result == DialogResult.No)
                     return result;

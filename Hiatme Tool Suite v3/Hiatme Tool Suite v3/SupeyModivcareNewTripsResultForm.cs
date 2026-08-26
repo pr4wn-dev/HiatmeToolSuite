@@ -9,16 +9,16 @@ namespace Hiatme_Tool_Suite_v3
     /// <summary>Themed popup after a manual Modivcare new-trip check from Schedule Builder.</summary>
     internal sealed class SupeyModivcareNewTripsResultForm : SupeyForm
     {
-        private const int DialogWidth = 560;
+        private const int DialogWidth = 680;
         private const int ContentPad = 24;
         private const int FooterHeight = 56;
         private const int BodyTopPad = 16;
         private const int BodyBottomPad = 16;
         private const int SectionGap = 12;
-        private const int CardInnerPad = 12;
-        private const int MinListHeight = 120;
-        private const int MaxListHeight = 240;
-        private const int RowHeight = 24;
+        private const int MinListHeight = 320;
+        private const int MaxListHeight = 560;
+        private const int RowHeight = 44;
+        private const int HeaderHeight = 36;
         private const int EmptyMessageMinHeight = 72;
 
         private readonly FsModivcareNewTripsSyncResult _result;
@@ -26,9 +26,8 @@ namespace Hiatme_Tool_Suite_v3
         private Label _headlineLbl;
         private Label _subtitleLbl;
         private Label _statsLbl;
-        private SupeyCard _contentCard;
-        private Panel _cardBody;
-        private ListView _tripList;
+        private Panel _listHost;
+        private SupeyListView _tripList;
         private Label _emptyLbl;
         private SupeyMaterialButton _goReservesBtn;
 
@@ -40,7 +39,10 @@ namespace Hiatme_Tool_Suite_v3
                 return false;
 
             using (var form = new SupeyModivcareNewTripsResultForm(result))
+            {
+                SupeyForm.CenterOnWorkingArea(form, owner);
                 return form.ShowDialog(owner) == DialogResult.OK && form.GoToReservesRequested;
+            }
         }
 
         private SupeyModivcareNewTripsResultForm(FsModivcareNewTripsSyncResult result)
@@ -56,16 +58,17 @@ namespace Hiatme_Tool_Suite_v3
 
         private int ContentWidth => DialogWidth - (ContentPad * 2);
 
-        private int CardInnerWidth => ContentWidth - (CardInnerPad * 2);
+        private int CardInnerWidth => ContentWidth - 2;
 
         private void BuildUi()
         {
             Text = "Modivcare new trips";
-            FormBorderStyle = FormBorderStyle.FixedDialog;
+            FormBorderStyle = FormBorderStyle.None;
             MaximizeBox = false;
             MinimizeBox = false;
+            Sizable = false;
             ShowInTaskbar = false;
-            StartPosition = FormStartPosition.CenterParent;
+            StartPosition = FormStartPosition.CenterScreen;
             AutoScaleMode = AutoScaleMode.None;
             BackColor = SupeyTheme.Surface;
 
@@ -146,24 +149,23 @@ namespace Hiatme_Tool_Suite_v3
                 SupeyTheme.TextSecondary,
                 new Padding(0, 6, 0, 0));
 
-            _contentCard = new SupeyCard
+            _listHost = new Panel
             {
-                SurfaceLevel = SupeyCard.Surface.Elevated,
-                ShowBorder = true,
-                CornerRadius = 8,
-                Padding = new Padding(CardInnerPad),
                 Margin = new Padding(0, SectionGap, 0, 0),
                 Width = ContentWidth,
-                Height = MinListHeight + (CardInnerPad * 2),
+                Height = MinListHeight,
+                Padding = new Padding(1),
+                BackColor = SupeyTheme.Divider,
             };
 
-            _cardBody = new Panel
+            var listBody = new Panel
             {
                 Dock = DockStyle.Fill,
-                BackColor = Color.Transparent,
+                BackColor = SupeyTheme.ListBody,
+                Padding = Padding.Empty,
             };
 
-            _tripList = new ListView
+            _tripList = new SupeyListView
             {
                 Dock = DockStyle.Fill,
                 View = View.Details,
@@ -172,11 +174,25 @@ namespace Hiatme_Tool_Suite_v3
                 BorderStyle = BorderStyle.None,
                 BackColor = SupeyTheme.ListBody,
                 ForeColor = SupeyTheme.ListText,
-                Font = SupeyTheme.BodyFont,
+                Font = new Font("Segoe UI", 11f),
                 MultiSelect = false,
+                OwnerDraw = true,
+                GridLines = true,
+                HideSelection = true,
+                UseCompatibleStateImageBehavior = false,
+                SuppressHoverRepaintFix = true,
+                SmallImageList = new ImageList
+                {
+                    ImageSize = new Size(1, RowHeight),
+                    ColorDepth = ColorDepth.Depth32Bit,
+                },
             };
+            _tripList.DrawColumnHeader += (s, e) => SupeyListViewHelpers.DrawColumnHeader(e);
+            _tripList.DrawItem += (s, e) => SupeyListViewHelpers.SuppressDefaultDrawItem(e);
+            _tripList.DrawSubItem += TripList_DrawSubItem;
             ApplyTripListColumnWidths();
             ListViewMinWidthEnforcer.Attach(_tripList);
+            try { ListViewHeaderEmptyAreaPainter.Attach(_tripList); } catch { }
 
             _emptyLbl = MakeStackLabel(
                 "",
@@ -186,10 +202,11 @@ namespace Hiatme_Tool_Suite_v3
             _emptyLbl.TextAlign = ContentAlignment.MiddleCenter;
             _emptyLbl.Visible = false;
             _emptyLbl.Dock = DockStyle.Fill;
+            _emptyLbl.BackColor = SupeyTheme.ListBody;
 
-            _cardBody.Controls.Add(_tripList);
-            _cardBody.Controls.Add(_emptyLbl);
-            _contentCard.Controls.Add(_cardBody);
+            listBody.Controls.Add(_tripList);
+            listBody.Controls.Add(_emptyLbl);
+            _listHost.Controls.Add(listBody);
 
             _statsLbl = MakeStackLabel(
                 "",
@@ -199,7 +216,7 @@ namespace Hiatme_Tool_Suite_v3
 
             _stack.Controls.Add(_headlineLbl, 0, 0);
             _stack.Controls.Add(_subtitleLbl, 0, 1);
-            _stack.Controls.Add(_contentCard, 0, 2);
+            _stack.Controls.Add(_listHost, 0, 2);
             _stack.Controls.Add(_statsLbl, 0, 3);
 
             body.Controls.Add(_stack);
@@ -250,8 +267,9 @@ namespace Hiatme_Tool_Suite_v3
                 ? MeasureListHeight(_result.Added?.Count ?? 0)
                 : MeasureEmptyMessageHeight(_emptyLbl.Text);
 
-            _contentCard.Height = listHeight + (CardInnerPad * 2);
-            _contentCard.Width = ContentWidth;
+            _listHost.Height = listHeight + 2;
+            _listHost.Width = ContentWidth;
+            _listHost.BackColor = SupeyTheme.Divider;
 
             if (_statsLbl.Visible && !string.IsNullOrWhiteSpace(_statsLbl.Text))
                 _statsLbl.Margin = new Padding(0, SectionGap, 0, 0);
@@ -268,7 +286,7 @@ namespace Hiatme_Tool_Suite_v3
                 + BodyBottomPad
                 + FooterHeight;
 
-            clientHeight = Math.Max(340, Math.Min(640, clientHeight));
+            clientHeight = Math.Max(420, Math.Min(820, clientHeight));
             ClientSize = new Size(DialogWidth, clientHeight);
             MinimumSize = new Size(DialogWidth, clientHeight);
         }
@@ -433,8 +451,9 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (rowCount <= 0)
                 return MinListHeight;
-            int rows = Math.Max(3, Math.Min(8, rowCount));
-            return Math.Max(MinListHeight, Math.Min(MaxListHeight, (rows * RowHeight) + 28));
+            int header = HeaderHeight;
+            int body = rowCount * RowHeight;
+            return Math.Max(MinListHeight, Math.Min(MaxListHeight, header + body + 8));
         }
 
         private static string FormatClientName(MCDownloadedTrip trip)
@@ -468,6 +487,29 @@ namespace Hiatme_Tool_Suite_v3
                 default:
                     return "Reservers";
             }
+        }
+
+        private void TripList_DrawSubItem(object sender, DrawListViewSubItemEventArgs e)
+        {
+            if (e?.Item == null || e.Graphics == null)
+                return;
+
+            Color bg = e.ItemIndex % 2 == 0 ? SupeyTheme.ListBody : SupeyTheme.ListBodyAlt;
+            SupeyListViewHelpers.DrawSubItemCellBackground(e, bg);
+
+            var textBounds = new Rectangle(
+                e.Bounds.Left + 12,
+                e.Bounds.Top,
+                Math.Max(0, e.Bounds.Width - 16),
+                e.Bounds.Height);
+            TextRenderer.DrawText(
+                e.Graphics,
+                e.SubItem?.Text ?? "",
+                e.Item?.ListView?.Font ?? _tripList.Font,
+                textBounds,
+                SupeyTheme.ListText,
+                TextFormatFlags.Left | TextFormatFlags.SingleLine
+                    | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
         }
 
         private void OnThemeChanged(object sender, EventArgs e)

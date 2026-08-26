@@ -514,16 +514,12 @@ namespace Hiatme_Tool_Suite_v3
 
             try
             {
-                if (listView.Items.Count > 0)
-                {
-                    ListViewItem first = listView.Items[0];
-                    if (first != null)
-                    {
-                        int top = first.Bounds.Top;
-                        if (top > 0)
-                            return top;
-                    }
-                }
+                if (TryGetItemBounds(listView, 0, out Rectangle firstBounds) && firstBounds.Top > 0)
+                    return firstBounds.Top;
+            }
+            catch (ArgumentException)
+            {
+                // List is mid-clear/dispose; bounds are not valid.
             }
             catch (NullReferenceException)
             {
@@ -553,6 +549,10 @@ namespace Hiatme_Tool_Suite_v3
                 return true;
             }
             catch (NullReferenceException)
+            {
+                return false;
+            }
+            catch (ArgumentException)
             {
                 return false;
             }

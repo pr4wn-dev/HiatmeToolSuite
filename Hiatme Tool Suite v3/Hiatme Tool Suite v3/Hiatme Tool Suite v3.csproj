@@ -163,7 +163,14 @@
     <Compile Include="ScheduleBuilderGmailDefaults.cs" />
     <Compile Include="ScheduleBuilderGmailSync.cs" />
     <Compile Include="FsModivcareNewTripsSyncResult.cs" />
+    <Compile Include="FsWellRydeAssignResult.cs" />
     <Compile Include="SupeyModivcareNewTripsResultForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="SupeyWellRydeAssignResultForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="SupeyWellRydeAssignProgressForm.cs">
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="SupeyMessageForm.cs">
@@ -401,6 +408,10 @@
       <SubType>Component</SubType>
     </Compile>
     <Compile Include="Form1.ScheduleBuilder.Email.cs">
+      <DependentUpon>Form1.cs</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Form1.ScheduleBuilder.Assign.cs">
       <DependentUpon>Form1.cs</DependentUpon>
       <SubType>Form</SubType>
     </Compile>

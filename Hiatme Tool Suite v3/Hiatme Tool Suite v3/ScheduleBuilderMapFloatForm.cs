@@ -135,7 +135,7 @@ namespace Hiatme_Tool_Suite_v3
             base.OnPaint(e);
             if (DesignMode || WindowState == FormWindowState.Maximized)
                 return;
-            DrawOuterFrame(e.Graphics);
+            DrawAccentOuterFrame(e.Graphics);
         }
 
         private void LayoutTitleActions()
@@ -168,33 +168,6 @@ namespace Hiatme_Tool_Suite_v3
             var tool = SupeyToolTip.Create(initialDelay: 250);
             tool.SetToolTip(btn, tip);
             return btn;
-        }
-
-        private void DrawOuterFrame(Graphics g)
-        {
-            int w = ClientSize.Width;
-            int h = ClientSize.Height;
-            if (w < 4 || h < 4)
-                return;
-
-            const int thickness = 2;
-            using (var brush = new SolidBrush(FrameColor()))
-            {
-                g.FillRectangle(brush, 0, 0, w, thickness);
-                g.FillRectangle(brush, 0, h - thickness, w, thickness);
-                g.FillRectangle(brush, 0, 0, thickness, h);
-                g.FillRectangle(brush, w - thickness, 0, thickness, h);
-            }
-        }
-
-        private static Color FrameColor()
-        {
-            Color accent = SupeyTheme.AccentStripe;
-            if (accent.IsEmpty)
-                accent = SupeyTheme.AccentPrimary;
-            if (accent.IsEmpty)
-                accent = SupeyTheme.BorderSubtle;
-            return accent;
         }
 
         protected override void OnKeyDown(KeyEventArgs e)

@@ -127,6 +127,8 @@ namespace Hiatme_Tool_Suite_v3
 
         private SupeyButton _fsSaveBtn;
 
+        private SupeyButton _fsAssignBtn;
+
         private SupeyButton _fsSyncHistoryBtn;
 
         private string _fsPreferredSavePath;
@@ -547,6 +549,20 @@ namespace Hiatme_Tool_Suite_v3
             saveTip.SetToolTip(_fsSaveBtn,
                 "Save the workbook using the service date (no file dialog). Overwrites the loaded .xlsx, or saves to Desktop\\SCHEDULES FOR {year}\\.");
 
+            _fsAssignBtn = new SupeyButton
+            {
+                Text = "ASSIGN",
+                Kind = SupeyButton.Variant.Primary,
+                Size = new Size(96, FsToolbarBtnHeight),
+                Margin = new Padding(6, 0, 0, 0),
+                Enabled = false,
+            };
+            _fsAssignBtn.Click += async (s, e) => await FsAssignBtn_ClickAsync();
+            saveTip.SetToolTip(_fsAssignBtn,
+                "Assign this schedule to WellRyde — same as Analyze Trips Assign. "
+                + "Unassigns every Assigned trip for the service date, then assigns the driver-tab trips "
+                + "(skips cancels, dupes, time/address mismatches, and will-calls on a driver page).");
+
             saveTip.SetToolTip(_fsLoadBtn,
                 "Open a saved .xlsx workbook or driver .csv (Excel not required). Date is read from the file name or trip dates and sets the date picker.");
             _fsSyncHistoryBtn.Click += async (s, e) => await FsSyncHistoryNowAsync().ConfigureAwait(true);
@@ -592,6 +608,8 @@ namespace Hiatme_Tool_Suite_v3
             leftFlow.Controls.Add(_fsLoadBtn);
 
             leftFlow.Controls.Add(_fsSaveBtn);
+
+            leftFlow.Controls.Add(_fsAssignBtn);
 
             leftFlow.Controls.Add(_fsSyncHistoryBtn);
 

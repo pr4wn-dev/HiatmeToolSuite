@@ -18,11 +18,13 @@ namespace Hiatme_Tool_Suite_v3
         private void SetFsPreviewExportButtonsEnabled(bool enabled)
         {
             if (_fsSaveBtn != null)
-                _fsSaveBtn.Enabled = enabled;
+                _fsSaveBtn.Enabled = enabled && !_fsAssignRunning;
+            if (_fsAssignBtn != null)
+                _fsAssignBtn.Enabled = enabled && !_fsAssignRunning && !_fsEmailSchedulesRunning;
             if (_fsEmailSchedulesBtn != null)
-                _fsEmailSchedulesBtn.Enabled = enabled && !_fsEmailSchedulesRunning;
+                _fsEmailSchedulesBtn.Enabled = enabled && !_fsEmailSchedulesRunning && !_fsAssignRunning;
             if (_fsSyncNewTripsBtn != null)
-                _fsSyncNewTripsBtn.Enabled = enabled && !_fsSyncNewTripsRunning;
+                _fsSyncNewTripsBtn.Enabled = enabled && !_fsSyncNewTripsRunning && !_fsAssignRunning;
         }
 
         private void SetFsEmailSchedulesBusy(bool busy, string buttonText, string statusMessage)

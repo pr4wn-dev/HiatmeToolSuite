@@ -34,9 +34,10 @@ namespace Hiatme_Tool_Suite_v3
             _total = Math.Max(1, totalRecipients);
 
             Text = "Email schedules";
-            FormBorderStyle = FormBorderStyle.FixedDialog;
+            FormBorderStyle = FormBorderStyle.None;
             MaximizeBox = false;
             MinimizeBox = false;
+            Sizable = false;
             ShowInTaskbar = false;
             StartPosition = FormStartPosition.CenterParent;
             BackColor = SupeyTheme.Surface;

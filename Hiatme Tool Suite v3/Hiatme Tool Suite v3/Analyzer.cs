@@ -1215,6 +1215,130 @@ namespace Hiatme_Tool_Suite_v3
             return total;
         }
 
+        /// <summary>
+        /// Snapshot of what <see cref="AssignTrips"/> will send, plus skip reasons.
+        /// Call after alerts have set <see cref="MCDownloadedTrip.Assignable"/>.
+        /// Fill <see cref="FsWellRydeAssignResult.AssignedOnWellRyde"/> after assign refreshes WellRyde.
+        /// </summary>
+        internal FsWellRydeAssignResult SnapshotWellRydeAssignPlan(DateTime serviceDate)
+        {
+            var result = new FsWellRydeAssignResult
+            {
+                ServiceDate = serviceDate.Date,
+                PortalWritesEnabled = WellRydePortalAssignAndUnassignCallsServer,
+            };
+
+            if (drivertablist == null)
+                return result;
+
+            foreach (MCDriverTab dt in drivertablist)
+            {
+                if (dt == null || string.IsNullOrWhiteSpace(dt.driverName))
+                    continue;
+                if (dt.driverName.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                WRDrivers wrDriver = null;
+                if (WRDriverList != null)
+                {
+                    foreach (WRDrivers driver in WRDriverList)
+                    {
+                        if (dt.driverName == SplitDriverName(driver.text))
+                        {
+                            wrDriver = driver;
+                            break;
+                        }
+                    }
+                }
+
+                int sent = wrDriver != null ? BuildTripUuidListForAssignToDriver(dt).Count : 0;
+                if (sent > 0)
+                {
+                    result.Drivers.Add(new FsWellRydeAssignDriverRow
+                    {
+                        DriverName = dt.driverName,
+                        Sent = sent,
+                    });
+                    result.SentSlots += sent;
+                    result.DriversSent++;
+                }
+
+                if (dt.scheduledTrips == null)
+                    continue;
+
+                foreach (MCDownloadedTrip trip in dt.scheduledTrips)
+                {
+                    if (trip == null)
+                        continue;
+
+                    string tripNo = (trip.TripNumber ?? "").Trim();
+                    if (tripNo.Length == 0)
+                        tripNo = "(no trip #)";
+
+                    if (!trip.Assignable)
+                    {
+                        result.Skipped++;
+                        result.Skips.Add(new FsWellRydeAssignSkipRow
+                        {
+                            TripNumber = tripNo,
+                            DriverName = dt.driverName,
+                            Reason = SkipReasonFromAlerts(trip),
+                        });
+                        continue;
+                    }
+
+                    if (wrDriver == null)
+                    {
+                        result.Skipped++;
+                        result.Skips.Add(new FsWellRydeAssignSkipRow
+                        {
+                            TripNumber = tripNo,
+                            DriverName = dt.driverName,
+                            Reason = "No WellRyde driver matches this tab",
+                        });
+                        continue;
+                    }
+
+                    if (!HasAssignableWellRydeRow(trip))
+                    {
+                        result.NoWellRydeMatch++;
+                        result.Skipped++;
+                        result.Skips.Add(new FsWellRydeAssignSkipRow
+                        {
+                            TripNumber = tripNo,
+                            DriverName = dt.driverName,
+                            Reason = "No matching WellRyde trip",
+                        });
+                    }
+                }
+            }
+
+            result.Drivers.Sort((a, b) => string.Compare(
+                a?.DriverName, b?.DriverName, StringComparison.OrdinalIgnoreCase));
+            return result;
+        }
+
+        private static string SkipReasonFromAlerts(MCDownloadedTrip trip)
+        {
+            string alerts = trip?.GetAlerts()?.Trim();
+            return string.IsNullOrWhiteSpace(alerts) ? "Skipped by Analyze checks" : alerts;
+        }
+
+        private bool HasAssignableWellRydeRow(MCDownloadedTrip trip)
+        {
+            if (trip == null || wellrydeDownloadedTrips == null)
+                return false;
+            foreach (WRDownloadedTrip wrdt in wellrydeDownloadedTrips)
+            {
+                if (WellRydeTripNumberMatchesMc(wrdt.TripNumber, trip.TripNumber)
+                    && wrdt.Status != "Cancelled")
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         private List<string> BuildTripUuidListForAssignToDriver(MCDriverTab dt)
         {
             var driverstrips = new List<string>();

@@ -37,9 +37,10 @@ namespace Hiatme_Tool_Suite_v3
             if (Text.Length == 0)
                 Text = "Hiatme Tool Suite";
 
-            FormBorderStyle = FormBorderStyle.FixedDialog;
+            FormBorderStyle = FormBorderStyle.None;
             MaximizeBox = false;
             MinimizeBox = false;
+            Sizable = false;
             ShowInTaskbar = false;
             StartPosition = FormStartPosition.CenterParent;
             BackColor = SupeyTheme.Surface;

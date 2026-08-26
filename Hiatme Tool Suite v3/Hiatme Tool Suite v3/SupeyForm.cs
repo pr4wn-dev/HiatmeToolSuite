@@ -373,6 +373,12 @@ namespace Hiatme_Tool_Suite_v3
 
         public bool Sizable { get; set; } = true;
 
+        /// <summary>
+        /// 2px accent frame around the window (same as the floating map).
+        /// Dialogs with no maximize box get it by default.
+        /// </summary>
+        protected virtual bool PaintAccentOuterFrame => !MaximizeBox;
+
 
 
         /// <summary>When true, a nav-menu (hamburger) button is painted in the title bar.</summary>
@@ -603,6 +609,23 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
+        /// <summary>Place a dialog in the center of the monitor that owns <paramref name="owner"/>.</summary>
+        public static void CenterOnWorkingArea(Form form, IWin32Window owner = null)
+        {
+            if (form == null)
+                return;
+
+            Control anchor = owner as Control;
+            Screen screen = anchor != null ? Screen.FromControl(anchor) : Screen.PrimaryScreen;
+            Rectangle area = screen?.WorkingArea ?? SystemInformation.WorkingArea;
+            form.StartPosition = FormStartPosition.Manual;
+            form.Location = new Point(
+                area.Left + Math.Max(0, (area.Width - form.Width) / 2),
+                area.Top + Math.Max(0, (area.Height - form.Height) / 2));
+        }
+
+
+
         protected override void OnHandleCreated(EventArgs e)
 
         {
@@ -611,11 +634,37 @@ namespace Hiatme_Tool_Suite_v3
 
             if (DesignMode) return;
 
+            ApplyAccentFrameInsetIfNeeded();
+
             EnsureApplicationIcon();
 
             ApplyNativeWindowIcons();
 
             RefreshTitleBarChrome();
+
+        }
+
+
+
+        /// <summary>Leave a 2px ring so <see cref="DrawAccentOuterFrame"/> is visible (same as floating map sidePad).</summary>
+
+        private void ApplyAccentFrameInsetIfNeeded()
+
+        {
+
+            if (!PaintAccentOuterFrame || WindowState == FormWindowState.Maximized)
+
+                return;
+
+            if (_materialContent != null)
+
+                return;
+
+            const int frame = 2;
+
+            if (Padding.Left != frame || Padding.Top != frame || Padding.Right != frame || Padding.Bottom != frame)
+
+                Padding = new Padding(frame);
 
         }
 
@@ -1188,6 +1237,32 @@ namespace Hiatme_Tool_Suite_v3
         }
 
 
+
+        protected void DrawAccentOuterFrame(Graphics g)
+        {
+            if (g == null)
+                return;
+
+            int w = ClientSize.Width;
+            int h = ClientSize.Height;
+            if (w < 4 || h < 4)
+                return;
+
+            Color color = SupeyTheme.AccentStripe;
+            if (color.IsEmpty)
+                color = SupeyTheme.AccentPrimary;
+            if (color.IsEmpty)
+                color = SupeyTheme.BorderSubtle;
+
+            const int thickness = 2;
+            using (var brush = new SolidBrush(color))
+            {
+                g.FillRectangle(brush, 0, 0, w, thickness);
+                g.FillRectangle(brush, 0, h - thickness, w, thickness);
+                g.FillRectangle(brush, 0, 0, thickness, h);
+                g.FillRectangle(brush, w - thickness, 0, thickness, h);
+            }
+        }
 
         private static void DrawMaterialBodyBorder(Graphics g, int w, int h, int bodyTop)
 
@@ -1830,6 +1905,9 @@ namespace Hiatme_Tool_Suite_v3
 
 
             base.OnPaint(e);
+
+            if (PaintAccentOuterFrame && WindowState != FormWindowState.Maximized)
+                DrawAccentOuterFrame(g);
 
         }
 
