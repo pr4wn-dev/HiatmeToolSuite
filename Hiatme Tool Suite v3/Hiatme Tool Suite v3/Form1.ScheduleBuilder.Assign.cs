@@ -138,16 +138,13 @@ namespace Hiatme_Tool_Suite_v3
                 plan.ReservedOnWellRyde = analyzer.GetReservedTripCount();
                 plan.PortalWritesEnabled = Analyzer.WellRydePortalAssignAndUnassignCallsServer;
 
-                string done = plan.SentSlots.ToString()
-                    + " trip(s) assigned — WellRyde now "
-                    + plan.AssignedOnWellRyde.ToString()
-                    + " Assigned, "
-                    + plan.ReservedOnWellRyde.ToString()
-                    + " Reserved.";
-                SetScheduleBuilderStatus(done);
+                SetScheduleBuilderAssignCompleteStatus(plan);
 
                 UseWaitCursor = false;
                 SupeyWellRydeAssignResultForm.Show(this, plan);
+
+                // Modal dialog can leave the bottom bar stale — re-apply counts when it closes.
+                SetScheduleBuilderAssignCompleteStatus(plan);
             }
             catch (ScheduleAnalysisException ex)
             {

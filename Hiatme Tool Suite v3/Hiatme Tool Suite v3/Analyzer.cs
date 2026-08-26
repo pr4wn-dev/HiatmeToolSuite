@@ -1164,6 +1164,8 @@ namespace Hiatme_Tool_Suite_v3
             await UnassignTrips();
 
             await AssignTrips(longdatestr, dayint, yearint, mcdate);
+            await AsyncUpdateLoadingScreen("Refreshing WellRyde trip list");
+            await TryLoadWellRydeTripsAndDriversAsync(mcdate);
         }
         public int GetAssignedTripCount()
         {
@@ -1425,15 +1427,12 @@ namespace Hiatme_Tool_Suite_v3
                             else
                                 await AsyncUpdateLoadingScreen("Would assign " + driverstrips.Count + " trips to " + SplitDriverName(driver.text) + " (not sent to WellRyde)");
                             await SubmitTripBatch(driver.value, driverstrips);
-                           
                         }
                     }
                 }
-
-                await AsyncUpdateLoadingScreen("Refreshing WellRyde trip list");
-                await TryLoadWellRydeTripsAndDriversAsync(mcdatedt);
             }
         }
+
         private async Task SubmitTripBatch(string id, List<string> trips, int attempt = 0)
         {
             if (trips == null || trips.Count == 0)

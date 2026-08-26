@@ -28,10 +28,8 @@ namespace Hiatme_Tool_Suite_v3
         private ToolStripMenuItem _fsTripsCtxInsertTripAbove;
         private ToolStripMenuItem _fsTripsCtxInsertTripBelow;
         private ToolStripMenuItem _fsTripsCtxClearCut;
-        private ToolStripMenuItem _fsTripsCtxAddRowMenu;
         private ToolStripMenuItem _fsTripsCtxAddRowAbove;
         private ToolStripMenuItem _fsTripsCtxAddRowBelow;
-        private ToolStripMenuItem _fsTripsCtxAddNoteMenu;
         private ToolStripMenuItem _fsTripsCtxAddNoteToRow;
         private ToolStripMenuItem _fsTripsCtxAddNoteAbove;
         private ToolStripMenuItem _fsTripsCtxAddNoteBelow;
@@ -41,6 +39,13 @@ namespace Hiatme_Tool_Suite_v3
         private ToolStripMenuItem _fsTripsCtxRerouteModivcare;
         private ToolStripMenuItem _fsTripsCtxAddToReroutes;
         private ToolStripMenuItem _fsTripsCtxAddToCancels;
+        private ToolStripMenuItem _fsTripsCtxMoveMenu;
+        private ToolStripMenuItem _fsTripsCtxTripStatusMenu;
+        private ToolStripMenuItem _fsTripsCtxNotesRowsMenu;
+        private ToolStripMenuItem _fsTripsCtxAddRowMenu;
+        private ToolStripMenuItem _fsTripsCtxGroupMenu;
+        private ToolStripMenuItem _fsTripsCtxDriverMenu;
+        private ToolStripMenuItem _fsTripsCtxClientMenu;
         private MCDownloadedTrip _fsTripsCtxTrip;
         private SupeyTripCluster _fsTripsCtxGroup;
         private FsPreviewNoteTag _fsTripsCtxNoteTag;
@@ -58,55 +63,95 @@ namespace Hiatme_Tool_Suite_v3
             Below,
         }
 
-        private static ToolStripMenuItem CreateFsTripsCtxItem(string text)
+        private static ToolStripMenuItem CreateFsTripsCtxItem(string text, Image image = null)
         {
-            return new ToolStripMenuItem(text)
+            var item = new ToolStripMenuItem(text)
             {
                 BackColor = DarkContextMenuRenderer.Background,
                 ForeColor = DarkContextMenuRenderer.ForeColor,
+                Image = image,
+                ImageScaling = ToolStripItemImageScaling.None,
+                ImageAlign = ContentAlignment.MiddleLeft,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Padding = new Padding(0, DarkContextMenuRenderer.RowPadV, 0, DarkContextMenuRenderer.RowPadV),
+                Margin = Padding.Empty,
             };
+            return item;
+        }
+
+        private static void StyleFsTripsCtxStrip(ToolStrip strip)
+        {
+            if (strip == null)
+                return;
+
+            strip.Renderer = new DarkContextMenuRenderer();
+            strip.BackColor = DarkContextMenuRenderer.Background;
+            strip.ForeColor = DarkContextMenuRenderer.ForeColor;
+            strip.Font = SupeyTheme.BodyFont;
+            strip.Padding = new Padding(0, 4, 0, 4);
+            strip.ImageScalingSize = new Size(DarkContextMenuRenderer.IconSize, DarkContextMenuRenderer.IconSize);
+
+            if (strip is ToolStripDropDownMenu menu)
+            {
+                menu.ShowImageMargin = false;
+                menu.ShowCheckMargin = false;
+                menu.DropShadowEnabled = true;
+            }
+        }
+
+        private static void ConfigureFsTripsCtxSubmenuDropDown(ToolStripMenuItem parent)
+        {
+            if (parent == null)
+                return;
+
+            StyleFsTripsCtxStrip(parent.DropDown);
+        }
+
+        private static ToolStripMenuItem CreateFsTripsCtxSubmenu(string text, Image image, params ToolStripItem[] children)
+        {
+            var menu = CreateFsTripsCtxItem(text, image);
+            if (children != null)
+            {
+                foreach (var child in children)
+                {
+                    if (child != null)
+                        menu.DropDownItems.Add(child);
+                }
+            }
+
+            ConfigureFsTripsCtxSubmenuDropDown(menu);
+            return menu;
+        }
+
+        private static void FsTripsCtxClearNestedShortcutKeys(ToolStripMenuItem item)
+        {
+            if (item == null)
+                return;
+            item.ShortcutKeys = Keys.None;
+            item.ShowShortcutKeys = false;
         }
 
         private void BuildFsTripsContextMenu()
         {
-            _fsTripsCtxMenu = new ContextMenuStrip
-            {
-                Renderer = new DarkContextMenuRenderer(),
-                BackColor = DarkContextMenuRenderer.Background,
-                ForeColor = DarkContextMenuRenderer.ForeColor,
-                ShowImageMargin = true,
-            };
+            _fsTripsCtxMenu = new ContextMenuStrip();
+            StyleFsTripsCtxStrip(_fsTripsCtxMenu);
+            _fsTripsCtxMenu.Opening += FsTripsCtxMenu_Opening;
 
-            _fsTripsCtxBanClient = new ToolStripMenuItem("Ban client")
-            {
-                BackColor = DarkContextMenuRenderer.Background,
-                ForeColor = DarkContextMenuRenderer.ForeColor,
-                Image = MenuIconFactory.GetUnassignIcon(),
-            };
+            _fsTripsCtxBanClient = CreateFsTripsCtxItem("Ban client", SupeyMenuGlyphs.Ban);
             _fsTripsCtxBanClient.Click += (s, e) =>
             {
                 if (_fsTripsCtxTrip != null)
                     FsBanClientFromTrip(_fsTripsCtxTrip, quietWhenMissing: true);
             };
 
-            _fsTripsCtxUnbanClient = new ToolStripMenuItem("Remove from banned list")
-            {
-                BackColor = DarkContextMenuRenderer.Background,
-                ForeColor = DarkContextMenuRenderer.ForeColor,
-                Image = MenuIconFactory.GetAssignIcon(),
-            };
+            _fsTripsCtxUnbanClient = CreateFsTripsCtxItem("Remove from banned list", SupeyMenuGlyphs.CircleCheck);
             _fsTripsCtxUnbanClient.Click += (s, e) =>
             {
                 if (_fsTripsCtxTrip != null)
                     FsUnbanClientFromTrip(_fsTripsCtxTrip);
             };
 
-            _fsTripsCtxFocusMap = new ToolStripMenuItem("Show on map")
-            {
-                BackColor = DarkContextMenuRenderer.Background,
-                ForeColor = DarkContextMenuRenderer.ForeColor,
-                Image = MenuIconFactory.GetLocateIcon(),
-            };
+            _fsTripsCtxFocusMap = CreateFsTripsCtxItem("Show on map", SupeyMenuGlyphs.Map);
             _fsTripsCtxFocusMap.Click += (s, e) =>
             {
                 if (_fsTripsCtxTrip == null || _fsMap == null)
@@ -116,221 +161,170 @@ namespace Hiatme_Tool_Suite_v3
                 _fsMap.FocusTrip(_fsTripsCtxTrip);
             };
 
-            _fsTripsCtxCopyForAi = new ToolStripMenuItem("Copy for AI review (Cursor)")
-            {
-                BackColor = DarkContextMenuRenderer.Background,
-                ForeColor = DarkContextMenuRenderer.ForeColor,
-            };
+            _fsTripsCtxCopyForAi = CreateFsTripsCtxItem("Copy for AI review (Cursor)");
             _fsTripsCtxCopyForAi.Click += (s, e) => FsCopyScheduleForAiReviewToClipboard();
 
-            _fsTripsCtxCopyCurrentTab = new ToolStripMenuItem("Copy current tab")
-            {
-                BackColor = DarkContextMenuRenderer.Background,
-                ForeColor = DarkContextMenuRenderer.ForeColor,
-            };
+            _fsTripsCtxCopyCurrentTab = CreateFsTripsCtxItem("Copy current tab");
             _fsTripsCtxCopyCurrentTab.Click += (s, e) => FsCopyCurrentTabToClipboard();
 
-            _fsTripsCtxCopySelectedTrip = new ToolStripMenuItem("Copy selected trip")
-            {
-                BackColor = DarkContextMenuRenderer.Background,
-                ForeColor = DarkContextMenuRenderer.ForeColor,
-            };
+            _fsTripsCtxCopySelectedTrip = CreateFsTripsCtxItem("Copy selected trip");
             _fsTripsCtxCopySelectedTrip.Click += (s, e) => FsCopySelectedTripToClipboard();
 
-            _fsTripsCtxAutoSortGroup = new ToolStripMenuItem("Auto-sort group for best route efficiency")
-            {
-                BackColor = DarkContextMenuRenderer.Background,
-                ForeColor = DarkContextMenuRenderer.ForeColor,
-            };
+            _fsTripsCtxAutoSortGroup = CreateFsTripsCtxItem(
+                "Auto-sort group for best route efficiency",
+                SupeyMenuGlyphs.Sort);
             _fsTripsCtxAutoSortGroup.Click += (s, e) =>
             {
                 if (_fsTripsCtxGroup != null)
                     _ = FsAutoSortGroupForEfficiencyAsync(_fsTripsCtxGroup);
             };
 
-            _fsTripsCtxGeocodeDriverHome = new ToolStripMenuItem("Geocode driver home")
-            {
-                BackColor = DarkContextMenuRenderer.Background,
-                ForeColor = DarkContextMenuRenderer.ForeColor,
-            };
+            _fsTripsCtxGeocodeDriverHome = CreateFsTripsCtxItem("Geocode driver home", SupeyMenuGlyphs.Home);
             _fsTripsCtxGeocodeDriverHome.Click += (s, e) =>
             {
                 _ = FsGeocodeActiveTabDriverHomeAsync();
             };
 
-            _fsTripsCtxEmailDriver = new ToolStripMenuItem("Email schedule to driver…")
-            {
-                BackColor = DarkContextMenuRenderer.Background,
-                ForeColor = DarkContextMenuRenderer.ForeColor,
-            };
+            _fsTripsCtxEmailDriver = CreateFsTripsCtxItem("Email schedule to driver…", SupeyMenuGlyphs.Mail);
             _fsTripsCtxEmailDriver.Click += (s, e) => _ = FsEmailActiveDriverFromContextAsync();
 
-            _fsTripsCtxSuggestDriver = new ToolStripMenuItem("Suggest driver for trip…")
-            {
-                BackColor = DarkContextMenuRenderer.Background,
-                ForeColor = DarkContextMenuRenderer.ForeColor,
-            };
+            _fsTripsCtxSuggestDriver = CreateFsTripsCtxItem("Suggest driver for trip…", SupeyMenuGlyphs.Person);
             _fsTripsCtxSuggestDriver.Click += (s, e) => _ = FsSuggestDriverForTripAsync();
 
-            _fsTripsCtxCutTrip = new ToolStripMenuItem("Cut trip")
-            {
-                BackColor = DarkContextMenuRenderer.Background,
-                ForeColor = DarkContextMenuRenderer.ForeColor,
-                ShortcutKeys = Keys.Control | Keys.X,
-                ShowShortcutKeys = true,
-            };
+            _fsTripsCtxCutTrip = CreateFsTripsCtxItem("Cut trip", SupeyMenuGlyphs.Cut);
             _fsTripsCtxCutTrip.Click += (s, e) => FsCutSelectedTrip();
 
-            _fsTripsCtxDelete = new ToolStripMenuItem("Delete")
-            {
-                BackColor = DarkContextMenuRenderer.Background,
-                ForeColor = DarkContextMenuRenderer.ForeColor,
-                ShortcutKeys = Keys.Delete,
-                ShowShortcutKeys = true,
-            };
+            _fsTripsCtxDelete = CreateFsTripsCtxItem("Delete", SupeyMenuGlyphs.Trash);
             _fsTripsCtxDelete.Click += (s, e) => FsDeleteSelection();
 
-            _fsTripsCtxUndo = new ToolStripMenuItem("Undo")
-            {
-                BackColor = DarkContextMenuRenderer.Background,
-                ForeColor = DarkContextMenuRenderer.ForeColor,
-                ShortcutKeys = Keys.Control | Keys.Z,
-                ShowShortcutKeys = true,
-            };
+            _fsTripsCtxUndo = CreateFsTripsCtxItem("Undo", SupeyMenuGlyphs.Undo);
             _fsTripsCtxUndo.Click += (s, e) => FsUndoScheduleEdit();
 
-            _fsTripsCtxRedo = new ToolStripMenuItem("Redo")
-            {
-                BackColor = DarkContextMenuRenderer.Background,
-                ForeColor = DarkContextMenuRenderer.ForeColor,
-                ShortcutKeys = Keys.Control | Keys.Y,
-                ShowShortcutKeys = true,
-            };
+            _fsTripsCtxRedo = CreateFsTripsCtxItem("Redo", SupeyMenuGlyphs.Redo);
             _fsTripsCtxRedo.Click += (s, e) => FsRedoScheduleEdit();
 
-            _fsTripsCtxPasteTrip = new ToolStripMenuItem("Paste trip")
-            {
-                BackColor = DarkContextMenuRenderer.Background,
-                ForeColor = DarkContextMenuRenderer.ForeColor,
-                ShortcutKeys = Keys.Control | Keys.V,
-                ShowShortcutKeys = true,
-            };
+            _fsTripsCtxPasteTrip = CreateFsTripsCtxItem("Paste trip", SupeyMenuGlyphs.Paste);
             _fsTripsCtxPasteTrip.Click += (s, e) => FsInsertCutTrip(below: false);
 
-            _fsTripsCtxInsertTripAbove = new ToolStripMenuItem("Insert trip above")
-            {
-                BackColor = DarkContextMenuRenderer.Background,
-                ForeColor = DarkContextMenuRenderer.ForeColor,
-            };
+            FsTripsCtxClearNestedShortcutKeys(_fsTripsCtxCutTrip);
+            FsTripsCtxClearNestedShortcutKeys(_fsTripsCtxDelete);
+            FsTripsCtxClearNestedShortcutKeys(_fsTripsCtxUndo);
+            FsTripsCtxClearNestedShortcutKeys(_fsTripsCtxRedo);
+            FsTripsCtxClearNestedShortcutKeys(_fsTripsCtxPasteTrip);
+
+            _fsTripsCtxInsertTripAbove = CreateFsTripsCtxItem("Insert trip above", SupeyMenuGlyphs.InsertAbove);
             _fsTripsCtxInsertTripAbove.Click += (s, e) => FsInsertCutTrip(below: false);
 
-            _fsTripsCtxInsertTripBelow = new ToolStripMenuItem("Insert trip below")
-            {
-                BackColor = DarkContextMenuRenderer.Background,
-                ForeColor = DarkContextMenuRenderer.ForeColor,
-            };
+            _fsTripsCtxInsertTripBelow = CreateFsTripsCtxItem("Insert trip below", SupeyMenuGlyphs.InsertBelow);
             _fsTripsCtxInsertTripBelow.Click += (s, e) => FsInsertCutTrip(below: true);
 
-            _fsTripsCtxClearCut = new ToolStripMenuItem("Clear cut trip")
-            {
-                BackColor = DarkContextMenuRenderer.Background,
-                ForeColor = DarkContextMenuRenderer.ForeColor,
-            };
+            _fsTripsCtxClearCut = CreateFsTripsCtxItem("Clear cut trip", SupeyMenuGlyphs.Broom);
             _fsTripsCtxClearCut.Click += (s, e) =>
             {
                 FsClearCutTrip();
                 SetScheduleBuilderStatus("Cut trip cleared.");
             };
 
-            _fsTripsCtxEditNote = CreateFsTripsCtxItem("Edit note…");
+            _fsTripsCtxEditNote = CreateFsTripsCtxItem("Edit note…", SupeyMenuGlyphs.Pencil);
             _fsTripsCtxEditNote.Click += (s, e) => FsEditNoteFromContext();
 
-            _fsTripsCtxAddNoteToRow = CreateFsTripsCtxItem("Add note to row…");
+            _fsTripsCtxAddNoteToRow = CreateFsTripsCtxItem("To this row…", SupeyMenuGlyphs.Note);
             _fsTripsCtxAddNoteToRow.Click += (s, e) => FsAddNoteFromContext(FsNotePlacement.ToRow);
 
-            _fsTripsCtxAddNoteAbove = CreateFsTripsCtxItem("Add note above…");
+            _fsTripsCtxAddNoteAbove = CreateFsTripsCtxItem("Above…", SupeyMenuGlyphs.InsertAbove);
             _fsTripsCtxAddNoteAbove.Click += (s, e) => FsAddNoteFromContext(FsNotePlacement.Above);
 
-            _fsTripsCtxAddNoteBelow = CreateFsTripsCtxItem("Add note below…");
+            _fsTripsCtxAddNoteBelow = CreateFsTripsCtxItem("Below…", SupeyMenuGlyphs.InsertBelow);
             _fsTripsCtxAddNoteBelow.Click += (s, e) => FsAddNoteFromContext(FsNotePlacement.Below);
 
-            _fsTripsCtxAddNoteMenu = CreateFsTripsCtxItem("Add note");
-            _fsTripsCtxAddNoteMenu.DropDownItems.Add(_fsTripsCtxAddNoteToRow);
-            _fsTripsCtxAddNoteMenu.DropDownItems.Add(_fsTripsCtxAddNoteAbove);
-            _fsTripsCtxAddNoteMenu.DropDownItems.Add(_fsTripsCtxAddNoteBelow);
-
-            _fsTripsCtxAddRowAbove = CreateFsTripsCtxItem("Add row above…");
+            _fsTripsCtxAddRowAbove = CreateFsTripsCtxItem("Above", SupeyMenuGlyphs.RowAbove);
             _fsTripsCtxAddRowAbove.Click += (s, e) => FsAddRowFromContext(FsRowPlacement.Above);
 
-            _fsTripsCtxAddRowBelow = CreateFsTripsCtxItem("Add row below…");
+            _fsTripsCtxAddRowBelow = CreateFsTripsCtxItem("Below", SupeyMenuGlyphs.RowBelow);
             _fsTripsCtxAddRowBelow.Click += (s, e) => FsAddRowFromContext(FsRowPlacement.Below);
 
-            _fsTripsCtxAddRowMenu = CreateFsTripsCtxItem("Add row");
-            _fsTripsCtxAddRowMenu.DropDownItems.Add(_fsTripsCtxAddRowAbove);
-            _fsTripsCtxAddRowMenu.DropDownItems.Add(_fsTripsCtxAddRowBelow);
-
-            _fsTripsCtxChangeGroupColor = new ToolStripMenuItem("Change group color")
-            {
-                BackColor = DarkContextMenuRenderer.Background,
-                ForeColor = DarkContextMenuRenderer.ForeColor,
-            };
+            _fsTripsCtxChangeGroupColor = CreateFsTripsCtxItem("Change group color", SupeyMenuGlyphs.Palette);
             _fsTripsCtxChangeGroupColor.Click += (s, e) => FsChangeGroupColorFromContext();
 
-            _fsTripsCtxResetGroupColor = new ToolStripMenuItem("Reset group color to default")
-            {
-                BackColor = DarkContextMenuRenderer.Background,
-                ForeColor = DarkContextMenuRenderer.ForeColor,
-            };
+            _fsTripsCtxResetGroupColor = CreateFsTripsCtxItem("Reset group color to default", SupeyMenuGlyphs.Revert);
             _fsTripsCtxResetGroupColor.Click += (s, e) => FsResetGroupColorFromContext();
 
-            _fsTripsCtxRerouteModivcare = new ToolStripMenuItem("Reroute on Modivcare…")
-            {
-                BackColor = DarkContextMenuRenderer.Background,
-                ForeColor = DarkContextMenuRenderer.ForeColor,
-            };
+            _fsTripsCtxRerouteModivcare = CreateFsTripsCtxItem("Reroute on Modivcare…", SupeyMenuGlyphs.Reroute);
             _fsTripsCtxRerouteModivcare.Click += (s, e) => FsRerouteTripOnModivcareFromContext();
 
-            _fsTripsCtxAddToReroutes = new ToolStripMenuItem("Move to Reroutes section")
-            {
-                BackColor = DarkContextMenuRenderer.Background,
-                ForeColor = DarkContextMenuRenderer.ForeColor,
-            };
+            _fsTripsCtxAddToReroutes = CreateFsTripsCtxItem("Move to Reroutes section", SupeyMenuGlyphs.Tray);
             _fsTripsCtxAddToReroutes.Click += (s, e) => FsAddTripToReroutesSectionFromContext();
 
-            _fsTripsCtxAddToCancels = new ToolStripMenuItem("Add to Cancels section (no Modivcare)")
-            {
-                BackColor = DarkContextMenuRenderer.Background,
-                ForeColor = DarkContextMenuRenderer.ForeColor,
-            };
+            _fsTripsCtxAddToCancels = CreateFsTripsCtxItem("Add to Cancels section (no Modivcare)", SupeyMenuGlyphs.CircleX);
             _fsTripsCtxAddToCancels.Click += (s, e) => FsAddTripToCancelsSectionFromContext();
 
-            _fsTripsCtxMenu.Items.Add(_fsTripsCtxBanClient);
-            _fsTripsCtxMenu.Items.Add(_fsTripsCtxUnbanClient);
-            _fsTripsCtxMenu.Items.Add(_fsTripsCtxRerouteModivcare);
-            _fsTripsCtxMenu.Items.Add(_fsTripsCtxAddToReroutes);
-            _fsTripsCtxMenu.Items.Add(_fsTripsCtxAddToCancels);
+            _fsTripsCtxMoveMenu = CreateFsTripsCtxSubmenu(
+                "Move trips",
+                SupeyMenuGlyphs.Move,
+                _fsTripsCtxCutTrip,
+                _fsTripsCtxPasteTrip,
+                _fsTripsCtxInsertTripAbove,
+                _fsTripsCtxInsertTripBelow,
+                _fsTripsCtxClearCut);
+
+            _fsTripsCtxTripStatusMenu = CreateFsTripsCtxSubmenu(
+                "Reroute trip",
+                SupeyMenuGlyphs.Reroute,
+                _fsTripsCtxRerouteModivcare,
+                _fsTripsCtxAddToReroutes,
+                _fsTripsCtxAddToCancels);
+
+            _fsTripsCtxNotesRowsMenu = CreateFsTripsCtxSubmenu(
+                "Add note",
+                SupeyMenuGlyphs.Note,
+                _fsTripsCtxAddNoteToRow,
+                _fsTripsCtxAddNoteAbove,
+                _fsTripsCtxAddNoteBelow,
+                new ToolStripSeparator(),
+                _fsTripsCtxEditNote);
+
+            _fsTripsCtxAddRowMenu = CreateFsTripsCtxSubmenu(
+                "Add blank row",
+                SupeyMenuGlyphs.Rows,
+                _fsTripsCtxAddRowAbove,
+                _fsTripsCtxAddRowBelow);
+
+            _fsTripsCtxGroupMenu = CreateFsTripsCtxSubmenu(
+                "Color group",
+                SupeyMenuGlyphs.Palette,
+                _fsTripsCtxChangeGroupColor,
+                _fsTripsCtxResetGroupColor);
+
+            _fsTripsCtxDriverMenu = CreateFsTripsCtxSubmenu(
+                "Email driver",
+                SupeyMenuGlyphs.Mail,
+                _fsTripsCtxEmailDriver,
+                _fsTripsCtxGeocodeDriverHome);
+
+            _fsTripsCtxClientMenu = CreateFsTripsCtxSubmenu(
+                "Ban client",
+                SupeyMenuGlyphs.Ban,
+                _fsTripsCtxBanClient,
+                _fsTripsCtxUnbanClient);
+
+            // Every label is verb + object; one-shot actions stay flat instead of hiding in a flyout.
+            _fsTripsCtxMenu.Items.Add(_fsTripsCtxFocusMap);
+            _fsTripsCtxMenu.Items.Add(_fsTripsCtxSuggestDriver);
             _fsTripsCtxMenu.Items.Add(new ToolStripSeparator());
-            _fsTripsCtxMenu.Items.Add(_fsTripsCtxCutTrip);
+            _fsTripsCtxMenu.Items.Add(_fsTripsCtxMoveMenu);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxDelete);
-            _fsTripsCtxMenu.Items.Add(_fsTripsCtxPasteTrip);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxUndo);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxRedo);
-            _fsTripsCtxMenu.Items.Add(_fsTripsCtxInsertTripAbove);
-            _fsTripsCtxMenu.Items.Add(_fsTripsCtxInsertTripBelow);
+            _fsTripsCtxMenu.Items.Add(new ToolStripSeparator());
+            _fsTripsCtxMenu.Items.Add(_fsTripsCtxTripStatusMenu);
+            _fsTripsCtxMenu.Items.Add(new ToolStripSeparator());
+            _fsTripsCtxMenu.Items.Add(_fsTripsCtxNotesRowsMenu);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxAddRowMenu);
-            _fsTripsCtxMenu.Items.Add(_fsTripsCtxClearCut);
-            _fsTripsCtxMenu.Items.Add(new ToolStripSeparator());
-            _fsTripsCtxMenu.Items.Add(_fsTripsCtxAddNoteMenu);
-            _fsTripsCtxMenu.Items.Add(_fsTripsCtxEditNote);
-            _fsTripsCtxMenu.Items.Add(_fsTripsCtxChangeGroupColor);
-            _fsTripsCtxMenu.Items.Add(_fsTripsCtxResetGroupColor);
-            // Deterministic placement tools (OSRM + roster + rules) — not LLM chat.
-            _fsTripsCtxMenu.Items.Add(_fsTripsCtxSuggestDriver);
+            _fsTripsCtxMenu.Items.Add(_fsTripsCtxGroupMenu);
             _fsTripsCtxMenu.Items.Add(_fsTripsCtxAutoSortGroup);
-            _fsTripsCtxMenu.Items.Add(_fsTripsCtxGeocodeDriverHome);
-            _fsTripsCtxMenu.Items.Add(_fsTripsCtxEmailDriver);
             _fsTripsCtxMenu.Items.Add(new ToolStripSeparator());
-            _fsTripsCtxMenu.Items.Add(_fsTripsCtxFocusMap);
+            _fsTripsCtxMenu.Items.Add(_fsTripsCtxDriverMenu);
+            _fsTripsCtxMenu.Items.Add(_fsTripsCtxClientMenu);
 
             // Copy options hidden for now — kept in the menu so they can be re-enabled later.
             var copySeparator = new ToolStripSeparator { Visible = false };
@@ -356,6 +350,11 @@ namespace Hiatme_Tool_Suite_v3
             });
         }
 
+        private void FsTripsCtxMenu_Opening(object sender, System.ComponentModel.CancelEventArgs e)
+        {
+            FsPrepareTripsContextMenuState();
+        }
+
         private void FsTripsLv_MouseUp_ShowContextMenu(object sender, MouseEventArgs e)
         {
             if (e.Button != MouseButtons.Right || _fsTripsLv == null) return;
@@ -367,7 +366,6 @@ namespace Hiatme_Tool_Suite_v3
             if (_fsTripsCtxHitItem == null && _fsTripsLv.SelectedItems.Count > 0)
                 _fsTripsCtxHitItem = _fsTripsLv.SelectedItems[0];
 
-            FsBindContextTagsFromHitItem(_fsTripsCtxHitItem);
             if (_fsTripsCtxHitItem != null)
             {
                 // Right-clicking inside a selection keeps it, so cut and delete can act on the
@@ -379,6 +377,13 @@ namespace Hiatme_Tool_Suite_v3
                 _fsTripsCtxHitItem.Selected = true;
                 _fsTripsCtxHitItem.Focused = true;
             }
+
+            _fsTripsCtxMenu.Show(_fsTripsLv, e.Location);
+        }
+
+        private void FsPrepareTripsContextMenuState()
+        {
+            FsBindContextTagsFromHitItem(_fsTripsCtxHitItem);
 
             bool hasTrip = _fsTripsCtxTrip != null;
             bool isBanned = hasTrip && ScheduleBuilderBannedClients.IsBanned(_fsTripsCtxTrip);
@@ -445,7 +450,6 @@ namespace Hiatme_Tool_Suite_v3
             _fsTripsCtxRedo.Text = FsRedoMenuText();
             _fsTripsCtxAddRowAbove.Enabled = canInsertBlank;
             _fsTripsCtxAddRowBelow.Enabled = canInsertBlank;
-            _fsTripsCtxAddRowMenu.Enabled = canInsertBlank;
             _fsTripsCtxInsertTripAbove.Visible = FsHasCutTrip;
             _fsTripsCtxInsertTripBelow.Visible = FsHasCutTrip;
             _fsTripsCtxInsertTripAbove.Enabled = canInsertCut;
@@ -519,12 +523,13 @@ namespace Hiatme_Tool_Suite_v3
                 canAddAnySelectedToCancels = true;
 
             _fsTripsCtxAddToCancels.Enabled = canAddAnySelectedToCancels;
+            _fsTripsCtxAddToCancels.ToolTipText = "Moves the trip to Cancels without touching Modivcare.";
             if (alreadyInCancels && selectedTripCount <= 1)
                 _fsTripsCtxAddToCancels.Text = "Add to Cancels section (already there)";
             else if (selectedTripCount > 1)
-                _fsTripsCtxAddToCancels.Text = "Add " + selectedTripCount + " trips to Cancels section (no Modivcare)";
+                _fsTripsCtxAddToCancels.Text = "Add " + selectedTripCount + " trips to Cancels section";
             else
-                _fsTripsCtxAddToCancels.Text = "Add to Cancels section (no Modivcare)";
+                _fsTripsCtxAddToCancels.Text = "Add to Cancels section";
 
             bool canSuggestDriver = hasTrip && hasBuild && ScheduleOsrmGate.PreviewRoutingOk;
             _fsTripsCtxSuggestDriver.Enabled = canSuggestDriver;
@@ -549,7 +554,6 @@ namespace Hiatme_Tool_Suite_v3
             _fsTripsCtxAddNoteToRow.Enabled = canAddNoteToRow;
             _fsTripsCtxAddNoteAbove.Enabled = canAddNoteAbove;
             _fsTripsCtxAddNoteBelow.Enabled = canAddNoteBelow;
-            _fsTripsCtxAddNoteMenu.Enabled = canAddNoteToRow || canAddNoteAbove;
             var contextItem = FsResolveContextListItem();
             bool canEditNote = canMoveTrips && !isReserves
                 && ScheduleBuilderGapNotes.IsEditableNoteRow(
@@ -566,79 +570,61 @@ namespace Hiatme_Tool_Suite_v3
                 && colorLines != null
                 && ScheduleBuilderGroupColors.GetOverride(colorLines, _fsTripsCtxGroup.GroupNumber).HasValue;
             _fsTripsCtxResetGroupColor.Enabled = hasColorOverride;
-            if (canChangeGroupColor)
-            {
-                _fsTripsCtxChangeGroupColor.Text = "Change group color — group "
-                    + _fsTripsCtxGroup.GroupNumber;
-                _fsTripsCtxResetGroupColor.Text = "Reset group color — group "
-                    + _fsTripsCtxGroup.GroupNumber;
-            }
-            else
-            {
-                _fsTripsCtxChangeGroupColor.Text = "Change group color";
-                _fsTripsCtxResetGroupColor.Text = "Reset group color to default";
-            }
+            // The parent already reads "Color group 3", so repeating the group here just makes the
+            // flyout wide enough to cover the schedule behind it.
+            _fsTripsCtxChangeGroupColor.Text = "Pick color…";
+            _fsTripsCtxResetGroupColor.Text = "Reset to default";
 
             if (canSortGroup)
             {
                 _fsTripsCtxAutoSortGroup.Text = ScheduleOsrmGate.PreviewRoutingOk
-                    ? "Auto-sort group "
-                        + _fsTripsCtxGroup.GroupNumber + " for best route efficiency (100%)"
-                    : "Auto-sort group (road routing offline)";
+                    ? "Sort group " + _fsTripsCtxGroup.GroupNumber
+                    : "Sort group (routing offline)";
             }
             else
             {
-                _fsTripsCtxAutoSortGroup.Text = "Auto-sort group for best route efficiency (100%)";
+                _fsTripsCtxAutoSortGroup.Text = "Sort group";
             }
 
-            if (canGeocodeDriverHome && activeDriverProfile != null)
-            {
-                _fsTripsCtxGeocodeDriverHome.Text = "Geocode driver home — "
-                    + (activeDriverProfile.Name ?? _fsActiveDriverTab ?? "driver").Trim();
-            }
-            else if (!ScheduleOsrmGate.PreviewGeoOk && hasHomeAddress && !isReserves)
-            {
-                _fsTripsCtxGeocodeDriverHome.Text = "Geocode driver home (office server offline)";
-            }
-            else
-            {
-                _fsTripsCtxGeocodeDriverHome.Text = "Geocode driver home";
-            }
+            _fsTripsCtxGeocodeDriverHome.Text =
+                !ScheduleOsrmGate.PreviewGeoOk && hasHomeAddress && !isReserves
+                    ? "Geocode home (server offline)"
+                    : "Geocode home address";
 
             bool driverHasEmail = activeDriverProfile != null
                 && !string.IsNullOrWhiteSpace(activeDriverProfile.Email);
             bool canEmailDriver = hasBuild && !isReserves && driverHasEmail;
             _fsTripsCtxEmailDriver.Enabled = canEmailDriver;
-            if (canEmailDriver && activeDriverProfile != null)
-            {
-                _fsTripsCtxEmailDriver.Text = "Email schedule to driver — "
-                    + (activeDriverProfile.Name ?? _fsActiveDriverTab ?? "driver").Trim();
-            }
-            else if (hasBuild && !isReserves && activeDriverProfile != null)
-            {
-                _fsTripsCtxEmailDriver.Text = "Email schedule to driver (no email on roster)";
-            }
-            else
-            {
-                _fsTripsCtxEmailDriver.Text = "Email schedule to driver…";
-            }
+            _fsTripsCtxEmailDriver.Text =
+                !canEmailDriver && hasBuild && !isReserves && activeDriverProfile != null
+                    ? "Send schedule (no email on roster)"
+                    : "Send schedule…";
+
+            // The client's name belongs on the parent row, where it is visible before the flyout
+            // opens; the two actions inside then stay short and the same width.
+            _fsTripsCtxBanClient.Text = isBanned ? "Add to banned list (already banned)" : "Add to banned list";
+            _fsTripsCtxUnbanClient.Text = "Remove from banned list";
 
             if (hasTrip)
             {
                 string name = (_fsTripsCtxTrip.ClientFullName ?? "").Trim();
                 string age = string.IsNullOrWhiteSpace(_fsTripsCtxTrip.Age) ? "" : " · age " + _fsTripsCtxTrip.Age;
-                _fsTripsCtxBanClient.Text = isBanned
-                    ? "Ban client (already banned)"
+                _fsTripsCtxClientMenu.Text = name.Length == 0
+                    ? "Ban client"
                     : "Ban client — " + name + age;
-                _fsTripsCtxUnbanClient.Text = "Remove ban — " + name + age;
             }
             else
             {
-                _fsTripsCtxBanClient.Text = "Ban client";
-                _fsTripsCtxUnbanClient.Text = "Remove from banned list";
+                _fsTripsCtxClientMenu.Text = "Ban client";
             }
 
-            _fsTripsCtxMenu.Show(_fsTripsLv, e.Location);
+            _fsTripsCtxGroupMenu.Text = _fsTripsCtxGroup != null && !isReserves
+                ? "Color group " + _fsTripsCtxGroup.GroupNumber
+                : "Color group";
+
+            _fsTripsCtxDriverMenu.Text = activeDriverProfile != null && hasBuild && !isReserves
+                ? "Email driver — " + (activeDriverProfile.Name ?? _fsActiveDriverTab ?? "driver").Trim()
+                : "Email driver";
         }
 
         /// <summary>What a paste or insert would place: "trip 10001", or "3 trips" for a batch.</summary>

@@ -1,21 +1,45 @@
+using System;
 using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
 using System.Windows.Forms;
 
 namespace Hiatme_Tool_Suite_v3
 {
     /// <summary>
-    /// <see cref="ToolStripProfessionalRenderer"/> that follows the active <see cref="SupeyTheme"/> —
-    /// same surface/text/accent ladder as combos and ListViews. Apply with
-    /// <c>contextMenuStrip.Renderer = new DarkContextMenuRenderer();</c>.
+    /// Dark Supey context menu with a fixed layout grid — icons, labels, and arrows land on the
+    /// same columns in every row instead of letting WinForms guess from per-item padding.
     /// </summary>
     internal sealed class DarkContextMenuRenderer : ToolStripProfessionalRenderer
     {
         public static Color Background => SupeyTheme.SurfaceElevated;
         public static Color Border => SupeyTheme.BorderSubtle;
-        public static Color HoverFill => SupeyTheme.ListSelected;
         public static Color Separator => SupeyTheme.Divider;
         public static Color ForeColor => SupeyTheme.TextPrimary;
         public static Color DisabledForeColor => SupeyTheme.TextMuted;
+
+        /// <summary>Vertical padding inside each row (font height + this × 2 ≈ row height).</summary>
+        public const int RowPadV = 5;
+
+        /// <summary>Horizontal inset from the menu edge to the icon column.</summary>
+        public const int EdgePadH = 8;
+
+        /// <summary>Width reserved for the icon column; glyph is centered inside it.</summary>
+        public const int IconColumn = 22;
+
+        public const int IconSize = 16;
+
+        /// <summary>Gap between the icon column and the label.</summary>
+        public const int TextGap = 8;
+
+        /// <summary>Right reserve for submenu chevrons.</summary>
+        public const int ArrowColumn = 18;
+
+        /// <summary>Where item text starts — every label aligns here.</summary>
+        public static int TextLeft => EdgePadH + IconColumn + TextGap;
+
+        private const int HoverInset = 4;
+        private const int HoverRadius = 4;
 
         public DarkContextMenuRenderer()
             : base(new SupeyColorTable())
@@ -43,48 +67,168 @@ namespace Hiatme_Tool_Suite_v3
         protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e)
         {
             var item = e.Item;
-            var rect = new Rectangle(2, 0, item.Width - 4, item.Height);
-            Color fill = Background;
-            if (item is ToolStripMenuItem menuItem && menuItem.Checked && item.Enabled)
-                fill = Blend(Background, SupeyTheme.AccentPrimary, 0.22);
-            if (item.Selected && item.Enabled)
-                fill = HoverFill;
-            using (var brush = new SolidBrush(fill))
-                e.Graphics.FillRectangle(brush, rect);
+            var menuItem = item as ToolStripMenuItem;
+            bool isOpenParent = menuItem != null && menuItem.DropDown != null && menuItem.DropDown.Visible;
+            bool highlighted = item.Enabled && (item.Selected || isOpenParent);
+            bool isChecked = menuItem != null && menuItem.Checked && item.Enabled;
+
+            if (highlighted || isChecked)
+            {
+                var pill = new Rectangle(
+                    HoverInset,
+                    1,
+                    item.Width - (HoverInset * 2),
+                    item.Height - 2);
+                if (pill.Width > 0 && pill.Height > 0)
+                {
+                    var g = e.Graphics;
+                    g.SmoothingMode = SmoothingMode.AntiAlias;
+
+                    if (highlighted)
+                    {
+                        using (var path = RoundedRect(pill, HoverRadius))
+                        using (var brush = new SolidBrush(SupeyTheme.AccentPrimary))
+                            g.FillPath(brush, path);
+                    }
+                    else
+                    {
+                        using (var path = RoundedRect(pill, HoverRadius))
+                        using (var brush = new SolidBrush(Blend(Background, SupeyTheme.AccentPrimary, 0.14)))
+                            g.FillPath(brush, path);
+                    }
+
+                    g.SmoothingMode = SmoothingMode.Default;
+                }
+            }
+
+            // WinForms skips OnRenderItemImage when ShowImageMargin is false — paint here instead.
+            DrawItemIcon(e);
+        }
+
+        protected override void OnRenderItemImage(ToolStripItemImageRenderEventArgs e)
+        {
+            // Icons are drawn in OnRenderMenuItemBackground so they always appear.
+        }
+
+        private static void DrawItemIcon(ToolStripItemRenderEventArgs e)
+        {
+            var image = e.Item.Image;
+            if (image == null)
+                return;
+
+            var dest = IconBounds(e.Item);
+            Color tint = !e.Item.Enabled
+                ? DisabledForeColor
+                : e.Item.Selected ? SupeyTheme.OnAccentText : SupeyTheme.TextSecondary;
+            DrawTinted(e.Graphics, image, dest, tint);
         }
 
         protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
         {
-            if (e.Item is ToolStripMenuItem menuItem && menuItem.Checked && e.Item.Enabled)
-                e.TextColor = SupeyTheme.ListSelectedText;
+            var menuItem = e.Item as ToolStripMenuItem;
+            bool isOpenParent = menuItem != null && menuItem.DropDown != null && menuItem.DropDown.Visible;
+            bool hasArrow = menuItem != null && menuItem.HasDropDownItems;
+
+            int right = e.Item.Width - EdgePadH - (hasArrow ? ArrowColumn : 0);
+            e.TextRectangle = new Rectangle(TextLeft, 0, Math.Max(0, right - TextLeft), e.Item.Height);
+            e.TextFormat = TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.NoPrefix
+                | TextFormatFlags.EndEllipsis;
+
+            if (!e.Item.Enabled)
+                e.TextColor = DisabledForeColor;
+            else if (e.Item.Selected || isOpenParent)
+                e.TextColor = SupeyTheme.OnAccentText;
             else
-                e.TextColor = e.Item.Enabled ? ForeColor : DisabledForeColor;
+                e.TextColor = ForeColor;
+
             if (e.TextFont == null || e.TextFont == Control.DefaultFont)
                 e.TextFont = SupeyTheme.BodyFont;
+
             base.OnRenderItemText(e);
         }
 
         protected override void OnRenderSeparator(ToolStripSeparatorRenderEventArgs e)
         {
+            int left = TextLeft;
+            int right = e.Item.Width - EdgePadH;
+            if (right <= left)
+            {
+                left = EdgePadH;
+                right = e.Item.Width - EdgePadH;
+            }
+
             using (var pen = new Pen(Separator))
             {
                 int y = e.Item.Height / 2;
-                e.Graphics.DrawLine(pen, 4, y, e.Item.Width - 4, y);
+                e.Graphics.DrawLine(pen, left, y, right, y);
             }
         }
 
         protected override void OnRenderImageMargin(ToolStripRenderEventArgs e)
         {
-            using (var bg = new SolidBrush(Background))
-                e.Graphics.FillRectangle(bg, e.AffectedBounds);
+            // Layout is handled in OnRenderItemImage — no separate margin strip.
         }
 
         protected override void OnRenderArrow(ToolStripArrowRenderEventArgs e)
         {
-            e.ArrowColor = e.Item.Selected && e.Item.Enabled
-                ? SupeyTheme.ListSelectedText
-                : SupeyTheme.TextSecondary;
+            bool live = e.Item.Enabled && e.Item.Selected;
+            e.ArrowColor = !e.Item.Enabled
+                ? DisabledForeColor
+                : live ? SupeyTheme.OnAccentText : SupeyTheme.TextSecondary;
+
+            int w = 8;
+            int h = 10;
+            int x = e.Item.Width - EdgePadH - w;
+            int y = (e.Item.Height - h) / 2;
+            e.ArrowRectangle = new Rectangle(x, y, w, h);
             base.OnRenderArrow(e);
+        }
+
+        /// <summary>Pixel box where every menu glyph is drawn — centered in the icon column.</summary>
+        public static Rectangle IconBounds(ToolStripItem item)
+        {
+            int x = EdgePadH + (IconColumn - IconSize) / 2;
+            int y = (item.Height - IconSize) / 2;
+            return new Rectangle(x, y, IconSize, IconSize);
+        }
+
+        private static void DrawTinted(Graphics g, Image image, Rectangle dest, Color color)
+        {
+            using (var attrs = new ImageAttributes())
+            {
+                attrs.SetRemapTable(new[]
+                {
+                    new ColorMap { OldColor = Color.White, NewColor = color },
+                    new ColorMap { OldColor = Color.FromArgb(255, 255, 255), NewColor = color },
+                });
+                g.DrawImage(
+                    image,
+                    dest,
+                    0,
+                    0,
+                    image.Width,
+                    image.Height,
+                    GraphicsUnit.Pixel,
+                    attrs);
+            }
+        }
+
+        private static GraphicsPath RoundedRect(Rectangle r, int radius)
+        {
+            int d = radius * 2;
+            var path = new GraphicsPath();
+            if (d <= 0 || r.Width <= d || r.Height <= d)
+            {
+                path.AddRectangle(r);
+                return path;
+            }
+
+            path.AddArc(r.X, r.Y, d, d, 180, 90);
+            path.AddArc(r.Right - d, r.Y, d, d, 270, 90);
+            path.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
+            path.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
+            path.CloseFigure();
+            return path;
         }
 
         private static Color Blend(Color a, Color b, double amountB)
@@ -104,10 +248,13 @@ namespace Hiatme_Tool_Suite_v3
             public override Color ImageMarginGradientMiddle => Background;
             public override Color ImageMarginGradientEnd => Background;
             public override Color MenuBorder => Border;
-            public override Color MenuItemBorder => HoverFill;
-            public override Color MenuItemSelected => HoverFill;
-            public override Color MenuItemSelectedGradientBegin => HoverFill;
-            public override Color MenuItemSelectedGradientEnd => HoverFill;
+            public override Color MenuItemBorder => Color.Transparent;
+            public override Color MenuItemSelected => Background;
+            public override Color MenuItemSelectedGradientBegin => Background;
+            public override Color MenuItemSelectedGradientEnd => Background;
+            public override Color MenuItemPressedGradientBegin => Background;
+            public override Color MenuItemPressedGradientMiddle => Background;
+            public override Color MenuItemPressedGradientEnd => Background;
             public override Color SeparatorDark => Separator;
             public override Color SeparatorLight => Separator;
             public override Color MenuStripGradientBegin => Background;

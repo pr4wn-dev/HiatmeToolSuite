@@ -519,6 +519,7 @@
       <SubType>Component</SubType>
     </Compile>
     <Compile Include="MenuIconFactory.cs" />
+    <Compile Include="SupeyMenuGlyphs.cs" />
     <Compile Include="DriverPickerForm.cs">
       <SubType>Form</SubType>
     </Compile>

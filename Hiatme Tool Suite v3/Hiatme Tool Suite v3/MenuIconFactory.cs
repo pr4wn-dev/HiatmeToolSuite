@@ -22,6 +22,16 @@ namespace Hiatme_Tool_Suite_v3
         private static Bitmap _openDocIcon;
         private static Bitmap _loadFormIcon;
         private static Bitmap _filterDriverIcon;
+        private static Bitmap _cutIcon;
+        private static Bitmap _undoIcon;
+        private static Bitmap _redoIcon;
+        private static Bitmap _noteIcon;
+        private static Bitmap _rowIcon;
+        private static Bitmap _paletteIcon;
+        private static Bitmap _routeIcon;
+        private static Bitmap _rerouteIcon;
+        private static Bitmap _emailIcon;
+        private static Bitmap _reservesIcon;
 
         private const int IconSize = 20;
         private static readonly Color PersonColor = Color.FromArgb(220, 220, 220);
@@ -105,6 +115,76 @@ namespace Hiatme_Tool_Suite_v3
             if (_filterDriverIcon == null)
                 _filterDriverIcon = BuildFilterDriverIcon();
             return _filterDriverIcon;
+        }
+
+        public static Bitmap GetCutIcon()
+        {
+            if (_cutIcon == null)
+                _cutIcon = BuildCutIcon();
+            return _cutIcon;
+        }
+
+        public static Bitmap GetUndoIcon()
+        {
+            if (_undoIcon == null)
+                _undoIcon = BuildUndoIcon();
+            return _undoIcon;
+        }
+
+        public static Bitmap GetRedoIcon()
+        {
+            if (_redoIcon == null)
+                _redoIcon = BuildRedoIcon();
+            return _redoIcon;
+        }
+
+        public static Bitmap GetNoteIcon()
+        {
+            if (_noteIcon == null)
+                _noteIcon = BuildNoteIcon();
+            return _noteIcon;
+        }
+
+        public static Bitmap GetRowIcon()
+        {
+            if (_rowIcon == null)
+                _rowIcon = BuildRowIcon();
+            return _rowIcon;
+        }
+
+        public static Bitmap GetPaletteIcon()
+        {
+            if (_paletteIcon == null)
+                _paletteIcon = BuildPaletteIcon();
+            return _paletteIcon;
+        }
+
+        public static Bitmap GetRouteIcon()
+        {
+            if (_routeIcon == null)
+                _routeIcon = BuildRouteIcon();
+            return _routeIcon;
+        }
+
+        public static Bitmap GetRerouteIcon()
+        {
+            if (_rerouteIcon == null)
+                _rerouteIcon = BuildRerouteIcon();
+            return _rerouteIcon;
+        }
+
+        public static Bitmap GetEmailIcon()
+        {
+            if (_emailIcon == null)
+                _emailIcon = BuildEmailIcon();
+            return _emailIcon;
+        }
+
+        public static Bitmap GetReservesIcon()
+        {
+            if (_reservesIcon == null)
+                _reservesIcon = BuildReservesIcon();
+            return _reservesIcon;
         }
 
         private static Bitmap BuildOpenDocIcon()
@@ -401,6 +481,220 @@ namespace Hiatme_Tool_Suite_v3
                 g.DrawLine(pen, 13.5f, 12.5f, 17.5f, 16.5f);
                 g.DrawLine(pen, 17.5f, 12.5f, 13.5f, 16.5f);
             }
+        }
+
+        private static Bitmap BuildCutIcon()
+        {
+            var bmp = new Bitmap(IconSize, IconSize);
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                g.Clear(Color.Transparent);
+                using (var pen = new Pen(Color.FromArgb(255, 183, 77), 2f)
+                {
+                    StartCap = LineCap.Round,
+                    EndCap = LineCap.Round,
+                })
+                {
+                    g.DrawLine(pen, 3f, 15f, 9f, 9f);
+                    g.DrawLine(pen, 9f, 9f, 15f, 3f);
+                    g.DrawLine(pen, 9f, 9f, 15f, 15f);
+                    g.DrawLine(pen, 9f, 9f, 3f, 3f);
+                }
+                using (var ring = new Pen(CopyPaperFill, 1.6f))
+                {
+                    g.DrawEllipse(ring, 1, 11, 5, 5);
+                    g.DrawEllipse(ring, 14, 1, 5, 5);
+                }
+            }
+            return bmp;
+        }
+
+        private static Bitmap BuildUndoIcon() => BuildArrowIcon(clockwise: false);
+
+        private static Bitmap BuildRedoIcon() => BuildArrowIcon(clockwise: true);
+
+        private static Bitmap BuildArrowIcon(bool clockwise)
+        {
+            var bmp = new Bitmap(IconSize, IconSize);
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                g.Clear(Color.Transparent);
+                using (var pen = new Pen(CopyPaperFill, 2f)
+                {
+                    StartCap = LineCap.Round,
+                    EndCap = LineCap.ArrowAnchor,
+                })
+                    g.DrawArc(pen, 3, 3, 14, 14, clockwise ? 45 : 135, clockwise ? 250 : -250);
+            }
+            return bmp;
+        }
+
+        private static Bitmap BuildNoteIcon()
+        {
+            var bmp = new Bitmap(IconSize, IconSize);
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                g.Clear(Color.Transparent);
+                var rect = new Rectangle(3, 2, 14, 16);
+                using (var fill = new SolidBrush(Color.FromArgb(255, 235, 130)))
+                using (var edge = new Pen(BadgeOutline, 1.1f))
+                using (var line = new Pen(Color.FromArgb(120, 90, 20), 1f))
+                {
+                    g.FillRectangle(fill, rect);
+                    g.DrawRectangle(edge, rect);
+                    g.DrawLine(line, 5, 6, 15, 6);
+                    g.DrawLine(line, 5, 9, 13, 9);
+                    g.DrawLine(line, 5, 12, 11, 12);
+                }
+            }
+            return bmp;
+        }
+
+        private static Bitmap BuildRowIcon()
+        {
+            var bmp = new Bitmap(IconSize, IconSize);
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                g.Clear(Color.Transparent);
+                using (var pen = new Pen(CopyPaperFill, 1.6f)
+                {
+                    StartCap = LineCap.Round,
+                    EndCap = LineCap.Round,
+                })
+                {
+                    g.DrawLine(pen, 2, 6, 18, 6);
+                    g.DrawLine(pen, 2, 10, 18, 10);
+                    g.DrawLine(pen, 2, 14, 18, 14);
+                }
+                using (var plus = new Pen(AssignBadge, 1.8f)
+                {
+                    StartCap = LineCap.Round,
+                    EndCap = LineCap.Round,
+                })
+                {
+                    g.DrawLine(plus, 16, 4, 16, 8);
+                    g.DrawLine(plus, 14, 6, 18, 6);
+                }
+            }
+            return bmp;
+        }
+
+        private static Bitmap BuildPaletteIcon()
+        {
+            var bmp = new Bitmap(IconSize, IconSize);
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                g.Clear(Color.Transparent);
+                using (var edge = new Pen(BadgeOutline, 1.1f))
+                {
+                    g.FillEllipse(new SolidBrush(Color.FromArgb(229, 57, 53)), 3, 4, 5, 5);
+                    g.FillEllipse(new SolidBrush(AssignBadge), 9, 3, 5, 5);
+                    g.FillEllipse(new SolidBrush(LocateBadge), 12, 9, 5, 5);
+                    g.FillEllipse(new SolidBrush(Color.FromArgb(255, 193, 7)), 6, 10, 5, 5);
+                    g.DrawEllipse(edge, 2, 2, 16, 16);
+                }
+            }
+            return bmp;
+        }
+
+        private static Bitmap BuildRouteIcon()
+        {
+            var bmp = new Bitmap(IconSize, IconSize);
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                g.Clear(Color.Transparent);
+                using (var pen = new Pen(AssignBadge, 1.8f)
+                {
+                    StartCap = LineCap.Round,
+                    EndCap = LineCap.Round,
+                })
+                    g.DrawLines(pen, new[]
+                    {
+                        new PointF(3f, 14f), new PointF(8f, 8f),
+                        new PointF(12f, 11f), new PointF(17f, 4f),
+                    });
+                using (var dot = new SolidBrush(LocateBadge))
+                {
+                    g.FillEllipse(dot, 2, 13, 3, 3);
+                    g.FillEllipse(dot, 16, 3, 3, 3);
+                }
+            }
+            return bmp;
+        }
+
+        private static Bitmap BuildRerouteIcon()
+        {
+            var bmp = new Bitmap(IconSize, IconSize);
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                g.Clear(Color.Transparent);
+                using (var pen = new Pen(Color.FromArgb(255, 152, 0), 2f)
+                {
+                    StartCap = LineCap.Round,
+                    EndCap = LineCap.ArrowAnchor,
+                })
+                    g.DrawArc(pen, 2, 4, 12, 12, 180, 200);
+            }
+            return bmp;
+        }
+
+        private static Bitmap BuildEmailIcon()
+        {
+            var bmp = new Bitmap(IconSize, IconSize);
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                g.Clear(Color.Transparent);
+                var env = new Rectangle(2, 5, 16, 11);
+                using (var fill = new SolidBrush(CopyPaperFill))
+                using (var edge = new Pen(BadgeOutline, 1.2f))
+                using (var flap = new Pen(LocateBadge, 1.4f)
+                {
+                    StartCap = LineCap.Round,
+                    EndCap = LineCap.Round,
+                })
+                {
+                    g.FillRectangle(fill, env);
+                    g.DrawRectangle(edge, env);
+                    g.DrawLine(flap, 2, 5, 10, 11);
+                    g.DrawLine(flap, 18, 5, 10, 11);
+                    g.DrawLine(flap, 10, 11, 10, 16);
+                }
+            }
+            return bmp;
+        }
+
+        private static Bitmap BuildReservesIcon()
+        {
+            var bmp = new Bitmap(IconSize, IconSize);
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                g.Clear(Color.Transparent);
+                var tray = new Rectangle(2, 6, 16, 11);
+                using (var fill = new SolidBrush(Color.FromArgb(180, 180, 180)))
+                using (var edge = new Pen(BadgeOutline, 1.2f))
+                using (var arrow = new Pen(LocateBadge, 1.8f)
+                {
+                    StartCap = LineCap.Round,
+                    EndCap = LineCap.ArrowAnchor,
+                })
+                {
+                    g.FillRectangle(fill, tray);
+                    g.DrawRectangle(edge, tray);
+                    g.DrawLine(arrow, 10, 2, 10, 6);
+                    g.DrawLine(arrow, 7, 4, 10, 2);
+                    g.DrawLine(arrow, 13, 4, 10, 2);
+                }
+            }
+            return bmp;
         }
     }
 }

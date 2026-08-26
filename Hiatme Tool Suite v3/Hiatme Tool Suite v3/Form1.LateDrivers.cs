@@ -1982,12 +1982,12 @@ namespace Hiatme_Tool_Suite_v3
                         // Modivcare portal — its HttpClient has no timeout and freezes the app
                         // on off-days / empty calendar dates.
                         SetLateDriversStatus("Status: Checking Modivcare day file for " + sd + "…");
-                        var ensured = await EnsureModivcareDaySnapshotAsync(settings, sd)
-                            .ConfigureAwait(true);
-                        if (!ensured.Ok)
-                        {
-                            SetLateDriversStatus("Status: " + ensured.Message);
-                            return;
+                    var ensured = await EnsureModivcareDaySnapshotAsync(settings, sd)
+                        .ConfigureAwait(true);
+                    if (!ensured.Ok)
+                    {
+                        SetLateDriversStatus("Status: " + ensured.Message);
+                        return;
                         }
                         SetLateDriversStatus("Status: " + ensured.Message
                             + (ensured.Downloaded ? "" : " · uploading schedule assignments…"));
@@ -3078,7 +3078,7 @@ namespace Hiatme_Tool_Suite_v3
             foreach (string k in _ldAlertChirpKeys)
             {
                 if (string.IsNullOrEmpty(k))
-                    continue;
+                        continue;
                 string[] parts = k.Split('|');
                 if (parts.Length < 2)
                     continue;
@@ -3307,9 +3307,9 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>Repaint every surface that participates in the alert blink.</summary>
         private void ApplyLateDriversAlertBlinkPhase()
         {
-            ApplyLateDriversDriverAlertBlinkPhase();
+                ApplyLateDriversDriverAlertBlinkPhase();
             ApplyLateDriversScoreAlertBlinkPhase();
-            ApplyLateDriversTripAlertBlinkPhase();
+                ApplyLateDriversTripAlertBlinkPhase();
         }
 
         private void SyncLateDriversDriverAlertBlink()
@@ -3595,10 +3595,10 @@ namespace Hiatme_Tool_Suite_v3
                 bool alert = LateDriversEventNeedsCallAlert(row);
                 if (alert && _ldDriverAlertBlinkOn)
                 {
-                    anyHot = true;
+                anyHot = true;
                     Color flash = LateDriversAlertFlashColor();
-                    if (item.BackColor != flash)
-                        item.BackColor = flash;
+                if (item.BackColor != flash)
+                    item.BackColor = flash;
                     continue;
                 }
 
@@ -3850,10 +3850,10 @@ namespace Hiatme_Tool_Suite_v3
                 }
             }
 
-            StyleLateDriversDriverTiles();
-            UpdateLateDriversTripCaption();
-            RefreshLateDriversScorecard();
-            BindLateDriversTripPane();
+                StyleLateDriversDriverTiles();
+                UpdateLateDriversTripCaption();
+                RefreshLateDriversScorecard();
+                BindLateDriversTripPane();
             SyncLateDriversDriverAlertBlink();
 
             if (!string.IsNullOrWhiteSpace(focusTripNo))
@@ -5403,11 +5403,11 @@ namespace Hiatme_Tool_Suite_v3
 
             var item = new ListViewItem("—");
             item.SubItems.Add(e.ServiceDate ?? "");
-            item.SubItems.Add(e.TripNo ?? "");
+                    item.SubItems.Add(e.TripNo ?? "");
             if (showDriver)
                 item.SubItems.Add(driver);
             item.SubItems.Add(habit);
-            item.SubItems.Add(e.Client ?? "");
+                    item.SubItems.Add(e.Client ?? "");
             item.SubItems.Add(LateDriversBlankDash(puStreet));
             item.SubItems.Add(LateDriversBlankDash(puCity));
             item.SubItems.Add(schedPu);
@@ -5416,24 +5416,24 @@ namespace Hiatme_Tool_Suite_v3
             item.SubItems.Add(LateDriversBlankDash(doCity));
             item.SubItems.Add(schedDo);
             item.SubItems.Add(actDo);
-            bool noActual = string.IsNullOrWhiteSpace(e.ActualIso);
-            string minsText = noActual && e.Open
-                ? "—"
+                    bool noActual = string.IsNullOrWhiteSpace(e.ActualIso);
+                    string minsText = noActual && e.Open
+                        ? "—"
                 : LateDriversDisplayHabitMinutes(e).ToString("0", CultureInfo.InvariantCulture) + "m";
-            item.SubItems.Add(minsText);
+                    item.SubItems.Add(minsText);
             string status = !string.IsNullOrWhiteSpace(wr?.Status)
                 ? wr.Status.Trim()
                 : (!string.IsNullOrWhiteSpace(e.StatusLatest) ? e.StatusLatest.Trim() : "");
             item.SubItems.Add(string.IsNullOrEmpty(status) ? "—" : status);
-            item.SubItems.Add(e.Open ? "Open" : "Closed");
-            item.Tag = e;
-            string hk = HabitKeyOf(e);
-            if (e.Open)
-                item.ForeColor = Color.FromArgb(200, 80, 60);
-            else if (hk.StartsWith("early", StringComparison.Ordinal))
-                item.ForeColor = Color.FromArgb(180, 120, 40);
+                    item.SubItems.Add(e.Open ? "Open" : "Closed");
+                    item.Tag = e;
+                    string hk = HabitKeyOf(e);
+                    if (e.Open)
+                        item.ForeColor = Color.FromArgb(200, 80, 60);
+                    else if (hk.StartsWith("early", StringComparison.Ordinal))
+                        item.ForeColor = Color.FromArgb(180, 120, 40);
             else if (hk == "unfinished_ticket" || hk == "billed_too_soon")
-                item.ForeColor = Color.FromArgb(160, 90, 40);
+                        item.ForeColor = Color.FromArgb(160, 90, 40);
             return item;
         }
 
@@ -5553,10 +5553,10 @@ namespace Hiatme_Tool_Suite_v3
                                 | TextFormatFlags.VerticalCenter
                                 | TextFormatFlags.EndEllipsis
                                 | TextFormatFlags.NoPrefix);
-                    }
                 }
-                finally
-                {
+            }
+            finally
+            {
                     if (!ReferenceEquals(drawFont, font))
                         drawFont.Dispose();
                 }

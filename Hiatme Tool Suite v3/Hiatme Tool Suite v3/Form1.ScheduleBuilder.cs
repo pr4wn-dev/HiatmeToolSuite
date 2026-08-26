@@ -648,28 +648,66 @@ namespace Hiatme_Tool_Suite_v3
 
 
         private void SetScheduleBuilderStatus(string text)
-
         {
-
-            if (_fsToolbarStatusLbl == null) return;
-
             if (InvokeRequired)
-
             {
-
                 try { BeginInvoke((Action)(() => SetScheduleBuilderStatus(text))); }
-
                 catch { /* form closing */ }
-
                 return;
-
             }
 
             string msg = text ?? "";
-            _fsToolbarStatusLbl.Text = msg;
-            if (sbstatuslbl != null && !sbstatuslbl.IsDisposed)
-                sbstatuslbl.Text = msg;
+            if (_fsToolbarStatusLbl != null && !_fsToolbarStatusLbl.IsDisposed)
+                _fsToolbarStatusLbl.Text = msg;
 
+            if (sbstatuslbl != null && !sbstatuslbl.IsDisposed)
+            {
+                sbstatuslbl.Text = msg;
+                sbstatuslbl.ForeColor = SupeyTheme.TextSecondary;
+            }
+        }
+
+        /// <summary>
+        /// After ASSIGN — bottom status bar shows WellRyde Assigned / Reserved counts (same as Analyze Trips).
+        /// </summary>
+        private void SetScheduleBuilderAssignCompleteStatus(FsWellRydeAssignResult plan)
+        {
+            if (plan == null)
+                return;
+
+            if (InvokeRequired)
+            {
+                try { BeginInvoke((Action)(() => SetScheduleBuilderAssignCompleteStatus(plan))); }
+                catch { /* form closing */ }
+                return;
+            }
+
+            string sent = plan.SentSlots == 1 ? "1 trip sent" : plan.SentSlots.ToString() + " trips sent";
+            string counts = plan.AssignedOnWellRyde.ToString() + " Assigned · "
+                + plan.ReservedOnWellRyde.ToString() + " Reserved";
+
+            string bottom;
+            if (!plan.PortalWritesEnabled)
+                bottom = "Assign preview · " + sent + " · WellRyde shows " + counts + " (portal not updated)";
+            else if (plan.SentSlots > 0)
+                bottom = "Assign complete · " + sent + " · WellRyde now " + counts;
+            else
+                bottom = "Assign finished · no driver-tab trips sent · WellRyde now " + counts;
+
+            if (_fsToolbarStatusLbl != null && !_fsToolbarStatusLbl.IsDisposed)
+                _fsToolbarStatusLbl.Text = bottom;
+
+            if (sbstatuslbl != null && !sbstatuslbl.IsDisposed)
+            {
+                sbstatuslbl.Text = bottom;
+                sbstatuslbl.ForeColor = plan.PortalWritesEnabled && plan.SentSlots > 0
+                    ? SupeyTheme.SuccessText
+                    : SupeyTheme.TextPrimary;
+
+                var fill = materialCard15?.Controls["sbStatusFillPanel"] as Panel;
+                if (fill != null)
+                    LayoutStatusLabelInCard(fill, sbstatuslbl);
+            }
         }
 
         /// <summary>
