@@ -579,6 +579,15 @@ namespace Hiatme_Tool_Suite_v3
             PositionMileageHudHost();
         }
 
+        public event Action MileageWindowPinClick;
+        public event Action MileageWindowDockClick;
+        public event Action MileageWindowHideClick;
+
+        public void SetMileageHudWindowActions(bool visible, bool pinned)
+        {
+            _mileageHud?.SetWindowActions(visible, pinned);
+        }
+
         public void ClearMileageHud()
         {
             _mileageHud?.HideHud();
@@ -631,6 +640,9 @@ namespace Hiatme_Tool_Suite_v3
         private void BuildMileageHud()
         {
             _mileageHud = new ScheduleBuilderMapMileageHud();
+            _mileageHud.PinClicked += () => MileageWindowPinClick?.Invoke();
+            _mileageHud.DockClicked += () => MileageWindowDockClick?.Invoke();
+            _mileageHud.HideClicked += () => MileageWindowHideClick?.Invoke();
             Controls.Add(_mileageHud);
             Resize += (s, e) => PositionMileageHudHost();
         }

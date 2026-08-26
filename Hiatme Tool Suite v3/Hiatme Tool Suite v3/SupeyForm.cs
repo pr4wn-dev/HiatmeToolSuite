@@ -42,6 +42,12 @@ namespace Hiatme_Tool_Suite_v3
 
         public const int TitleBarHeight = 64;
 
+        /// <summary>Painted title height. Floating map uses a compact override.</summary>
+        protected virtual int ChromeTitleHeight => TitleBarHeight;
+
+        /// <summary>Extra right-side title reserve for form-owned action buttons.</summary>
+        protected virtual int TitleBarExtraRightReserve => 0;
+
 
 
         /// <summary>Resize hit target width — matches MaterialSkin <c>BORDER_WIDTH</c>.</summary>
@@ -765,7 +771,7 @@ namespace Hiatme_Tool_Suite_v3
                 return;
 
             int left = Math.Max(_contentLeftGutter, _contentSidePad);
-            int top = TitleBarHeight;
+            int top = ChromeTitleHeight;
             int rightInset = Math.Max(_contentSidePad, _contentRightGutter);
             int w = Math.Max(0, ClientSize.Width - left - rightInset);
             int h = Math.Max(0, ClientSize.Height - top - _contentSidePad);
@@ -781,11 +787,13 @@ namespace Hiatme_Tool_Suite_v3
 
         // ── Window-button geometry ───────────────────────────────────────────────
 
-        private Rectangle CloseRectFor(int barWidth) => new Rectangle(barWidth - ButtonWidth, 0, ButtonWidth, 30);
+        private int WindowButtonHeight => ChromeTitleHeight <= 40 ? ChromeTitleHeight : 30;
 
-        private Rectangle MaxRectFor(int barWidth) => new Rectangle(barWidth - ButtonWidth * 2, 0, ButtonWidth, 30);
+        private Rectangle CloseRectFor(int barWidth) => new Rectangle(barWidth - ButtonWidth, 0, ButtonWidth, WindowButtonHeight);
 
-        private Rectangle MinRectFor(int barWidth) => new Rectangle(barWidth - ButtonWidth * 3, 0, ButtonWidth, 30);
+        private Rectangle MaxRectFor(int barWidth) => new Rectangle(barWidth - ButtonWidth * 2, 0, ButtonWidth, WindowButtonHeight);
+
+        private Rectangle MinRectFor(int barWidth) => new Rectangle(barWidth - ButtonWidth * 3, 0, ButtonWidth, WindowButtonHeight);
 
         private Rectangle CloseRect => CloseRectFor(ClientSize.Width);
 
@@ -809,7 +817,7 @@ namespace Hiatme_Tool_Suite_v3
 
                 int x = Math.Max(4, (TitleLeadingGutterWidth - NavMenuButtonWidth) / 2);
 
-                int y = (TitleBarHeight - NavMenuButtonHeight) / 2;
+                int y = (ChromeTitleHeight - NavMenuButtonHeight) / 2;
 
                 return new Rectangle(x, y, NavMenuButtonWidth, NavMenuButtonHeight);
 
@@ -929,7 +937,7 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-            if (ControlBox && p.Y <= 30)
+            if (ControlBox && p.Y <= WindowButtonHeight)
 
             {
 
@@ -949,7 +957,7 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-        private bool IsOverCaption(Point p) => p.Y <= TitleBarHeight && !IsTitleBarInteractivePoint(p);
+        private bool IsOverCaption(Point p) => p.Y <= ChromeTitleHeight && !IsTitleBarInteractivePoint(p);
 
 
 
@@ -1203,7 +1211,7 @@ namespace Hiatme_Tool_Suite_v3
 
         private Rectangle TitleBarBounds =>
 
-            new Rectangle(0, 0, Math.Max(1, ClientSize.Width), TitleBarHeight);
+            new Rectangle(0, 0, Math.Max(1, ClientSize.Width), ChromeTitleHeight);
 
 
 
@@ -1435,7 +1443,7 @@ namespace Hiatme_Tool_Suite_v3
 
             UpdateResizeHit(e.Location);
 
-            if (e.Y <= TitleBarHeight)
+            if (e.Y <= ChromeTitleHeight)
 
                 ProcessTitleBarMouseMove(e.Location);
 
@@ -1513,7 +1521,7 @@ namespace Hiatme_Tool_Suite_v3
 
             base.OnMouseClick(e);
 
-            if (e.Y <= TitleBarHeight)
+            if (e.Y <= ChromeTitleHeight)
 
                 ProcessTitleBarMouseClick(e.Location, e.Button);
 
@@ -1535,7 +1543,7 @@ namespace Hiatme_Tool_Suite_v3
 
             _hoverButton = -1;
 
-            if (ControlBox && p.Y <= 30)
+            if (ControlBox && p.Y <= WindowButtonHeight)
 
             {
 
@@ -1785,7 +1793,7 @@ namespace Hiatme_Tool_Suite_v3
 
             using (var header = new SolidBrush(SupeyTheme.SurfaceHeader))
 
-                g.FillRectangle(header, 0, 0, w, TitleBarHeight);
+                g.FillRectangle(header, 0, 0, w, ChromeTitleHeight);
 
 
 
@@ -1793,11 +1801,11 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-            if (h > TitleBarHeight)
+            if (h > ChromeTitleHeight)
 
             {
 
-                int bodyTop = TitleBarHeight;
+                int bodyTop = ChromeTitleHeight;
 
                 int bodyH = h - bodyTop;
 
@@ -1831,13 +1839,13 @@ namespace Hiatme_Tool_Suite_v3
 
         {
 
-            var bar = new Rectangle(0, 0, Math.Max(1, barWidth), TitleBarHeight);
+            var bar = new Rectangle(0, 0, Math.Max(1, barWidth), ChromeTitleHeight);
 
 
 
             using (var divider = new Pen(SupeyTheme.Divider))
 
-                g.DrawLine(divider, 0, TitleBarHeight - 1, bar.Width, TitleBarHeight - 1);
+                g.DrawLine(divider, 0, ChromeTitleHeight - 1, bar.Width, ChromeTitleHeight - 1);
 
 
 
@@ -1991,7 +1999,7 @@ namespace Hiatme_Tool_Suite_v3
 
         {
 
-            int right = barWidth - ButtonWidth * 3 - 8;
+            int right = barWidth - ButtonWidth * 3 - 8 - TitleBarExtraRightReserve;
 
             var ai = AiButtonRectFor(barWidth);
 
@@ -2029,7 +2037,7 @@ namespace Hiatme_Tool_Suite_v3
 
                 using (var bmp = Icon.ToBitmap())
 
-                    g.DrawImage(bmp, x, (TitleBarHeight - 20) / 2, 20, 20);
+                    g.DrawImage(bmp, x, (ChromeTitleHeight - 20) / 2, 20, 20);
 
                 x += 28;
 
@@ -2037,7 +2045,7 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-            var rect = new Rectangle(x, 0, Math.Max(0, TitleTextRight(barWidth) - x), TitleBarHeight);
+            var rect = new Rectangle(x, 0, Math.Max(0, TitleTextRight(barWidth) - x), ChromeTitleHeight);
 
             TextRenderer.DrawText(g, Text ?? string.Empty, SupeyTheme.HeaderFont, rect,
 

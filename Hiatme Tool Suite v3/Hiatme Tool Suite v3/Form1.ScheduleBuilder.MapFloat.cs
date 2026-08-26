@@ -11,6 +11,7 @@ namespace Hiatme_Tool_Suite_v3
         private ScheduleBuilderMapFloatForm _fsMapFloatForm;
         private SupeyButton _fsMapFloatBtn;
         private SupeyButton _fsMapHideBtn;
+        private SupeyButton _fsOptionsBtn;
         private SupeyButton _fsMapDockFloatChip;
         private bool _fsMapFloating = true;
         private bool _fsMapUiVisible = true;
@@ -245,8 +246,8 @@ namespace Hiatme_Tool_Suite_v3
                 return _fsMapFloatForm;
 
             var form = new ScheduleBuilderMapFloatForm();
-            form.DockRequested += () => SetFsMapFloating(false);
             form.HideRequested += HideFsMap;
+            form.DockRequested += () => SetFsMapFloating(false);
             form.PinChanged += () =>
             {
                 _fsMapFloatTopMost = form.Pinned;
@@ -301,9 +302,9 @@ namespace Hiatme_Tool_Suite_v3
 
         private void UpdateFsMapPresentationButtons()
         {
+            bool floatingShown = _fsMapUiVisible && _fsMapFloating;
             if (_fsMapFloatBtn != null)
             {
-                bool floatingShown = _fsMapUiVisible && _fsMapFloating;
                 _fsMapFloatBtn.Text = floatingShown ? "Dock map" : "Float map";
                 _fsMapFloatBtn.Kind = floatingShown
                     ? SupeyButton.Variant.Primary
@@ -317,6 +318,15 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             UpdateFsDockedMapFloatChip();
+            _fsMap?.SetMileageHudWindowActions(false, false);
+        }
+
+        private void OnFsMileageWindowPinClick()
+        {
+            var form = EnsureFsMapFloatForm();
+            if (form == null)
+                return;
+            form.Pinned = !form.Pinned;
         }
 
         private void EnsureFsDockedMapFloatChip()
@@ -357,7 +367,7 @@ namespace Hiatme_Tool_Suite_v3
 
             _fsMapDockFloatChip.Location = new Point(
                 Math.Max(8, _fsMapWorkPanel.ClientSize.Width - _fsMapDockFloatChip.Width - 10),
-                10);
+                ScheduleBuilderMapMileageHud.StripHeight + 8);
             _fsMapDockFloatChip.BringToFront();
         }
 

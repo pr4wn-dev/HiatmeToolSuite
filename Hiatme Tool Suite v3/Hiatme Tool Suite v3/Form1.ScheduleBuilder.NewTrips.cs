@@ -27,10 +27,9 @@ namespace Hiatme_Tool_Suite_v3
         {
             _fsSyncNewTripsBtn = new SupeyToolbarIconButton
             {
-                Size = new Size(26, 26),
-                Margin = new Padding(0, 0, 4, 0),
+                Size = new Size(32, 32),
+                Margin = new Padding(0),
                 Enabled = false,
-                Anchor = AnchorStyles.Top | AnchorStyles.Right,
             };
             _fsSyncNewTripsBtn.SetIconFactory(ScheduleBuilderModivcareNewTripsIcon.Create);
             _fsSyncNewTripsBtn.Click += async (s, e) => await FsSyncNewTripsBtn_ClickAsync();
@@ -41,9 +40,6 @@ namespace Hiatme_Tool_Suite_v3
                 + "Also repairs trips whose fields were saved wrong (Age/State/Gender in date/time columns).");
 
             host.Controls.Add(_fsSyncNewTripsBtn);
-            _fsSyncNewTripsBtn.BringToFront();
-            host.Resize += (s, e) => PositionFsDriverTabStripActionButtons();
-            PositionFsDriverTabStripActionButtons();
         }
 
         private async Task FsSyncNewTripsBtn_ClickAsync()

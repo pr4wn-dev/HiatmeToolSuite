@@ -134,28 +134,50 @@ namespace Hiatme_Tool_Suite_v3
                 g.PickupPoints.Add(pu);
                 g.DropoffPoints.Add(dof);
             }
+
+            EnsureIdentityTourOrders(g);
         }
 
-        /// <summary>PU stops in trip order, then DO stops — same waypoint order as Supey cluster tours.</summary>
+        /// <summary>PU then DO using tour order when present — same key as BUILD cluster routing.</summary>
         public static List<GeoPoint> CollectDeskRouteWaypoints(SupeyTripCluster g)
         {
             return CollectDeskRouteWaypoints(g, null, null);
         }
 
-        /// <summary>Optional home (or other) bookends prepended/appended to the desk tour.</summary>
+        /// <summary>Optional home bookends for straight-line preview only. OSRM group tours omit home so they share BUILD's cache key.</summary>
         public static List<GeoPoint> CollectDeskRouteWaypoints(
             SupeyTripCluster g, GeoPoint? routeStart, GeoPoint? routeEnd)
         {
             var waypoints = new List<GeoPoint>();
             if (g == null) return waypoints;
             AddWaypointIfValid(waypoints, routeStart);
-            int n = Math.Min(g.Trips.Count, Math.Min(g.PickupPoints.Count, g.DropoffPoints.Count));
-            for (int i = 0; i < n; i++)
-                AddWaypointIfValid(waypoints, g.PickupPoints[i]);
-            for (int i = 0; i < n; i++)
-                AddWaypointIfValid(waypoints, g.DropoffPoints[i]);
+            EnsureIdentityTourOrders(g);
+            var core = SupeyOsrmLegs.BuildTourPath(g, g.PickupOrder, g.DropoffOrder);
+            foreach (var p in core)
+                AddWaypointIfValid(waypoints, p);
             AddWaypointIfValid(waypoints, routeEnd);
             return waypoints;
+        }
+
+        private static void EnsureIdentityTourOrders(SupeyTripCluster g)
+        {
+            if (g == null)
+                return;
+            int n = g.Trips?.Count ?? 0;
+            if (n <= 0)
+                return;
+            if (g.PickupOrder.Count != n)
+            {
+                g.PickupOrder.Clear();
+                for (int i = 0; i < n; i++)
+                    g.PickupOrder.Add(i);
+            }
+            if (g.DropoffOrder.Count != n)
+            {
+                g.DropoffOrder.Clear();
+                for (int i = 0; i < n; i++)
+                    g.DropoffOrder.Add(i);
+            }
         }
 
         /// <summary>Desk preview routes via OSRM (solid on map); straight dashed fallback when routing fails.</summary>
@@ -241,43 +263,70 @@ namespace Hiatme_Tool_Suite_v3
             IEnumerable<SupeyTripCluster> groups, CancellationToken token)
         {
             if (groups == null) return;
+            var tasks = new List<Task>();
             foreach (var g in groups)
             {
                 if (g == null) continue;
-                token.ThrowIfCancellationRequested();
-                await PopulateTripLegPolylinesAsync(g, token).ConfigureAwait(false);
+                tasks.Add(PopulateTripLegPolylinesAsync(g, token));
             }
+            if (tasks.Count > 0)
+                await Task.WhenAll(tasks).ConfigureAwait(false);
         }
 
         private static async Task PopulateTripLegPolylinesAsync(SupeyTripCluster g, CancellationToken token)
         {
-            g.TripLegPolylines.Clear();
             int n = Math.Min(g.Trips.Count, Math.Min(g.PickupPoints.Count, g.DropoffPoints.Count));
+            if (g.TripLegPolylines.Count == n && n > 0
+                && g.TripLegPolylines.TrueForAll(leg => leg?.Points != null && leg.Points.Count >= 2))
+            {
+                return;
+            }
+
+            g.TripLegPolylines.Clear();
+            var legs = new SupeyTripLegPolyline[n];
+            var tasks = new List<Task>(n);
             for (int i = 0; i < n; i++)
             {
-                var pu = g.PickupPoints[i];
-                var dof = g.DropoffPoints[i];
-                if (!SupeyOsrmLegs.IsRoutable(pu) || !SupeyOsrmLegs.IsRoutable(dof))
-                    continue;
+                int index = i;
+                tasks.Add(Task.Run(async () =>
+                {
+                    token.ThrowIfCancellationRequested();
+                    var pu = g.PickupPoints[index];
+                    var dof = g.DropoffPoints[index];
+                    var leg = new SupeyTripLegPolyline
+                    {
+                        TripNumber = (g.Trips[index]?.TripNumber ?? "").Trim(),
+                    };
+                    if (!SupeyOsrmLegs.IsRoutable(pu) || !SupeyOsrmLegs.IsRoutable(dof))
+                    {
+                        legs[index] = leg;
+                        return;
+                    }
 
-                var leg = new SupeyTripLegPolyline
-                {
-                    TripNumber = (g.Trips[i]?.TripNumber ?? "").Trim(),
-                };
-                var waypoints = new List<GeoPoint> { pu, dof };
-                var route = await SupeyOsrmLegs.RouteAsync(waypoints, token).ConfigureAwait(false);
-                if (route.Ok && route.Polyline != null && route.Polyline.Count >= 2)
-                {
-                    leg.Points.AddRange(route.Polyline);
-                    leg.IsStraightLineFallback = route.IsStraightLineFallback;
-                }
-                else
-                {
-                    leg.Points.Add(pu);
-                    leg.Points.Add(dof);
-                    leg.IsStraightLineFallback = true;
-                }
-                g.TripLegPolylines.Add(leg);
+                    var route = await SupeyOsrmLegs.RouteAsync(
+                        new List<GeoPoint> { pu, dof }, token).ConfigureAwait(false);
+                    if (route.Ok && route.Polyline != null && route.Polyline.Count >= 2)
+                    {
+                        leg.Points.AddRange(route.Polyline);
+                        leg.IsStraightLineFallback = route.IsStraightLineFallback;
+                    }
+                    else
+                    {
+                        leg.Points.Add(pu);
+                        leg.Points.Add(dof);
+                        leg.IsStraightLineFallback = true;
+                    }
+                    legs[index] = leg;
+                }, token));
+            }
+
+            if (tasks.Count > 0)
+                await Task.WhenAll(tasks).ConfigureAwait(false);
+
+            foreach (var leg in legs)
+            {
+                if (leg != null && leg.Points.Count >= 2)
+                    g.TripLegPolylines.Add(leg);
             }
         }
 
@@ -314,8 +363,12 @@ namespace Hiatme_Tool_Suite_v3
         private static async Task<bool> PopulateGroupOsrmRouteAsync(
             SupeyTripCluster g, CancellationToken token, GeoPoint? routeStart = null, GeoPoint? routeEnd = null)
         {
+            if (g.RoutePolyline.Count >= 2 && g.IntraClusterMeters > 0 && !g.IsStraightLineFallback)
+                return true;
+
             g.RoutePolyline.Clear();
-            var waypoints = CollectDeskRouteWaypoints(g, routeStart, routeEnd);
+            // Home stays a pin. Putting it on the tour changes the OSRM key so BUILD/map never share cache.
+            var waypoints = CollectDeskRouteWaypoints(g);
             if (waypoints.Count < 2)
             {
                 g.IsStraightLineFallback = false;
@@ -374,14 +427,7 @@ namespace Hiatme_Tool_Suite_v3
 
         private static void AddWaypointIfValid(List<GeoPoint> waypoints, GeoPoint p)
         {
-            if (p.Lat == 0 && p.Lng == 0) return;
-            if (waypoints.Count > 0)
-            {
-                var last = waypoints[waypoints.Count - 1];
-                if (Math.Abs(last.Lat - p.Lat) < 1e-6 && Math.Abs(last.Lng - p.Lng) < 1e-6)
-                    return;
-            }
-            waypoints.Add(p);
+            SupeyOsrmLegs.AddWaypointIfValid(waypoints, p);
         }
 
     }

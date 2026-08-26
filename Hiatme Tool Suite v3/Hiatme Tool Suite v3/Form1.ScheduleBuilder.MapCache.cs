@@ -18,6 +18,7 @@ namespace Hiatme_Tool_Suite_v3
 
         private readonly Dictionary<string, FsTabMapCacheEntry> _fsTabMapCache =
             new Dictionary<string, FsTabMapCacheEntry>(StringComparer.OrdinalIgnoreCase);
+        private readonly object _fsTabMapCacheLock = new object();
 
         private readonly Dictionary<string, int> _fsTabLinesRevision =
             new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -26,7 +27,10 @@ namespace Hiatme_Tool_Suite_v3
 
         private void ClearFsTabMapCache()
         {
-            _fsTabMapCache.Clear();
+            CancelFsMapBackgroundWarm();
+            Interlocked.Increment(ref _fsMapPreloadGen);
+            lock (_fsTabMapCacheLock)
+                _fsTabMapCache.Clear();
         }
 
         private void ResetFsTabLinesRevisions()
@@ -42,7 +46,8 @@ namespace Hiatme_Tool_Suite_v3
                 return;
 
             _fsTabLinesRevision[tabName] = Interlocked.Increment(ref _fsTabLinesRevisionSeq);
-            _fsTabMapCache.Remove(tabName);
+            lock (_fsTabMapCacheLock)
+                _fsTabMapCache.Remove(tabName);
         }
 
         private int GetFsTabLinesRevision(string tabName)
@@ -82,10 +87,10 @@ namespace Hiatme_Tool_Suite_v3
 
         private int ComputeFsTabMapDisplayKey(bool isReservesTab)
         {
+            // Display mode is a filter on an already-routed plan — do not bust this cache.
             int key = 0;
             if (isReservesTab) key |= 1;
             if (FsShowGroupColorsEnabled) key |= 2;
-            if (_fsMapDisplayMode == FsMapDisplayMode.AllDriverTrips) key |= 4;
             return key;
         }
 
@@ -94,8 +99,12 @@ namespace Hiatme_Tool_Suite_v3
             if (_fsMap == null || string.IsNullOrWhiteSpace(tabName))
                 return false;
 
-            if (!_fsTabMapCache.TryGetValue(tabName, out var entry) || entry?.Plan == null)
-                return false;
+            FsTabMapCacheEntry entry;
+            lock (_fsTabMapCacheLock)
+            {
+                if (!_fsTabMapCache.TryGetValue(tabName, out entry) || entry?.Plan == null)
+                    return false;
+            }
 
             int linesRevision = GetFsTabLinesRevision(tabName);
             int displayKey = ComputeFsTabMapDisplayKey(isReservesTab);
@@ -108,6 +117,7 @@ namespace Hiatme_Tool_Suite_v3
             if (IsFsMapRefreshStale(gen, tabName))
                 return false;
 
+            var plan = CloneFsDriverPlanForMapCache(entry.Plan);
             QueueFsMapRefreshApply(
                 gen,
                 tabName,
@@ -115,12 +125,10 @@ namespace Hiatme_Tool_Suite_v3
                 FsShowGroupColorsEnabled,
                 new FsMapRefreshPayload
                 {
-                    Pickup = entry.Pickup,
-                    Dropoff = entry.Dropoff,
-                    Groups = entry.Plan?.Groups != null
-                        ? new List<SupeyTripCluster>(entry.Plan.Groups)
-                        : null,
-                    Plan = entry.Plan,
+                    Pickup = CloneGeoDict(entry.Pickup),
+                    Dropoff = CloneGeoDict(entry.Dropoff),
+                    Groups = plan?.Groups,
+                    Plan = plan,
                     StatusMessage = entry.StatusMessage,
                     HasOsrmRoutes = true,
                     RoutingOk = true,
@@ -136,21 +144,27 @@ namespace Hiatme_Tool_Suite_v3
             SupeyDriverPlan plan,
             Dictionary<string, GeoPoint> pickup,
             Dictionary<string, GeoPoint> dropoff,
-            string statusMessage)
+            string statusMessage,
+            int builtRevision)
         {
             if (string.IsNullOrWhiteSpace(tabName) || plan == null)
                 return;
+            if (GetFsTabLinesRevision(tabName) != builtRevision)
+                return;
 
             var cachedPlan = CloneFsDriverPlanForMapCache(plan);
-            _fsTabMapCache[tabName] = new FsTabMapCacheEntry
+            lock (_fsTabMapCacheLock)
             {
-                LinesRevision = GetFsTabLinesRevision(tabName),
-                DisplayKey = ComputeFsTabMapDisplayKey(isReservesTab),
-                Pickup = CloneGeoDict(pickup),
-                Dropoff = CloneGeoDict(dropoff),
-                Plan = cachedPlan,
-                StatusMessage = statusMessage ?? "",
-            };
+                _fsTabMapCache[tabName] = new FsTabMapCacheEntry
+                {
+                    LinesRevision = builtRevision,
+                    DisplayKey = ComputeFsTabMapDisplayKey(isReservesTab),
+                    Pickup = CloneGeoDict(pickup),
+                    Dropoff = CloneGeoDict(dropoff),
+                    Plan = cachedPlan,
+                    StatusMessage = statusMessage ?? "",
+                };
+            }
         }
 
         private static SupeyDriverPlan CloneFsDriverPlanForMapCache(SupeyDriverPlan source)
@@ -191,6 +205,8 @@ namespace Hiatme_Tool_Suite_v3
 
             clone.PickupPoints.AddRange(source.PickupPoints);
             clone.DropoffPoints.AddRange(source.DropoffPoints);
+            clone.PickupOrder.AddRange(source.PickupOrder);
+            clone.DropoffOrder.AddRange(source.DropoffOrder);
             clone.RoutePolyline.AddRange(source.RoutePolyline);
 
             foreach (var leg in source.TripLegPolylines)

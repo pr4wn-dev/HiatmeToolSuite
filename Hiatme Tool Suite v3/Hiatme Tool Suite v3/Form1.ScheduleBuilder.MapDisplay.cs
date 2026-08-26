@@ -87,12 +87,22 @@ namespace Hiatme_Tool_Suite_v3
                 Text = "Float map",
                 Kind = SupeyButton.Variant.Secondary,
                 Size = new Size(88, 26),
-                Margin = new Padding(0, 1, 8, 0),
+                Margin = new Padding(0, 1, 6, 0),
             };
             _fsMapFloatBtn.Click += (s, e) => ToggleFsMapFloating();
 
+            _fsOptionsBtn = new SupeyButton
+            {
+                Text = "Options",
+                Kind = SupeyButton.Variant.Primary,
+                Size = new Size(76, 26),
+                Margin = new Padding(0, 1, 8, 0),
+            };
+            _fsOptionsBtn.Click += (s, e) => ToggleFsOptionsPanel();
+
             present.Controls.Add(_fsMapHideBtn);
             present.Controls.Add(_fsMapFloatBtn);
+            present.Controls.Add(_fsOptionsBtn);
 
             _fsMapModeHintLbl = new Label
             {
@@ -120,6 +130,8 @@ namespace Hiatme_Tool_Suite_v3
             var mapTip = SupeyToolTip.Create(initialDelay: 250);
             mapTip.SetToolTip(_fsMapHideBtn, "Hide or show the map. Works for the docked pane and the floating window.");
             mapTip.SetToolTip(_fsMapFloatBtn, "Pop the map into its own window, or dock it back into Schedule Builder.");
+            mapTip.SetToolTip(_fsOptionsBtn, "Show or hide Rules, Drivers, Group key, and Settings.");
+            SyncFsOptionsToggle();
         }
 
         private FsMapModeIconButton CreateFsMapModeButton(FsMapDisplayMode mode, Bitmap icon)

@@ -3201,6 +3201,7 @@ namespace Hiatme_Tool_Suite_v3
             try { InvalidateWellRydePortalSession(); } catch { }
             try { mcLoginHandler?.Client?.Dispose(); } catch { }
             try { AddressGeocoder.Flush(); } catch { }
+            try { SupeyOsrmLegs.FlushRouteCache(); } catch { }
 
             var http = ServerHttpClient;
             ServerHttpClient = null;
@@ -3302,6 +3303,7 @@ namespace Hiatme_Tool_Suite_v3
             // disk before the process exits. Cheap (single file write) and prevents losing the
             // last few entries from a build that finished right before close.
             try { AddressGeocoder.Flush(); } catch { }
+            try { SupeyOsrmLegs.FlushRouteCache(); } catch { }
 
             base.OnFormClosing(e);
         }

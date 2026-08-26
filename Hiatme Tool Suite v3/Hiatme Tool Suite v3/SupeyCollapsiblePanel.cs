@@ -19,6 +19,7 @@ namespace Hiatme_Tool_Suite_v3
         private const int CollapsedToggleWidth = 32;
         private const int CollapsedAccentWidth = 3;
         private const int CollapsedMinRailWidth = 88;
+        private const int CollapsedDockedRailWidth = CollapsedAccentWidth + CollapsedToggleWidth;
 
         private readonly Panel _header;
         private readonly TableLayoutPanel _headerLayout;
@@ -109,6 +110,22 @@ namespace Hiatme_Tool_Suite_v3
 
         /// <summary>Narrow width for collapsed Left/Right panels — header row only, no custom paint.</summary>
         public int CollapsedRailWidth { get; set; } = 112;
+
+        /// <summary>
+        /// When true, a collapsed left/right panel is hidden instead of leaving a rail.
+        /// Use when a toolbar button elsewhere reopens it (Schedule Builder Options).
+        /// </summary>
+        public bool HideWhenCollapsed { get; set; }
+
+        /// <summary>
+        /// When docked left/right, never steal more than the host width minus this
+        /// many pixels. Stops Options from covering the trip list / driver tabs.
+        /// </summary>
+        public int KeepSiblingMinWidth { get; set; }
+
+        internal Splitter BoundSplitter { get; set; }
+
+        private Control _sizeClampHost;
 
         public int MinExpandedWidth
         {
@@ -243,9 +260,26 @@ namespace Hiatme_Tool_Suite_v3
             _headerLayout.Click += ToggleExpanded;
             _titleLabel.Click += ToggleExpanded;
             _toggleBtn.Click += ToggleExpanded;
+            Click += OnRailBackgroundClick;
         }
 
-        private void ToggleExpanded(object sender, EventArgs e) => Expanded = !Expanded;
+        private void ToggleExpanded(object sender, EventArgs e)
+        {
+            if (IsHandleCreated && !IsDisposed)
+                BeginInvoke(new Action(() =>
+                {
+                    if (!IsDisposed)
+                        Expanded = !Expanded;
+                }));
+            else
+                Expanded = !Expanded;
+        }
+
+        private void OnRailBackgroundClick(object sender, EventArgs e)
+        {
+            if (!_expanded && EffectiveSideDock != DockStyle.None)
+                ToggleExpanded(sender, e);
+        }
 
         private static void EnableDoubleBuffered(Control control)
         {
@@ -288,7 +322,70 @@ namespace Hiatme_Tool_Suite_v3
             int w = _expandedWidth;
             if (_minExpandedWidth > 0 && w < _minExpandedWidth) w = _minExpandedWidth;
             if (_maxExpandedWidth > 0 && w > _maxExpandedWidth) w = _maxExpandedWidth;
-            return w;
+            return ClampExpandedWidthToHost(w);
+        }
+
+        private int ClampExpandedWidthToHost(int desired)
+        {
+            if (Parent == null || KeepSiblingMinWidth <= 0 || desired <= 0)
+                return desired;
+
+            RefreshSplitterLimits();
+
+            int hostW = Parent.ClientSize.Width;
+            int keep = KeepSiblingMinWidth;
+            int minPanel = _minExpandedWidth > 0 ? _minExpandedWidth : 180;
+            if (hostW < keep + minPanel + 6)
+                keep = Math.Max(280, hostW * 62 / 100);
+
+            int maxFit = hostW - keep - 6;
+            if (maxFit < 120)
+                maxFit = Math.Max(96, hostW / 3);
+            return desired > maxFit ? maxFit : desired;
+        }
+
+        private void RefreshSplitterLimits()
+        {
+            if (BoundSplitter == null || Parent == null || KeepSiblingMinWidth <= 0)
+                return;
+
+            int room = Math.Max(0, Parent.ClientSize.Width - 6);
+            int minPanel = _minExpandedWidth > 0 ? _minExpandedWidth : 180;
+            int minExtra = KeepSiblingMinWidth;
+            if (minPanel + minExtra > room)
+            {
+                minExtra = Math.Max(200, room * 62 / 100);
+                minPanel = Math.Max(96, room - minExtra);
+            }
+
+            BoundSplitter.MinSize = minPanel;
+            BoundSplitter.MinExtra = minExtra;
+        }
+
+        private void HookParentSizeClamp()
+        {
+            if (_sizeClampHost != null)
+                _sizeClampHost.SizeChanged -= OnHostSizeChangedClampWidth;
+            _sizeClampHost = Parent;
+            if (_sizeClampHost != null)
+                _sizeClampHost.SizeChanged += OnHostSizeChangedClampWidth;
+        }
+
+        private void OnHostSizeChangedClampWidth(object sender, EventArgs e)
+        {
+            if (_applyingExpandedState || !_expanded || KeepSiblingMinWidth <= 0)
+                return;
+            if (Dock != DockStyle.Left && Dock != DockStyle.Right)
+                return;
+
+            int w = ResolveExpandedWidth();
+            if (Width == w)
+                return;
+
+            _applyingExpandedState = true;
+            try { Width = w; }
+            finally { _applyingExpandedState = false; }
+            Parent?.PerformLayout();
         }
 
         private DockStyle EffectiveSideDock
@@ -305,12 +402,20 @@ namespace Hiatme_Tool_Suite_v3
 
         private void ApplyExpandedState()
         {
+            if (_applyingExpandedState)
+                return;
+
             _applyingExpandedState = true;
             try
             {
                 DockStyle sideDock = EffectiveSideDock;
                 bool sideCollapsed = !_expanded && (sideDock == DockStyle.Left || sideDock == DockStyle.Right);
                 bool verticalCollapsed = !_expanded && !sideCollapsed;
+
+                // Host toolbar hides this panel. Do not rebuild chrome, undock, or
+                // toggle Visible here — that crashed mid-click and left the splitter up.
+                if (HideWhenCollapsed && sideCollapsed)
+                    return;
 
                 BackColor = sideCollapsed ? SupeyTheme.SurfaceHeader : SupeyTheme.Surface;
                 Cursor = Cursors.Hand;
@@ -329,26 +434,23 @@ namespace Hiatme_Tool_Suite_v3
                     if (_belowHeaderToolbar != null)
                         _belowHeaderToolbar.Visible = false;
 
-                    // Collapsed chip is pinned to the screen edge — keep chevron on the inner side
-                    // so the map/workspace cannot paint over it.
-                    bool toggleLeading = _savedSideDock == DockStyle.Right;
-                    LayoutHeaderChrome(toggleLeading);
-
-                    _header.Dock = DockStyle.Fill;
+                    // Stay docked as a slim gutter. The old overlay chip sat on the map
+                    // and stole layout from the trip list / mileage HUD.
+                    LayoutHeaderChromeRail();
+                    _header.Dock = DockStyle.Top;
+                    _header.Height = HeaderHeight;
                     _header.Visible = true;
 
-                    int railW = ResolveCollapsedRailWidth(toggleLeading);
+                    int railW = CollapsedDockedRailWidth;
                     CollapsedRailWidth = railW;
-
-                    Dock = DockStyle.None;
-                    Anchor = _savedSideDock == DockStyle.Right
-                        ? AnchorStyles.Top | AnchorStyles.Right
-                        : AnchorStyles.Top | AnchorStyles.Left;
+                    MinimumSize = new Size(railW, 0);
+                    MaximumSize = Size.Empty;
+                    Anchor = AnchorStyles.None;
+                    if (Dock != _savedSideDock)
+                        Dock = _savedSideDock;
                     Width = railW;
-                    Height = CollapsedSideHeaderHeight;
-                    MinimumSize = new Size(railW, CollapsedSideHeaderHeight);
-                    MaximumSize = new Size(railW, CollapsedSideHeaderHeight);
                     _toggleBtn.Text = _savedSideDock == DockStyle.Left ? "▶" : "◀";
+                    UpdateHeaderToolTip();
                 }
                 else if (verticalCollapsed)
                 {
@@ -359,11 +461,13 @@ namespace Hiatme_Tool_Suite_v3
                     if (Dock == DockStyle.Bottom || Dock == DockStyle.Top)
                         Height = CollapsedThickness;
                     _toggleBtn.Text = "▲";
+                    UpdateHeaderToolTip();
                 }
                 else
                 {
                     AttachContentPanel();
                     LayoutHeaderChrome(toggleLeading: false);
+                    _titleLabel.Visible = true;
                     MinimumSize = Size.Empty;
                     MaximumSize = Size.Empty;
                     _header.Dock = DockStyle.Top;
@@ -380,6 +484,7 @@ namespace Hiatme_Tool_Suite_v3
 
                     if (Dock == DockStyle.Left || Dock == DockStyle.Right)
                     {
+                        RefreshSplitterLimits();
                         Width = ResolveExpandedWidth();
                         _toggleBtn.Text = Dock == DockStyle.Left ? "◀" : "▶";
                     }
@@ -396,6 +501,7 @@ namespace Hiatme_Tool_Suite_v3
                     }
 
                     ResetContentLayout();
+                    UpdateHeaderToolTip();
                 }
 
                 if (Parent != null)
@@ -423,8 +529,33 @@ namespace Hiatme_Tool_Suite_v3
             return Math.Max(CollapsedMinRailWidth, w);
         }
 
+        private void LayoutHeaderChromeRail()
+        {
+            _titleLabel.Visible = false;
+            _headerLayout.SuspendLayout();
+            _headerLayout.Controls.Clear();
+            _headerLayout.ColumnStyles.Clear();
+            _headerLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, CollapsedAccentWidth));
+            _headerLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+            _headerLayout.Controls.Add(_accentStripe, 0, 0);
+            _headerLayout.Controls.Add(_toggleBtn, 1, 0);
+            _headerLayout.RowStyles.Clear();
+            _headerLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+            _headerLayout.ResumeLayout(true);
+            _toggleBtn.Invalidate();
+        }
+
+        private void UpdateHeaderToolTip()
+        {
+            string title = string.IsNullOrWhiteSpace(_titleLabel.Text) ? "panel" : _titleLabel.Text.Trim();
+            string tip = _expanded ? "Hide " + title : "Show " + title;
+            ToolTipHelper.Show(_header, tip);
+            ToolTipHelper.Show(_toggleBtn, tip);
+        }
+
         private void LayoutHeaderChrome(bool toggleLeading)
         {
+            _titleLabel.Visible = true;
             _headerLayout.SuspendLayout();
             _headerLayout.Controls.Clear();
             _headerLayout.ColumnStyles.Clear();
@@ -525,12 +656,14 @@ namespace Hiatme_Tool_Suite_v3
         protected override void OnDockChanged(EventArgs e)
         {
             base.OnDockChanged(e);
-            ApplyExpandedState();
+            if (!_applyingExpandedState)
+                ApplyExpandedState();
         }
 
         protected override void OnParentChanged(EventArgs e)
         {
             base.OnParentChanged(e);
+            HookParentSizeClamp();
             if (Parent != null)
             {
                 SupeyCollapsibleSideLayout.EnsureWired(Parent);
@@ -570,12 +703,13 @@ namespace Hiatme_Tool_Suite_v3
                 };
                 target.ExpandedChanged += (sender, e) =>
                 {
-                    if (!target.Visible || target.IsDisposed) return;
+                    if (target.IsDisposed) return;
                     if (!target.Expanded)
                     {
                         SetSplitterExpanded(s, dock, target, layoutRoot, false);
                         return;
                     }
+                    if (!target.Visible) return;
 
                     target.BeginInvoke(new Action(() =>
                     {
@@ -586,6 +720,8 @@ namespace Hiatme_Tool_Suite_v3
                 SupeyListViewHelpers.WireSplitterSmoothResize(s, layoutRoot ?? target.Parent);
                 s.SplitterMoved += (sender, e) => PersistWidthFromSplitter(s, target, dock);
             }
+            if (target != null)
+                target.BoundSplitter = s;
             return s;
         }
 

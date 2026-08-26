@@ -45,7 +45,9 @@ namespace Hiatme_Tool_Suite_v3
                 ExpandedWidth = 430,
                 MinExpandedWidth = 280,
                 MaxExpandedWidth = 720,
+                KeepSiblingMinWidth = 480,
                 Expanded = true,
+                HideWhenCollapsed = true,
             };
 
             Panel.ExpandedChanged += (_, __) => OnPanelExpandedChanged();

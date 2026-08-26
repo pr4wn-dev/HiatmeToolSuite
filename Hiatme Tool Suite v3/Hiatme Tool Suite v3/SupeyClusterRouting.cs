@@ -282,6 +282,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 ApplyOrdersForSingleTrip(c);
                 c.RoadTourOptimized = n == 1;
+                await SupeyOsrmLegs.WarmTourGeometryAsync(c, token).ConfigureAwait(false);
                 return;
             }
 
@@ -289,6 +290,7 @@ namespace Hiatme_Tool_Suite_v3
             var puCity = await BuildPickupOrderByCityBlocksAsync(c, routeStart, token).ConfigureAwait(false);
             await ApplyGroupTourFromPickupOrderAsync(c, puCity, routeStart, token, requireFeasible: false)
                 .ConfigureAwait(false);
+            await SupeyOsrmLegs.WarmTourGeometryAsync(c, token).ConfigureAwait(false);
         }
 
         internal static Task OptimizeClusterTourBestAsync(

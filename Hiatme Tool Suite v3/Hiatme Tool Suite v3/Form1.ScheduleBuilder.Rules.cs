@@ -102,6 +102,13 @@ namespace Hiatme_Tool_Suite_v3
             BuildFsSettingsPanel(settingsHost);
 
             _fsSideTabPanel.FinalizePages(FsSidePageGroupKey);
+            _fsSideTabPanel.Panel.ExpandedChanged += (s, e) =>
+            {
+                if (IsHandleCreated)
+                    BeginInvoke(new Action(SyncFsOptionsToggle));
+                else
+                    SyncFsOptionsToggle();
+            };
 
             _fsSideSplitter = MakeFsDockSplitter(DockStyle.Right, _fsSideTabPanel.Panel);
 
@@ -113,6 +120,9 @@ namespace Hiatme_Tool_Suite_v3
                 BackColor = SupeyTheme.SurfaceBase,
             };
             _fsMap.Dock = DockStyle.Fill;
+            _fsMap.MileageWindowPinClick += OnFsMileageWindowPinClick;
+            _fsMap.MileageWindowDockClick += () => SetFsMapFloating(false);
+            _fsMap.MileageWindowHideClick += HideFsMap;
             _fsMapSurface.Controls.Add(_fsMap);
             _fsMapSurface.Controls.Add(_fsMapOfflineOverlay);
             _fsMapWorkPanel.Controls.Add(_fsMapSurface);
@@ -122,6 +132,51 @@ namespace Hiatme_Tool_Suite_v3
 
         private Splitter MakeFsDockSplitter(DockStyle dock, SupeyCollapsiblePanel target) =>
             SupeyCollapsiblePanel.CreateDockSplitter(dock, target, minExtra: 280, layoutRoot: _fsMainHost);
+
+        private void ToggleFsOptionsPanel()
+        {
+            if (IsHandleCreated)
+            {
+                BeginInvoke(new Action(ToggleFsOptionsPanelCore));
+                return;
+            }
+            ToggleFsOptionsPanelCore();
+        }
+
+        private void ToggleFsOptionsPanelCore()
+        {
+            var panel = _fsSideTabPanel?.Panel;
+            if (panel == null || panel.IsDisposed) return;
+
+            if (panel.Expanded && panel.Visible)
+            {
+                panel.Expanded = false;
+                return;
+            }
+
+            panel.Visible = true;
+            if (!panel.Expanded)
+                panel.Expanded = true;
+            SyncFsOptionsToggle();
+        }
+
+        private void SyncFsOptionsToggle()
+        {
+            var panel = _fsSideTabPanel?.Panel;
+            if (panel == null || panel.IsDisposed) return;
+
+            bool open = panel.Expanded;
+            if (panel.Visible != open)
+                panel.Visible = open;
+
+            if (_fsOptionsBtn != null && !_fsOptionsBtn.IsDisposed)
+            {
+                _fsOptionsBtn.Text = "Options";
+                _fsOptionsBtn.Kind = open
+                    ? SupeyButton.Variant.Primary
+                    : SupeyButton.Variant.Secondary;
+            }
+        }
 
 
 

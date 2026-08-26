@@ -76,7 +76,7 @@ namespace Hiatme_Tool_Suite_v3
 
             layout.Controls.Add(MakeFsSettingsOption(
                 "Float map window",
-                "Keep the map in a movable window so the trip list can use the full schedule height. Dock or Float from the map or the trip toolbar.",
+                "Keep the map in a movable window so the trip list can use the full schedule height. Pin, Dock, and Hide are icons on the mileage strip.",
                 _fsMapFloating,
                 out _fsSettingsFloatMap,
                 OnFsSettingsFloatMapChanged));

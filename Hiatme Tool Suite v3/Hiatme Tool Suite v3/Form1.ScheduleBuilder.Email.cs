@@ -61,10 +61,9 @@ namespace Hiatme_Tool_Suite_v3
             {
                 Text = "EMAIL SCHEDULES",
                 Kind = SupeyButton.Variant.Secondary,
-                Size = new System.Drawing.Size(148, 26),
-                Margin = new Padding(6, 0, 0, 0),
+                Size = new System.Drawing.Size(156, 32),
+                Margin = new Padding(8, 0, 0, 0),
                 Enabled = false,
-                Anchor = AnchorStyles.Top | AnchorStyles.Right,
             };
             _fsEmailSchedulesBtn.Click += async (s, e) => await FsEmailSchedulesBtn_ClickAsync();
 
@@ -75,43 +74,6 @@ namespace Hiatme_Tool_Suite_v3
                 + "Optional: Login → Gmail → enter your own Gmail App Password instead.");
 
             host.Controls.Add(_fsEmailSchedulesBtn);
-            host.Resize += (s, e) => PositionFsDriverTabStripActionButtons();
-            PositionFsDriverTabStripActionButtons();
-        }
-
-        private void PositionFsDriverTabStripActionButtons()
-        {
-            if (_fsDriverTabStrip == null)
-                return;
-
-            int pad = 4;
-            int gap = 4;
-            int right = Math.Max(pad, _fsDriverTabStrip.ClientSize.Width - pad);
-
-            if (_fsEmailSchedulesBtn != null)
-            {
-                right -= _fsEmailSchedulesBtn.Width;
-                _fsEmailSchedulesBtn.Location = new System.Drawing.Point(right, pad);
-                _fsEmailSchedulesBtn.BringToFront();
-                right -= gap;
-            }
-
-            if (_fsSyncNewTripsBtn != null)
-            {
-                right -= _fsSyncNewTripsBtn.Width;
-                _fsSyncNewTripsBtn.Location = new System.Drawing.Point(right, pad);
-                _fsSyncNewTripsBtn.BringToFront();
-            }
-
-            if (_fsDriverTabFlow != null)
-            {
-                int reserved = pad * 2 + gap;
-                if (_fsEmailSchedulesBtn != null)
-                    reserved += _fsEmailSchedulesBtn.Width;
-                if (_fsSyncNewTripsBtn != null)
-                    reserved += _fsSyncNewTripsBtn.Width;
-                _fsDriverTabFlow.Padding = new Padding(0, 0, reserved, 0);
-            }
         }
 
         private bool TryGetGmailCredentialsForMailer(out string address, out string password)

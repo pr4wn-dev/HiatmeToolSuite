@@ -44,6 +44,18 @@ namespace Hiatme_Tool_Suite_v3
 
         private FlowLayoutPanel _fsDriverTabFlow;
 
+        private Panel _fsDriverTabViewport;
+
+        private FlowLayoutPanel _fsDriverTabActions;
+
+        private SupeyButton _fsDriverTabPrevBtn;
+
+        private SupeyButton _fsDriverTabNextBtn;
+
+        private Panel _fsDriverTabPrevHost;
+
+        private Panel _fsDriverTabNextHost;
+
         private readonly Dictionary<string, SupeyButton> _fsDriverTabButtons =
 
             new Dictionary<string, SupeyButton>(StringComparer.OrdinalIgnoreCase);
@@ -100,6 +112,9 @@ namespace Hiatme_Tool_Suite_v3
         private Panel _fsCutTripBarAccent;
 
         private const int FsCutTripBarHeight = 54;
+        private const int FsToolbarPad = 10;
+        private const int FsToolbarBtnHeight = 30;
+        private const int FsToolbarStripHeight = FsToolbarPad + FsToolbarBtnHeight + FsToolbarPad + 1;
 
         /// <summary>Shared trip-list column widths (pixels); same on every driver tab and in saved workbooks.</summary>
         private int[] _fsTripsColumnWidthsPx;
@@ -362,11 +377,11 @@ namespace Hiatme_Tool_Suite_v3
 
                 Dock = DockStyle.Top,
 
-                Height = 56,
+                Height = FsToolbarStripHeight,
 
                 BackColor = SupeyTheme.SurfaceHeader,
 
-                Padding = new Padding(0),
+                Padding = Padding.Empty,
 
             };
 
@@ -380,6 +395,13 @@ namespace Hiatme_Tool_Suite_v3
 
                 BackColor = SupeyTheme.Divider,
 
+            };
+
+            var toolbarRow = new Panel
+            {
+                Dock = DockStyle.Fill,
+                Padding = new Padding(FsToolbarPad),
+                BackColor = SupeyTheme.SurfaceHeader,
             };
 
 
@@ -400,7 +422,7 @@ namespace Hiatme_Tool_Suite_v3
 
                 BackColor = SupeyTheme.SurfaceHeader,
 
-                Padding = new Padding(12, 12, 0, 0),
+                Padding = Padding.Empty,
 
             };
 
@@ -420,7 +442,7 @@ namespace Hiatme_Tool_Suite_v3
 
                 Font = SupeyTheme.CaptionFont,
 
-                Margin = new Padding(0, 8, 10, 0),
+                Margin = new Padding(0, 7, 10, 0),
 
             };
 
@@ -430,9 +452,9 @@ namespace Hiatme_Tool_Suite_v3
 
             {
 
-                fsbdatepicker.Margin = new Padding(0);
+                fsbdatepicker.Margin = new Padding(0, 0, 0, 0);
 
-                fsbdatepicker.Size = new Size(232, 30);
+                fsbdatepicker.Size = new Size(232, FsToolbarBtnHeight);
 
                 fsbdatepicker.BorderColor = SupeyTheme.BorderSubtle;
 
@@ -456,9 +478,9 @@ namespace Hiatme_Tool_Suite_v3
 
                 Kind = SupeyButton.Variant.Primary,
 
-                Size = new Size(96, 30),
+                Size = new Size(96, FsToolbarBtnHeight),
 
-                Margin = new Padding(0, 1, 6, 0),
+                Margin = new Padding(0, 0, 6, 0),
 
             };
 
@@ -474,9 +496,9 @@ namespace Hiatme_Tool_Suite_v3
 
                 Kind = SupeyButton.Variant.Secondary,
 
-                Size = new Size(96, 30),
+                Size = new Size(96, FsToolbarBtnHeight),
 
-                Margin = new Padding(0, 1, 6, 0),
+                Margin = new Padding(0, 0, 6, 0),
 
             };
 
@@ -492,9 +514,9 @@ namespace Hiatme_Tool_Suite_v3
 
                 Kind = SupeyButton.Variant.Secondary,
 
-                Size = new Size(160, 30),
+                Size = new Size(160, FsToolbarBtnHeight),
 
-                Margin = new Padding(0, 1, 0, 0),
+                Margin = new Padding(0),
 
                 Enabled = false,
 
@@ -508,9 +530,9 @@ namespace Hiatme_Tool_Suite_v3
 
                 Kind = SupeyButton.Variant.Secondary,
 
-                Size = new Size(132, 30),
+                Size = new Size(132, FsToolbarBtnHeight),
 
-                Margin = new Padding(6, 1, 0, 0),
+                Margin = new Padding(6, 0, 0, 0),
 
                 Enabled = true,
 
@@ -551,7 +573,7 @@ namespace Hiatme_Tool_Suite_v3
 
                 Font = SupeyTheme.BodyFont,
 
-                Padding = new Padding(8, 14, 12, 0),
+                Padding = new Padding(8, 0, 0, 0),
 
             };
 
@@ -575,11 +597,11 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
+            toolbarRow.Controls.Add(_fsToolbarStatusLbl);
+            toolbarRow.Controls.Add(leftFlow);
+
+            _fsToolbarPanel.Controls.Add(toolbarRow);
             _fsToolbarPanel.Controls.Add(divider);
-
-            _fsToolbarPanel.Controls.Add(_fsToolbarStatusLbl);
-
-            _fsToolbarPanel.Controls.Add(leftFlow);
 
         }
 
@@ -599,7 +621,7 @@ namespace Hiatme_Tool_Suite_v3
 
                 BackColor = SupeyTheme.Divider,
 
-                Margin = new Padding(4, 6, 12, 0),
+                Margin = new Padding(8, 3, 12, 3),
 
             };
 
@@ -784,11 +806,11 @@ namespace Hiatme_Tool_Suite_v3
 
                 Dock = DockStyle.Top,
 
-                Height = 34,
+                Height = FsDriverTabStripHeight,
 
                 BackColor = SupeyTheme.SurfaceHeader,
 
-                Padding = new Padding(4, 4, 4, 0),
+                Padding = Padding.Empty,
 
             };
 
@@ -804,35 +826,81 @@ namespace Hiatme_Tool_Suite_v3
 
             };
 
+            var tabRow = new Panel
+            {
+                Dock = DockStyle.Fill,
+                Padding = new Padding(FsDriverTabPad),
+                BackColor = SupeyTheme.SurfaceHeader,
+            };
+
+            _fsDriverTabViewport = new Panel
+            {
+                Dock = DockStyle.Fill,
+                AutoScroll = false,
+                BackColor = SupeyTheme.SurfaceHeader,
+                Padding = Padding.Empty,
+            };
+
             _fsDriverTabFlow = new FlowLayoutPanel
 
             {
 
-                Dock = DockStyle.Fill,
+                AutoSize = true,
+
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
 
                 FlowDirection = FlowDirection.LeftToRight,
 
                 WrapContents = false,
 
-                AutoScroll = true,
+                AutoScroll = false,
 
                 BackColor = SupeyTheme.SurfaceHeader,
 
                 Padding = new Padding(0),
 
+                Location = new Point(0, 0),
+
+            };
+            _fsDriverTabViewport.Resize += (s, e) => ClampFsDriverTabFlowScroll();
+            _fsDriverTabViewport.MouseWheel += FsDriverTabFlow_MouseWheel;
+            _fsDriverTabFlow.MouseWheel += FsDriverTabFlow_MouseWheel;
+            _fsDriverTabFlow.SizeChanged += (s, e) => ClampFsDriverTabFlowScroll();
+
+            _fsDriverTabActions = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Right,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = false,
+                BackColor = SupeyTheme.SurfaceHeader,
+                Margin = Padding.Empty,
+                Padding = new Padding(FsDriverTabPad, 0, 0, 0),
             };
 
             EnableFsControlDoubleBuffer(_fsDriverTabFlow);
 
-            _fsDriverTabStrip.Controls.Add(_fsDriverTabFlow);
+            _fsDriverTabPrevBtn = MakeFsDriverTabNavButton("◀");
+            _fsDriverTabNextBtn = MakeFsDriverTabNavButton("▶");
+            _fsDriverTabPrevBtn.Click += (s, e) => ShiftFsDriverTabFlow(-1);
+            _fsDriverTabNextBtn.Click += (s, e) => ShiftFsDriverTabFlow(1);
+            _fsDriverTabPrevHost = MakeFsDriverTabNavHost(_fsDriverTabPrevBtn, DockStyle.Left);
+            _fsDriverTabNextHost = MakeFsDriverTabNavHost(_fsDriverTabNextBtn, DockStyle.Right);
 
+            _fsDriverTabViewport.Controls.Add(_fsDriverTabFlow);
+
+            tabRow.Controls.Add(_fsDriverTabViewport);
+            tabRow.Controls.Add(_fsDriverTabPrevHost);
+            tabRow.Controls.Add(_fsDriverTabNextHost);
+            tabRow.Controls.Add(_fsDriverTabActions);
+
+            _fsDriverTabStrip.Controls.Add(tabRow);
             _fsDriverTabStrip.Controls.Add(tabDivider);
 
-            WireFsEmailSchedulesButton(_fsDriverTabStrip);
+            WireFsSyncNewTripsButton(_fsDriverTabActions);
 
-            WireFsSyncNewTripsButton(_fsDriverTabStrip);
-
-            SupeyDarkScrollBars.Apply(_fsDriverTabStrip);
+            WireFsEmailSchedulesButton(_fsDriverTabActions);
 
 
 
@@ -876,7 +944,13 @@ namespace Hiatme_Tool_Suite_v3
 
             ScheduleBuilderTripAlertsColumn.EnsureRowHeightFitsIcons(_fsTripsLv);
 
-            host.Controls.Add(_fsTripsLv);
+            var listHost = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = SupeyTheme.ListBody,
+                Margin = Padding.Empty,
+            };
+            listHost.Controls.Add(_fsTripsLv);
 
             BuildFsCutTripBar(host);
 
@@ -884,7 +958,50 @@ namespace Hiatme_Tool_Suite_v3
 
             BuildFsMapModeToolbar(host);
 
-            host.Controls.Add(_fsDriverTabStrip);
+            var layout = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 4,
+                BackColor = SupeyTheme.Surface,
+                Margin = Padding.Empty,
+                Padding = Padding.Empty,
+                GrowStyle = TableLayoutPanelGrowStyle.FixedSize,
+            };
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, FsMapModeToolbarHeight));
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+
+            if (_fsMapModeToolbar != null)
+            {
+                _fsMapModeToolbar.Dock = DockStyle.Fill;
+                _fsMapModeToolbar.Margin = Padding.Empty;
+                _fsMapModeToolbar.MinimumSize = new Size(0, FsMapModeToolbarHeight);
+            }
+            if (_fsNewTripsBar != null)
+            {
+                _fsNewTripsBar.Dock = DockStyle.Fill;
+                _fsNewTripsBar.Margin = Padding.Empty;
+            }
+            if (_fsCutTripBar != null)
+            {
+                _fsCutTripBar.Dock = DockStyle.Fill;
+                _fsCutTripBar.Margin = Padding.Empty;
+            }
+
+            if (_fsMapModeToolbar != null)
+                layout.Controls.Add(_fsMapModeToolbar, 0, 0);
+            if (_fsNewTripsBar != null)
+                layout.Controls.Add(_fsNewTripsBar, 0, 1);
+            if (_fsCutTripBar != null)
+                layout.Controls.Add(_fsCutTripBar, 0, 2);
+            layout.Controls.Add(listHost, 0, 3);
+            host.Controls.Add(layout);
+
+            if (_fsTripsCollapsible != null && _fsDriverTabStrip != null)
+                _fsTripsCollapsible.SetBelowHeaderToolbar(_fsDriverTabStrip, FsDriverTabStripHeight);
 
             ListViewMinWidthEnforcer.Attach(_fsTripsLv);
 
@@ -948,9 +1065,9 @@ namespace Hiatme_Tool_Suite_v3
 
                     Tag = name,
 
-                    Size = new Size(Math.Min(160, Math.Max(72, textW + 20)), 26),
+                    Size = new Size(Math.Min(160, Math.Max(72, textW + 20)), FsDriverTabChipHeight),
 
-                    Margin = new Padding(0, 0, 6, 0),
+                    Margin = new Padding(0, 0, FsDriverTabPad, 0),
 
                     Kind = SupeyButton.Variant.Secondary,
 
@@ -968,7 +1085,114 @@ namespace Hiatme_Tool_Suite_v3
 
 
             _fsDriverTabFlow.ResumeLayout(true);
+            ClampFsDriverTabFlowScroll();
 
+        }
+
+        private const int FsDriverTabChipHeight = 32;
+        private const int FsDriverTabPad = 8;
+        private const int FsDriverTabStripHeight = FsDriverTabPad + FsDriverTabChipHeight + FsDriverTabPad + 1;
+        private const int FsDriverTabNavWidth = 36;
+
+        private static SupeyButton MakeFsDriverTabNavButton(string glyph)
+        {
+            return new SupeyButton
+            {
+                Text = glyph,
+                Size = new Size(FsDriverTabNavWidth, FsDriverTabChipHeight),
+                Margin = new Padding(0),
+                Font = SupeyTheme.BodyFont,
+                Kind = SupeyButton.Variant.Secondary,
+                Enabled = false,
+            };
+        }
+
+        private static Panel MakeFsDriverTabNavHost(SupeyButton button, DockStyle dock)
+        {
+            var host = new Panel
+            {
+                Dock = dock,
+                Width = dock == DockStyle.Left
+                    ? FsDriverTabNavWidth + FsDriverTabPad
+                    : FsDriverTabNavWidth,
+                Visible = true,
+                BackColor = SupeyTheme.SurfaceHeader,
+                Padding = dock == DockStyle.Left
+                    ? new Padding(0, 0, FsDriverTabPad, 0)
+                    : Padding.Empty,
+            };
+            button.Dock = DockStyle.Fill;
+            host.Controls.Add(button);
+            return host;
+        }
+
+        private int FsDriverTabFlowMinLeft()
+        {
+            if (_fsDriverTabFlow == null || _fsDriverTabViewport == null)
+                return 0;
+            return Math.Min(0, _fsDriverTabViewport.ClientSize.Width - _fsDriverTabFlow.Width);
+        }
+
+        private void ClampFsDriverTabFlowScroll()
+        {
+            if (_fsDriverTabFlow == null || _fsDriverTabViewport == null)
+                return;
+            int minLeft = FsDriverTabFlowMinLeft();
+            int left = _fsDriverTabFlow.Left;
+            if (left > 0) left = 0;
+            if (left < minLeft) left = minLeft;
+            if (_fsDriverTabFlow.Left != left)
+                _fsDriverTabFlow.Left = left;
+            UpdateFsDriverTabNavButtons();
+        }
+
+        private void UpdateFsDriverTabNavButtons()
+        {
+            if (_fsDriverTabPrevHost != null)
+                _fsDriverTabPrevHost.Visible = true;
+            if (_fsDriverTabNextHost != null)
+                _fsDriverTabNextHost.Visible = true;
+
+            bool overflow = _fsDriverTabFlow != null && _fsDriverTabViewport != null
+                && _fsDriverTabFlow.Width > _fsDriverTabViewport.ClientSize.Width;
+            if (_fsDriverTabPrevBtn != null)
+                _fsDriverTabPrevBtn.Enabled = overflow && _fsDriverTabFlow.Left < 0;
+            if (_fsDriverTabNextBtn != null)
+                _fsDriverTabNextBtn.Enabled = overflow && _fsDriverTabFlow.Left > FsDriverTabFlowMinLeft();
+        }
+
+        private void ShiftFsDriverTabFlow(int direction)
+        {
+            if (_fsDriverTabFlow == null || _fsDriverTabViewport == null || direction == 0)
+                return;
+            int step = Math.Max(72, _fsDriverTabViewport.ClientSize.Width * 2 / 3);
+            _fsDriverTabFlow.Left -= direction * step;
+            ClampFsDriverTabFlowScroll();
+        }
+
+        private void EnsureFsDriverTabChipVisible(string tabName)
+        {
+            if (_fsDriverTabFlow == null || _fsDriverTabViewport == null)
+                return;
+            if (!_fsDriverTabButtons.TryGetValue(tabName, out var btn) || btn == null)
+                return;
+            int viewW = _fsDriverTabViewport.ClientSize.Width;
+            int chipLeft = _fsDriverTabFlow.Left + btn.Left;
+            int chipRight = chipLeft + btn.Width;
+            if (chipLeft < 0)
+                _fsDriverTabFlow.Left -= chipLeft;
+            else if (chipRight > viewW)
+                _fsDriverTabFlow.Left -= chipRight - viewW;
+            ClampFsDriverTabFlowScroll();
+        }
+
+        private void FsDriverTabFlow_MouseWheel(object sender, MouseEventArgs e)
+        {
+            if (_fsDriverTabFlow == null)
+                return;
+            ShiftFsDriverTabFlow(-Math.Sign(e.Delta));
+            if (e is HandledMouseEventArgs handled)
+                handled.Handled = true;
         }
 
 
@@ -1001,6 +1225,7 @@ namespace Hiatme_Tool_Suite_v3
                 _fsMap.SaveLegendSnapshotForTab(_fsActiveDriverTab);
 
             _fsActiveDriverTab = tabName;
+            EnsureFsDriverTabChipVisible(tabName);
 
             foreach (var kv in _fsDriverTabButtons)
 

@@ -987,10 +987,7 @@ namespace Hiatme_Tool_Suite_v3
             if (_fsDriverTabFlow == null || _fsDriverTabOrder == null || _fsDriverTabOrder.Count == 0)
                 return 0;
 
-            var client = _fsDriverTabFlow.PointToClient(screenPt);
-            var layoutPt = new Point(
-                client.X - _fsDriverTabFlow.AutoScrollPosition.X,
-                client.Y - _fsDriverTabFlow.AutoScrollPosition.Y);
+            var layoutPt = _fsDriverTabFlow.PointToClient(screenPt);
 
             var buttons = GetVisibleTabButtonsInFlowOrder();
             if (buttons.Count == 0)

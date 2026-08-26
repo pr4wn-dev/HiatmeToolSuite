@@ -25,6 +25,7 @@ namespace Hiatme_Tool_Suite_v3
 
         private CancellationTokenSource _fsMapWorkCts;
         private readonly object _fsMapWorkCtsLock = new object();
+        private CancellationTokenSource _fsMapWarmCts;
 
         private System.Windows.Forms.Timer _fsMapRefreshDebounceTimer;
         private volatile bool _fsMapRefreshDebouncePending;
@@ -41,6 +42,7 @@ namespace Hiatme_Tool_Suite_v3
             public SupeyDriverProfile DriverProfile;
             public string StatusMessage;
             public bool HasOsrmRoutes;
+            public int LinesRevision;
         }
 
         private bool IsFsMapRefreshStale(int gen, string tabName = null)
@@ -417,7 +419,8 @@ namespace Hiatme_Tool_Suite_v3
             bool isReservesTab,
             bool showGroupColors,
             int gen,
-            CancellationToken token)
+            CancellationToken token,
+            bool reportProgress = true)
         {
             if (payload?.Groups == null || payload.Groups.Count == 0)
                 return (0, 0);
@@ -437,7 +440,7 @@ namespace Hiatme_Tool_Suite_v3
 
             Task<(int roadGroups, int straightGroups)> groupRoutesTask =
                 ScheduleBuilderPreviewGroups.BuildOsrmRoutePolylinesAsync(
-                    payload.Groups, routeHome, token, routeProgress);
+                    payload.Groups, routeHome, token, reportProgress ? routeProgress : null);
 
             Task tripLegsTask = Task.CompletedTask;
             if (showGroupColors && !isReservesTab)
@@ -540,7 +543,8 @@ namespace Hiatme_Tool_Suite_v3
                     payload.Plan,
                     payload.Pickup,
                     payload.Dropoff,
-                    payload.StatusMessage);
+                    payload.StatusMessage,
+                    payload.LinesRevision);
             }
 
             if (finalizeSelectionSync)
@@ -587,6 +591,7 @@ namespace Hiatme_Tool_Suite_v3
                 return;
             }
 
+            int builtRevision = GetFsTabLinesRevision(tabName);
             if (TryRestoreFsTabMapFromCache(tabName, gen, isReservesTab))
                 return;
 
@@ -653,6 +658,7 @@ namespace Hiatme_Tool_Suite_v3
                 }
 
                 payload.HasOsrmRoutes = true;
+                payload.LinesRevision = builtRevision;
                 int pinCount = (payload.Pickup?.Count ?? 0) + (payload.Dropoff?.Count ?? 0);
                 payload.StatusMessage = BuildFsMapStatusMessage(
                     tabName,
@@ -686,8 +692,168 @@ namespace Hiatme_Tool_Suite_v3
             if (string.IsNullOrWhiteSpace(_fsActiveDriverTab))
                 return;
 
-            // Load only the active tab; other tabs refresh lazily on first visit.
-            _ = RefreshFsMapForCurrentTabAsync();
+            // Paint the open tab first so background warm does not steal OSRM slots.
+            int preloadGen = Interlocked.Increment(ref _fsMapPreloadGen);
+            _ = FinishFsMapPreloadThenWarmAsync(tabNames, preloadGen);
+        }
+
+        private async Task FinishFsMapPreloadThenWarmAsync(IReadOnlyList<string> tabNames, int preloadGen)
+        {
+            try
+            {
+                await RefreshFsMapForCurrentTabAsync().ConfigureAwait(true);
+            }
+            catch
+            {
+            }
+
+            if (IsDisposed || preloadGen != _fsMapPreloadGen)
+                return;
+            StartFsMapBackgroundWarm(tabNames);
+        }
+
+        private sealed class FsMapWarmSnapshot
+        {
+            public string TabName;
+            public List<ScheduleBuilderPreviewLine> Lines;
+            public int LinesRevision;
+            public bool IsReservesTab;
+            public SupeyDriverProfile DriverProfile;
+        }
+
+        private void CancelFsMapBackgroundWarm()
+        {
+            var old = _fsMapWarmCts;
+            _fsMapWarmCts = null;
+            try { old?.Cancel(); } catch { }
+        }
+
+        private void StartFsMapBackgroundWarm(IReadOnlyList<string> tabNames)
+        {
+            CancelFsMapBackgroundWarm();
+            if (tabNames == null || tabNames.Count == 0)
+                return;
+            if (!ScheduleOsrmGate.PreviewRoutingOk)
+                return;
+
+            string active = _fsActiveDriverTab ?? "";
+            bool showGroupColors = FsShowGroupColorsEnabled;
+            var snapshots = new List<FsMapWarmSnapshot>();
+            foreach (string tabName in tabNames)
+            {
+                if (string.IsNullOrWhiteSpace(tabName))
+                    continue;
+                if (tabName.Equals(active, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                bool cached;
+                lock (_fsTabMapCacheLock)
+                    cached = _fsTabMapCache.ContainsKey(tabName);
+                if (cached)
+                    continue;
+                if (!_fsLinesByTab.TryGetValue(tabName, out var lines) || lines == null)
+                    continue;
+
+                snapshots.Add(new FsMapWarmSnapshot
+                {
+                    TabName = tabName,
+                    Lines = new List<ScheduleBuilderPreviewLine>(lines),
+                    LinesRevision = GetFsTabLinesRevision(tabName),
+                    IsReservesTab = tabName.Equals("Reserves", StringComparison.OrdinalIgnoreCase),
+                    DriverProfile = tabName.Equals("Reserves", StringComparison.OrdinalIgnoreCase)
+                        ? null
+                        : ScheduleBuilderDriverMapRouting.FindProfileForScheduleTab(_supeyRoster, tabName),
+                });
+            }
+
+            if (snapshots.Count == 0)
+                return;
+
+            _fsMapWarmCts = new CancellationTokenSource();
+            var token = _fsMapWarmCts.Token;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await WarmFsInactiveTabMapCachesAsync(snapshots, showGroupColors, token)
+                        .ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                }
+                catch
+                {
+                }
+            });
+        }
+
+        private async Task WarmFsInactiveTabMapCachesAsync(
+            List<FsMapWarmSnapshot> snapshots,
+            bool showGroupColors,
+            CancellationToken token)
+        {
+            foreach (var snap in snapshots)
+            {
+                token.ThrowIfCancellationRequested();
+                var trips = CollectFsMapTrips(snap.Lines);
+                if (trips.Count == 0)
+                    continue;
+
+                var pickup = new Dictionary<string, GeoPoint>(StringComparer.OrdinalIgnoreCase);
+                var dropoff = new Dictionary<string, GeoPoint>(StringComparer.OrdinalIgnoreCase);
+                await ScheduleBuilderMapGeocode.ResolveTripsForMapAsync(
+                    trips, pickup, dropoff, token).ConfigureAwait(false);
+
+                var payload = await BuildFsMapPayloadForTabFromGeocodesAsync(
+                    snap.TabName,
+                    snap.Lines,
+                    snap.IsReservesTab,
+                    showGroupColors,
+                    pickup,
+                    dropoff,
+                    snap.DriverProfile,
+                    0,
+                    checkRefreshStale: false,
+                    token).ConfigureAwait(false);
+                if (payload == null || payload.Aborted || !payload.RoutingOk)
+                    continue;
+
+                var routeCounts = await UpgradeFsMapPayloadWithOsrmAsync(
+                    payload, snap.IsReservesTab, showGroupColors, 0, token, reportProgress: false)
+                    .ConfigureAwait(false);
+
+                token.ThrowIfCancellationRequested();
+                payload.HasOsrmRoutes = true;
+                payload.LinesRevision = snap.LinesRevision;
+                int pinCount = (payload.Pickup?.Count ?? 0) + (payload.Dropoff?.Count ?? 0);
+                payload.StatusMessage = BuildFsMapStatusMessage(
+                    snap.TabName,
+                    snap.IsReservesTab,
+                    showGroupColors,
+                    pinCount,
+                    payload.Groups?.Count ?? 0,
+                    routeCounts.roadGroups,
+                    routeCounts.straightGroups,
+                    payload.Plan,
+                    snap.DriverProfile,
+                    osrmPending: false);
+
+                if (IsHandleCreated)
+                {
+                    BeginInvoke(new Action(() =>
+                    {
+                        if (token.IsCancellationRequested || payload.Plan == null)
+                            return;
+                        SaveFsTabMapCache(
+                            snap.TabName,
+                            snap.IsReservesTab,
+                            payload.Plan,
+                            payload.Pickup,
+                            payload.Dropoff,
+                            payload.StatusMessage,
+                            snap.LinesRevision);
+                    }));
+                }
+            }
         }
     }
 }
