@@ -14,7 +14,7 @@ namespace Hiatme_Tool_Suite_v3
         private SupeyButton _fsOptionsBtn;
         private SupeyButton _fsMapDockFloatChip;
         private bool _fsMapFloating = true;
-        private bool _fsMapUiVisible = true;
+        private bool _fsMapUiVisible;
         private bool _fsApplyingMapPresentation;
         private bool _fsMapFloatTopMost;
 
@@ -38,7 +38,7 @@ namespace Hiatme_Tool_Suite_v3
             catch
             {
                 _fsMapFloating = true;
-                _fsMapUiVisible = true;
+                _fsMapUiVisible = false;
             }
 
             ApplyFsMapPresentation(persist: false);

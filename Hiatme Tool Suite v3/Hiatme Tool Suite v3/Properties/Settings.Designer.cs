@@ -277,7 +277,7 @@ namespace Hiatme_Tool_Suite_v3.Properties {
         
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
-        [global::System.Configuration.DefaultSettingValueAttribute("True")]
+        [global::System.Configuration.DefaultSettingValueAttribute("False")]
         public bool FsMapUiVisible {
             get {
                 return ((bool)(this["FsMapUiVisible"]));
