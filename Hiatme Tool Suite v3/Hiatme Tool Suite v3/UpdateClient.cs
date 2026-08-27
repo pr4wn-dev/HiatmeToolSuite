@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
@@ -22,6 +23,10 @@ namespace Hiatme_Tool_Suite_v3
     {
         // Single source of truth for the publish layout. Bump together with the PHP endpoint path.
         public const string DefaultManifestUrl = "https://hiatme.com/downloads/hiatme-tool-suite/latest.php";
+
+        private static readonly object DownloadGate = new object();
+        private static readonly Dictionary<string, Task<string>> ActiveDownloads =
+            new Dictionary<string, Task<string>>(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>
         /// Override via <c>appSettings["UpdateManifestUrl"]</c> for local updater testing
@@ -162,30 +167,106 @@ namespace Hiatme_Tool_Suite_v3
 
         /// <summary>
         /// Download the zip to a fresh temp path, verify SHA256, and return the local path. Reports progress 0..1.
-        /// Throws on size mismatch, hash mismatch, or any HTTP failure so the caller can show a clean error.
+        /// Concurrent callers for the same version share one in-flight download instead of clobbering the same file.
         /// </summary>
-        public static async Task<string> DownloadVerifiedAsync(UpdateManifest manifest,
+        public static Task<string> DownloadVerifiedAsync(UpdateManifest manifest,
             IProgress<double> progress = null, CancellationToken cancellationToken = default)
         {
             if (manifest == null) throw new ArgumentNullException(nameof(manifest));
+            if (string.IsNullOrEmpty(manifest.Version))
+                throw new InvalidOperationException("Manifest has no version.");
+
+            string zipPath = GetUpdateZipPath(manifest.Version);
+            if (TryUseVerifiedZip(manifest, zipPath, out string cached))
+            {
+                progress?.Report(1.0);
+                return Task.FromResult(cached);
+            }
+
+            Task<string> downloadTask;
+            lock (DownloadGate)
+            {
+                if (!ActiveDownloads.TryGetValue(manifest.Version, out downloadTask))
+                {
+                    downloadTask = DownloadVerifiedCoreAsync(manifest, zipPath, progress, cancellationToken);
+                    ActiveDownloads[manifest.Version] = downloadTask;
+                }
+            }
+
+            return AwaitSharedDownloadAsync(manifest.Version, downloadTask);
+        }
+
+        /// <summary>True when a verified zip for this manifest is already on disk in the update temp folder.</summary>
+        public static bool TryGetVerifiedDownloadPath(UpdateManifest manifest, out string zipPath)
+        {
+            zipPath = null;
+            if (manifest == null || string.IsNullOrEmpty(manifest.Version))
+                return false;
+            string candidate = GetUpdateZipPath(manifest.Version);
+            return TryUseVerifiedZip(manifest, candidate, out zipPath);
+        }
+
+        private static async Task<string> AwaitSharedDownloadAsync(string version, Task<string> downloadTask)
+        {
+            try
+            {
+                return await downloadTask.ConfigureAwait(false);
+            }
+            finally
+            {
+                lock (DownloadGate)
+                {
+                    if (ActiveDownloads.TryGetValue(version, out Task<string> active) && ReferenceEquals(active, downloadTask))
+                        ActiveDownloads.Remove(version);
+                }
+            }
+        }
+
+        private static string GetUpdateZipPath(string version)
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), "HiatmeToolSuiteUpdate");
+            return Path.Combine(tempDir, "HiatmeToolSuite-" + version + ".zip");
+        }
+
+        private static bool TryUseVerifiedZip(UpdateManifest manifest, string zipPath, out string verifiedPath)
+        {
+            verifiedPath = null;
+            if (manifest == null || string.IsNullOrEmpty(manifest.Sha256) || !File.Exists(zipPath))
+                return false;
+
+            try
+            {
+                string actualHash = ComputeSha256Hex(zipPath);
+                if (!string.Equals(actualHash, manifest.Sha256, StringComparison.OrdinalIgnoreCase))
+                    return false;
+
+                verifiedPath = zipPath;
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static async Task<string> DownloadVerifiedCoreAsync(UpdateManifest manifest, string zipPath,
+            IProgress<double> progress, CancellationToken cancellationToken)
+        {
             if (string.IsNullOrEmpty(manifest.DownloadUrl)) throw new InvalidOperationException("Manifest has no downloadUrl.");
             if (string.IsNullOrEmpty(manifest.Sha256)) throw new InvalidOperationException("Manifest has no sha256.");
 
             EnsureModernTls();
 
-            string tempDir = Path.Combine(Path.GetTempPath(), "HiatmeToolSuiteUpdate");
-            Directory.CreateDirectory(tempDir);
-            string zipPath = Path.Combine(tempDir, "HiatmeToolSuite-" + manifest.Version + ".zip");
-            // Clean any half-finished prior attempt so we don't ever accept a stale partial file.
-            if (File.Exists(zipPath))
+            Directory.CreateDirectory(Path.GetDirectoryName(zipPath) ?? Path.GetTempPath());
+            if (File.Exists(zipPath) && !TryUseVerifiedZip(manifest, zipPath, out _))
             {
-                try { File.Delete(zipPath); } catch { /* will overwrite below */ }
+                try { File.Delete(zipPath); } catch { /* overwrite below */ }
             }
 
             using (var handler = new HttpClientHandler { AutomaticDecompression = DecompressionMethods.None })
             using (var client = new HttpClient(handler))
             {
-                client.Timeout = Timeout.InfiniteTimeSpan; // download timeout governed by the cancellation token / per-read stream
+                client.Timeout = Timeout.InfiniteTimeSpan;
                 client.DefaultRequestHeaders.UserAgent.ParseAdd("HiatmeToolSuite/" + CurrentVersion + " (Updater)");
 
                 using (var res = await client.GetAsync(manifest.DownloadUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false))
@@ -209,26 +290,19 @@ namespace Hiatme_Tool_Suite_v3
                 }
             }
 
-            if (manifest.SizeBytes > 0)
-            {
-                long actual = new FileInfo(zipPath).Length;
-                if (actual != manifest.SizeBytes)
-                {
-                    try { File.Delete(zipPath); } catch { }
-                    throw new InvalidDataException(
-                        "Download size mismatch — expected " + manifest.SizeBytes + " bytes, got " + actual + ".");
-                }
-            }
-
             string actualHash = ComputeSha256Hex(zipPath);
             if (!string.Equals(actualHash, manifest.Sha256, StringComparison.OrdinalIgnoreCase))
             {
+                long actualSize = 0;
+                try { actualSize = new FileInfo(zipPath).Length; } catch { }
                 try { File.Delete(zipPath); } catch { }
                 throw new InvalidDataException(
-                    "Downloaded file failed integrity check.\nExpected SHA256: " + manifest.Sha256 + "\nActual:   " + actualHash);
+                    "Downloaded file failed integrity check.\nExpected SHA256: " + manifest.Sha256 +
+                    "\nActual:   " + actualHash +
+                    (manifest.SizeBytes > 0 ? "\n\nExpected size: " + manifest.SizeBytes + " bytes" : "") +
+                    (actualSize > 0 ? "\nActual size:   " + actualSize + " bytes" : ""));
             }
 
-            // Refresh updater bits while the main exe is still running (Update.exe is not locked by us).
             try { StageUpdaterFilesFromZip(zipPath, AppDomain.CurrentDomain.BaseDirectory); } catch { }
 
             return zipPath;

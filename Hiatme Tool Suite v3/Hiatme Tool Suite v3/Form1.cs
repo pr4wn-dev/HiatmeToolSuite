@@ -3231,10 +3231,16 @@ namespace Hiatme_Tool_Suite_v3
 
         private bool HasVerifiedUpdateDownloadReady()
         {
-            return _updateAvailableManifest != null
-                && UpdateClient.IsUpdateAvailable(_updateAvailableManifest)
-                && !string.IsNullOrEmpty(_updateDownloadedZipPath)
-                && File.Exists(_updateDownloadedZipPath);
+            if (_updateAvailableManifest == null
+                || !UpdateClient.IsUpdateAvailable(_updateAvailableManifest))
+                return false;
+
+            if (!UpdateClient.TryGetVerifiedDownloadPath(_updateAvailableManifest, out string zip)
+                || string.IsNullOrEmpty(zip))
+                return false;
+
+            _updateDownloadedZipPath = zip;
+            return true;
         }
 
         private void StartBackgroundUpdateDownload(UpdateManifest manifest)
@@ -3248,7 +3254,9 @@ namespace Hiatme_Tool_Suite_v3
                 return;
             }
 
-            ClearBackgroundUpdateDownload(cancelRunning: true);
+            if (_updateBackgroundDownloadRunning)
+                return;
+
             _updateBackgroundDownloadRunning = true;
             _updateBackgroundDownloadCts = new CancellationTokenSource();
             CancellationTokenSource cts = _updateBackgroundDownloadCts;
@@ -3486,8 +3494,11 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>Show the update dialog and restart handoff when the user accepts.</summary>
         private Task OfferUpdateInstallAsync(UpdateManifest manifest, string preDownloadedZipPath = null)
         {
-            if (manifest == null || _updateInProgress)
+            if (manifest == null)
                 return Task.CompletedTask;
+
+            if (string.IsNullOrEmpty(preDownloadedZipPath))
+                UpdateClient.TryGetVerifiedDownloadPath(manifest, out preDownloadedZipPath);
 
             _updateInProgress = true;
             try
