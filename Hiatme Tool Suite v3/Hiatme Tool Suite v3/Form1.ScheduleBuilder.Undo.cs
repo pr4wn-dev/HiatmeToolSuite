@@ -33,6 +33,7 @@ namespace Hiatme_Tool_Suite_v3
                 return;
 
             _fsUndoStack.PushBeforeEdit(FsMakeUndoSnapshot(label));
+            FsMarkScheduleBuilderDirty();
         }
 
         private void FsUndoScheduleEdit()
@@ -46,6 +47,7 @@ namespace Hiatme_Tool_Suite_v3
 
             _fsUndoStack.PushRedo(FsMakeUndoSnapshot(restore.Label));
             FsApplyUndoEntry(restore);
+            FsMarkScheduleBuilderDirty();
             _ = FsHistoryRefreshAsync("Undid " + restore.Label + ".");
         }
 
@@ -60,6 +62,7 @@ namespace Hiatme_Tool_Suite_v3
 
             _fsUndoStack.PushUndoCheckpoint(FsMakeUndoSnapshot(restore.Label));
             FsApplyUndoEntry(restore);
+            FsMarkScheduleBuilderDirty();
             _ = FsHistoryRefreshAsync("Redid " + restore.Label + ".");
         }
 

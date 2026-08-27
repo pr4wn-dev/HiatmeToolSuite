@@ -411,6 +411,9 @@
       <DependentUpon>Form1.cs</DependentUpon>
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="Form1.ScheduleBuilder.AutoSave.cs">
+      <DependentUpon>Form1.cs</DependentUpon>
+    </Compile>
     <Compile Include="Form1.ScheduleBuilder.Assign.cs">
       <DependentUpon>Form1.cs</DependentUpon>
       <SubType>Form</SubType>

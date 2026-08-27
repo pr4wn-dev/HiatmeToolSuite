@@ -1054,7 +1054,8 @@ namespace Hiatme_Tool_Suite_v3
             _fsDriverTabOrder.Insert(insertIndex, item);
 
             fsbuilder?.SetTabOrder(_fsDriverTabOrder);
-            SetScheduleBuilderStatus("Tab order updated — click SAVE SCHEDULE to write the new order to the workbook.");
+            FsMarkScheduleBuilderDirty();
+            SetScheduleBuilderStatus("Tab order updated.");
             return true;
         }
     }

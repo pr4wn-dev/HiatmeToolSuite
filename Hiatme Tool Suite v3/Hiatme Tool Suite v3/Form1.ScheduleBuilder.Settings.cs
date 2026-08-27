@@ -14,6 +14,7 @@ namespace Hiatme_Tool_Suite_v3
         private CheckBox _fsSettingsShowGroupColors;
         private CheckBox _fsSettingsFloatMap;
         private CheckBox _fsSettingsSafeBuildMode;
+        private CheckBox _fsSettingsAutoSave;
         private CheckBox _fsSettingsAdvancedSuggestHistory;
 
         private Label _fsSettingsAdvancedToggle;
@@ -80,6 +81,13 @@ namespace Hiatme_Tool_Suite_v3
                 _fsMapFloating,
                 out _fsSettingsFloatMap,
                 OnFsSettingsFloatMapChanged));
+
+            layout.Controls.Add(MakeFsSettingsOption(
+                "Auto-save schedule",
+                "Save the workbook automatically after you pause editing (about 45 seconds), when you leave Schedule Builder, and when you close the app. Uses the same path as SAVE SCHEDULE.",
+                Settings.Default.FsAutoSave,
+                out _fsSettingsAutoSave,
+                OnFsSettingsAutoSaveChanged));
 
             _fsAdvancedSettingControls.Clear();
 
@@ -262,6 +270,18 @@ namespace Hiatme_Tool_Suite_v3
             _fsSettingsFloatMap.CheckedChanged -= OnFsSettingsFloatMapChanged;
             _fsSettingsFloatMap.Checked = _fsMapFloating;
             _fsSettingsFloatMap.CheckedChanged += OnFsSettingsFloatMapChanged;
+        }
+
+        private void OnFsSettingsAutoSaveChanged(object sender, EventArgs e)
+        {
+            if (_fsSettingsAutoSave == null) return;
+            Settings.Default.FsAutoSave = _fsSettingsAutoSave.Checked;
+            Settings.Default.Save();
+            if (!Settings.Default.FsAutoSave)
+                FsStopAutoSaveTimers();
+            else if (FsScheduleBuilderHasUnsavedChanges())
+                FsMarkScheduleBuilderDirty();
+            FsUpdateAutoSaveHint();
         }
 
         private void OnFsSettingsSafeBuildModeChanged(object sender, EventArgs e)

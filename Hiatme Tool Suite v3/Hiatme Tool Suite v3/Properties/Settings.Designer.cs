@@ -254,6 +254,18 @@ namespace Hiatme_Tool_Suite_v3.Properties {
         [global::System.Configuration.UserScopedSettingAttribute()]
         [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
         [global::System.Configuration.DefaultSettingValueAttribute("True")]
+        public bool FsAutoSave {
+            get {
+                return ((bool)(this["FsAutoSave"]));
+            }
+            set {
+                this["FsAutoSave"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("True")]
         public bool FsMapFloating {
             get {
                 return ((bool)(this["FsMapFloating"]));

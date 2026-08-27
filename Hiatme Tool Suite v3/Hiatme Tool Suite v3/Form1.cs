@@ -3234,6 +3234,8 @@ namespace Hiatme_Tool_Suite_v3
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             try { ReleaseFsMapFloatForShutdown(); } catch { }
+            try { FsAutoSaveBeforeShutdown(); } catch { }
+            try { FsStopAutoSaveTimers(); } catch { }
 
             _applicationExitRequested = true;
 
@@ -3334,6 +3336,7 @@ namespace Hiatme_Tool_Suite_v3
                 hidegiftimer?.Stop();
                 timekiller?.Stop();
                 clientcounttimer?.Stop();
+                FsStopAutoSaveTimers();
             }
             catch
             {

@@ -252,6 +252,8 @@ namespace Hiatme_Tool_Suite_v3
                 try { await FsRefreshArchiveStatusAsync(reportOffline: false).ConfigureAwait(true); }
                 catch { /* optional */ }
             });
+
+            InitializeFsAutoSave();
         }
 
 
@@ -612,6 +614,17 @@ namespace Hiatme_Tool_Suite_v3
             leftFlow.Controls.Add(_fsAssignBtn);
 
             leftFlow.Controls.Add(_fsSyncHistoryBtn);
+
+            _fsAutoSaveHintLbl = new Label
+            {
+                Text = "",
+                AutoSize = true,
+                ForeColor = SupeyTheme.TextMuted,
+                BackColor = SupeyTheme.SurfaceHeader,
+                Font = new Font("Segoe UI", 8.25f),
+                Margin = new Padding(12, 8, 0, 0),
+            };
+            leftFlow.Controls.Add(_fsAutoSaveHintLbl);
 
 
 
@@ -2355,6 +2368,9 @@ namespace Hiatme_Tool_Suite_v3
                         + cancelVerifyNote
                         + newTripsNote);
 
+                    _fsLastAutoSaveLocal = DateTime.Now;
+                    FsClearScheduleBuilderDirtyAfterSave();
+
                 }
 
                 catch (InvalidOperationException ex)
@@ -2590,14 +2606,17 @@ namespace Hiatme_Tool_Suite_v3
 
                 SetScheduleBuilderStatus(buildSummary + " Saving workbook…");
 
-                SyncFsPreviewCsvsForExport();
+                bool buildSaved = await FsExportScheduleWorkbookCoreAsync(
+                    promptForLocation: false,
+                    openAfterSave: false,
+                    reportStatus: OnBuildStatus).ConfigureAwait(true);
 
-                await fsbuilder.CreateWorkbookAsync().ConfigureAwait(true);
-
-                if (!string.IsNullOrEmpty(fsbuilder.LastExportPath))
-
+                if (buildSaved)
+                {
+                    _fsLastAutoSaveLocal = DateTime.Now;
+                    FsClearScheduleBuilderDirtyAfterSave();
                     SetScheduleBuilderStatus(buildSummary + " Saved workbook — " + fsbuilder.LastExportPath);
-
+                }
                 else
 
                     SetScheduleBuilderStatus(buildSummary + " Save cancelled — preview ready; click SAVE SCHEDULE to try again.");
@@ -3465,22 +3484,17 @@ namespace Hiatme_Tool_Suite_v3
 
                 SetScheduleBuilderStatus("Preparing export…");
 
-                if (fsbdatepicker != null)
-                    fsbuilder.ApplyServiceDate(fsbdatepicker.Value);
+                bool saved = await FsExportScheduleWorkbookCoreAsync(
+                    promptForLocation: false,
+                    openAfterSave: false,
+                    reportStatus: OnSaveStatus).ConfigureAwait(true);
 
-                fsbuilder.PreferredExportPath = _fsPreferredSavePath;
-
-                SyncFsPreviewCsvsForExport();
-
-                await fsbuilder.CreateWorkbookAsync(promptForLocation: false).ConfigureAwait(true);
-
-
-
-                if (!string.IsNullOrEmpty(fsbuilder.LastExportPath))
+                if (saved)
 
                 {
 
-                    _fsPreferredSavePath = fsbuilder.LastExportPath;
+                    _fsLastAutoSaveLocal = DateTime.Now;
+                    FsClearScheduleBuilderDirtyAfterSave();
 
                     SetScheduleBuilderStatus(fsbuilder.LastExportWasCsv
 
