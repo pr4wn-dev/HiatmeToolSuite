@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using Hiatme_Tool_Suite_v3.Properties;
@@ -82,7 +83,7 @@ namespace Hiatme_Tool_Suite_v3
         {
             var deadline = Environment.TickCount + Math.Max(0, maxMs);
             while (_fsScheduleBuilderExportBusy && Environment.TickCount < deadline)
-                Application.DoEvents();
+                Thread.Sleep(50);
         }
 
         /// <summary>

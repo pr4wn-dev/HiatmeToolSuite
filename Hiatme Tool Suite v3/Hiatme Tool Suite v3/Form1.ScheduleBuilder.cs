@@ -2731,8 +2731,13 @@ namespace Hiatme_Tool_Suite_v3
                 fsbuilder.SetTabOrder(_fsDriverTabOrder);
 
             fsbuilder.PreviewCsvExportOptions = MakeFsPreviewCsvExportOptions();
-            if (_fsTripsLv != null && !_fsTripsLv.IsDisposed && _fsTripsLv.IsHandleCreated)
+            if (!_fsAppShuttingDown
+                && _fsTripsLv != null
+                && !_fsTripsLv.IsDisposed
+                && _fsTripsLv.IsHandleCreated)
+            {
                 fsbuilder.WorkbookColumnWidths = ScheduleBuilderListViewColumnWidths.CaptureFromTripsListView(_fsTripsLv);
+            }
             fsbuilder.ExportPreviewCsvs(_fsLinesByTab);
         }
 

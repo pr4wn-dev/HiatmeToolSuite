@@ -248,6 +248,10 @@ namespace Hiatme_Tool_Suite_v3
             {
                 // Cross-thread / handle-recreation race during teardown.
             }
+            catch (NullReferenceException)
+            {
+                // ListView internals can be half-disposed while WM_PAINT still fires on exit.
+            }
         }
 
         private void ClearNativeHotItem()

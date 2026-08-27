@@ -566,10 +566,34 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (listView is SupeyListView slv && !slv.GridLines)
                 return;
-            if (g == null || listView == null || listView.IsDisposed || listView.View != View.Details
-                || listView.Columns.Count == 0 || !listView.IsHandleCreated)
+            if (g == null || listView == null || listView.IsDisposed || listView.Disposing
+                || listView.View != View.Details || listView.Columns.Count == 0 || !listView.IsHandleCreated)
                 return;
 
+            Form host = listView.FindForm();
+            if (host == null || host.IsDisposed || host.Disposing)
+                return;
+
+            try
+            {
+                PaintEmptyDetailsGridCore(listView, g);
+            }
+            catch (NullReferenceException)
+            {
+                // TopItem / Items can throw while the host form is closing.
+            }
+            catch (ArgumentException)
+            {
+                // Handle or item collection torn down mid-paint.
+            }
+            catch (InvalidOperationException)
+            {
+                // Cross-thread / recreation race during shutdown.
+            }
+        }
+
+        private static void PaintEmptyDetailsGridCore(ListView listView, Graphics g)
+        {
             int headerH = GetDetailsHeaderHeight(listView);
             int clientH = listView.ClientSize.Height;
             int clientW = listView.ClientSize.Width;
@@ -582,7 +606,7 @@ namespace Hiatme_Tool_Suite_v3
 
             // Column right edges from a live row when possible (respects horizontal scroll).
             var colRights = new List<int>(listView.Columns.Count);
-            ListViewItem sample = listView.TopItem ?? (listView.Items.Count > 0 ? listView.Items[0] : null);
+            ListViewItem sample = TryGetDetailsSampleItem(listView);
             if (sample != null && sample.SubItems.Count > 0)
             {
                 for (int c = 0; c < listView.Columns.Count; c++)
@@ -675,6 +699,29 @@ namespace Hiatme_Tool_Suite_v3
             {
                 g.Restore(saved);
             }
+        }
+
+        private static ListViewItem TryGetDetailsSampleItem(ListView listView)
+        {
+            if (listView == null || listView.IsDisposed || listView.Disposing || !listView.IsHandleCreated)
+                return null;
+
+            try
+            {
+                ListViewItem top = listView.TopItem;
+                if (top != null)
+                    return top;
+                if (listView.Items.Count > 0)
+                    return listView.Items[0];
+            }
+            catch (NullReferenceException)
+            {
+            }
+            catch (ArgumentException)
+            {
+            }
+
+            return null;
         }
 
         private static void PaintVerticalGridSegment(
