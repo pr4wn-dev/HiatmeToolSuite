@@ -3403,6 +3403,7 @@ namespace Hiatme_Tool_Suite_v3
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
+            _fsAppShuttingDown = true;
             try { ReleaseFsMapFloatForShutdown(); } catch { }
             try { FsAutoSaveBeforeShutdown(); } catch { }
             try { FsStopAutoSaveTimers(); } catch { }

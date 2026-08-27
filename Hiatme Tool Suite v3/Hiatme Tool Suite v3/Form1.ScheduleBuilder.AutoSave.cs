@@ -20,6 +20,7 @@ namespace Hiatme_Tool_Suite_v3
         private System.Windows.Forms.Timer _fsAutoSaveMaxTimer;
 
         private Label _fsAutoSaveHintLbl;
+        private bool _fsAppShuttingDown;
 
         private bool FsAutoSaveIsOn => Settings.Default.FsAutoSave;
 
@@ -37,8 +38,9 @@ namespace Hiatme_Tool_Suite_v3
 
             tabPage6.VisibleChanged += (_, __) =>
             {
-                if (tabPage6 != null && !tabPage6.Visible)
-                    _ = FsTryAutoSaveOnTabLeaveAsync();
+                if (_fsAppShuttingDown || tabPage6 == null || !tabPage6.Visible)
+                    return;
+                _ = FsTryAutoSaveOnTabLeaveAsync();
             };
 
             FsUpdateAutoSaveHint();
@@ -62,13 +64,63 @@ namespace Hiatme_Tool_Suite_v3
             if (!FsAutoSaveIsOn || !FsScheduleBuilderHasUnsavedChanges())
                 return;
 
+            _fsAppShuttingDown = true;
+            FsStopAutoSaveTimers();
+
             try
             {
-                FsTryAutoSaveAsync(force: true).ConfigureAwait(false).GetAwaiter().GetResult();
+                WaitForScheduleExportIdle(maxMs: 15000);
+                FsExportScheduleWorkbookShutdownSync();
             }
             catch
             {
-                // best effort on exit
+                // best effort on exit — never block or crash shutdown
+            }
+        }
+
+        private void WaitForScheduleExportIdle(int maxMs)
+        {
+            var deadline = Environment.TickCount + Math.Max(0, maxMs);
+            while (_fsScheduleBuilderExportBusy && Environment.TickCount < deadline)
+                Application.DoEvents();
+        }
+
+        /// <summary>
+        /// Synchronous export for app exit only. Async save uses ConfigureAwait(true) and deadlocks
+        /// if GetResult is called on the UI thread during FormClosing.
+        /// </summary>
+        private void FsExportScheduleWorkbookShutdownSync()
+        {
+            if (fsbuilder == null || !_fsHasPreview || _fsScheduleBuilderExportBusy)
+                return;
+
+            _fsScheduleBuilderExportBusy = true;
+            try
+            {
+                if (fsbdatepicker != null && !fsbdatepicker.IsDisposed)
+                    fsbuilder.ApplyServiceDate(fsbdatepicker.Value);
+
+                string path = FsResolveScheduleBuilderSavePath(allowDefault: true);
+                if (string.IsNullOrWhiteSpace(path))
+                    return;
+
+                fsbuilder.PreferredExportPath = path;
+                SyncFsPreviewCsvsForExport();
+
+                fsbuilder.CreateWorkbookAsync(promptForLocation: false, openAfterSave: false)
+                    .ConfigureAwait(false)
+                    .GetAwaiter()
+                    .GetResult();
+
+                if (string.IsNullOrEmpty(fsbuilder.LastExportPath))
+                    return;
+
+                _fsPreferredSavePath = fsbuilder.LastExportPath;
+                _fsAutoSaveDirty = false;
+            }
+            finally
+            {
+                _fsScheduleBuilderExportBusy = false;
             }
         }
 
@@ -141,6 +193,9 @@ namespace Hiatme_Tool_Suite_v3
 
         private void FsUpdateAutoSaveHint()
         {
+            if (_fsAppShuttingDown)
+                return;
+
             if (_fsAutoSaveHintLbl == null || _fsAutoSaveHintLbl.IsDisposed)
                 return;
 
@@ -181,6 +236,9 @@ namespace Hiatme_Tool_Suite_v3
 
         private async Task FsTryAutoSaveAsync(bool force = false)
         {
+            if (_fsAppShuttingDown)
+                return;
+
             if (!FsAutoSaveIsOn)
                 return;
 
