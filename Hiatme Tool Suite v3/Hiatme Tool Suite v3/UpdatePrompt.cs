@@ -35,7 +35,7 @@ namespace Hiatme_Tool_Suite_v3
         private Label _readyBannerText;
         private int _slideIndex;
 
-        public UpdatePrompt(UpdateManifest manifest)
+        public UpdatePrompt(UpdateManifest manifest, string preDownloadedZipPath = null)
         {
             _manifest = manifest ?? throw new ArgumentNullException(nameof(manifest));
             _slides = UpdateReleaseNotesParser.Parse(_manifest.ReleaseNotes);
@@ -64,6 +64,12 @@ namespace Hiatme_Tool_Suite_v3
             ShowSlide(0);
             KeyPreview = true;
             KeyDown += OnCarouselKeyDown;
+
+            if (!string.IsNullOrEmpty(preDownloadedZipPath) && System.IO.File.Exists(preDownloadedZipPath))
+            {
+                DownloadedZipPath = preDownloadedZipPath;
+                Shown += (_, __) => OnDownloadComplete();
+            }
         }
 
         private void OnCarouselKeyDown(object sender, KeyEventArgs e)
@@ -251,6 +257,12 @@ namespace Hiatme_Tool_Suite_v3
 
         private void OnDownloadComplete()
         {
+            if (InvokeRequired)
+            {
+                BeginInvoke(new Action(OnDownloadComplete));
+                return;
+            }
+
             _downloadComplete = true;
             _readyBanner.Visible = true;
             _progress.Value = 100;
@@ -298,7 +310,8 @@ namespace Hiatme_Tool_Suite_v3
 
             try
             {
-                string zip = await UpdateClient.DownloadVerifiedAsync(_manifest, progress, _cts.Token);
+                string zip = await UpdateClient.DownloadVerifiedAsync(_manifest, progress, _cts.Token)
+                    .ConfigureAwait(true);
                 DownloadedZipPath = zip;
                 OnDownloadComplete();
             }

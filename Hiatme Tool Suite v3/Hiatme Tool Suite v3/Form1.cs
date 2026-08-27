@@ -3019,9 +3019,12 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>Remote version the user dismissed with "Later" this session — periodic check won't re-prompt.</summary>
         private string _updateDismissedVersion;
         private UpdateManifest _updateAvailableManifest;
+        private string _updateDownloadedZipPath;
+        private bool _updateBackgroundDownloadRunning;
+        private CancellationTokenSource _updateBackgroundDownloadCts;
 
         private const int UpdatePollIntervalMs = 30 * 60 * 1000;
-        private const int UpdatePollFirstDelayMs = 20 * 60 * 1000;
+        private const int UpdatePollFirstDelayMs = 3 * 60 * 1000;
 
         private static readonly Color UpdateLinkDefaultColor = Color.FromArgb(180, 220, 255);
         private static readonly Color UpdateLinkAvailableColor = Color.FromArgb(255, 196, 96);
@@ -3054,6 +3057,11 @@ namespace Hiatme_Tool_Suite_v3
                 _updateStatusLink.LinkClicked += async (s, e2) =>
                 {
                     if (_updateInProgress) return;
+                    if (HasVerifiedUpdateDownloadReady())
+                    {
+                        await OfferUpdateInstallAsync(_updateAvailableManifest, _updateDownloadedZipPath);
+                        return;
+                    }
                     if (_updateAvailableManifest != null
                         && UpdateClient.IsUpdateAvailable(_updateAvailableManifest))
                     {
@@ -3100,6 +3108,8 @@ namespace Hiatme_Tool_Suite_v3
                     _updatePollTimer.Dispose();
                     _updatePollTimer = null;
                 }
+
+                ClearBackgroundUpdateDownload(cancelRunning: true);
             }
             catch
             {
@@ -3169,21 +3179,161 @@ namespace Hiatme_Tool_Suite_v3
                 return;
 
             _updateAvailableManifest = manifest;
-            if (_updateStatusLink != null && !_updateStatusLink.IsDisposed)
-            {
-                _updateStatusLink.LinkColor = UpdateLinkAvailableColor;
-                _updateStatusLink.ActiveLinkColor = Color.FromArgb(255, 220, 140);
-                _updateStatusLink.VisitedLinkColor = UpdateLinkAvailableColor;
-                _updateStatusLink.Font = new Font("Segoe UI Semibold", 8.25f);
-            }
-
+            ApplyUpdateLinkAvailableStyle();
             SetUpdateLinkText(
                 "Update available v" + manifest.Version + " — click to install · "
                 + UpdateClient.CurrentVersionDisplay);
+            StartBackgroundUpdateDownload(manifest);
+        }
+
+        private void SetUpdateLinkDownloadReady(UpdateManifest manifest)
+        {
+            if (manifest == null)
+                return;
+
+            _updateAvailableManifest = manifest;
+            ApplyUpdateLinkAvailableStyle();
+            SetUpdateLinkText(
+                "Download ready v" + manifest.Version + " — click to restart · "
+                + UpdateClient.CurrentVersionDisplay);
+        }
+
+        private void ApplyUpdateLinkAvailableStyle()
+        {
+            if (_updateStatusLink == null || _updateStatusLink.IsDisposed)
+                return;
+
+            _updateStatusLink.LinkColor = UpdateLinkAvailableColor;
+            _updateStatusLink.ActiveLinkColor = Color.FromArgb(255, 220, 140);
+            _updateStatusLink.VisitedLinkColor = UpdateLinkAvailableColor;
+            _updateStatusLink.Font = new Font("Segoe UI Semibold", 8.25f);
+        }
+
+        private bool HasVerifiedUpdateDownloadReady()
+        {
+            return _updateAvailableManifest != null
+                && UpdateClient.IsUpdateAvailable(_updateAvailableManifest)
+                && !string.IsNullOrEmpty(_updateDownloadedZipPath)
+                && File.Exists(_updateDownloadedZipPath);
+        }
+
+        private void StartBackgroundUpdateDownload(UpdateManifest manifest)
+        {
+            if (manifest == null || _updateBackgroundDownloadRunning || _updateInProgress)
+                return;
+
+            if (HasVerifiedUpdateDownloadReady())
+            {
+                SetUpdateLinkDownloadReady(manifest);
+                return;
+            }
+
+            ClearBackgroundUpdateDownload(cancelRunning: true);
+            _updateBackgroundDownloadRunning = true;
+            _updateBackgroundDownloadCts = new CancellationTokenSource();
+            CancellationTokenSource cts = _updateBackgroundDownloadCts;
+            string versionLabel = manifest.Version;
+
+            SetUpdateLinkText(
+                "Downloading update v" + versionLabel + "… · "
+                + UpdateClient.CurrentVersionDisplay);
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var progress = new Progress<double>(p =>
+                    {
+                        if (IsDisposed || !_updateBackgroundDownloadRunning)
+                            return;
+
+                        int pct = (int)Math.Round(p * 100.0);
+                        if (pct < 0) pct = 0;
+                        else if (pct > 100) pct = 100;
+                        try
+                        {
+                            BeginInvoke(new Action(() =>
+                            {
+                                if (IsDisposed || !_updateBackgroundDownloadRunning)
+                                    return;
+                                SetUpdateLinkText(
+                                    "Downloading update v" + versionLabel + " " + pct + "% · "
+                                    + UpdateClient.CurrentVersionDisplay);
+                            }));
+                        }
+                        catch
+                        {
+                            // ignore during shutdown
+                        }
+                    });
+
+                    string zip = await UpdateClient.DownloadVerifiedAsync(manifest, progress, cts.Token)
+                        .ConfigureAwait(false);
+                    if (cts.IsCancellationRequested)
+                        return;
+
+                    BeginInvoke(new Action(() =>
+                    {
+                        if (IsDisposed)
+                            return;
+                        _updateBackgroundDownloadRunning = false;
+                        _updateDownloadedZipPath = zip;
+                        SetUpdateLinkDownloadReady(manifest);
+                    }));
+                }
+                catch (OperationCanceledException)
+                {
+                    BeginInvoke(new Action(() =>
+                    {
+                        if (IsDisposed)
+                            return;
+                        _updateBackgroundDownloadRunning = false;
+                        if (_updateAvailableManifest != null
+                            && UpdateClient.IsUpdateAvailable(_updateAvailableManifest))
+                        {
+                            ApplyUpdateLinkAvailableStyle();
+                            SetUpdateLinkText(
+                                "Update available v" + _updateAvailableManifest.Version + " — click to install · "
+                                + UpdateClient.CurrentVersionDisplay);
+                        }
+                    }));
+                }
+                catch
+                {
+                    BeginInvoke(new Action(() =>
+                    {
+                        if (IsDisposed)
+                            return;
+                        _updateBackgroundDownloadRunning = false;
+                        if (_updateAvailableManifest != null
+                            && UpdateClient.IsUpdateAvailable(_updateAvailableManifest))
+                        {
+                            ApplyUpdateLinkAvailableStyle();
+                            SetUpdateLinkText(
+                                "Update available v" + _updateAvailableManifest.Version + " — click to install · "
+                                + UpdateClient.CurrentVersionDisplay);
+                        }
+                    }));
+                }
+            });
+        }
+
+        private void ClearBackgroundUpdateDownload(bool cancelRunning)
+        {
+            if (cancelRunning)
+            {
+                try { _updateBackgroundDownloadCts?.Cancel(); } catch { }
+            }
+
+            _updateBackgroundDownloadCts?.Dispose();
+            _updateBackgroundDownloadCts = null;
+            _updateBackgroundDownloadRunning = false;
+            _updateDownloadedZipPath = null;
         }
 
         private void ResetUpdateLinkAppearance()
         {
+            ClearBackgroundUpdateDownload(cancelRunning: true);
             _updateAvailableManifest = null;
             if (_updateStatusLink == null || _updateStatusLink.IsDisposed)
                 return;
@@ -3314,7 +3464,7 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         /// <summary>Show the update dialog and restart handoff when the user accepts.</summary>
-        private Task OfferUpdateInstallAsync(UpdateManifest manifest)
+        private Task OfferUpdateInstallAsync(UpdateManifest manifest, string preDownloadedZipPath = null)
         {
             if (manifest == null || _updateInProgress)
                 return Task.CompletedTask;
@@ -3322,7 +3472,7 @@ namespace Hiatme_Tool_Suite_v3
             _updateInProgress = true;
             try
             {
-                using (var dlg = new UpdatePrompt(manifest))
+                using (var dlg = new UpdatePrompt(manifest, preDownloadedZipPath))
                 {
                     var res = dlg.ShowDialog(this);
                     if (res != DialogResult.OK || string.IsNullOrEmpty(dlg.DownloadedZipPath))
