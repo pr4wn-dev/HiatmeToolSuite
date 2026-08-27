@@ -3015,6 +3015,17 @@ namespace Hiatme_Tool_Suite_v3
         private System.Windows.Forms.Panel _loginFooterPanel;
         private bool _gmailLoginFieldHooksWired;
 
+        private System.Windows.Forms.Timer _updatePollTimer;
+        /// <summary>Remote version the user dismissed with "Later" this session — periodic check won't re-prompt.</summary>
+        private string _updateDismissedVersion;
+        private UpdateManifest _updateAvailableManifest;
+
+        private const int UpdatePollIntervalMs = 30 * 60 * 1000;
+        private const int UpdatePollFirstDelayMs = 20 * 60 * 1000;
+
+        private static readonly Color UpdateLinkDefaultColor = Color.FromArgb(180, 220, 255);
+        private static readonly Color UpdateLinkAvailableColor = Color.FromArgb(255, 196, 96);
+
         /// <summary>
         /// Sets the title bar to include the current version and adds a clickable bottom-right "Check for updates"
         /// link. Done in code (not the designer) so the existing layout isn't disturbed.
@@ -3043,6 +3054,12 @@ namespace Hiatme_Tool_Suite_v3
                 _updateStatusLink.LinkClicked += async (s, e2) =>
                 {
                     if (_updateInProgress) return;
+                    if (_updateAvailableManifest != null
+                        && UpdateClient.IsUpdateAvailable(_updateAvailableManifest))
+                    {
+                        await OfferUpdateInstallAsync(_updateAvailableManifest);
+                        return;
+                    }
                     await RunManualUpdateCheckAsync();
                 };
                 if (tabPage1 != null)
@@ -3056,8 +3073,45 @@ namespace Hiatme_Tool_Suite_v3
                     tabPage1.Resize += (_, __) => PositionUpdateStatusLink();
                 if (hiatmeTabControl?.SelectedTab == tabPage1)
                     RelayoutLoginForm();
+
+                StartUpdatePollTimer();
             }
             catch { }
+        }
+
+        private void StartUpdatePollTimer()
+        {
+            if (_updatePollTimer != null)
+                return;
+
+            _updatePollTimer = new System.Windows.Forms.Timer { Interval = UpdatePollFirstDelayMs };
+            _updatePollTimer.Tick += UpdatePollTimer_Tick;
+            _updatePollTimer.Start();
+        }
+
+        private void StopUpdatePollTimer()
+        {
+            try
+            {
+                if (_updatePollTimer != null)
+                {
+                    _updatePollTimer.Tick -= UpdatePollTimer_Tick;
+                    _updatePollTimer.Stop();
+                    _updatePollTimer.Dispose();
+                    _updatePollTimer = null;
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+
+        private void UpdatePollTimer_Tick(object sender, EventArgs e)
+        {
+            if (_updatePollTimer != null)
+                _updatePollTimer.Interval = UpdatePollIntervalMs;
+            _ = RunPeriodicUpdateCheckAsync();
         }
 
         private void PositionUpdateStatusLink()
@@ -3109,6 +3163,94 @@ namespace Hiatme_Tool_Suite_v3
                 PositionUpdateStatusLink();
         }
 
+        private void SetUpdateLinkAvailable(UpdateManifest manifest)
+        {
+            if (manifest == null)
+                return;
+
+            _updateAvailableManifest = manifest;
+            if (_updateStatusLink != null && !_updateStatusLink.IsDisposed)
+            {
+                _updateStatusLink.LinkColor = UpdateLinkAvailableColor;
+                _updateStatusLink.ActiveLinkColor = Color.FromArgb(255, 220, 140);
+                _updateStatusLink.VisitedLinkColor = UpdateLinkAvailableColor;
+                _updateStatusLink.Font = new Font("Segoe UI Semibold", 8.25f);
+            }
+
+            SetUpdateLinkText(
+                "Update available v" + manifest.Version + " — click to install · "
+                + UpdateClient.CurrentVersionDisplay);
+        }
+
+        private void ResetUpdateLinkAppearance()
+        {
+            _updateAvailableManifest = null;
+            if (_updateStatusLink == null || _updateStatusLink.IsDisposed)
+                return;
+
+            _updateStatusLink.LinkColor = UpdateLinkDefaultColor;
+            _updateStatusLink.ActiveLinkColor = Color.FromArgb(255, 255, 255);
+            _updateStatusLink.VisitedLinkColor = UpdateLinkDefaultColor;
+            _updateStatusLink.Font = new Font("Segoe UI", 8.25f);
+        }
+
+        private bool ShouldSuppressUpdatePrompt(UpdateManifest manifest)
+        {
+            if (manifest == null || string.IsNullOrWhiteSpace(manifest.Version))
+                return true;
+
+            return string.Equals(
+                _updateDismissedVersion,
+                manifest.Version.Trim(),
+                StringComparison.OrdinalIgnoreCase);
+        }
+
+        private bool CanShowUpdatePromptNow()
+        {
+            if (!Visible || WindowState == FormWindowState.Minimized)
+                return false;
+
+            foreach (Form owned in OwnedForms)
+            {
+                if (owned != null && !owned.IsDisposed && owned.Modal && owned.Visible)
+                    return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>Background poll while the desk keeps Tool Suite open (every ~30 min after the first ~20 min).</summary>
+        private async Task RunPeriodicUpdateCheckAsync()
+        {
+            if (_updateInProgress)
+                return;
+
+            try
+            {
+                UpdateManifest manifest = await UpdateClient.FetchManifestAsync().ConfigureAwait(true);
+                if (!UpdateClient.IsUpdateAvailable(manifest))
+                {
+                    if (_updateAvailableManifest != null)
+                    {
+                        ResetUpdateLinkAppearance();
+                        SetUpdateLinkText("Up to date · " + UpdateClient.CurrentVersionDisplay);
+                    }
+                    return;
+                }
+
+                SetUpdateLinkAvailable(manifest);
+
+                if (ShouldSuppressUpdatePrompt(manifest) || !CanShowUpdatePromptNow())
+                    return;
+
+                await OfferUpdateInstallAsync(manifest).ConfigureAwait(true);
+            }
+            catch
+            {
+                // Network blips during the day shouldn't interrupt dispatch work.
+            }
+        }
+
         /// <summary>Non-blocking auto-check on launch. Visible (not silent) status feedback in the bottom-right link.</summary>
         private async Task RunStartupUpdateCheckAsync()
         {
@@ -3120,10 +3262,10 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>User clicked "Check for updates" — always show a confirmation MessageBox, even when up-to-date.</summary>
         private async Task RunManualUpdateCheckAsync()
         {
-            await RunUpdateCheckCoreAsync(promptOnNoUpdate: true);
+            await RunUpdateCheckCoreAsync(promptOnNoUpdate: true, autoPromptIfAvailable: true);
         }
 
-        private async Task RunUpdateCheckCoreAsync(bool promptOnNoUpdate)
+        private async Task RunUpdateCheckCoreAsync(bool promptOnNoUpdate, bool autoPromptIfAvailable = true)
         {
             if (_updateInProgress) return;
             _updateInProgress = true;
@@ -3133,11 +3275,15 @@ namespace Hiatme_Tool_Suite_v3
                 UpdateManifest manifest;
                 try
                 {
-                    manifest = await UpdateClient.FetchManifestAsync();
+                    manifest = await UpdateClient.FetchManifestAsync().ConfigureAwait(true);
                 }
                 catch (Exception ex)
                 {
-                    SetUpdateLinkText("Update check failed · " + UpdateClient.CurrentVersionDisplay);
+                    ResetUpdateLinkAppearance();
+                    if (_updateAvailableManifest != null)
+                        SetUpdateLinkAvailable(_updateAvailableManifest);
+                    else
+                        SetUpdateLinkText("Update check failed · " + UpdateClient.CurrentVersionDisplay);
                     if (promptOnNoUpdate)
                         MessageBox.Show(this,
                             "Could not reach the update server.\n\n" + ex.Message,
@@ -3147,6 +3293,7 @@ namespace Hiatme_Tool_Suite_v3
 
                 if (!UpdateClient.IsUpdateAvailable(manifest))
                 {
+                    ResetUpdateLinkAppearance();
                     SetUpdateLinkText("Up to date · " + UpdateClient.CurrentVersionDisplay);
                     if (promptOnNoUpdate)
                         MessageBox.Show(this,
@@ -3155,13 +3302,34 @@ namespace Hiatme_Tool_Suite_v3
                     return;
                 }
 
-                SetUpdateLinkText("Update available v" + manifest.Version + " · " + UpdateClient.CurrentVersionDisplay);
+                SetUpdateLinkAvailable(manifest);
 
+                if (autoPromptIfAvailable && CanShowUpdatePromptNow())
+                    await OfferUpdateInstallAsync(manifest).ConfigureAwait(true);
+            }
+            finally
+            {
+                _updateInProgress = false;
+            }
+        }
+
+        /// <summary>Show the update dialog and restart handoff when the user accepts.</summary>
+        private Task OfferUpdateInstallAsync(UpdateManifest manifest)
+        {
+            if (manifest == null || _updateInProgress)
+                return Task.CompletedTask;
+
+            _updateInProgress = true;
+            try
+            {
                 using (var dlg = new UpdatePrompt(manifest))
                 {
                     var res = dlg.ShowDialog(this);
                     if (res != DialogResult.OK || string.IsNullOrEmpty(dlg.DownloadedZipPath))
-                        return;
+                    {
+                        _updateDismissedVersion = manifest.Version;
+                        return Task.CompletedTask;
+                    }
 
                     if (!UpdateClient.LaunchUpdaterAndExit(dlg.DownloadedZipPath))
                     {
@@ -3172,7 +3340,7 @@ namespace Hiatme_Tool_Suite_v3
                             "Install folder:\n" + AppDomain.CurrentDomain.BaseDirectory + "\n\n" +
                             "Downloaded zip:\n" + dlg.DownloadedZipPath + "\n\n" +
                             "Log:\n" + Path.Combine(Path.GetTempPath(), "HiatmeUpdaterLog.txt"));
-                        return;
+                        return Task.CompletedTask;
                     }
 
                     ExitForUpdaterInstall();
@@ -3182,6 +3350,8 @@ namespace Hiatme_Tool_Suite_v3
             {
                 _updateInProgress = false;
             }
+
+            return Task.CompletedTask;
         }
 
         // ---------- /Updates ----------
@@ -3314,6 +3484,16 @@ namespace Hiatme_Tool_Suite_v3
         {
             try { hiatmeTabControl?.RefreshAfterRestore(); } catch { }
             try { _navDrawer?.Reposition(); } catch { }
+            try
+            {
+                if (_updateAvailableManifest != null
+                    && UpdateClient.IsUpdateAvailable(_updateAvailableManifest)
+                    && !ShouldSuppressUpdatePrompt(_updateAvailableManifest))
+                {
+                    _ = OfferUpdateInstallAsync(_updateAvailableManifest);
+                }
+            }
+            catch { }
         }
 
         protected override void OnFormClosed(FormClosedEventArgs e)
@@ -3336,6 +3516,7 @@ namespace Hiatme_Tool_Suite_v3
                 hidegiftimer?.Stop();
                 timekiller?.Stop();
                 clientcounttimer?.Stop();
+                StopUpdatePollTimer();
                 FsStopAutoSaveTimers();
             }
             catch
