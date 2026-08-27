@@ -483,6 +483,7 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             SetMaterialContentGutters(SupeyDrawer.CollapsedWidth, rightGutter, GlobalAiDockRightPad);
+            try { PositionUpdateStatusLink(); } catch { }
         }
 
         private void ApplyGlobalAiDockTheme()

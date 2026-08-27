@@ -3074,7 +3074,6 @@ namespace Hiatme_Tool_Suite_v3
                     tabPage1.Controls.Add(_updateStatusLink);
                 else
                     Controls.Add(_updateStatusLink);
-                _updateStatusLink.SendToBack();
                 PositionUpdateStatusLink();
                 Resize += (_, __) => PositionUpdateStatusLink();
                 if (tabPage1 != null)
@@ -3149,7 +3148,6 @@ namespace Hiatme_Tool_Suite_v3
                     tabPage1.Controls.Add(_updateStatusLink);
                 else
                     Controls.Add(_updateStatusLink);
-                _updateStatusLink.SendToBack();
             }
 
             if (_updateStatusLink.Parent != this)
@@ -3157,10 +3155,32 @@ namespace Hiatme_Tool_Suite_v3
                 _updateStatusLink.Parent?.Controls.Remove(_updateStatusLink);
                 Controls.Add(_updateStatusLink);
             }
+
+            _updateStatusLink.AutoSize = true;
+            _updateStatusLink.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
+            _updateStatusLink.BackColor = Color.Transparent;
             _updateStatusLink.Visible = true;
-            int x = ClientSize.Width - linkW - margin;
-            int y = ClientSize.Height - linkH - margin;
-            _updateStatusLink.Location = new Point(Math.Max(margin, x), Math.Max(margin, y));
+
+            // Anchor to the bottom-right of the main tab area (not the full form — avoids the AI dock).
+            int x;
+            int y;
+            if (hiatmeTabControl != null && !hiatmeTabControl.IsDisposed && hiatmeTabControl.Visible)
+            {
+                Point br = PointToClient(hiatmeTabControl.PointToScreen(
+                    new Point(hiatmeTabControl.ClientSize.Width, hiatmeTabControl.ClientSize.Height)));
+                linkW = _updateStatusLink.PreferredSize.Width;
+                linkH = _updateStatusLink.PreferredSize.Height;
+                x = br.X - linkW - margin;
+                y = br.Y - linkH - margin;
+            }
+            else
+            {
+                x = ClientSize.Width - linkW - margin;
+                y = ClientSize.Height - linkH - margin;
+            }
+
+            _updateStatusLink.Location = new Point(Math.Max(margin, x), Math.Max(ChromeTitleHeight + margin, y));
+            _updateStatusLink.BringToFront();
         }
 
         private void SetUpdateLinkText(string text)
