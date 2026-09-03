@@ -2133,9 +2133,12 @@ namespace Hiatme_Tool_Suite_v3
                             resolved.Source, "server_cache", StringComparison.OrdinalIgnoreCase)
                             ? "server cache"
                             : "Desktop";
+                    string revNote = resolved.Revision > 0
+                        ? " rev " + resolved.Revision
+                        : "";
                     SetScheduleBuilderStatus(
                         "Loading " + (resolved.FileName ?? Path.GetFileName(path))
-                        + " (" + origin + ")…");
+                        + " (" + origin + revNote + ")…");
                 }
             }
             catch { }

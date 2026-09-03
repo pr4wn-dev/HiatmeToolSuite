@@ -245,6 +245,12 @@ namespace Hiatme_Tool_Suite_v3
         [JsonProperty("etag")]
         public string Etag { get; set; }
 
+        [JsonProperty("revision")]
+        public int Revision { get; set; }
+
+        [JsonProperty("sha256")]
+        public string Sha256 { get; set; }
+
         [JsonProperty("source")]
         public string Source { get; set; }
 
@@ -1673,6 +1679,11 @@ namespace Hiatme_Tool_Suite_v3
                                 out var mt))
                             mtime = mt;
 
+                        int revision = 0;
+                        if (resp.Headers.TryGetValues("X-Schedule-Revision", out var revVals)
+                            && int.TryParse(FirstHeader(revVals), out var parsedRev))
+                            revision = parsedRev;
+
                         return new HiatmeScheduleWorkbookMeta
                         {
                             Ok = true,
@@ -1682,6 +1693,7 @@ namespace Hiatme_Tool_Suite_v3
                             Etag = etag,
                             Size = size,
                             Mtime = mtime,
+                            Revision = revision,
                             Source = "server",
                         };
                     }
@@ -1821,8 +1833,11 @@ namespace Hiatme_Tool_Suite_v3
                     }
                     else
                     {
+                        if (result.Revision > 0)
+                            ScheduleWorkbookResolver.WriteLocalRevision(workbookPath, result.Revision);
                         HiatmeAiSettings.LogProbe(
-                            "workbook upload ok " + serviceDateIso + " etag=" + (result.Etag ?? ""));
+                            "workbook upload ok " + serviceDateIso + " rev=" + result.Revision
+                            + " etag=" + (result.Etag ?? ""));
                     }
                 }
                 catch (Exception ex)

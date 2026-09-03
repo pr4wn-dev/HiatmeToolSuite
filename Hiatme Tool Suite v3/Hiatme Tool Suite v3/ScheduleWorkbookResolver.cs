@@ -17,6 +17,7 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>"desktop", "server_cache", or "desktop_synced".</summary>
         public string Source;
         public string Etag;
+        public int Revision;
         public string ServiceDateIso;
         public string Error;
     }
@@ -65,6 +66,62 @@ namespace Hiatme_Tool_Suite_v3
                 return;
             try { File.WriteAllText(EtagSidecarPath(workbookPath), etag.Trim()); }
             catch { }
+        }
+
+        public static string RevisionSidecarPath(string workbookPath) =>
+            (workbookPath ?? "") + ".rev";
+
+        public static int ReadLocalRevision(string workbookPath)
+        {
+            string side = RevisionSidecarPath(workbookPath);
+            if (!File.Exists(side)) return 0;
+            try
+            {
+                int rev;
+                return int.TryParse((File.ReadAllText(side) ?? "").Trim(), out rev) ? rev : 0;
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
+        public static void WriteLocalRevision(string workbookPath, int revision)
+        {
+            if (string.IsNullOrWhiteSpace(workbookPath) || revision <= 0)
+                return;
+            try { File.WriteAllText(RevisionSidecarPath(workbookPath), revision.ToString(CultureInfo.InvariantCulture)); }
+            catch { }
+        }
+
+        public static string BackupFolder(string serviceDateIso)
+        {
+            string dir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "HiatmeToolSuite",
+                "schedule_backups",
+                (serviceDateIso ?? "unknown").Trim());
+            Directory.CreateDirectory(dir);
+            return dir;
+        }
+
+        public static string BackupLocalWorkbook(string workbookPath, string serviceDateIso)
+        {
+            if (string.IsNullOrWhiteSpace(workbookPath) || !File.Exists(workbookPath))
+                return null;
+            try
+            {
+                string stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
+                string dest = Path.Combine(
+                    BackupFolder(serviceDateIso),
+                    stamp + "-" + Path.GetFileName(workbookPath));
+                File.Copy(workbookPath, dest, overwrite: false);
+                return dest;
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         /// <summary>
@@ -118,11 +175,12 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             bool serverExists = meta != null && meta.Ok && meta.Exists;
-            double? serverMtime = meta?.Mtime;
+            int serverRev = serverExists ? meta.Revision : 0;
+            int localRev = desktopExists ? ReadLocalRevision(desktopPath) : 0;
 
-            // Server copy is newer — pull it down to Desktop + cache so every desk converges.
-            if (desktopExists && serverExists
-                && ServerIsNewer(serverMtime, desktopMtime))
+            // Only replace Desktop when the server has a higher published revision
+            // (explicit SAVE/BUILD). Clock/mtime must not win — that overwrote Remie.
+            if (desktopExists && serverExists && serverRev > localRev)
             {
                 var synced = await PullServerWorkbookToDesktopAsync(
                     serviceDate, iso, desktopPath, settings, meta, cancellationToken)
@@ -142,6 +200,7 @@ namespace Hiatme_Tool_Suite_v3
                     FullPath = desktopPath,
                     FileName = fileName,
                     Source = "desktop",
+                    Revision = localRev,
                     ServiceDateIso = iso,
                 };
             }
@@ -180,10 +239,13 @@ namespace Hiatme_Tool_Suite_v3
                     FullPath = desktopPath,
                     FileName = Path.GetFileName(desktopPath),
                     Source = "desktop",
+                    Revision = ReadLocalRevision(desktopPath),
                     ServiceDateIso = iso,
                     Error = download?.Error ?? "server download failed; using local copy",
                 };
             }
+
+            BackupLocalWorkbook(desktopPath, iso);
 
             try
             {
@@ -192,6 +254,9 @@ namespace Hiatme_Tool_Suite_v3
                     Directory.CreateDirectory(dir);
                 File.Copy(cachePath, desktopPath, overwrite: true);
                 ApplyServerMtimeToFile(desktopPath, download.Mtime ?? meta?.Mtime);
+                int rev = download.Revision > 0 ? download.Revision : (meta != null ? meta.Revision : 0);
+                if (rev > 0)
+                    WriteLocalRevision(desktopPath, rev);
             }
             catch (Exception ex)
             {
@@ -219,6 +284,7 @@ namespace Hiatme_Tool_Suite_v3
                 FileName = download.Filename ?? Path.GetFileName(desktopPath),
                 Source = "desktop_synced",
                 Etag = etag,
+                Revision = download.Revision > 0 ? download.Revision : (meta != null ? meta.Revision : 0),
                 ServiceDateIso = iso,
             };
         }
@@ -307,6 +373,11 @@ namespace Hiatme_Tool_Suite_v3
                         ApplyServerMtimeToFile(desktopPath, download.Mtime ?? meta?.Mtime);
                         if (!string.IsNullOrWhiteSpace(download.Etag ?? meta?.Etag))
                             WriteCachedEtag(desktopPath, download.Etag ?? meta.Etag);
+                        int seedRev = download.Revision > 0
+                            ? download.Revision
+                            : (meta != null ? meta.Revision : 0);
+                        if (seedRev > 0)
+                            WriteLocalRevision(desktopPath, seedRev);
 
                         return new ScheduleWorkbookResolveResult
                         {
@@ -314,6 +385,7 @@ namespace Hiatme_Tool_Suite_v3
                             FileName = download.Filename ?? fileName,
                             Source = "desktop_synced",
                             Etag = download.Etag ?? meta?.Etag,
+                            Revision = seedRev,
                             ServiceDateIso = iso,
                         };
                     }
