@@ -1698,6 +1698,135 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        /// <summary>
+        /// PUT /api/hiatme/schedules/workbook — push a saved day workbook to the server mirror.
+        /// </summary>
+        public static async Task<HiatmeScheduleWorkbookMeta> UploadScheduleWorkbookAsync(
+            HiatmeAiSettings settings,
+            string serviceDateIso,
+            string workbookPath,
+            string source = "desk_save",
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null || string.IsNullOrWhiteSpace(workbookPath))
+                return null;
+            if (!File.Exists(workbookPath))
+            {
+                return new HiatmeScheduleWorkbookMeta
+                {
+                    Ok = false,
+                    Exists = false,
+                    Error = "workbook file not found",
+                };
+            }
+
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl)) return null;
+            string sd = (serviceDateIso ?? "").Trim();
+            if (string.IsNullOrEmpty(sd)) return null;
+
+            string url = baseUrl + "/api/hiatme/schedules/workbook?service_date="
+                + Uri.EscapeDataString(sd);
+            try
+            {
+                byte[] bytes = File.ReadAllBytes(workbookPath);
+                using (var form = new MultipartFormDataContent())
+                {
+                    var fileContent = new ByteArrayContent(bytes);
+                    fileContent.Headers.ContentType = new MediaTypeHeaderValue(
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+                    form.Add(fileContent, "file", Path.GetFileName(workbookPath));
+
+                    using (var req = new HttpRequestMessage(HttpMethod.Put, url))
+                    {
+                        req.Content = form;
+                        if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                            req.Headers.Authorization = new AuthenticationHeaderValue(
+                                "Bearer", settings.ApiToken.Trim());
+
+                        double mtime = FileUtcUnixSeconds(workbookPath);
+                        req.Headers.TryAddWithoutValidation(
+                            "X-Schedule-Client-Mtime",
+                            mtime.ToString(CultureInfo.InvariantCulture));
+                        if (!string.IsNullOrWhiteSpace(source))
+                            req.Headers.TryAddWithoutValidation("X-Schedule-Source", source.Trim());
+
+                        using (var resp = await SharedHttp.SendAsync(req, cancellationToken)
+                            .ConfigureAwait(false))
+                        {
+                            var text = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                            if (!resp.IsSuccessStatusCode)
+                            {
+                                try
+                                {
+                                    return JsonConvert.DeserializeObject<HiatmeScheduleWorkbookMeta>(text)
+                                        ?? new HiatmeScheduleWorkbookMeta
+                                        {
+                                            Ok = false,
+                                            Exists = false,
+                                            Error = "HTTP " + (int)resp.StatusCode,
+                                        };
+                                }
+                                catch
+                                {
+                                    return new HiatmeScheduleWorkbookMeta
+                                    {
+                                        Ok = false,
+                                        Exists = false,
+                                        Error = "HTTP " + (int)resp.StatusCode,
+                                    };
+                                }
+                            }
+                            return JsonConvert.DeserializeObject<HiatmeScheduleWorkbookMeta>(text)
+                                ?? new HiatmeScheduleWorkbookMeta { Ok = true, Exists = true };
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                return new HiatmeScheduleWorkbookMeta
+                {
+                    Ok = false,
+                    Exists = false,
+                    Error = DescribeRequestError(ex),
+                };
+            }
+        }
+
+        /// <summary>Background upload after save — never block the UI thread.</summary>
+        public static void UploadScheduleWorkbookFireAndForget(
+            HiatmeAiSettings settings,
+            string serviceDateIso,
+            string workbookPath,
+            string source = "desk_save")
+        {
+            if (settings == null
+                || string.IsNullOrWhiteSpace(settings.BaseUrl)
+                || string.IsNullOrWhiteSpace(workbookPath)
+                || !File.Exists(workbookPath))
+                return;
+
+            Task.Run(async () =>
+            {
+                try
+                {
+                    await UploadScheduleWorkbookAsync(
+                        settings, serviceDateIso, workbookPath, source).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // best effort — resolver will retry on next load/save
+                }
+            });
+        }
+
+        private static double FileUtcUnixSeconds(string path)
+        {
+            var utc = File.GetLastWriteTimeUtc(path);
+            return (utc - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalSeconds;
+        }
+
         private static string FirstHeader(IEnumerable<string> values)
         {
             if (values == null) return null;

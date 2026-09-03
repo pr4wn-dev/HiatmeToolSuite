@@ -3026,6 +3026,11 @@ namespace Hiatme_Tool_Suite_v3
         private const int UpdatePollIntervalMs = 30 * 60 * 1000;
         private const int UpdatePollFirstDelayMs = 3 * 60 * 1000;
 
+        // Match Schedule Builder status strip rhythm (13px sides, 41px band, 8px bottom).
+        private const int UpdateLinkInsetRight = 13;
+        private const int UpdateLinkStatusBandHeight = 41;
+        private const int UpdateLinkInsetBottom = 8;
+
         private static readonly Color UpdateLinkDefaultColor = Color.FromArgb(180, 220, 255);
         private static readonly Color UpdateLinkAvailableColor = Color.FromArgb(255, 196, 96);
 
@@ -3078,6 +3083,8 @@ namespace Hiatme_Tool_Suite_v3
                 Resize += (_, __) => PositionUpdateStatusLink();
                 if (tabPage1 != null)
                     tabPage1.Resize += (_, __) => PositionUpdateStatusLink();
+                if (hiatmeTabControl != null)
+                    hiatmeTabControl.Resize += (_, __) => PositionUpdateStatusLink();
                 if (hiatmeTabControl?.SelectedTab == tabPage1)
                     RelayoutLoginForm();
 
@@ -3123,13 +3130,30 @@ namespace Hiatme_Tool_Suite_v3
             _ = RunPeriodicUpdateCheckAsync();
         }
 
+        private bool TryGetUpdateLinkBounds(out Rectangle bounds)
+        {
+            bounds = Rectangle.Empty;
+            if (_updateStatusLink == null || _updateStatusLink.IsDisposed)
+                return false;
+            if (hiatmeTabControl == null || hiatmeTabControl.IsDisposed || !hiatmeTabControl.Visible)
+                return false;
+
+            Rectangle tab = hiatmeTabControl.Bounds;
+            int linkW = _updateStatusLink.PreferredSize.Width;
+            int linkH = _updateStatusLink.PreferredSize.Height;
+            int anchorRight = tab.Right - UpdateLinkInsetRight;
+            int bandBottom = tab.Bottom - UpdateLinkInsetBottom;
+            int bandTop = bandBottom - UpdateLinkStatusBandHeight;
+            int y = bandTop + Math.Max(0, (UpdateLinkStatusBandHeight - linkH) / 2);
+            int x = Math.Max(tab.Left + UpdateLinkInsetRight, anchorRight - linkW);
+            bounds = new Rectangle(x, y, linkW, linkH);
+            return true;
+        }
+
         private void PositionUpdateStatusLink()
         {
             if (_updateStatusLink == null || _updateStatusLink.IsDisposed) return;
 
-            const int margin = 10;
-            int linkW = _updateStatusLink.PreferredSize.Width;
-            int linkH = _updateStatusLink.PreferredSize.Height;
             bool onLoginTab = hiatmeTabControl?.SelectedTab == tabPage1 && tabPage1 != null && loginPanel != null;
 
             if (onLoginTab)
@@ -3161,25 +3185,17 @@ namespace Hiatme_Tool_Suite_v3
             _updateStatusLink.BackColor = Color.Transparent;
             _updateStatusLink.Visible = true;
 
-            // Anchor to the bottom-right of the main tab area (not the full form — avoids the AI dock).
-            int x;
-            int y;
-            if (hiatmeTabControl != null && !hiatmeTabControl.IsDisposed && hiatmeTabControl.Visible)
-            {
-                Point br = PointToClient(hiatmeTabControl.PointToScreen(
-                    new Point(hiatmeTabControl.ClientSize.Width, hiatmeTabControl.ClientSize.Height)));
-                linkW = _updateStatusLink.PreferredSize.Width;
-                linkH = _updateStatusLink.PreferredSize.Height;
-                x = br.X - linkW - margin;
-                y = br.Y - linkH - margin;
-            }
+            if (TryGetUpdateLinkBounds(out Rectangle linkBounds))
+                _updateStatusLink.Bounds = linkBounds;
             else
             {
-                x = ClientSize.Width - linkW - margin;
-                y = ClientSize.Height - linkH - margin;
+                int linkW = _updateStatusLink.PreferredSize.Width;
+                int linkH = _updateStatusLink.PreferredSize.Height;
+                _updateStatusLink.Location = new Point(
+                    Math.Max(UpdateLinkInsetRight, ClientSize.Width - UpdateLinkInsetRight - linkW),
+                    Math.Max(ChromeTitleHeight + UpdateLinkInsetBottom, ClientSize.Height - UpdateLinkInsetBottom - linkH));
             }
 
-            _updateStatusLink.Location = new Point(Math.Max(margin, x), Math.Max(ChromeTitleHeight + margin, y));
             _updateStatusLink.BringToFront();
         }
 

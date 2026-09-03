@@ -361,6 +361,8 @@ namespace Hiatme_Tool_Suite_v3
 
             int card14Height = Math.Max(180, materialCard15.Top - top - gap);
             materialCard14.SetBounds(left, top, width, card14Height);
+
+            try { PositionUpdateStatusLink(); } catch { }
         }
 
 
@@ -2125,9 +2127,12 @@ namespace Hiatme_Tool_Suite_v3
                     path = resolved.FullPath;
                     ext = (Path.GetExtension(path) ?? "").ToLowerInvariant();
                     string origin = string.Equals(
-                        resolved.Source, "server_cache", StringComparison.OrdinalIgnoreCase)
-                        ? "server cache"
-                        : "Desktop";
+                        resolved.Source, "desktop_synced", StringComparison.OrdinalIgnoreCase)
+                        ? "server sync"
+                        : string.Equals(
+                            resolved.Source, "server_cache", StringComparison.OrdinalIgnoreCase)
+                            ? "server cache"
+                            : "Desktop";
                     SetScheduleBuilderStatus(
                         "Loading " + (resolved.FileName ?? Path.GetFileName(path))
                         + " (" + origin + ")…");

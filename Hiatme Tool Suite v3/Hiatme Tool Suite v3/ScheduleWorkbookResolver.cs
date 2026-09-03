@@ -7,13 +7,14 @@ using System.Threading.Tasks;
 namespace Hiatme_Tool_Suite_v3
 {
     /// <summary>
-    /// Resolve a day workbook for read: local Desktop first, else AI server cache.
+    /// Resolve a day workbook for read: pick the newest copy (local Desktop vs AI server),
+    /// sync down when the server wins, and queue upload when local is newer.
     /// </summary>
     internal sealed class ScheduleWorkbookResolveResult
     {
         public string FullPath;
         public string FileName;
-        /// <summary>"desktop" or "server_cache".</summary>
+        /// <summary>"desktop", "server_cache", or "desktop_synced".</summary>
         public string Source;
         public string Etag;
         public string ServiceDateIso;
@@ -22,6 +23,8 @@ namespace Hiatme_Tool_Suite_v3
 
     internal static class ScheduleWorkbookResolver
     {
+        private const double MtimeSkewSeconds = 0.5;
+
         public static string LocalCacheRoot()
         {
             string root = Path.Combine(
@@ -99,9 +102,49 @@ namespace Hiatme_Tool_Suite_v3
             ScheduleExportPaths.GetDefaultWorkbookSaveLocation(
                 serviceDate, out _, out string fileName, out string desktopPath);
 
-            // 1) Local Desktop (server PC / anyone with the folder).
-            if (!string.IsNullOrWhiteSpace(desktopPath) && File.Exists(desktopPath))
+            bool desktopExists = !string.IsNullOrWhiteSpace(desktopPath) && File.Exists(desktopPath);
+            double? desktopMtime = desktopExists ? FileUtcUnixSeconds(desktopPath) : null;
+
+            settings = settings ?? HiatmeAiSettings.Load();
+            HiatmeScheduleWorkbookMeta meta = null;
+            if (settings != null && !string.IsNullOrWhiteSpace(settings.BaseUrl))
             {
+                try
+                {
+                    meta = await HiatmeAiClient.GetScheduleWorkbookMetaAsync(
+                        settings, iso, cancellationToken).ConfigureAwait(false);
+                }
+                catch { }
+            }
+
+            bool serverExists = meta != null && meta.Ok && meta.Exists;
+            double? serverMtime = meta?.Mtime;
+
+            // Server copy is newer — pull it down to Desktop + cache so every desk converges.
+            if (desktopExists && serverExists
+                && ServerIsNewer(serverMtime, desktopMtime))
+            {
+                var synced = await PullServerWorkbookToDesktopAsync(
+                    serviceDate, iso, desktopPath, settings, meta, cancellationToken)
+                    .ConfigureAwait(false);
+                if (synced != null)
+                    return synced;
+            }
+
+            // Local Desktop exists and is at least as new as the server mirror.
+            if (desktopExists)
+            {
+                if (serverExists && LocalIsNewer(desktopMtime, serverMtime))
+                {
+                    HiatmeAiClient.UploadScheduleWorkbookFireAndForget(
+                        settings, iso, desktopPath, "resolver_local_newer");
+                }
+                else if (!serverExists)
+                {
+                    HiatmeAiClient.UploadScheduleWorkbookFireAndForget(
+                        settings, iso, desktopPath, "resolver_local_only");
+                }
+
                 return new ScheduleWorkbookResolveResult
                 {
                     FullPath = desktopPath,
@@ -111,8 +154,7 @@ namespace Hiatme_Tool_Suite_v3
                 };
             }
 
-            // 2) AI server → local app cache (refresh when etag/mtime/size changes).
-            settings = settings ?? HiatmeAiSettings.Load();
+            // No local Desktop file — use server cache (download when stale/missing).
             if (settings == null || string.IsNullOrWhiteSpace(settings.BaseUrl))
             {
                 return new ScheduleWorkbookResolveResult
@@ -123,16 +165,92 @@ namespace Hiatme_Tool_Suite_v3
                 };
             }
 
+            return await ResolveFromServerCacheAsync(
+                serviceDate, iso, fileName, settings, meta, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        private static async Task<ScheduleWorkbookResolveResult> PullServerWorkbookToDesktopAsync(
+            DateTime serviceDate,
+            string iso,
+            string desktopPath,
+            HiatmeAiSettings settings,
+            HiatmeScheduleWorkbookMeta meta,
+            CancellationToken cancellationToken)
+        {
+            string cachePath = LocalCachePath(serviceDate);
+            var download = await HiatmeAiClient.DownloadScheduleWorkbookAsync(
+                settings, iso, cachePath, cancellationToken).ConfigureAwait(false);
+            if (download == null || !download.Ok || !File.Exists(cachePath))
+            {
+                return new ScheduleWorkbookResolveResult
+                {
+                    FullPath = desktopPath,
+                    FileName = Path.GetFileName(desktopPath),
+                    Source = "desktop",
+                    ServiceDateIso = iso,
+                    Error = download?.Error ?? "server download failed; using local copy",
+                };
+            }
+
+            try
+            {
+                string dir = Path.GetDirectoryName(desktopPath);
+                if (!string.IsNullOrEmpty(dir))
+                    Directory.CreateDirectory(dir);
+                File.Copy(cachePath, desktopPath, overwrite: true);
+                ApplyServerMtimeToFile(desktopPath, download.Mtime ?? meta?.Mtime);
+            }
+            catch (Exception ex)
+            {
+                return new ScheduleWorkbookResolveResult
+                {
+                    FullPath = cachePath,
+                    FileName = download.Filename ?? Path.GetFileName(cachePath),
+                    Source = "server_cache",
+                    Etag = download.Etag ?? meta?.Etag,
+                    ServiceDateIso = iso,
+                    Error = "could not update Desktop: " + ex.Message,
+                };
+            }
+
+            string etag = download.Etag ?? meta?.Etag;
+            if (!string.IsNullOrWhiteSpace(etag))
+            {
+                WriteCachedEtag(cachePath, etag);
+                WriteCachedEtag(desktopPath, etag);
+            }
+
+            return new ScheduleWorkbookResolveResult
+            {
+                FullPath = desktopPath,
+                FileName = download.Filename ?? Path.GetFileName(desktopPath),
+                Source = "desktop_synced",
+                Etag = etag,
+                ServiceDateIso = iso,
+            };
+        }
+
+        private static async Task<ScheduleWorkbookResolveResult> ResolveFromServerCacheAsync(
+            DateTime serviceDate,
+            string iso,
+            string fileName,
+            HiatmeAiSettings settings,
+            HiatmeScheduleWorkbookMeta meta,
+            CancellationToken cancellationToken)
+        {
             string cachePath = LocalCachePath(serviceDate);
             string cachedEtag = File.Exists(cachePath) ? ReadCachedEtag(cachePath) : null;
 
-            HiatmeScheduleWorkbookMeta meta = null;
-            try
+            if (meta == null)
             {
-                meta = await HiatmeAiClient.GetScheduleWorkbookMetaAsync(
-                    settings, iso, cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    meta = await HiatmeAiClient.GetScheduleWorkbookMetaAsync(
+                        settings, iso, cancellationToken).ConfigureAwait(false);
+                }
+                catch { }
             }
-            catch { }
 
             if (meta != null && meta.Ok && meta.Exists
                 && !string.IsNullOrWhiteSpace(meta.Etag)
@@ -155,7 +273,6 @@ namespace Hiatme_Tool_Suite_v3
             if (meta != null && meta.Ok == false && meta.Exists == false
                 && File.Exists(cachePath))
             {
-                // Server unavailable or missing — keep stale cache if we have one.
                 if (meta.Error != null
                     && meta.Error.IndexOf("not found", StringComparison.OrdinalIgnoreCase) >= 0)
                 {
@@ -183,6 +300,36 @@ namespace Hiatme_Tool_Suite_v3
                     WriteCachedEtag(cachePath, download.Etag);
                 else if (meta != null && !string.IsNullOrWhiteSpace(meta.Etag))
                     WriteCachedEtag(cachePath, meta.Etag);
+
+                // Seed Desktop so the next resolve is local-fast and matches other desks.
+                ScheduleExportPaths.GetDefaultWorkbookSaveLocation(
+                    serviceDate, out _, out _, out string desktopPath);
+                if (!string.IsNullOrWhiteSpace(desktopPath))
+                {
+                    try
+                    {
+                        string dir = Path.GetDirectoryName(desktopPath);
+                        if (!string.IsNullOrEmpty(dir))
+                            Directory.CreateDirectory(dir);
+                        File.Copy(cachePath, desktopPath, overwrite: true);
+                        ApplyServerMtimeToFile(desktopPath, download.Mtime ?? meta?.Mtime);
+                        if (!string.IsNullOrWhiteSpace(download.Etag ?? meta?.Etag))
+                            WriteCachedEtag(desktopPath, download.Etag ?? meta.Etag);
+
+                        return new ScheduleWorkbookResolveResult
+                        {
+                            FullPath = desktopPath,
+                            FileName = download.Filename ?? fileName,
+                            Source = "desktop_synced",
+                            Etag = download.Etag ?? meta?.Etag,
+                            ServiceDateIso = iso,
+                        };
+                    }
+                    catch
+                    {
+                        // fall through to cache-only
+                    }
+                }
 
                 return new ScheduleWorkbookResolveResult
                 {
@@ -215,6 +362,50 @@ namespace Hiatme_Tool_Suite_v3
                     ?? meta?.Error
                     ?? (fileName + " missing on Desktop and server"),
             };
+        }
+
+        private static bool ServerIsNewer(double? serverMtime, double? localMtime)
+        {
+            if (!serverMtime.HasValue || !localMtime.HasValue)
+                return false;
+            return serverMtime.Value > localMtime.Value + MtimeSkewSeconds;
+        }
+
+        private static bool LocalIsNewer(double? localMtime, double? serverMtime)
+        {
+            if (!localMtime.HasValue)
+                return false;
+            if (!serverMtime.HasValue)
+                return true;
+            return localMtime.Value > serverMtime.Value + MtimeSkewSeconds;
+        }
+
+        private static double? FileUtcUnixSeconds(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+                return null;
+            try
+            {
+                var utc = File.GetLastWriteTimeUtc(path);
+                return (utc - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalSeconds;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static void ApplyServerMtimeToFile(string path, double? serverMtime)
+        {
+            if (string.IsNullOrWhiteSpace(path) || !serverMtime.HasValue)
+                return;
+            try
+            {
+                long seconds = (long)Math.Floor(serverMtime.Value);
+                var utc = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddSeconds(seconds);
+                File.SetLastWriteTimeUtc(path, utc);
+            }
+            catch { }
         }
     }
 }

@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -118,11 +119,33 @@ namespace Hiatme_Tool_Suite_v3
 
                 _fsPreferredSavePath = fsbuilder.LastExportPath;
                 _fsAutoSaveDirty = false;
+                FsUploadSavedWorkbookToServer(fsbuilder.LastExportPath);
             }
             finally
             {
                 _fsScheduleBuilderExportBusy = false;
             }
+        }
+
+        private void FsUploadSavedWorkbookToServer(string workbookPath)
+        {
+            if (string.IsNullOrWhiteSpace(workbookPath) || !File.Exists(workbookPath))
+                return;
+
+            var settings = HiatmeAiSettings.Load();
+            if (settings == null || string.IsNullOrWhiteSpace(settings.BaseUrl))
+                return;
+
+            DateTime serviceDate = fsbdatepicker?.Value.Date ?? DateTime.Today;
+            if (fsbuilder != null)
+            {
+                try { serviceDate = fsbuilder.ServiceDate; }
+                catch { /* keep picker date */ }
+            }
+
+            string iso = serviceDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            HiatmeAiClient.UploadScheduleWorkbookFireAndForget(
+                settings, iso, workbookPath, "schedule_builder_save");
         }
 
         private void FsMarkScheduleBuilderDirty()
@@ -334,6 +357,7 @@ namespace Hiatme_Tool_Suite_v3
                     return false;
 
                 _fsPreferredSavePath = fsbuilder.LastExportPath;
+                FsUploadSavedWorkbookToServer(fsbuilder.LastExportPath);
                 return true;
             }
             finally
