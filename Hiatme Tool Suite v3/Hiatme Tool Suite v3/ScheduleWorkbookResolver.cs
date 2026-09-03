@@ -134,16 +134,8 @@ namespace Hiatme_Tool_Suite_v3
             // Local Desktop exists and is at least as new as the server mirror.
             if (desktopExists)
             {
-                if (serverExists && LocalIsNewer(desktopMtime, serverMtime))
-                {
-                    HiatmeAiClient.UploadScheduleWorkbookFireAndForget(
-                        settings, iso, desktopPath, "resolver_local_newer");
-                }
-                else if (!serverExists)
-                {
-                    HiatmeAiClient.UploadScheduleWorkbookFireAndForget(
-                        settings, iso, desktopPath, "resolver_local_only");
-                }
+                // Never publish from LOAD — AutoSave + "local newer" was stomping
+                // other desks' explicit SAVE. Only SAVE SCHEDULE / BUILD upload.
 
                 return new ScheduleWorkbookResolveResult
                 {

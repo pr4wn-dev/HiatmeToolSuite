@@ -119,7 +119,6 @@ namespace Hiatme_Tool_Suite_v3
 
                 _fsPreferredSavePath = fsbuilder.LastExportPath;
                 _fsAutoSaveDirty = false;
-                FsUploadSavedWorkbookToServer(fsbuilder.LastExportPath);
             }
             finally
             {
@@ -286,7 +285,8 @@ namespace Hiatme_Tool_Suite_v3
                 bool ok = await FsExportScheduleWorkbookCoreAsync(
                     promptForLocation: false,
                     openAfterSave: false,
-                    reportStatus: null).ConfigureAwait(true);
+                    reportStatus: null,
+                    publishToServer: false).ConfigureAwait(true);
 
                 if (ok)
                 {
@@ -323,7 +323,8 @@ namespace Hiatme_Tool_Suite_v3
         private async Task<bool> FsExportScheduleWorkbookCoreAsync(
             bool promptForLocation,
             bool openAfterSave,
-            Action<string> reportStatus)
+            Action<string> reportStatus,
+            bool publishToServer = true)
         {
             if (fsbuilder == null || !_fsHasPreview)
                 return false;
@@ -357,7 +358,8 @@ namespace Hiatme_Tool_Suite_v3
                     return false;
 
                 _fsPreferredSavePath = fsbuilder.LastExportPath;
-                FsUploadSavedWorkbookToServer(fsbuilder.LastExportPath);
+                if (publishToServer)
+                    FsUploadSavedWorkbookToServer(fsbuilder.LastExportPath);
                 return true;
             }
             finally

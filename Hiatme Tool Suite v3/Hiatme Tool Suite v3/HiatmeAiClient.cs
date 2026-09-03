@@ -1811,12 +1811,23 @@ namespace Hiatme_Tool_Suite_v3
             {
                 try
                 {
-                    await UploadScheduleWorkbookAsync(
+                    var result = await UploadScheduleWorkbookAsync(
                         settings, serviceDateIso, workbookPath, source).ConfigureAwait(false);
+                    if (result == null || !result.Ok)
+                    {
+                        HiatmeAiSettings.LogProbe(
+                            "workbook upload fail " + serviceDateIso + " "
+                            + (result != null ? result.Error : "null"));
+                    }
+                    else
+                    {
+                        HiatmeAiSettings.LogProbe(
+                            "workbook upload ok " + serviceDateIso + " etag=" + (result.Etag ?? ""));
+                    }
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // best effort — resolver will retry on next load/save
+                    HiatmeAiSettings.LogProbe("workbook upload exception " + serviceDateIso + " " + ex.Message);
                 }
             });
         }
