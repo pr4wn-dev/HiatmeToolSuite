@@ -1827,12 +1827,16 @@ namespace Hiatme_Tool_Suite_v3
                         settings, serviceDateIso, workbookPath, source).ConfigureAwait(false);
                     if (result == null || !result.Ok)
                     {
+                        ScheduleWorkbookResolver.QueuePendingPublish(
+                            serviceDateIso, workbookPath, source);
                         HiatmeAiSettings.LogProbe(
                             "workbook upload fail " + serviceDateIso + " "
-                            + (result != null ? result.Error : "null"));
+                            + (result != null ? result.Error : "null")
+                            + " — queued until panel is back");
                     }
                     else
                     {
+                        ScheduleWorkbookResolver.ClearPendingPublish(serviceDateIso);
                         if (result.Revision > 0)
                             ScheduleWorkbookResolver.WriteLocalRevision(workbookPath, result.Revision);
                         HiatmeAiSettings.LogProbe(
@@ -1842,9 +1846,30 @@ namespace Hiatme_Tool_Suite_v3
                 }
                 catch (Exception ex)
                 {
-                    HiatmeAiSettings.LogProbe("workbook upload exception " + serviceDateIso + " " + ex.Message);
+                    ScheduleWorkbookResolver.QueuePendingPublish(
+                        serviceDateIso, workbookPath, source);
+                    HiatmeAiSettings.LogProbe("workbook upload exception " + serviceDateIso + " " + ex.Message
+                        + " — queued until panel is back");
                 }
             });
+        }
+
+        /// <summary>Flush SAVE uploads that failed while the panel was down.</summary>
+        public static void RetryPendingWorkbookUploads(HiatmeAiSettings settings)
+        {
+            if (settings == null || string.IsNullOrWhiteSpace(settings.BaseUrl))
+                return;
+
+            var pending = ScheduleWorkbookResolver.ListPendingPublishes();
+            foreach (var item in pending)
+            {
+                if (item == null || string.IsNullOrWhiteSpace(item.ServiceDateIso)
+                    || string.IsNullOrWhiteSpace(item.WorkbookPath))
+                    continue;
+                UploadScheduleWorkbookFireAndForget(
+                    settings, item.ServiceDateIso, item.WorkbookPath,
+                    string.IsNullOrWhiteSpace(item.Source) ? "pending_retry" : item.Source);
+            }
         }
 
         private static double FileUtcUnixSeconds(string path)

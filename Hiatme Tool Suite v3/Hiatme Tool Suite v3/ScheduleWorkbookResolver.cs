@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Threading;
@@ -20,6 +21,13 @@ namespace Hiatme_Tool_Suite_v3
         public int Revision;
         public string ServiceDateIso;
         public string Error;
+    }
+
+    internal sealed class ScheduleWorkbookPendingPublish
+    {
+        public string ServiceDateIso;
+        public string WorkbookPath;
+        public string Source;
     }
 
     internal static class ScheduleWorkbookResolver
@@ -105,6 +113,107 @@ namespace Hiatme_Tool_Suite_v3
             return dir;
         }
 
+        public static string PendingPublishFolder()
+        {
+            string dir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "HiatmeToolSuite",
+                "schedule_pending");
+            Directory.CreateDirectory(dir);
+            return dir;
+        }
+
+        public static string PendingPublishPath(string serviceDateIso) =>
+            Path.Combine(PendingPublishFolder(), (serviceDateIso ?? "unknown").Trim() + ".json");
+
+        public static void QueuePendingPublish(string serviceDateIso, string workbookPath, string source)
+        {
+            if (string.IsNullOrWhiteSpace(serviceDateIso) || string.IsNullOrWhiteSpace(workbookPath))
+                return;
+            try
+            {
+                string json = "{\"ServiceDateIso\":\"" + EscapeJson(serviceDateIso.Trim())
+                    + "\",\"WorkbookPath\":\"" + EscapeJson(workbookPath)
+                    + "\",\"Source\":\"" + EscapeJson(source ?? "schedule_builder_save") + "\"}";
+                File.WriteAllText(PendingPublishPath(serviceDateIso), json);
+            }
+            catch { }
+        }
+
+        public static void ClearPendingPublish(string serviceDateIso)
+        {
+            try
+            {
+                string path = PendingPublishPath(serviceDateIso);
+                if (File.Exists(path))
+                    File.Delete(path);
+            }
+            catch { }
+        }
+
+        public static List<ScheduleWorkbookPendingPublish> ListPendingPublishes()
+        {
+            var list = new List<ScheduleWorkbookPendingPublish>();
+            try
+            {
+                string dir = PendingPublishFolder();
+                foreach (string file in Directory.GetFiles(dir, "*.json"))
+                {
+                    try
+                    {
+                        string raw = File.ReadAllText(file);
+                        var item = new ScheduleWorkbookPendingPublish
+                        {
+                            ServiceDateIso = JsonStringField(raw, "ServiceDateIso"),
+                            WorkbookPath = JsonStringField(raw, "WorkbookPath"),
+                            Source = JsonStringField(raw, "Source"),
+                        };
+                        if (!string.IsNullOrWhiteSpace(item.ServiceDateIso)
+                            && !string.IsNullOrWhiteSpace(item.WorkbookPath)
+                            && File.Exists(item.WorkbookPath))
+                            list.Add(item);
+                    }
+                    catch { }
+                }
+            }
+            catch { }
+            return list;
+        }
+
+        private static string EscapeJson(string value)
+        {
+            if (value == null) return "";
+            return value.Replace("\\", "\\\\").Replace("\"", "\\\"");
+        }
+
+        private static string JsonStringField(string json, string name)
+        {
+            if (string.IsNullOrEmpty(json) || string.IsNullOrEmpty(name))
+                return null;
+            string needle = "\"" + name + "\"";
+            int i = json.IndexOf(needle, StringComparison.OrdinalIgnoreCase);
+            if (i < 0) return null;
+            int colon = json.IndexOf(':', i + needle.Length);
+            if (colon < 0) return null;
+            int q1 = json.IndexOf('"', colon + 1);
+            if (q1 < 0) return null;
+            var sb = new System.Text.StringBuilder();
+            for (int p = q1 + 1; p < json.Length; p++)
+            {
+                char c = json[p];
+                if (c == '\\' && p + 1 < json.Length)
+                {
+                    sb.Append(json[p + 1]);
+                    p++;
+                    continue;
+                }
+                if (c == '"')
+                    break;
+                sb.Append(c);
+            }
+            return sb.ToString();
+        }
+
         public static string BackupLocalWorkbook(string workbookPath, string serviceDateIso)
         {
             if (string.IsNullOrWhiteSpace(workbookPath) || !File.Exists(workbookPath))
@@ -163,6 +272,9 @@ namespace Hiatme_Tool_Suite_v3
             double? desktopMtime = desktopExists ? FileUtcUnixSeconds(desktopPath) : null;
 
             settings = settings ?? HiatmeAiSettings.Load();
+            if (settings != null && !string.IsNullOrWhiteSpace(settings.BaseUrl))
+                HiatmeAiClient.RetryPendingWorkbookUploads(settings);
+
             HiatmeScheduleWorkbookMeta meta = null;
             if (settings != null && !string.IsNullOrWhiteSpace(settings.BaseUrl))
             {
