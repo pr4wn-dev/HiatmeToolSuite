@@ -84,6 +84,12 @@ namespace Hiatme_Tool_Suite_v3
         // a trip that has belonged to someone for months (1400 × confidence). Kept
         // outside the history-hint clamp so the name can actually move rank.
         private const double ForecastCallScoreMeters = 2800.0;
+        // Placement scorer cost (minutes-equivalent) → Suggest Driver meters. Sized so
+        // a clear #1 vs #3 (~15–25 cost) can flip a close deadhead fight, but cannot
+        // override a hard infeasible local gate.
+        private const double PlacementCostMetersPerMin = 90.0;
+        private const double PlacementInfeasibleMeters = 4200.0;
+        private const double PlacementMaxSwingMeters = 4800.0;
         private const double DoAnchorMatchMaxMinutes = 30.0;
 
         public static Task<List<ScheduleBuilderDriverSuggestion>> SuggestAsync(
@@ -138,6 +144,9 @@ namespace Hiatme_Tool_Suite_v3
             if (historicalHints == null)
                 historicalHints = new ScheduleBuilderHistoricalHints();
             await AttachForecastPlacementsAsync(
+                historicalHints, trip, driverJobs, pickupByTrip, dropoffByTrip, serviceDate, token)
+                .ConfigureAwait(false);
+            await AttachPlacementRanksAsync(
                 historicalHints, trip, driverJobs, pickupByTrip, dropoffByTrip, serviceDate, token)
                 .ConfigureAwait(false);
 
@@ -1355,6 +1364,7 @@ namespace Hiatme_Tool_Suite_v3
 
             ApplyHistoricalHintBonus(eval, displayName, trip, historicalHints);
             ApplyForecastCall(eval, displayName, historicalHints);
+            ApplyPlacementRank(eval, displayName, historicalHints);
         }
 
         private static void ApplyHistoricalHintBonus(
@@ -1523,6 +1533,54 @@ namespace Hiatme_Tool_Suite_v3
                 : "Named late: " + why.Trim());
         }
 
+        /// <summary>
+        /// Server placement rank for this driver. Only when the trust gate is ready.
+        /// Lower cost wins; infeasible slots take a hard hit. Reasons are the ones
+        /// the scorer already graded against finished days.
+        /// </summary>
+        private static void ApplyPlacementRank(
+            PlacementEval eval,
+            string displayName,
+            ScheduleBuilderHistoricalHints historicalHints)
+        {
+            if (eval == null
+                || historicalHints == null
+                || !historicalHints.PlacementReady
+                || historicalHints.PlacementByDriver == null
+                || string.IsNullOrWhiteSpace(displayName))
+                return;
+
+            ScheduleBuilderPlacementRank rank;
+            if (!historicalHints.PlacementByDriver.TryGetValue(displayName.Trim(), out rank) || rank == null)
+                return;
+
+            double delta = rank.Feasible
+                ? rank.Cost * PlacementCostMetersPerMin
+                : PlacementInfeasibleMeters;
+            if (delta > PlacementMaxSwingMeters)
+                delta = PlacementMaxSwingMeters;
+            else if (delta < -PlacementMaxSwingMeters)
+                delta = -PlacementMaxSwingMeters;
+
+            eval.Score += delta;
+            if (!rank.Feasible)
+            {
+                string why = (rank.Reasons ?? new List<string>()).FirstOrDefault(r => !string.IsNullOrWhiteSpace(r));
+                eval.Reasons.Add(string.IsNullOrWhiteSpace(why)
+                    ? "Placement: does not fit this driver's day."
+                    : "Placement: " + why.Trim());
+                return;
+            }
+
+            if (rank.Rank == 1)
+                eval.Reasons.Add("Placement: top pick for this trip.");
+            else if (rank.Rank > 0 && rank.Rank <= 3)
+                eval.Reasons.Add("Placement: ranked #" + rank.Rank + " for this trip.");
+
+            foreach (var reason in (rank.Reasons ?? new List<string>()).Where(r => !string.IsNullOrWhiteSpace(r)).Take(2))
+                eval.Reasons.Add("Placement: " + reason.Trim());
+        }
+
         private static async Task AttachForecastPlacementsAsync(
             ScheduleBuilderHistoricalHints hints,
             MCDownloadedTrip trip,
@@ -1593,6 +1651,82 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        private static async Task AttachPlacementRanksAsync(
+            ScheduleBuilderHistoricalHints hints,
+            MCDownloadedTrip trip,
+            IReadOnlyList<DriverSuggestJob> driverJobs,
+            Dictionary<string, GeoPoint> pickupByTrip,
+            Dictionary<string, GeoPoint> dropoffByTrip,
+            DateTime? serviceDate,
+            CancellationToken token)
+        {
+            if (hints == null || trip == null || driverJobs == null || driverJobs.Count == 0)
+                return;
+
+            try
+            {
+                var settings = HiatmeAiSettings.Load();
+                if (settings == null)
+                    return;
+
+                // Trust gate: do not steer Suggest Driver until replay says the scorer earns it.
+                var knowledge = await HiatmeAiClient.GetBrainKnowledgeAsync(settings, token).ConfigureAwait(false);
+                if (knowledge?.Placement?.Verdict == null || !knowledge.Placement.Verdict.Ready)
+                    return;
+
+                object tripPayload = ForecastTripPayload(trip, pickupByTrip, dropoffByTrip, serviceDate);
+                if (tripPayload == null)
+                    return;
+
+                var candidates = new List<object>();
+                foreach (var job in driverJobs)
+                {
+                    if (job == null || string.IsNullOrWhiteSpace(job.DisplayName))
+                        continue;
+                    var existing = new List<object>();
+                    foreach (var line in job.Lines ?? new List<ScheduleBuilderPreviewLine>())
+                    {
+                        if (line?.Kind != ScheduleBuilderPreviewLine.LineKind.Trip || line.Trip == null)
+                            continue;
+                        object payload = ForecastTripPayload(line.Trip, pickupByTrip, dropoffByTrip, serviceDate);
+                        if (payload != null)
+                            existing.Add(payload);
+                    }
+                    candidates.Add(new { driver = job.DisplayName.Trim(), trips = existing });
+                }
+                if (candidates.Count == 0)
+                    return;
+
+                var response = await HiatmeAiClient.ScorePlacementSuggestAsync(
+                    settings,
+                    new { trip = tripPayload, candidates },
+                    token).ConfigureAwait(false);
+                if (response == null || !response.Ok || response.Placements == null || response.Placements.Count == 0)
+                    return;
+
+                var map = new Dictionary<string, ScheduleBuilderPlacementRank>(StringComparer.OrdinalIgnoreCase);
+                foreach (var p in response.Placements)
+                {
+                    if (p == null || string.IsNullOrWhiteSpace(p.Driver))
+                        continue;
+                    map[p.Driver.Trim()] = new ScheduleBuilderPlacementRank
+                    {
+                        DriverName = p.Driver.Trim(),
+                        Rank = p.Rank,
+                        Feasible = p.Feasible,
+                        Cost = p.Cost,
+                        Reasons = p.Reasons ?? new List<string>(),
+                    };
+                }
+                hints.PlacementByDriver = map;
+                hints.PlacementReady = map.Count > 0;
+            }
+            catch
+            {
+                // Ranking still works without placement ranks.
+            }
+        }
+
         private static object ForecastTripPayload(
             MCDownloadedTrip trip,
             Dictionary<string, GeoPoint> pickupByTrip,
@@ -1640,6 +1774,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 trip_no = tn,
                 trip_number = tn,
+                client = (trip.ClientFullName ?? "").Trim(),
                 sched_pu_iso = day.Value.Date.Add(pu.Value).ToString("yyyy-MM-ddTHH:mm:ss"),
                 sched_do_iso = day.Value.Date.Add(dof.Value).ToString("yyyy-MM-ddTHH:mm:ss"),
                 pu_lat = puLat,

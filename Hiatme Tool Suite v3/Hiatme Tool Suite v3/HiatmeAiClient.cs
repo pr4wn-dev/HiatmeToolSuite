@@ -221,6 +221,80 @@ namespace Hiatme_Tool_Suite_v3
         public List<string> Why { get; set; }
     }
 
+    /// <summary>POST /api/hiatme/placement/suggest — rank drivers for one trip with reasons.</summary>
+    internal sealed class HiatmePlacementSuggestResponse
+    {
+        [JsonProperty("ok")]
+        public bool Ok { get; set; }
+
+        [JsonProperty("reason")]
+        public string Reason { get; set; }
+
+        [JsonProperty("trip_number")]
+        public string TripNumber { get; set; }
+
+        [JsonProperty("scorer_version")]
+        public string ScorerVersion { get; set; }
+
+        [JsonProperty("placements")]
+        public List<HiatmePlacementRank> Placements { get; set; }
+    }
+
+    internal sealed class HiatmePlacementRank
+    {
+        [JsonProperty("driver")]
+        public string Driver { get; set; }
+
+        [JsonProperty("canonical")]
+        public string Canonical { get; set; }
+
+        [JsonProperty("rank")]
+        public int Rank { get; set; }
+
+        [JsonProperty("feasible")]
+        public bool Feasible { get; set; }
+
+        [JsonProperty("cost")]
+        public double Cost { get; set; }
+
+        [JsonProperty("risk")]
+        public double? Risk { get; set; }
+
+        [JsonProperty("reasons")]
+        public List<string> Reasons { get; set; }
+    }
+
+    /// <summary>GET /api/hiatme/brain/knowledge — trust gate for placement suggestions.</summary>
+    internal sealed class HiatmeBrainKnowledgeResponse
+    {
+        [JsonProperty("placement")]
+        public HiatmeBrainPlacementKnowledge Placement { get; set; }
+    }
+
+    internal sealed class HiatmeBrainPlacementKnowledge
+    {
+        [JsonProperty("top1_rate")]
+        public double? Top1Rate { get; set; }
+
+        [JsonProperty("top3_rate")]
+        public double? Top3Rate { get; set; }
+
+        [JsonProperty("verdict")]
+        public HiatmePlacementVerdict Verdict { get; set; }
+    }
+
+    internal sealed class HiatmePlacementVerdict
+    {
+        [JsonProperty("ready")]
+        public bool Ready { get; set; }
+
+        [JsonProperty("level")]
+        public string Level { get; set; }
+
+        [JsonProperty("text")]
+        public string Text { get; set; }
+    }
+
     /// <summary>GET /api/hiatme/schedules/workbook/meta</summary>
     internal sealed class HiatmeScheduleWorkbookMeta
     {
@@ -2029,6 +2103,70 @@ namespace Hiatme_Tool_Suite_v3
                         if (!resp.IsSuccessStatusCode) return null;
                         var text = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
                         return JsonConvert.DeserializeObject<HiatmeForecastPlacementsResponse>(text);
+                    }
+                }
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Rank every candidate driver for one trip (fit, risk, pairing, group).
+        /// Ranking signal only. Empty when the server is down or the scorer is not ready.
+        /// </summary>
+        public static async Task<HiatmePlacementSuggestResponse> ScorePlacementSuggestAsync(
+            HiatmeAiSettings settings,
+            object body,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null || body == null) return null;
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl)) return null;
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Post, baseUrl + "/api/hiatme/placement/suggest"))
+                {
+                    req.Content = new StringContent(
+                        JsonConvert.SerializeObject(body), Encoding.UTF8, "application/json");
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
+                    {
+                        if (!resp.IsSuccessStatusCode) return null;
+                        var text = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        return JsonConvert.DeserializeObject<HiatmePlacementSuggestResponse>(text);
+                    }
+                }
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>Whether the placement scorer has earned Suggest Driver trust.</summary>
+        public static async Task<HiatmeBrainKnowledgeResponse> GetBrainKnowledgeAsync(
+            HiatmeAiSettings settings,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null) return null;
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl)) return null;
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Get, baseUrl + "/api/hiatme/brain/knowledge"))
+                {
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
+                    {
+                        if (!resp.IsSuccessStatusCode) return null;
+                        var text = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        return JsonConvert.DeserializeObject<HiatmeBrainKnowledgeResponse>(text);
                     }
                 }
             }

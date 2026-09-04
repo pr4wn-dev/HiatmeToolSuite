@@ -33,6 +33,15 @@ namespace Hiatme_Tool_Suite_v3
         /// </summary>
         public Dictionary<string, ScheduleBuilderForecastCall> ForecastByDriver { get; set; } =
             new Dictionary<string, ScheduleBuilderForecastCall>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Server placement ranks for this trip on each driver. Only populated when the
+        /// trust gate says ready; otherwise Suggest Driver ranks as it did before.
+        /// </summary>
+        public bool PlacementReady { get; set; }
+
+        public Dictionary<string, ScheduleBuilderPlacementRank> PlacementByDriver { get; set; } =
+            new Dictionary<string, ScheduleBuilderPlacementRank>(StringComparer.OrdinalIgnoreCase);
     }
 
     internal sealed class ScheduleBuilderForecastCall
@@ -41,6 +50,15 @@ namespace Hiatme_Tool_Suite_v3
         public double PredictedLate { get; set; }
         public bool Called { get; set; }
         public List<string> Why { get; set; } = new List<string>();
+    }
+
+    internal sealed class ScheduleBuilderPlacementRank
+    {
+        public string DriverName { get; set; } = "";
+        public int Rank { get; set; }
+        public bool Feasible { get; set; } = true;
+        public double Cost { get; set; }
+        public List<string> Reasons { get; set; } = new List<string>();
     }
 
     internal sealed class ScheduleBuilderHistoricalTripHint
