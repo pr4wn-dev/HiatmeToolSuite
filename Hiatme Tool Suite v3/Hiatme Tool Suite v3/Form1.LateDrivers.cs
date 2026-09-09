@@ -787,6 +787,7 @@ namespace Hiatme_Tool_Suite_v3
                 ("early_do", "Early DO"),
                 ("fix_times", "Fix times"),
                 ("unfinished_ticket", "Unfinished"),
+                ("wr_gap", "WR gap"),
                 ("open", "Open now"),
             };
             for (int i = 0; i < metrics.Length; i++)
@@ -1483,10 +1484,15 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (ldTripCaptionLbl == null || ldTripCaptionLbl.IsDisposed)
                 return;
-            if (string.IsNullOrEmpty(_ldSelectedDriver))
+            string chip = (_ldHabitChip ?? "all").Trim().ToLowerInvariant();
+            if (chip == "wr_gap" && string.IsNullOrEmpty(_ldSelectedDriver))
+                ldTripCaptionLbl.Text = "WellRyde gaps — missing clocks or catch-up completes";
+            else if (string.IsNullOrEmpty(_ldSelectedDriver))
                 ldTripCaptionLbl.Text = "Trip habits — all drivers";
             else if (LateDriversReservedSelected)
                 ldTripCaptionLbl.Text = "Reserved — WellRyde trips with Reserved status";
+            else if (chip == "wr_gap")
+                ldTripCaptionLbl.Text = "Trip habits — " + _ldSelectedDriver + " · WellRyde gaps highlighted";
             else
                 ldTripCaptionLbl.Text = "Trip habits — " + _ldSelectedDriver;
         }
@@ -2224,9 +2230,33 @@ namespace Hiatme_Tool_Suite_v3
         /// B/C DO (early or late) does not count — return ride, no appointment deadline.
         /// Only habits that count against us are shown in Driver Habits.
         /// </summary>
+        private static bool LateDriversEventLooksLikeWrGap(HiatmeAiClient.LateDriversEventRow e)
+        {
+            if (e == null)
+                return false;
+            if (!string.IsNullOrWhiteSpace(e.ActualIso)
+                || !string.IsNullOrWhiteSpace(e.ActualPuIso)
+                || !string.IsNullOrWhiteSpace(e.ActualDoIso))
+                return false;
+            string st = (e.StatusLatest ?? "").Trim().ToLowerInvariant()
+                .Replace('-', ' ').Replace('_', ' ');
+            if (st != "assigned"
+                && st != "reserved"
+                && st != "scheduled"
+                && st != "dispatched"
+                && !st.StartsWith("assigned ", StringComparison.Ordinal))
+                return false;
+            string hk = HabitKeyOf(e);
+            return string.IsNullOrEmpty(hk)
+                || hk == "late_pu"
+                || hk == "late_do";
+        }
+
         private static bool LateDriversEventCountsAgainstUs(HiatmeAiClient.LateDriversEventRow e)
         {
             if (e == null) return false;
+            if (LateDriversEventLooksLikeWrGap(e))
+                return false;
             string habit = (e.Habit ?? e.Kind ?? "").Trim().ToLowerInvariant();
             // Live late rows often only have Side until Habit is filled in below.
             if (string.IsNullOrEmpty(habit)
@@ -4217,6 +4247,7 @@ namespace Hiatme_Tool_Suite_v3
             SetLateDriversScoreCaption("early_do", "Early DO");
             SetLateDriversScoreCaption("fix_times", "Fix times");
             SetLateDriversScoreCaption("unfinished_ticket", "Unfinished");
+            SetLateDriversScoreCaption("wr_gap", "WR gap");
             SetLateDriversScoreCaption("open", "Open now");
 
             // Totals stay stable while a filter is active (use full roster / selected driver).
@@ -4257,14 +4288,21 @@ namespace Hiatme_Tool_Suite_v3
             SetLateDriversScoreValue("early_do", earlyDo.ToString(CultureInfo.InvariantCulture));
             SetLateDriversScoreValue("fix_times", fixTimes.ToString(CultureInfo.InvariantCulture));
             SetLateDriversScoreValue("unfinished_ticket", unfinished.ToString(CultureInfo.InvariantCulture));
+            int wrGaps = CountLateDriversWrGaps();
+            SetLateDriversScoreValue("wr_gap", wrGaps.ToString(CultureInfo.InvariantCulture));
             SetLateDriversScoreValue("open", openN.ToString(CultureInfo.InvariantCulture));
 
             Color valueColor = string.IsNullOrEmpty(_ldSelectedDriver)
                 ? SupeyTheme.TextPrimary
                 : SupeyTheme.AccentPrimary;
-            foreach (var lbl in _ldScoreValues.Values)
+            foreach (var kv in _ldScoreValues)
             {
-                if (lbl != null && !lbl.IsDisposed)
+                var lbl = kv.Value;
+                if (lbl == null || lbl.IsDisposed)
+                    continue;
+                if (kv.Key == "wr_gap" && wrGaps > 0)
+                    lbl.ForeColor = SupeyTheme.WarnText;
+                else
                     lbl.ForeColor = valueColor;
             }
             StyleLateDriversScoreFilters();
@@ -4282,6 +4320,7 @@ namespace Hiatme_Tool_Suite_v3
             SetLateDriversScoreCaption("early_do", "—");
             SetLateDriversScoreCaption("fix_times", "—");
             SetLateDriversScoreCaption("unfinished_ticket", "—");
+            SetLateDriversScoreCaption("wr_gap", "—");
             SetLateDriversScoreCaption("open", "—");
 
             string sd = LateDriversSelectedServiceDateIso();
@@ -4296,6 +4335,7 @@ namespace Hiatme_Tool_Suite_v3
             SetLateDriversScoreValue("early_do", "—");
             SetLateDriversScoreValue("fix_times", "—");
             SetLateDriversScoreValue("unfinished_ticket", "—");
+            SetLateDriversScoreValue("wr_gap", "—");
             SetLateDriversScoreValue("open", "—");
 
             foreach (var lbl in _ldScoreValues.Values)
@@ -4350,6 +4390,9 @@ namespace Hiatme_Tool_Suite_v3
                 case "unfinished":
                 case "unfinished_ticket":
                     return "unfinished_ticket";
+                case "wr_gap":
+                case "wellryde_gap":
+                    return "wr_gap";
                 case "billed_too_soon":
                 case "billed_early":
                     return "billed_too_soon";
@@ -4371,6 +4414,7 @@ namespace Hiatme_Tool_Suite_v3
                 case "early_do": return "Early DO";
                 case "fix_times": return "Fix times";
                 case "unfinished_ticket": return "Unfinished";
+                case "wr_gap": return "WR gap";
                 case "billed_too_soon": return "Billed too soon";
                 default: return string.IsNullOrEmpty(key) ? "Late" : key;
             }
@@ -4589,6 +4633,8 @@ namespace Hiatme_Tool_Suite_v3
 
             var habit = row.HabitEvent;
             string baseLabel = habit != null ? HabitLabelOf(HabitKeyOf(habit)) : "—";
+            if (baseLabel == "—" && LateDriversTripIsWrGap(row.TripNo))
+                baseLabel = "WR gap";
             if (!LateDriversTripIsFixTimesCandidate(row.TripNo))
                 return baseLabel;
 
@@ -4706,6 +4752,22 @@ namespace Hiatme_Tool_Suite_v3
                         ? "Reserved: no WellRyde trips with Reserved status"
                         : ("Reserved: " + n + " WellRyde trip" + (n == 1 ? "" : "s")
                             + " with Reserved status"));
+                return;
+            }
+
+            // All-drivers + WR gap: show only portal holes — not mixed into late/early calls.
+            if (singleDay
+                && string.Equals(_ldHabitChip, "wr_gap", StringComparison.OrdinalIgnoreCase)
+                && string.IsNullOrWhiteSpace(_ldSelectedDriver))
+            {
+                var gaps = BuildLateDriversWrGapHabitRows();
+                BindLateDriversHabitEventRows(gaps, showDriver: true);
+                int n = gaps.Count;
+                AppendLateDriversScheduleStatus(
+                    n == 0
+                        ? "WellRyde: no overdue tickets missing actual times"
+                        : ("WellRyde: " + n + " ticket" + (n == 1 ? "" : "s")
+                            + " still Assigned with no actual times"));
                 return;
             }
 
@@ -5091,6 +5153,8 @@ namespace Hiatme_Tool_Suite_v3
             if (chip == "all") return true;
             if (chip == "open") return e.Open;
             if (chip == "fix_times") return LateDriversEventIsFixTimesCandidate(e);
+            if (chip == "wr_gap")
+                return HabitKeyOf(e) == "wr_gap" || LateDriversTripIsWrGap(e.TripNo);
             string hk = HabitKeyOf(e);
             return !string.IsNullOrEmpty(hk) && hk == chip;
         }
@@ -5110,7 +5174,7 @@ namespace Hiatme_Tool_Suite_v3
                 && string.Equals(na, nb, StringComparison.OrdinalIgnoreCase);
         }
 
-        private static void AssignLateDriversChipKeys(
+        private void AssignLateDriversChipKeys(
             LateDriversTripRowTag row,
             List<HiatmeAiClient.LateDriversEventRow> habits,
             string tripNo)
@@ -5143,6 +5207,8 @@ namespace Hiatme_Tool_Suite_v3
                     break;
                 }
             }
+            if (LateDriversTripIsWrGap(row.TripNo ?? want))
+                keys.Add("wr_gap");
             row.HabitChipKeys = keys;
             row.HabitChipOpen = anyOpen;
         }
@@ -5179,6 +5245,9 @@ namespace Hiatme_Tool_Suite_v3
 
             if (chip == "fix_times")
                 return LateDriversTripIsFixTimesCandidate(row.TripNo);
+
+            if (chip == "wr_gap")
+                return LateDriversTripIsWrGap(row.TripNo);
 
             if (chip == "open")
                 return row.HabitChipOpen
@@ -5429,7 +5498,8 @@ namespace Hiatme_Tool_Suite_v3
             item.SubItems.Add(schedDo);
             item.SubItems.Add(actDo);
                     bool noActual = string.IsNullOrWhiteSpace(e.ActualIso);
-                    string minsText = noActual && e.Open
+                    string hk = HabitKeyOf(e);
+                    string minsText = hk == "wr_gap" || (noActual && e.Open)
                         ? "—"
                 : LateDriversDisplayHabitMinutes(e).ToString("0", CultureInfo.InvariantCulture) + "m";
                     item.SubItems.Add(minsText);
@@ -5437,10 +5507,11 @@ namespace Hiatme_Tool_Suite_v3
                 ? wr.Status.Trim()
                 : (!string.IsNullOrWhiteSpace(e.StatusLatest) ? e.StatusLatest.Trim() : "");
             item.SubItems.Add(string.IsNullOrEmpty(status) ? "—" : status);
-                    item.SubItems.Add(e.Open ? "Open" : "Closed");
+                    item.SubItems.Add(hk == "wr_gap" ? "WR gap" : (e.Open ? "Open" : "Closed"));
                     item.Tag = e;
-                    string hk = HabitKeyOf(e);
-                    if (e.Open)
+                    if (hk == "wr_gap")
+                        item.ForeColor = SupeyTheme.WarnText;
+                    else if (e.Open)
                         item.ForeColor = Color.FromArgb(200, 80, 60);
                     else if (hk.StartsWith("early", StringComparison.Ordinal))
                         item.ForeColor = Color.FromArgb(180, 120, 40);
@@ -5764,13 +5835,22 @@ namespace Hiatme_Tool_Suite_v3
                 item.SubItems.Add(string.IsNullOrEmpty(status) ? "—" : status);
                 item.SubItems.Add(string.IsNullOrEmpty(state) ? "—" : state);
                 string hk = HabitKeyOf(habit);
-                if (habit.Open || hk.StartsWith("early", StringComparison.Ordinal)
+                if (hk == "wr_gap")
+                    item.ForeColor = SupeyTheme.WarnText;
+                else if (habit.Open || hk.StartsWith("early", StringComparison.Ordinal)
                     || hk.StartsWith("late", StringComparison.Ordinal))
                     item.ForeColor = Color.FromArgb(200, 80, 60);
                 else if (hk == "unfinished_ticket" || hk == "billed_too_soon")
                     item.ForeColor = Color.FromArgb(160, 90, 40);
                 else if (row.HabitOnly)
                     item.ForeColor = Color.FromArgb(120, 160, 220);
+            }
+            else if (LateDriversTripIsWrGap(row.TripNo))
+            {
+                item.SubItems.Add("—");
+                item.SubItems.Add(string.IsNullOrEmpty(status) ? "—" : status);
+                item.SubItems.Add("WR gap");
+                item.ForeColor = SupeyTheme.WarnText;
             }
             else
             {
@@ -6255,6 +6335,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 case "unfinished_ticket":
                 case "billed_too_soon":
+                case "wr_gap":
                     return true;
                 default:
                     return false;
@@ -7841,10 +7922,145 @@ namespace Hiatme_Tool_Suite_v3
 
         private string LateDriversWrQualityNote()
         {
-            var q = _ldWrQuality;
-            if (q == null || q.ReportReady || string.IsNullOrWhiteSpace(q.Reason))
+            int n = CountLateDriversWrGaps();
+            if (n <= 0)
                 return "";
-            return " · " + q.Reason.Trim();
+            return " · WellRyde gap " + n;
+        }
+
+        private int CountLateDriversWrGaps()
+        {
+            int n = 0;
+            foreach (var wr in LateDriversWrGapTrips())
+            {
+                if (wr == null) continue;
+                if (!string.IsNullOrWhiteSpace(_ldSelectedDriver)
+                    && !LateDriversDriversMatch(wr.Driver, _ldSelectedDriver))
+                    continue;
+                n++;
+            }
+            return n;
+        }
+
+        private List<HiatmeAiClient.TripScoutServerTripRow> LateDriversWrGapTrips()
+        {
+            var list = new List<HiatmeAiClient.TripScoutServerTripRow>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var wr in (_ldWrTripsByTripNo ?? new Dictionary<string, HiatmeAiClient.TripScoutServerTripRow>())
+                .Values
+                .Distinct())
+            {
+                if (wr == null || string.IsNullOrWhiteSpace(wr.TripNo))
+                    continue;
+                if (!LateDriversTripIsWrGap(wr.TripNo))
+                    continue;
+                string key = ScheduleBuilderPreviewDrag.TripLegKey(wr.TripNo);
+                if (string.IsNullOrEmpty(key))
+                    key = wr.TripNo.Trim();
+                if (!seen.Add(key))
+                    continue;
+                list.Add(wr);
+            }
+            return list;
+        }
+
+        private List<HiatmeAiClient.LateDriversEventRow> BuildLateDriversWrGapHabitRows()
+        {
+            string sd = LateDriversSelectedServiceDateIso();
+            var rows = new List<HiatmeAiClient.LateDriversEventRow>();
+            foreach (var wr in LateDriversWrGapTrips())
+            {
+                if (!string.IsNullOrWhiteSpace(_ldSelectedDriver)
+                    && !LateDriversDriversMatch(wr.Driver, _ldSelectedDriver))
+                    continue;
+                rows.Add(new HiatmeAiClient.LateDriversEventRow
+                {
+                    EventId = "wr-gap|" + (wr.TripNo ?? ""),
+                    ServiceDate = sd,
+                    TripNo = wr.TripNo,
+                    Driver = wr.Driver,
+                    Client = wr.Client,
+                    Habit = "wr_gap",
+                    Kind = "wr_gap",
+                    Side = "ticket",
+                    StatusLatest = wr.Status,
+                    Open = false,
+                    SchedIso = wr.SchedDoIso ?? wr.SchedPuIso,
+                    SchedPuIso = wr.SchedPuIso,
+                    SchedDoIso = wr.SchedDoIso,
+                    ActualPuIso = wr.ActualPuIso,
+                    ActualDoIso = wr.ActualDoIso,
+                });
+            }
+            return rows
+                .OrderBy(e => e.SchedPuIso ?? e.SchedIso ?? "")
+                .ThenBy(e => e.TripNo ?? "", StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private void BindLateDriversHabitEventRows(
+            List<HiatmeAiClient.LateDriversEventRow> trips,
+            bool showDriver)
+        {
+            EnsureLateDriversTripColumns(showDriver);
+            ldTripLv.BeginUpdate();
+            try
+            {
+                ldTripLv.Items.Clear();
+                LateDriversPruneExpandedTrips();
+                foreach (var e in trips ?? new List<HiatmeAiClient.LateDriversEventRow>())
+                {
+                    if (e == null) continue;
+                    var item = CreateLateDriversHabitListItem(e, showDriver);
+                    LateDriversApplyExpandChrome(item, e.TripNo, e.TripNo ?? "");
+                    ldTripLv.Items.Add(item);
+                    LateDriversAppendExpandedChangeRows(ldTripLv.Items, e.TripNo, showDriver);
+                }
+            }
+            finally
+            {
+                ldTripLv.EndUpdate();
+            }
+            ApplyLateDriversTripAlertBlinkPhase();
+        }
+
+        private bool LateDriversQualityListsTrip(
+            IEnumerable<string> nos, string tripNo)
+        {
+            if (nos == null || string.IsNullOrWhiteSpace(tripNo))
+                return false;
+            foreach (var n in nos)
+            {
+                if (LateDriversTripNosEqualForChip(n, tripNo))
+                    return true;
+            }
+            return false;
+        }
+
+        private bool LateDriversTripIsWrGap(string tripNo)
+        {
+            if (string.IsNullOrWhiteSpace(tripNo))
+                return false;
+
+            if (LateDriversQualityListsTrip(_ldWrQuality?.CatchupTripNos, tripNo)
+                || LateDriversQualityListsTrip(_ldWrQuality?.OverdueTripNos, tripNo))
+                return true;
+
+            var wr = FindLateDriversWrTrip(tripNo);
+            if (wr == null)
+                return false;
+            if (!string.IsNullOrWhiteSpace(wr.ActualPuIso) || !string.IsNullOrWhiteSpace(wr.ActualDoIso))
+                return false;
+            if (!LateDriversWrStatusLooksOpen(wr.Status))
+                return false;
+            return LateDriversIsoIsPast(wr.SchedDoIso ?? wr.SchedPuIso);
+        }
+
+        private static bool LateDriversDriversMatch(string a, string b)
+        {
+            if (string.IsNullOrWhiteSpace(a) || string.IsNullOrWhiteSpace(b))
+                return false;
+            return string.Equals(a.Trim(), b.Trim(), StringComparison.OrdinalIgnoreCase);
         }
 
         private static void ApplyLateDriversExplicitClocks(

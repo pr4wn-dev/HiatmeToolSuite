@@ -3048,6 +3048,12 @@ namespace Hiatme_Tool_Suite_v3
 
             [JsonProperty("overdue_trip_nos")]
             public List<string> OverdueTripNos { get; set; }
+
+            [JsonProperty("catchup_count")]
+            public int CatchupCount { get; set; }
+
+            [JsonProperty("catchup_trip_nos")]
+            public List<string> CatchupTripNos { get; set; }
         }
 
         public sealed class LateDriversEventRow
