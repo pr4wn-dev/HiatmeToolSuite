@@ -190,6 +190,7 @@ namespace Update
                 Status("Installing files...");
                 await Task.Run(() => CopyDirectoryOverwrite(staging, _opts.TargetDir));
                 Program.Log("Copied staged files to " + _opts.TargetDir);
+                DesktopShortcut.RepairAfterInstall(_opts.TargetDir);
 
                 try { Directory.Delete(staging, recursive: true); } catch (Exception ex) { Program.Log("Could not delete staging: " + ex.Message); }
                 try { File.Delete(_opts.ZipPath); } catch (Exception ex) { Program.Log("Could not delete downloaded zip: " + ex.Message); }

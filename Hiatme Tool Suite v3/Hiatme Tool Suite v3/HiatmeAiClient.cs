@@ -3020,6 +3020,34 @@ namespace Hiatme_Tool_Suite_v3
 
             [JsonProperty("modivcare_trip_count")]
             public int ModivcareTripCount { get; set; }
+
+            [JsonProperty("wellryde_quality")]
+            public WellRydeQuality WellrydeQuality { get; set; }
+        }
+
+        public sealed class WellRydeQuality
+        {
+            public bool Ok { get; set; }
+
+            [JsonProperty("trustworthy_for_scoring")]
+            public bool TrustworthyForScoring { get; set; }
+
+            [JsonProperty("report_ready")]
+            public bool ReportReady { get; set; }
+
+            public string Reason { get; set; }
+
+            [JsonProperty("overdue_missing_count")]
+            public int OverdueMissingCount { get; set; }
+
+            [JsonProperty("parse_failure_count")]
+            public int ParseFailureCount { get; set; }
+
+            [JsonProperty("completed_missing_count")]
+            public int CompletedMissingCount { get; set; }
+
+            [JsonProperty("overdue_trip_nos")]
+            public List<string> OverdueTripNos { get; set; }
         }
 
         public sealed class LateDriversEventRow
@@ -3139,6 +3167,9 @@ namespace Hiatme_Tool_Suite_v3
 
             [JsonProperty("day_performance")]
             public LateDriversDayPerformance DayPerformance { get; set; }
+
+            [JsonProperty("wellryde_quality")]
+            public WellRydeQuality WellrydeQuality { get; set; }
         }
 
         public sealed class LateDriversDayDoc
@@ -3168,6 +3199,9 @@ namespace Hiatme_Tool_Suite_v3
 
             [JsonProperty("day_performance")]
             public LateDriversDayPerformance DayPerformance { get; set; }
+
+            [JsonProperty("wellryde_quality")]
+            public WellRydeQuality WellrydeQuality { get; set; }
         }
 
         public sealed class LateDriversDriverSummary
@@ -3449,6 +3483,18 @@ namespace Hiatme_Tool_Suite_v3
             [JsonProperty("actual_iso")]
             public string ActualIso { get; set; }
 
+            [JsonProperty("sched_pu_iso")]
+            public string SchedPuIso { get; set; }
+
+            [JsonProperty("sched_do_iso")]
+            public string SchedDoIso { get; set; }
+
+            [JsonProperty("actual_pu_iso")]
+            public string ActualPuIso { get; set; }
+
+            [JsonProperty("actual_do_iso")]
+            public string ActualDoIso { get; set; }
+
             public string Status { get; set; }
             public bool Open { get; set; }
 
@@ -3524,6 +3570,9 @@ namespace Hiatme_Tool_Suite_v3
             public List<LateDriversHabitDriverSummary> Drivers { get; set; }
             public List<LateDriversHabitEventRow> Events { get; set; }
             public string Error { get; set; }
+
+            [JsonProperty("wellryde_quality")]
+            public WellRydeQuality WellrydeQuality { get; set; }
         }
 
         public static async Task<LateDriversHabitsDoc> GetLateDriversHabitsAsync(
@@ -3651,6 +3700,18 @@ namespace Hiatme_Tool_Suite_v3
 
             public string Status { get; set; }
             public string Note { get; set; }
+
+            [JsonProperty("sched_pu_iso")]
+            public string SchedPuIso { get; set; }
+
+            [JsonProperty("sched_do_iso")]
+            public string SchedDoIso { get; set; }
+
+            [JsonProperty("actual_pu_iso")]
+            public string ActualPuIso { get; set; }
+
+            [JsonProperty("actual_do_iso")]
+            public string ActualDoIso { get; set; }
         }
 
         public sealed class DriverHabitsReviewDoc
@@ -3682,6 +3743,9 @@ namespace Hiatme_Tool_Suite_v3
             public DriverHabitsReviewSummary Summary { get; set; }
             public List<DriverHabitsReviewTrip> Improve { get; set; }
             public string Error { get; set; }
+
+            [JsonProperty("wellryde_quality")]
+            public WellRydeQuality WellrydeQuality { get; set; }
         }
 
         public static async Task<DriverHabitsReviewDoc> GetDriverHabitsReviewAsync(

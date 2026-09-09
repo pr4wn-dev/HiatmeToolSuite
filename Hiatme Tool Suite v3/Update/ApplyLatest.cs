@@ -51,6 +51,15 @@ namespace Update
                     "Hiatme Apply Update", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
+            if (DesktopShortcut.IsLooseUserRoot(installDir))
+            {
+                MessageBox.Show(
+                    "That path is the Desktop or Documents folder itself.\n\n" +
+                    "Pick the folder that already contains \"" + MainExeName + "\" " +
+                    "(not the Desktop). Extracting the update onto the Desktop breaks the desk shortcuts.",
+                    "Hiatme Apply Update", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
 
             var confirm = MessageBox.Show(
                 "Install the latest Hiatme Tool Suite into:\n\n" + installDir + "\n\n" +
@@ -107,6 +116,7 @@ namespace Update
             try { File.Delete(zipPath); } catch { }
 
             Program.Log("ApplyLatest installed " + manifest.Version + " to " + installDir);
+            DesktopShortcut.RepairAfterInstall(installDir);
 
             if (File.Exists(mainExe))
             {
@@ -166,7 +176,8 @@ namespace Update
             {
                 if (string.IsNullOrEmpty(root) || !Directory.Exists(root)) continue;
                 string direct = Path.Combine(root, MainExeName);
-                if (File.Exists(direct)) return root;
+                if (File.Exists(direct) && !DesktopShortcut.IsLooseUserRoot(root))
+                    return root;
                 try
                 {
                     foreach (string dir in Directory.EnumerateDirectories(root, "*", SearchOption.TopDirectoryOnly))

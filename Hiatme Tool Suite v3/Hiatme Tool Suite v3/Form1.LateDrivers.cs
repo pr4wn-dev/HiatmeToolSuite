@@ -55,6 +55,7 @@ namespace Hiatme_Tool_Suite_v3
         private Panel ldOtpHost;
         private MarketMeterControl ldOtpMeter;
         private HiatmeAiClient.LateDriversDayPerformance _ldDayPerf;
+        private HiatmeAiClient.WellRydeQuality _ldWrQuality;
         private SupeyListView ldTripLv;
 
         private const int LateDriversToolbarInnerH = 42;
@@ -2101,6 +2102,7 @@ namespace Hiatme_Tool_Suite_v3
                         await changesTask.ConfigureAwait(true);
                         await bellTask.ConfigureAwait(true);
                         _ldDayPerf = doc.DayPerformance;
+                        RememberLateDriversWrQuality(doc.WellrydeQuality, habits?.WellrydeQuality);
                         ApplyLateDriversEventPayload(
                             doc.Events ?? new List<HiatmeAiClient.LateDriversEventRow>(),
                             doc.ContentHash,
@@ -2113,7 +2115,8 @@ namespace Hiatme_Tool_Suite_v3
                             "Status: Live " + sd + " — "
                             + (_ldEventRows?.Count ?? 0) + " events · "
                             + DateTime.Now.ToString("h:mm:ss tt", CultureInfo.CurrentCulture)
-                            + (string.IsNullOrEmpty(bellNote) ? "" : " · " + bellNote));
+                            + (string.IsNullOrEmpty(bellNote) ? "" : " · " + bellNote)
+                            + LateDriversWrQualityNote());
                     }
                     else
                     {
@@ -2149,6 +2152,7 @@ namespace Hiatme_Tool_Suite_v3
                             : (doc?.ContentHash ?? "");
                         if (doc != null && doc.Ok)
                             _ldDayPerf = doc.DayPerformance;
+                        RememberLateDriversWrQuality(doc != null && doc.Ok ? doc.WellrydeQuality : null, habits?.WellrydeQuality);
                         ApplyLateDriversEventPayload(lateEvents, hash, sd, sd, mcTrips, habits: habits);
                         if (doc != null && doc.Ok && !doc.ModivcareExists
                             && (habits == null || habits.EventCount <= 0)
@@ -2565,6 +2569,10 @@ namespace Hiatme_Tool_Suite_v3
                 Side = side,
                 SchedIso = he.SchedIso,
                 ActualIso = he.ActualIso,
+                SchedPuIso = he.SchedPuIso,
+                SchedDoIso = he.SchedDoIso,
+                ActualPuIso = he.ActualPuIso,
+                ActualDoIso = he.ActualDoIso,
                 MinutesLate = he.Minutes,
                 Open = he.Open,
                 StatusLatest = he.Status,
@@ -5396,6 +5404,10 @@ namespace Hiatme_Tool_Suite_v3
             if (LateDriversSchedPuIsWillCall(schedPu, trip: null, wr))
                 schedPu = "Will call";
 
+            ApplyLateDriversExplicitClocks(e, wr, ref schedPu, ref schedDo, ref actPu, ref actDo);
+            actPu = LabelLateDriversMissingActual(actPu, wr?.ActualPuIso ?? e?.ActualPuIso, wr?.SchedPuIso ?? e?.SchedPuIso ?? e?.SchedIso, wr?.Status ?? e?.StatusLatest);
+            actDo = LabelLateDriversMissingActual(actDo, wr?.ActualDoIso ?? e?.ActualDoIso, wr?.SchedDoIso ?? e?.SchedDoIso, wr?.Status ?? e?.StatusLatest);
+
             string puStreet = wr?.PuStreet ?? "";
             string puCity = wr?.PuCity ?? "";
             string doStreet = wr?.DoStreet ?? "";
@@ -6351,6 +6363,10 @@ namespace Hiatme_Tool_Suite_v3
             // Blank / midnight sched PU = will-call (common on Reserved / B-leg returns).
             if (LateDriversSchedPuIsWillCall(schedPu, trip, wr, willCall))
                 schedPu = "Will call";
+
+            ApplyLateDriversExplicitClocks(row.HabitEvent, wr, ref schedPu, ref schedDo, ref actPu, ref actDo);
+            actPu = LabelLateDriversMissingActual(actPu, wr?.ActualPuIso ?? row.HabitEvent?.ActualPuIso, wr?.SchedPuIso ?? row.HabitEvent?.SchedPuIso, wr?.Status ?? row.HabitEvent?.StatusLatest);
+            actDo = LabelLateDriversMissingActual(actDo, wr?.ActualDoIso ?? row.HabitEvent?.ActualDoIso, wr?.SchedDoIso ?? row.HabitEvent?.SchedDoIso, wr?.Status ?? row.HabitEvent?.StatusLatest);
 
             row.SchedPuDisplay = string.IsNullOrWhiteSpace(schedPu) || schedPu == "—" ? "—" : schedPu;
             row.SchedDoDisplay = string.IsNullOrWhiteSpace(schedDo) || schedDo == "—" ? "—" : schedDo;
@@ -7730,6 +7746,7 @@ namespace Hiatme_Tool_Suite_v3
                 note += " · " + addedN + " not on sheet";
             if (_ldWrTripsByTripNo.Count > 0)
                 note += " · WR " + _ldWrTripsByTripNo.Values.Distinct().Count();
+            note += LateDriversWrQualityNote();
             return note;
         }
 
@@ -7811,6 +7828,85 @@ namespace Hiatme_Tool_Suite_v3
                 || DateTime.TryParse(iso, out dt))
                 return dt.ToString("h:mm tt", CultureInfo.CurrentCulture);
             return iso;
+        }
+
+        private const string LateDriversMissingActualLabel = "Missing (WellRyde)";
+
+        private void RememberLateDriversWrQuality(
+            HiatmeAiClient.WellRydeQuality primary,
+            HiatmeAiClient.WellRydeQuality fallback = null)
+        {
+            _ldWrQuality = primary ?? fallback;
+        }
+
+        private string LateDriversWrQualityNote()
+        {
+            var q = _ldWrQuality;
+            if (q == null || q.ReportReady || string.IsNullOrWhiteSpace(q.Reason))
+                return "";
+            return " · " + q.Reason.Trim();
+        }
+
+        private static void ApplyLateDriversExplicitClocks(
+            HiatmeAiClient.LateDriversEventRow e,
+            HiatmeAiClient.TripScoutServerTripRow wr,
+            ref string schedPu,
+            ref string schedDo,
+            ref string actPu,
+            ref string actDo)
+        {
+            if (e == null)
+                return;
+            string tSchedPu = FormatLateDriversTime(e.SchedPuIso, blank: "—");
+            string tSchedDo = FormatLateDriversTime(e.SchedDoIso, blank: "—");
+            string tActPu = FormatLateDriversTime(e.ActualPuIso, blank: "—");
+            string tActDo = FormatLateDriversTime(e.ActualDoIso, blank: "—");
+            if (tSchedPu != "—") schedPu = tSchedPu;
+            else if ((string.IsNullOrWhiteSpace(schedPu) || schedPu == "—") && wr != null)
+                schedPu = FormatLateDriversTime(wr.SchedPuIso, blank: "—");
+            if (tSchedDo != "—") schedDo = tSchedDo;
+            else if ((string.IsNullOrWhiteSpace(schedDo) || schedDo == "—") && wr != null)
+                schedDo = FormatLateDriversTime(wr.SchedDoIso, blank: "—");
+            if (tActPu != "—") actPu = tActPu;
+            if (tActDo != "—") actDo = tActDo;
+        }
+
+        private static bool LateDriversWrStatusLooksOpen(string status)
+        {
+            if (string.IsNullOrWhiteSpace(status))
+                return false;
+            string s = status.Trim().ToLowerInvariant();
+            if (s.Contains("cancel")
+                || s.Contains("complete")
+                || s.Contains("billed")
+                || s.Contains("no show")
+                || s.Contains("noshow")
+                || s.Contains("no-show")
+                || s.Contains("suspended"))
+                return false;
+            return true;
+        }
+
+        private static bool LateDriversIsoIsPast(string iso)
+        {
+            return TryParseLateDriversIso(iso, out var dt) && dt < DateTime.Now;
+        }
+
+        private static string LabelLateDriversMissingActual(
+            string shown,
+            string actualIso,
+            string schedIso,
+            string status)
+        {
+            if (!string.IsNullOrWhiteSpace(shown) && shown.Trim() != "—")
+                return shown;
+            if (!string.IsNullOrWhiteSpace(actualIso))
+                return string.IsNullOrWhiteSpace(shown) ? "—" : shown;
+            if (!LateDriversWrStatusLooksOpen(status))
+                return string.IsNullOrWhiteSpace(shown) ? "—" : shown;
+            if (!LateDriversIsoIsPast(schedIso))
+                return string.IsNullOrWhiteSpace(shown) ? "—" : shown;
+            return LateDriversMissingActualLabel;
         }
 
         /// <summary>

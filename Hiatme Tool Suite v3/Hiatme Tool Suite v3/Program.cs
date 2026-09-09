@@ -143,6 +143,7 @@ namespace Hiatme_Tool_Suite_v3
             // doesn't 403 us with the "Access blocked" warning tiles.
             GMapInitializer.EnsureInitialized();
             UserSettingsMigration.ApplyAfterVersionChange();
+            DesktopShortcut.RepairForRunningInstall();
             ScheduleBuilderGmailDefaults.ApplyBundledOfficePreferenceIfAvailable();
             TryReport(() => HiatmeEventReporter.Report(
                 "startup", "Program", "Tool Suite started"));
