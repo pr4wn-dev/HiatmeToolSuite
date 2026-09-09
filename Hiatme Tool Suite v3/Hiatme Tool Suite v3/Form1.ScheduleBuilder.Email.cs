@@ -318,6 +318,25 @@ namespace Hiatme_Tool_Suite_v3
                 var colWidths = ScheduleBuilderListViewColumnWidths.CaptureFromTripsListView(_fsTripsLv);
                 ScheduleBuilderXlsxWriter.WriteWorkbookFromTabs(attachmentPath, tabs, colWidths);
 
+                SetScheduleBuilderStatus("Publishing current schedule before email…");
+                progress.ReportPreparing("Publishing current schedule…");
+                var publish = await FsPublishEmailedWorkbookAsync(
+                    attachmentPath, serviceDate).ConfigureAwait(true);
+                if (publish == null || !publish.Ok)
+                {
+                    string error = publish?.Error ?? "The schedule server did not confirm the upload.";
+                    progress.ForceClose();
+                    SetScheduleBuilderStatus("Email stopped — current schedule was not published.");
+                    SupeyMessageDialog.ShowWarning(
+                        this,
+                        "Email schedules",
+                        "Current schedule was not shared",
+                        "No emails were sent because the current workbook could not be published. "
+                        + "This prevents drivers from receiving a version that the other desks cannot load.",
+                        error);
+                    return;
+                }
+
                 // Pause between messages so Gmail doesn't see a burst of identical mail
                 // (burst + same attachment to many gmail.com inboxes = classic spam signature).
                 var pacing = new Random();
@@ -411,6 +430,77 @@ namespace Hiatme_Tool_Suite_v3
                 if (_fsHasPreview)
                     SetFsPreviewExportButtonsEnabled(true);
             }
+        }
+
+        private async Task<HiatmeScheduleWorkbookMeta> FsPublishEmailedWorkbookAsync(
+            string attachmentPath,
+            DateTime serviceDate)
+        {
+            if (string.IsNullOrWhiteSpace(attachmentPath) || !File.Exists(attachmentPath))
+            {
+                return new HiatmeScheduleWorkbookMeta
+                {
+                    Ok = false,
+                    Error = "The email workbook was not created.",
+                };
+            }
+
+            var settings = HiatmeAiSettings.Load();
+            if (settings == null || string.IsNullOrWhiteSpace(settings.BaseUrl))
+            {
+                return new HiatmeScheduleWorkbookMeta
+                {
+                    Ok = false,
+                    Error = "The shared schedule server is not configured.",
+                };
+            }
+
+            string serviceDateIso = serviceDate.ToString("yyyy-MM-dd");
+            string savedPath = FsResolveScheduleBuilderSavePath(allowDefault: true);
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(savedPath))
+                {
+                    string savedDir = Path.GetDirectoryName(savedPath);
+                    if (!string.IsNullOrWhiteSpace(savedDir))
+                        Directory.CreateDirectory(savedDir);
+                    if (File.Exists(savedPath))
+                        ScheduleWorkbookResolver.BackupLocalWorkbook(savedPath, serviceDateIso);
+                    if (!string.Equals(
+                            Path.GetFullPath(savedPath),
+                            Path.GetFullPath(attachmentPath),
+                            StringComparison.OrdinalIgnoreCase))
+                        File.Copy(attachmentPath, savedPath, overwrite: true);
+                }
+            }
+            catch (Exception ex)
+            {
+                return new HiatmeScheduleWorkbookMeta
+                {
+                    Ok = false,
+                    Error = "Could not save the current workbook before email: " + ex.Message,
+                };
+            }
+
+            var result = await HiatmeAiClient.UploadScheduleWorkbookAsync(
+                settings,
+                serviceDateIso,
+                attachmentPath,
+                "schedule_builder_email").ConfigureAwait(true);
+            if (result == null || !result.Ok)
+                return result;
+
+            ScheduleWorkbookResolver.ClearPendingPublish(serviceDateIso);
+            if (!string.IsNullOrWhiteSpace(savedPath))
+            {
+                _fsPreferredSavePath = savedPath;
+                if (result.Revision > 0)
+                    ScheduleWorkbookResolver.WriteLocalRevision(savedPath, result.Revision);
+            }
+
+            _fsLastAutoSaveLocal = DateTime.Now;
+            FsClearScheduleBuilderDirtyAfterSave();
+            return result;
         }
 
         /// <summary>Schedule tabs first, then custom roster drivers not already on a tab.</summary>
