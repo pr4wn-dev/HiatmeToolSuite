@@ -23,6 +23,12 @@ namespace Hiatme_Tool_Suite_v3
             if (_fsTripsLv == null || _fsLinesByTab == null || _fsLinesByTab.Count == 0)
                 return;
 
+            // A loaded schedule can be present in the map while the Trips section is
+            // collapsed, which makes a successful load look empty. LOAD should always
+            // reveal the trip grid.
+            if (_fsTripsCollapsible != null && !_fsTripsCollapsible.Expanded)
+                _fsTripsCollapsible.Expanded = true;
+
             _fsLinesByTab.TryGetValue("Reserves", out var reserveLines);
             IList<MCDownloadedTrip> bucket = fsbuilder?.PreviewReservesReroute;
             bool showReserves = reserveLines != null
@@ -37,6 +43,7 @@ namespace Hiatme_Tool_Suite_v3
                     ScheduleBuilderTabOrder.NormalizeFullTabOrder(
                         fsbuilder?.TabOrder?.Count > 0 ? fsbuilder.TabOrder : null,
                         _fsLinesByTab.Keys));
+                FsEnsureLoadedTripRowsVisible();
                 return;
             }
 
@@ -62,6 +69,54 @@ namespace Hiatme_Tool_Suite_v3
                 _fsLinesByTab.Keys);
             if (preloadTabs.Count > 0 && !string.IsNullOrWhiteSpace(_fsActiveDriverTab))
                 StartFsMapPreloadAfterScheduleBind(preloadTabs);
+
+            FsEnsureLoadedTripRowsVisible();
+        }
+
+        private void FsEnsureLoadedTripRowsVisible()
+        {
+            if (_fsTripsLv == null || string.IsNullOrWhiteSpace(_fsActiveDriverTab))
+                return;
+            if (!_fsLinesByTab.TryGetValue(_fsActiveDriverTab, out var lines) || lines == null)
+                return;
+            if (!lines.Any(line =>
+                    line?.Kind == ScheduleBuilderPreviewLine.LineKind.Trip
+                    && line.Trip != null))
+                return;
+
+            bool hasTripRows = _fsTripsLv.Items
+                .Cast<ListViewItem>()
+                .Any(item => item.Tag is FsPreviewTripTag);
+            if (!hasTripRows)
+                ShowFsTripsForTab(_fsActiveDriverTab, preserveScroll: false);
+
+            try
+            {
+                _fsTripsLv.Invalidate(true);
+                _fsTripsLv.Update();
+            }
+            catch { }
+
+            // WinForms can perform the first owner-drawn ListView paint before the
+            // split panel has its final size. Rebind once after layout if that paint
+            // still produced no visible trip rows.
+            string loadedTab = _fsActiveDriverTab;
+            BeginInvoke((Action)(() =>
+            {
+                if (_fsTripsLv == null
+                    || _fsTripsLv.IsDisposed
+                    || !string.Equals(_fsActiveDriverTab, loadedTab, StringComparison.OrdinalIgnoreCase))
+                    return;
+
+                bool paintedTripRows = _fsTripsLv.Items
+                    .Cast<ListViewItem>()
+                    .Any(item => item.Tag is FsPreviewTripTag);
+                if (!paintedTripRows)
+                    ShowFsTripsForTab(loadedTab, preserveScroll: false);
+
+                try { _fsTripsLv.Invalidate(true); }
+                catch { }
+            }));
         }
 
         /// <summary>
