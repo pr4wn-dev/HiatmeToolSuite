@@ -1945,6 +1945,9 @@ namespace Hiatme_Tool_Suite_v3
                         req.Headers.TryAddWithoutValidation(
                             "X-Schedule-Base-Revision",
                             baseRev.ToString(CultureInfo.InvariantCulture));
+                        // The server turns this save into the feed's "saved" event, so it
+                        // needs to know which desk and which dispatcher it was.
+                        ScheduleActivityIdentity.AddHeaders(req, settings);
 
                         using (var resp = await SharedHttp.SendAsync(req, cancellationToken)
                             .ConfigureAwait(false))

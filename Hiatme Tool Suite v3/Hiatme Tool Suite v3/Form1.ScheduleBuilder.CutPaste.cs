@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Globalization;
+using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
@@ -51,6 +52,8 @@ namespace Hiatme_Tool_Suite_v3
                 });
             }
 
+            _schedActCutFromTab = tab;
+            ScheduleActivityStage("cut", cut.Select(c => c.Trip), tab, null);
             FsPushUndoSnapshot(FsTripCountLabel("cut", cut.Count));
 
             var removed = new List<ScheduleBuilderCutTrip>(cut.Count);
@@ -97,6 +100,7 @@ namespace Hiatme_Tool_Suite_v3
             if (trips.Count == 0)
                 return;
 
+            ScheduleActivityStage("delete", trips, tab, null);
             FsPushUndoSnapshot(FsTripCountLabel("delete", trips.Count));
 
             var deleted = new List<MCDownloadedTrip>(trips.Count);
@@ -191,6 +195,8 @@ namespace Hiatme_Tool_Suite_v3
                 ? ScheduleBuilderPreviewDrag.ResolveReserveBandForInsert(lines, insertBeforeLine)
                 : (Color?)null;
 
+            ScheduleActivityStage("paste", cut.Select(c => c.Trip), _schedActCutFromTab, tab);
+            _schedActCutFromTab = null;
             FsPushUndoSnapshot(FsTripCountLabel("insert", cut.Count));
 
             // Walk the insert point forward so the batch lands consecutively in the order it was

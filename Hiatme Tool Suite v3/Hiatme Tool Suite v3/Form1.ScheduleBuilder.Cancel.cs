@@ -33,6 +33,7 @@ namespace Hiatme_Tool_Suite_v3
                 return;
             }
 
+            ScheduleActivityStage("cancel", toMove, tab, "Reserves");
             FsPushUndoSnapshot(toMove.Count == 1
                 ? "add trip to cancels"
                 : "add " + toMove.Count + " trips to cancels");

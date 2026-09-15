@@ -148,6 +148,12 @@ namespace Hiatme_Tool_Suite_v3
             string iso = serviceDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
             try
             {
+                // Edits must reach the feed before the server's "saved" event, or the
+                // other desks see the save land before the moves that made it.
+                if (_schedActFeed != null)
+                {
+                    try { await _schedActFeed.FlushNowAsync().ConfigureAwait(false); } catch { }
+                }
                 var result = await HiatmeAiClient.UploadScheduleWorkbookAsync(
                     settings, iso, workbookPath, "schedule_builder_save").ConfigureAwait(false);
                 if (result != null && result.Conflict)
@@ -155,11 +161,16 @@ namespace Hiatme_Tool_Suite_v3
                     HiatmeAiSettings.LogProbe(
                         "workbook upload stale " + iso
                         + " — LOAD the published schedule before saving over it");
+                    ScheduleActivityOnRejected(iso, result);
                 }
                 else if (result == null || !result.Ok)
                 {
                     ScheduleWorkbookResolver.QueuePendingPublish(
                         iso, workbookPath, "schedule_builder_save");
+                }
+                else
+                {
+                    ScheduleActivityOnPublished(iso, result.Revision);
                 }
             }
             catch (Exception ex)

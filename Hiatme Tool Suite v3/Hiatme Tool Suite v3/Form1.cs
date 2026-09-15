@@ -3006,6 +3006,8 @@ namespace Hiatme_Tool_Suite_v3
             // Errors here must never block the rest of Form1_Shown.
             try { InstallUpdateStatusUi(); } catch { }
             try { _ = RunStartupUpdateCheckAsync(); } catch { }
+            // Live "who is doing what in the Schedule Builder" feed (toasts bottom-right).
+            try { InitScheduleActivityFeed(); } catch { }
         }
 
         // ---------- Updates ----------

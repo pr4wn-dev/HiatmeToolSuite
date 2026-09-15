@@ -34,6 +34,9 @@ namespace Hiatme_Tool_Suite_v3
 
             _fsUndoStack.PushBeforeEdit(FsMakeUndoSnapshot(label));
             FsMarkScheduleBuilderDirty();
+            // Every Schedule Builder mutation passes through here — the activity feed
+            // narrates it to the other desks from this one hook.
+            ScheduleActivityOnEdit(label);
         }
 
         private void FsUndoScheduleEdit()
@@ -48,6 +51,7 @@ namespace Hiatme_Tool_Suite_v3
             _fsUndoStack.PushRedo(FsMakeUndoSnapshot(restore.Label));
             FsApplyUndoEntry(restore);
             FsMarkScheduleBuilderDirty();
+            ScheduleActivityOnUndoRedo(undo: true, restore.Label);
             _ = FsHistoryRefreshAsync("Undid " + restore.Label + ".");
         }
 
@@ -63,6 +67,7 @@ namespace Hiatme_Tool_Suite_v3
             _fsUndoStack.PushUndoCheckpoint(FsMakeUndoSnapshot(restore.Label));
             FsApplyUndoEntry(restore);
             FsMarkScheduleBuilderDirty();
+            ScheduleActivityOnUndoRedo(undo: false, restore.Label);
             _ = FsHistoryRefreshAsync("Redid " + restore.Label + ".");
         }
 

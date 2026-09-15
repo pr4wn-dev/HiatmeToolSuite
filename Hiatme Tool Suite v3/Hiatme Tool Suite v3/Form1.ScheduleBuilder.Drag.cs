@@ -300,6 +300,7 @@ namespace Hiatme_Tool_Suite_v3
             FsSnapshotPreMoveGroupMeters(tab, movedTrip, _fsTripDragMerge, _fsTripDragDropTarget?.Trip);
 
             var lines = ScheduleBuilderPreviewDrag.ParseLinesFromListView(_fsTripsLv);
+            ScheduleActivityStage(_fsTripDragMerge ? "merged" : "moved", new[] { movedTrip }, null, tab);
             FsPushUndoSnapshot(_fsTripDragMerge ? "merge trip" : "move trip");
             ScheduleBuilderPreviewDrag.ApplyTripMove(
                 lines,

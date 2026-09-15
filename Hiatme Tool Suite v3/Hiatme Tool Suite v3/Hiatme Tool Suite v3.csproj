@@ -154,6 +154,13 @@
     <Compile Include="ScheduleBuilderScheduleLoad.cs" />
     <Compile Include="ScheduleExportPaths.cs" />
     <Compile Include="ScheduleWorkbookResolver.cs" />
+    <Compile Include="ScheduleActivityFeed.cs" />
+    <Compile Include="ScheduleActivityToast.cs">
+      <SubType>Component</SubType>
+    </Compile>
+    <Compile Include="ScheduleActivityDrawer.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="ScheduleBuilderGroupInference.cs" />
     <Compile Include="ScheduleBuilderLoadDateResolver.cs" />
     <Compile Include="ScheduleBuilderXlsxReader.cs" />
@@ -378,6 +385,10 @@
     </Compile>
     <Compile Include="ScheduleBuilderPreviewUndo.cs" />
     <Compile Include="Form1.ScheduleBuilder.Undo.cs">
+      <DependentUpon>Form1.cs</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Form1.ScheduleActivity.cs">
       <DependentUpon>Form1.cs</DependentUpon>
       <SubType>Form</SubType>
     </Compile>

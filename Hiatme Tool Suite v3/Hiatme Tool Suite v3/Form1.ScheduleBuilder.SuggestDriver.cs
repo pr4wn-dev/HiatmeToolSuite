@@ -128,6 +128,7 @@ namespace Hiatme_Tool_Suite_v3
             bool fromReserves = sourceTab.Equals("Reserves", StringComparison.OrdinalIgnoreCase);
             Color? reserveBand = fromReserves ? null : FsFindTripReserveBand(sourceLines, trip);
 
+            ScheduleActivityStage("suggest", new[] { trip }, sourceTab, targetTab);
             FsPushUndoSnapshot("suggest driver → " + targetTab);
 
             if (!ScheduleBuilderPreviewDrag.TryRemoveTrip(sourceLines, trip))

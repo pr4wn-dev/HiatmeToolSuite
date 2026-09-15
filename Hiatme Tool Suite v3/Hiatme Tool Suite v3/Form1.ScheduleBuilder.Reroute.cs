@@ -505,6 +505,7 @@ namespace Hiatme_Tool_Suite_v3
                     return;
                 }
 
+                ScheduleActivityStage("reroute", new[] { trip }, tab, "Reserves");
                 FsPushUndoSnapshot("reroute trip");
                 FsApplySuccessfulModivcareReroute(trip, tab, out bool movedToReserves, out bool marked);
                 string displayTab = movedToReserves ? "Reserves" : tab;
@@ -620,6 +621,7 @@ namespace Hiatme_Tool_Suite_v3
                 return;
             }
 
+            ScheduleActivityStage("reroute", toMove, tab, "Reserves");
             FsPushUndoSnapshot(toMove.Count == 1
                 ? "add trip to reroutes"
                 : "add " + toMove.Count + " trips to reroutes");
