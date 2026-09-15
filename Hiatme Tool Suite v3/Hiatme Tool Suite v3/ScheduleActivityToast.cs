@@ -17,6 +17,8 @@ namespace Hiatme_Tool_Suite_v3
         Rejected,
         Presence,
         Muted,
+        /// <summary>A teammate (or the AI) said something while the dock was hidden.</summary>
+        Chat,
     }
 
     /// <summary>One inline piece of a toast sentence.</summary>
@@ -180,6 +182,7 @@ namespace Hiatme_Tool_Suite_v3
                     case ScheduleToastKind.Saved: return SupeyTheme.SuccessText;
                     case ScheduleToastKind.Behind: return SupeyTheme.WarnText;
                     case ScheduleToastKind.Rejected: return SupeyTheme.ErrorText;
+                    case ScheduleToastKind.Chat: return SupeyTheme.TextLink;
                     default: return SupeyTheme.Divider;
                 }
             }
@@ -436,6 +439,7 @@ namespace Hiatme_Tool_Suite_v3
                 var asz = g.MeasureString(a, ActionFont, PointF.Empty, fmt);
                 Color ac = Kind == ScheduleToastKind.Rejected ? SupeyTheme.ErrorText : SupeyTheme.AccentPrimary;
                 if (Kind == ScheduleToastKind.Behind) ac = SupeyTheme.WarnText;
+                if (Kind == ScheduleToastKind.Chat) ac = SupeyTheme.TextLink;
                 using (var b = new SolidBrush(Dimmed(_hover ? SupeyTheme.TextPrimary : ac)))
                     g.DrawString(a, ActionFont, b, Width - PadR - asz.Width, y, fmt);
             }

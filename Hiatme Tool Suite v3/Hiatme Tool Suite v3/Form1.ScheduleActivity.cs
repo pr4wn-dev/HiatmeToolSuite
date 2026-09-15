@@ -635,6 +635,11 @@ namespace Hiatme_Tool_Suite_v3
             if (toast == null) return;
             try
             {
+                if (toast.Kind == ScheduleToastKind.Chat)
+                {
+                    OnTeamChatToastClicked(toast);
+                    return;
+                }
                 if (toast.Kind == ScheduleToastKind.Behind || toast.Kind == ScheduleToastKind.Rejected)
                 {
                     _schedActStack?.Dismiss(toast);

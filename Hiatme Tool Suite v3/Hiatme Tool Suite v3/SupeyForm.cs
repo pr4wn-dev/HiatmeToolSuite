@@ -453,6 +453,26 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
+        /// <summary>Unread team-chat count painted on the AI chip while the dock is hidden (0 = none).</summary>
+        public int TitleBarAiBadge
+        {
+            get => _titleBarAiBadge;
+            set
+            {
+                int v = Math.Max(0, value);
+                if (_titleBarAiBadge == v)
+                    return;
+                _titleBarAiBadge = v;
+                if (IsHandleCreated)
+                {
+                    var r = AiButtonRect;
+                    r.Inflate(10, 6);
+                    Invalidate(r);
+                }
+            }
+        }
+        private int _titleBarAiBadge;
+
         /// <summary>Raised when the painted title-bar AI chip is clicked.</summary>
 
         public event EventHandler TitleBarAiClick;
@@ -2006,6 +2026,39 @@ namespace Hiatme_Tool_Suite_v3
             TextRenderer.DrawText(g, "AI", SupeyTheme.HeaderFont, r, fg,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter
                 | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix);
+
+            if (_titleBarAiBadge > 0 && !TitleBarAiOpen)
+            {
+                string n = _titleBarAiBadge > 99 ? "99+" : _titleBarAiBadge.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                using (var f = new Font("Consolas", 7.75f, FontStyle.Bold))
+                {
+                    var sz = TextRenderer.MeasureText(g, n, f, Size.Empty, TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
+                    int bw = Math.Max(15, sz.Width + 7);
+                    int bh = 14;
+                    // Rides the top-right corner of the chip, sheared like the HUD toasts.
+                    var br = new Rectangle(r.Right - bw + 5, r.Top - 4, bw, bh);
+                    var state = g.Save();
+                    try
+                    {
+                        g.SmoothingMode = SmoothingMode.AntiAlias;
+                        using (var path = new GraphicsPath())
+                        {
+                            const int cut = 4;
+                            path.AddLine(br.Left + cut, br.Top, br.Right, br.Top);
+                            path.AddLine(br.Right, br.Top, br.Right, br.Bottom - cut);
+                            path.AddLine(br.Right, br.Bottom - cut, br.Right - cut, br.Bottom);
+                            path.AddLine(br.Right - cut, br.Bottom, br.Left, br.Bottom);
+                            path.CloseFigure();
+                            using (var bb = new SolidBrush(SupeyTheme.TextLink))
+                                g.FillPath(bb, path);
+                        }
+                    }
+                    finally { g.Restore(state); }
+                    TextRenderer.DrawText(g, n, f, br, SupeyTheme.SurfaceBase,
+                        TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter
+                        | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
+                }
+            }
         }
 
         private static void DrawThemeDropdownArrow(Graphics g, Rectangle comboBounds, bool hot)

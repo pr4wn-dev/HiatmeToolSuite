@@ -19,8 +19,7 @@ namespace Hiatme_Tool_Suite_v3
         private Panel _globalAiHeader;
         private Label _globalAiTitleLbl;
         private SupeyButton _globalAiCollapseBtn;
-        private TextBox _globalAiTranscript;
-        private Label _globalAiEmptyHint;
+        private ChatTranscriptView _globalAiTranscript;
         private TextBox _globalAiPrompt;
         private Label _globalAiPromptPlaceholder;
         private Label _globalAiComposerHint;
@@ -83,7 +82,7 @@ namespace Hiatme_Tool_Suite_v3
             _globalAiTitleLbl = new Label
             {
                 Dock = DockStyle.Fill,
-                Text = "AI Copilot",
+                Text = "Team \u00b7 AI Copilot",
                 ForeColor = SupeyTheme.TextPrimary,
                 BackColor = SupeyTheme.SurfaceHeader,
                 Font = SupeyTheme.HeaderFont,
@@ -173,7 +172,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 Dock = DockStyle.Bottom,
                 Height = 16,
-                Text = "Enter to send  ·  Shift+Enter for a new line",
+                Text = "Enter sends  ·  Shift+Enter newline  ·  @ai \u2192 copilot",
                 ForeColor = SupeyTheme.TextMuted,
                 BackColor = SupeyTheme.SurfaceElevated,
                 Font = SupeyTheme.CaptionFont,
@@ -203,7 +202,7 @@ namespace Hiatme_Tool_Suite_v3
             _globalAiPromptPlaceholder = new Label
             {
                 AutoSize = false,
-                Text = "Ask about this screen…",
+                Text = "Message the team \u2014 @ai to ask the copilot\u2026",
                 ForeColor = SupeyTheme.TextMuted,
                 BackColor = SupeyTheme.SurfaceElevated,
                 Font = SupeyTheme.BodyFont,
@@ -216,8 +215,11 @@ namespace Hiatme_Tool_Suite_v3
             _globalAiPrompt.LostFocus += (_, __) =>
                 _globalAiPromptPlaceholder.Visible = string.IsNullOrWhiteSpace(_globalAiPrompt.Text);
             _globalAiPrompt.TextChanged += (_, __) =>
+            {
                 _globalAiPromptPlaceholder.Visible = !_globalAiPrompt.Focused
                     && string.IsNullOrWhiteSpace(_globalAiPrompt.Text);
+                TeamChatOnPromptChanged(_globalAiPrompt.Text);
+            };
             _globalAiPrompt.KeyDown += async (_, e) =>
             {
                 if (e.KeyCode == Keys.Enter && !e.Shift)
@@ -417,39 +419,19 @@ namespace Hiatme_Tool_Suite_v3
             _globalAiQuestionCard.Controls.Add(questionBtns);
             _globalAiQuestionCard.Controls.Add(_globalAiQuestionTitle);
 
-            _globalAiTranscript = new TextBox
+            _globalAiTranscript = new ChatTranscriptView
             {
                 Dock = DockStyle.Fill,
-                Multiline = true,
-                ReadOnly = true,
-                AutoSize = false,
-                BorderStyle = BorderStyle.None,
-                ScrollBars = ScrollBars.Vertical,
-                WordWrap = true,
-                BackColor = SupeyTheme.SurfaceBase,
-                ForeColor = SupeyTheme.TextPrimary,
-                Font = SupeyTheme.BodyFont,
+                EmptyHint = "Talk to the other desks here.\r\nStart with @ai to ask the copilot about this screen.",
             };
-            _globalAiEmptyHint = new Label
-            {
-                Dock = DockStyle.Fill,
-                Text = "Ask about this screen — trips, drivers, times, whatever you're looking at.",
-                ForeColor = SupeyTheme.TextMuted,
-                BackColor = SupeyTheme.SurfaceBase,
-                Font = SupeyTheme.BodyFont,
-                TextAlign = ContentAlignment.MiddleCenter,
-                Padding = new Padding(24, 16, 24, 16),
-            };
-            _globalAiEmptyHint.Click += (_, __) => _globalAiPrompt?.Focus();
+            _globalAiTranscript.Click += (_, __) => _globalAiPrompt?.Focus();
             var transcriptPad = new Panel
             {
                 Dock = DockStyle.Fill,
                 BackColor = SupeyTheme.SurfaceBase,
-                Padding = new Padding(14, 12, 12, 12),
+                Padding = new Padding(4, 4, 2, 6),
             };
             transcriptPad.Controls.Add(_globalAiTranscript);
-            transcriptPad.Controls.Add(_globalAiEmptyHint);
-            _globalAiEmptyHint.BringToFront();
             var transcriptCard = new Panel
             {
                 Dock = DockStyle.Fill,
@@ -472,6 +454,7 @@ namespace Hiatme_Tool_Suite_v3
             body.Controls.Add(StackGap());
             body.Controls.Add(_globalAiActionCard);
             body.Controls.Add(StackGap());
+            body.Controls.Add(BuildTeamChatTypingLine());
             body.Controls.Add(composer);
             body.Controls.Add(statusRow);
 
@@ -497,6 +480,7 @@ namespace Hiatme_Tool_Suite_v3
 
             ApplyGlobalAiDockTheme();
             LayoutGlobalAiDock();
+            InitTeamChat();
         }
 
         private void OnTitleBarAiClicked(object sender, EventArgs e)
@@ -517,6 +501,7 @@ namespace Hiatme_Tool_Suite_v3
                 try { _globalAiPrompt?.Focus(); } catch { }
                 _ = ProbeGlobalAiPanelAsync();
             }
+            TeamChatOnDockToggled(expanded);
             RefreshTitleBarChrome();
         }
 
@@ -565,14 +550,11 @@ namespace Hiatme_Tool_Suite_v3
                 if (_globalAiTranscript != null)
                 {
                     _globalAiTranscript.BackColor = SupeyTheme.SurfaceBase;
-                    _globalAiTranscript.ForeColor = SupeyTheme.TextPrimary;
-                    _globalAiTranscript.Font = SupeyTheme.BodyFont;
+                    if (_globalAiTranscript.Parent != null)
+                        _globalAiTranscript.Parent.BackColor = SupeyTheme.SurfaceBase;
+                    _globalAiTranscript.Invalidate();
                 }
-                if (_globalAiEmptyHint != null)
-                {
-                    _globalAiEmptyHint.BackColor = SupeyTheme.SurfaceBase;
-                    _globalAiEmptyHint.ForeColor = SupeyTheme.TextMuted;
-                }
+                TeamChatApplyTheme();
                 if (_globalAiPrompt != null)
                 {
                     _globalAiPrompt.BackColor = SupeyTheme.SurfaceElevated;
@@ -633,18 +615,33 @@ namespace Hiatme_Tool_Suite_v3
 
         private async Task OnGlobalAiSendClickedAsync()
         {
-            if (_globalAiCts != null)
-                return;
-            string msg = (_globalAiPrompt?.Text ?? "").Trim();
-            if (string.IsNullOrWhiteSpace(msg))
+            string raw = (_globalAiPrompt?.Text ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(raw))
                 return;
 
             if (!_globalAiExpanded)
                 SetGlobalAiDockExpanded(true);
 
+            // The room is the default; "@ai …" (or @supey) hands the line to the copilot.
+            string msg;
+            if (!TeamChatIsAiAddressed(raw, out msg))
+            {
+                _globalAiPrompt.Clear();
+                await SendTeamMessageAsync(raw).ConfigureAwait(true);
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(msg))
+                return;
+            if (_globalAiCts != null)
+            {
+                SetGlobalAiStatus("Still thinking on the last one\u2026", SupeyTheme.WarnText);
+                return;
+            }
+
             _globalAiCts = new CancellationTokenSource();
             _globalAiSendBtn.Enabled = false;
-            AppendGlobalAiTranscript("You", msg);
+            var mine = TeamChatEchoMine(raw, mentionsAi: true);
+            var askTask = TeamChatSendMineAsync(mine, mentionsAi: true);
             SetGlobalAiStatus("Thinking...", SupeyTheme.TextMuted);
 
             try
@@ -662,7 +659,9 @@ namespace Hiatme_Tool_Suite_v3
                 _globalAiLastTraceId = resp.TraceId ?? "";
                 if (!string.IsNullOrWhiteSpace(resp.Thinking))
                     AppendGlobalAiTranscript("AI · thinking", resp.Thinking);
-                AppendGlobalAiTranscript("AI", resp.Message ?? "");
+                var aiLine = AppendGlobalAiTranscript("AI", resp.Message ?? "");
+                // Everyone in the room sees the answer, threaded under the question.
+                _ = TeamChatPublishAiReplyAsync(askTask, aiLine);
 
                 _globalAiPendingDraft = resp.Draft;
                 ShowGlobalAiDraftPreview(resp);
@@ -1197,17 +1196,31 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
-        private void AppendGlobalAiTranscript(string role, string text)
+        /// <summary>Local-only transcript line. Roles: You / AI / AI · thinking / System / Error.</summary>
+        private ChatMessage AppendGlobalAiTranscript(string role, string text)
         {
-            if (_globalAiTranscript == null || string.IsNullOrWhiteSpace(text))
-                return;
-            if (_globalAiEmptyHint != null && !_globalAiEmptyHint.IsDisposed)
-                _globalAiEmptyHint.Visible = false;
-            _globalAiTranscript.AppendText(
-                "[" + DateTime.Now.ToString("HH:mm", CultureInfo.InvariantCulture) + "] "
-                + role + ":\r\n" + text.Trim() + "\r\n\r\n");
-            _globalAiTranscript.SelectionStart = _globalAiTranscript.TextLength;
-            _globalAiTranscript.ScrollToCaret();
+            if (_globalAiTranscript == null || _globalAiTranscript.IsDisposed || string.IsNullOrWhiteSpace(text))
+                return null;
+            ChatMessageKind kind;
+            string sender;
+            switch (role)
+            {
+                case "You": kind = ChatMessageKind.Me; sender = TeamChatMyName(); break;
+                case "AI": kind = ChatMessageKind.Ai; sender = "AI"; break;
+                case "AI · thinking": kind = ChatMessageKind.AiThinking; sender = "AI"; break;
+                case "Error": kind = ChatMessageKind.Error; sender = "Error"; break;
+                default: kind = ChatMessageKind.System; sender = "System"; break;
+            }
+            var m = new ChatMessage
+            {
+                Kind = kind,
+                Sender = sender,
+                ClientId = _teamChat?.ClientId ?? "",
+                Text = text.Trim(),
+                Time = DateTime.Now,
+            };
+            _globalAiTranscript.Add(m);
+            return m;
         }
 
         private void SetGlobalAiStatus(string label, Color dot)
