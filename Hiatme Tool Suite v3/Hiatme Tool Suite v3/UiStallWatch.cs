@@ -36,6 +36,8 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>Panel URL resolve. Probes candidates over the network, so it must never
         /// land here from the UI thread — if this scope ever shows time, that is the bug.</summary>
         SettingsResolve,
+        /// <summary>GMap.NET tile HTTP. Must never stay on the UI thread.</summary>
+        MapTile,
         Count,
     }
 
@@ -80,6 +82,8 @@ namespace Hiatme_Tool_Suite_v3
         private static long _scopeEnteredMs;        // Interlocked
         private static int _stallCount;
         private static double _worstStallMs;
+        private static string _lastUiStack = "";
+        private static int _beatN;
 
         private static long NowMs => _clock?.ElapsedMilliseconds ?? 0;
 
@@ -111,7 +115,17 @@ namespace Hiatme_Tool_Suite_v3
 
             // Only the UI thread can advance this, so a gap == a real freeze.
             _beatTimer = new System.Windows.Forms.Timer { Interval = BeatMs };
-            _beatTimer.Tick += (_, __) => Interlocked.Exchange(ref _lastBeatMs, NowMs);
+            _beatTimer.Tick += (_, __) =>
+            {
+                Interlocked.Exchange(ref _lastBeatMs, NowMs);
+                // Snapshot the UI stack every ~160ms so a freeze can name the
+                // caller instead of "(outside any watched scope)".
+                if ((++_beatN & 7) == 0)
+                {
+                    try { _lastUiStack = Environment.StackTrace; }
+                    catch { }
+                }
+            };
             _beatTimer.Start();
 
             _watcher = new Thread(WatchLoop)
@@ -152,11 +166,13 @@ namespace Hiatme_Tool_Suite_v3
                 while (_running && NowMs - Interlocked.Read(ref _lastBeatMs) >= StallMs)
                     Thread.Sleep(WatchMs);
                 lastReported = startedAt;
-                RecordStall(Interlocked.Read(ref _lastBeatMs) - startedAt, (UiScope)scope, inScopeMs);
+                string stack;
+                lock (Gate) stack = _lastUiStack;
+                RecordStall(Interlocked.Read(ref _lastBeatMs) - startedAt, (UiScope)scope, inScopeMs, stack);
             }
         }
 
-        private static void RecordStall(double ms, UiScope scope, double inScopeMs)
+        private static void RecordStall(double ms, UiScope scope, double inScopeMs, string stack)
         {
             lock (Gate)
             {
@@ -173,7 +189,28 @@ namespace Hiatme_Tool_Suite_v3
                 Stalls.Add(line);
                 if (Stalls.Count > MaxStallRecords) Stalls.RemoveAt(0);
                 Append(line);
+                if (ms >= 1000 && !string.IsNullOrEmpty(stack))
+                    Append(TrimStack(stack));
             }
+        }
+
+        private static string TrimStack(string stack)
+        {
+            if (string.IsNullOrEmpty(stack)) return "";
+            var lines = stack.Replace("\r\n", "\n").Split('\n');
+            var sb = new StringBuilder();
+            int kept = 0;
+            for (int i = 0; i < lines.Length && kept < 18; i++)
+            {
+                string L = lines[i].Trim();
+                if (L.Length == 0) continue;
+                if (L.IndexOf("UiStallWatch", StringComparison.Ordinal) >= 0) continue;
+                if (L.IndexOf("System.Environment.GetStackTrace", StringComparison.Ordinal) >= 0) continue;
+                if (L.IndexOf("System.Environment.get_StackTrace", StringComparison.Ordinal) >= 0) continue;
+                sb.Append("    ").Append(L).AppendLine();
+                kept++;
+            }
+            return sb.ToString();
         }
 
         // ------------------------------------------------------------------ scopes
@@ -358,7 +395,7 @@ namespace Hiatme_Tool_Suite_v3
             };
             try
             {
-                using (var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(8) })
+                using (var http = HiatmePanelHttp.Create(TimeSpan.FromSeconds(8)))
                 using (var req = new System.Net.Http.HttpRequestMessage(
                     System.Net.Http.HttpMethod.Post, baseUrl + "/api/hiatme/uistall"))
                 {

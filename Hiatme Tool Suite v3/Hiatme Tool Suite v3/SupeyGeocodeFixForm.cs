@@ -73,6 +73,7 @@ namespace Hiatme_Tool_Suite_v3
             overlay.Markers.Add(_marker);
             _map.Overlays.Add(overlay);
             SupeyMapMarkerDrag.EnsureWired(_map);
+            GMapTilePrefetch.Attach(_map);
 
             var bar = new FlowLayoutPanel
             {

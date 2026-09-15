@@ -19,7 +19,7 @@ namespace Hiatme_Tool_Suite_v3
         private const string RouteQuery =
             "overview=full&geometries=geojson&alternatives=false&steps=false&annotations=distance,duration";
 
-        private static readonly HttpClient Http = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
+        private static readonly HttpClient Http = HiatmePanelHttp.Create(TimeSpan.FromSeconds(60));
 
         public static async Task<RouteEstimator.RoutePolylineResult> RouteBestEffortAsync(
             IList<GeoPoint> waypoints, CancellationToken token)

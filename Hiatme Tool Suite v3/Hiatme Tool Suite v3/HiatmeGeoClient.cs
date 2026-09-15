@@ -12,10 +12,7 @@ namespace Hiatme_Tool_Suite_v3
     /// <summary>Geocode + OSRM via AIagent (<c>/api/hiatme/geo/*</c>) on the server host.</summary>
     internal static class HiatmeGeoClient
     {
-        private static readonly HttpClient SharedHttp = new HttpClient
-        {
-            Timeout = TimeSpan.FromSeconds(60),
-        };
+        private static readonly HttpClient SharedHttp = HiatmePanelHttp.Create(TimeSpan.FromSeconds(60));
 
         public sealed class GeoStatus
         {

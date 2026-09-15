@@ -6,6 +6,7 @@ using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
@@ -53,9 +54,13 @@ namespace Hiatme_Tool_Suite_v3
         private static string DefaultsConfigPath => Path.Combine(BaseDir, "hiatme_ai.defaults.json");
 
         private static readonly object LoadLock = new object();
+        private static readonly object RefreshGate = new object();
         private static HiatmeAiSettings _sessionCache;
         private static string _lastConnectionDetail = "";
         private static bool? _sessionPanelReachable;
+        private static DateTime _lastGoodProbeUtc = DateTime.MinValue;
+        private static Task<bool> _refreshTask;
+        private static List<byte[]> _localIpv4;
 
         /// <summary>Human-readable result from the last panel probe (for map overlay / status).</summary>
         public static string LastConnectionDetail => _lastConnectionDetail ?? "";
@@ -81,8 +86,14 @@ namespace Hiatme_Tool_Suite_v3
             lock (LoadLock)
             {
                 if (_sessionCache != null) return _sessionCache;
-                using (UiStallWatch.Measure(UiScope.SettingsResolve))
-                    _sessionCache = LoadAndConfigureLocked();
+            }
+            HiatmeAiSettings built;
+            using (UiStallWatch.Measure(UiScope.SettingsResolve))
+                built = LoadAndConfigureUnlocked();
+            lock (LoadLock)
+            {
+                if (_sessionCache != null) return _sessionCache;
+                _sessionCache = built;
                 return _sessionCache;
             }
         }
@@ -105,17 +116,16 @@ namespace Hiatme_Tool_Suite_v3
         /// </summary>
         public static HiatmeAiSettings LoadNoProbe()
         {
+            HiatmeAiSettings snap;
             lock (LoadLock)
             {
                 if (_sessionCache != null) return _sessionCache;
                 if (_unresolvedCache == null)
                     _unresolvedCache = LoadMerged();
+                snap = _unresolvedCache;
             }
             WarmInBackground();
-            lock (LoadLock)
-            {
-                return _sessionCache ?? _unresolvedCache;
-            }
+            return snap;
         }
 
         private static void WarmInBackground()
@@ -136,6 +146,7 @@ namespace Hiatme_Tool_Suite_v3
                 _sessionCache = null;
                 _unresolvedCache = null;
                 _sessionPanelReachable = null;
+                _lastGoodProbeUtc = DateTime.MinValue;
             }
             HiatmeGeoSettings.Invalidate();
         }
@@ -148,6 +159,7 @@ namespace Hiatme_Tool_Suite_v3
                 _sessionCache = null;
                 _unresolvedCache = null;
                 _sessionPanelReachable = null;
+                _lastGoodProbeUtc = DateTime.MinValue;
             }
             // Re-resolve here, off-thread, instead of leaving the next caller to do it. This
             // runs from background LAN discovery, and the next caller is usually a UI timer.
@@ -156,52 +168,95 @@ namespace Hiatme_Tool_Suite_v3
 
         /// <summary>Re-probe panel URLs. Loopback first so the office server
         /// does not hairpin the public WAN IP and look "offline".</summary>
-        public static async Task<bool> RefreshPanelConnectionAsync(CancellationToken cancellationToken = default)
+        public static Task<bool> RefreshPanelConnectionAsync(CancellationToken cancellationToken = default)
         {
-            LogProbe("RefreshPanelConnectionAsync: enter");
-            return await Task.Run(() =>
+            lock (LoadLock)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                HiatmeAiSettings settings;
-                bool ok;
-                lock (LoadLock)
+                if (_sessionPanelReachable == true
+                    && _sessionCache != null
+                    && DateTime.UtcNow - _lastGoodProbeUtc < TimeSpan.FromSeconds(45)
+                    && !cancellationToken.IsCancellationRequested)
                 {
-                    // Fresh file URLs — never reuse a session that got pinned to 127.0.0.1
-                    // after a failed probe while the panel was bouncing.
-                    settings = LoadMerged();
-                    string token = settings.ApiToken;
-                    string loopbackUrl = "http://127.0.0.1:" + DefaultPort;
-                    var probe = ProbePanelDetailed(loopbackUrl, token, quickTimeout: true);
-                    if (probe.Ok)
-                    {
-                        settings.BaseUrl = probe.Url;
-                    }
-                    else
-                    {
-                        settings.BaseUrl = ResolvePanelBaseUrl(settings, out var resolveDetail);
-                        ok = _sessionPanelReachable == true;
-                        _sessionCache = settings;
-                        HiatmeGeoSettings.Configure(settings, ok);
-                        LogProbe("RefreshPanelConnectionAsync: loopback failed (" + probe.Message
-                            + "); resolved=" + settings.BaseUrl + " ok=" + ok + " detail=" + resolveDetail);
-                        return ok;
-                    }
-                    ok = probe.Ok;
-                    _sessionPanelReachable = ok;
-                    _lastConnectionDetail = ok
-                        ? ("Connected: " + settings.BaseUrl)
-                        : (string.IsNullOrWhiteSpace(probe.Message)
-                            ? ("Unreachable: " + settings.BaseUrl)
-                            : probe.Message);
-                    _sessionCache = settings;
+                    LogProbe("RefreshPanelConnectionAsync: reuse " + _sessionCache.BaseUrl
+                        + " (probed " + (int)(DateTime.UtcNow - _lastGoodProbeUtc).TotalSeconds + "s ago)");
+                    return Task.FromResult(true);
                 }
-                HiatmeGeoSettings.Configure(settings, ok);
-                LogProbe("RefreshPanelConnectionAsync: loopback ok=" + ok + " base=" + settings.BaseUrl);
-                return ok;
-            }, cancellationToken).ConfigureAwait(false);
+            }
+            lock (RefreshGate)
+            {
+                if (_refreshTask != null && !_refreshTask.IsCompleted)
+                    return _refreshTask;
+                LogProbe("RefreshPanelConnectionAsync: enter");
+                _refreshTask = Task.Run(() => RefreshPanelConnectionCore(cancellationToken));
+                return _refreshTask;
+            }
         }
 
-        private static HiatmeAiSettings LoadAndConfigureLocked(bool forceResolve = false)
+        private static bool RefreshPanelConnectionCore(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var settings = LoadMerged();
+            string token = settings.ApiToken;
+            bool ok;
+            string resolveDetail = "";
+            PanelProbeResult probe = PanelProbeResult.Fail("", "");
+            string how = "";
+
+            string last = NormalizeBaseUrl(settings.LastResolvedBaseUrl);
+            if (!string.IsNullOrEmpty(last) && !IsLanUrl(last) && !IsLoopbackUrl(last))
+            {
+                probe = ProbePanelDetailed(last, token, quickTimeout: false);
+                if (probe.Ok)
+                {
+                    settings.BaseUrl = probe.Url;
+                    ok = true;
+                    how = "last-resolved " + last;
+                    ApplyRefreshResult(settings, ok, probe, resolveDetail, how);
+                    return true;
+                }
+            }
+
+            string loopbackUrl = "http://127.0.0.1:" + DefaultPort;
+            probe = ProbePanelDetailed(loopbackUrl, token, quickTimeout: true);
+            if (probe.Ok)
+            {
+                settings.BaseUrl = probe.Url;
+                ok = true;
+                how = "loopback";
+            }
+            else
+            {
+                settings.BaseUrl = ResolvePanelBaseUrl(settings, out resolveDetail);
+                ok = _sessionPanelReachable == true;
+                how = "loopback failed (" + probe.Message + "); resolved=" + settings.BaseUrl
+                    + " detail=" + resolveDetail;
+            }
+
+            ApplyRefreshResult(settings, ok, probe, resolveDetail, how);
+            return ok;
+        }
+
+        private static void ApplyRefreshResult(
+            HiatmeAiSettings settings, bool ok, PanelProbeResult probe, string resolveDetail, string how)
+        {
+            lock (LoadLock)
+            {
+                _sessionPanelReachable = ok;
+                if (ok) _lastGoodProbeUtc = DateTime.UtcNow;
+                _lastConnectionDetail = ok
+                    ? ("Connected: " + settings.BaseUrl)
+                    : (string.IsNullOrWhiteSpace(probe.Message)
+                        ? ("Unreachable: " + settings.BaseUrl)
+                        : probe.Message);
+                if (!ok && !string.IsNullOrWhiteSpace(resolveDetail))
+                    _lastConnectionDetail = resolveDetail;
+                _sessionCache = settings;
+            }
+            HiatmeGeoSettings.Configure(settings, ok);
+            LogProbe("RefreshPanelConnectionAsync: " + how + " ok=" + ok + " base=" + settings.BaseUrl);
+        }
+
+        private static HiatmeAiSettings LoadAndConfigureUnlocked(bool forceResolve = false)
         {
             var merged = LoadMerged();
             if (forceResolve || string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("HIATME_AI_URL")))
@@ -388,13 +443,19 @@ namespace Hiatme_Tool_Suite_v3
 
             add("http://127.0.0.1:" + DefaultPort);
 
-            // Priority: same-subnet LAN (0) → public/hostname (1) → foreign LAN (2) → loopback (3).
+            // Last-known-good first (usually the public IP on desks). Same-subnet LAN
+            // next. Foreign 192.168.x addresses (home router vs office LAN collision)
+            // are last and get a 400ms budget — never 6s.
             return candidates
                 .OrderBy(u =>
                 {
-                    if (IsLoopbackUrl(u)) return 3;
-                    if (IsLanUrl(u) && IsOnThisMachinesSubnet(u)) return 0;
-                    if (IsLanUrl(u)) return 2;
+                    if (!string.IsNullOrEmpty(merged.LastResolvedBaseUrl)
+                        && string.Equals(u, NormalizeBaseUrl(merged.LastResolvedBaseUrl),
+                            StringComparison.OrdinalIgnoreCase))
+                        return 0;
+                    if (IsLoopbackUrl(u)) return 4;
+                    if (IsLanUrl(u) && IsOnThisMachinesSubnet(u)) return 2;
+                    if (IsLanUrl(u)) return 3;
                     return 1;
                 })
                 .ToList();
@@ -463,11 +524,10 @@ namespace Hiatme_Tool_Suite_v3
                 if (want.Length != 4)
                     return false;
 
-                foreach (var local in Dns.GetHostAddresses(Dns.GetHostName()))
+                foreach (var have in LocalIpv4Bytes())
                 {
-                    if (local.AddressFamily != AddressFamily.InterNetwork)
+                    if (have == null || have.Length != 4)
                         continue;
-                    var have = local.GetAddressBytes();
                     if (have[0] == want[0] && have[1] == want[1] && have[2] == want[2])
                         return true;
                 }
@@ -477,6 +537,29 @@ namespace Hiatme_Tool_Suite_v3
             {
                 return false;
             }
+        }
+
+        private static List<byte[]> LocalIpv4Bytes()
+        {
+            if (_localIpv4 != null) return _localIpv4;
+            var list = new List<byte[]>();
+            try
+            {
+                foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
+                {
+                    if (nic.OperationalStatus != OperationalStatus.Up) continue;
+                    if (nic.NetworkInterfaceType == NetworkInterfaceType.Loopback) continue;
+                    foreach (var ua in nic.GetIPProperties().UnicastAddresses)
+                    {
+                        if (ua.Address.AddressFamily != AddressFamily.InterNetwork) continue;
+                        if (IPAddress.IsLoopback(ua.Address)) continue;
+                        list.Add(ua.Address.GetAddressBytes());
+                    }
+                }
+            }
+            catch { }
+            _localIpv4 = list;
+            return _localIpv4;
         }
 
         private sealed class PanelProbeResult
@@ -510,15 +593,13 @@ namespace Hiatme_Tool_Suite_v3
                 };
             }
 
-            // Sequential with early exit — parallel timeouts on dead fallbacks spam TaskCanceledException in the debugger.
+            // Sequential with early exit. LAN/loopback get 400ms — an office panel on
+            // the real LAN answers in milliseconds; a home-router 192.168.1.4 that is
+            // not the office used to burn 6s per miss and freeze the window.
             for (int i = 0; i < urls.Count; i++)
             {
                 string url = urls[i];
-                // A LAN address that is really there answers in milliseconds, so those
-                // can be rushed. A WAN round trip needs the full budget — cutting a
-                // public URL to 2s just because something else was tried first is what
-                // made off-network desks fail while the panel was up and reachable.
-                bool quick = i > 0 && IsLanUrl(url);
+                bool quick = IsLanUrl(url) || IsLoopbackUrl(url);
                 var result = ProbePanelDetailed(url, apiToken, quickTimeout: quick);
                 if (result.Ok)
                 {
@@ -544,18 +625,20 @@ namespace Hiatme_Tool_Suite_v3
             // /api/status is public. "Offline" must mean the process is down — not a
             // geo/token miss, and not an HttpClient deadlock on the WinForms UI thread.
             string url = baseUrl.TrimEnd('/') + "/api/status";
-            int timeoutSec = quickTimeout ? 2 : DefaultProbeTimeoutSeconds;
+            int timeoutMs = DefaultProbeTimeoutSeconds * 1000;
+            if (quickTimeout || IsLanUrl(baseUrl) || IsLoopbackUrl(baseUrl))
+                timeoutMs = 400;
             var rawTimeout = Environment.GetEnvironmentVariable("HIATME_AI_PROBE_TIMEOUT_SEC");
             if (!string.IsNullOrWhiteSpace(rawTimeout) && int.TryParse(rawTimeout.Trim(), out var t) && t >= 2 && t <= 30)
-                timeoutSec = t;
+                timeoutMs = t * 1000;
 
             var probeClock = System.Diagnostics.Stopwatch.StartNew();
             try
             {
                 var req = (HttpWebRequest)WebRequest.Create(url);
                 req.Method = "GET";
-                req.Timeout = timeoutSec * 1000;
-                req.ReadWriteTimeout = timeoutSec * 1000;
+                req.Timeout = timeoutMs;
+                req.ReadWriteTimeout = timeoutMs;
                 req.Proxy = null;
                 req.KeepAlive = false;
                 if (req.ServicePoint != null && req.ServicePoint.ConnectionLimit < 16)
@@ -568,7 +651,7 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     int code = (int)resp.StatusCode;
                     LogProbe("probe " + url + " -> HTTP " + code + " in " + probeClock.ElapsedMilliseconds
-                        + "ms (timeout " + timeoutSec + "s)");
+                        + "ms (timeout " + timeoutMs + "ms)");
                     if (code >= 200 && code < 300)
                         return PanelProbeResult.Success(NormalizeBaseUrl(baseUrl));
                     return PanelProbeResult.Fail(baseUrl, baseUrl + ": HTTP " + code);
@@ -577,7 +660,7 @@ namespace Hiatme_Tool_Suite_v3
             catch (WebException ex)
             {
                 LogProbe("probe " + url + " -> WebException " + ex.Status + " in " + probeClock.ElapsedMilliseconds
-                    + "ms (timeout " + timeoutSec + "s): " + ex.Message);
+                    + "ms (timeout " + timeoutMs + "ms): " + ex.Message);
                 var http = ex.Response as HttpWebResponse;
                 if (http != null)
                 {
@@ -592,7 +675,7 @@ namespace Hiatme_Tool_Suite_v3
                     return PanelProbeResult.Fail(baseUrl, baseUrl + ": HTTP " + code);
                 }
                 if (ex.Status == WebExceptionStatus.Timeout)
-                    return PanelProbeResult.Fail(baseUrl, baseUrl + ": timed out after " + timeoutSec + "s.");
+                    return PanelProbeResult.Fail(baseUrl, baseUrl + ": timed out after " + timeoutMs + "ms.");
                 return PanelProbeResult.Fail(baseUrl, baseUrl + ": " + (ex.Message ?? "network error"));
             }
             catch (Exception ex)

@@ -146,9 +146,12 @@ namespace Hiatme_Tool_Suite_v3
                 MouseWheelZoomEnabled = true,
                 DragButton = MouseButtons.Left,
                 BackColor = Color.FromArgb(30, 30, 30),
+                EmptyTileColor = Color.FromArgb(40, 40, 40),
+                LevelsKeepInMemory = 5,
             };
             _map.Position = MaineLewistonCenter;
             _map.Zoom = MaineDefaultZoom;
+            GMapTilePrefetch.Attach(_map);
             _mapHost.Controls.Add(_map);
 
             _legend = new FlowLayoutPanel

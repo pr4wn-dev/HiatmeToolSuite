@@ -75,7 +75,7 @@ namespace Hiatme_Tool_Suite_v3
 
         private static HttpClient CreateHttp()
         {
-            var h = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+            var h = HiatmePanelHttp.Create(TimeSpan.FromSeconds(8));
             h.DefaultRequestHeaders.UserAgent.ParseAdd(UserAgent);
             h.DefaultRequestHeaders.AcceptLanguage.ParseAdd("en-US");
             return h;

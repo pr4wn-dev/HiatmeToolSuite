@@ -70,15 +70,15 @@ namespace Hiatme_Tool_Suite_v3
             _serverOnly = settings.UseServerGeo;
             if (panelReachable.HasValue)
                 _panelReachable = panelReachable.Value;
-            else
-                _panelReachable = HiatmeAiSettings.ProbePanelPublic(settings.BaseUrl, settings.ApiToken);
+            else if (!_panelReachable.HasValue)
+                _panelReachable = HiatmeAiSettings.SessionPanelReachable;
         }
 
         public static void Refresh()
         {
             try
             {
-                Configure(HiatmeAiSettings.Load());
+                Configure(HiatmeAiSettings.LoadNoProbe());
             }
             catch
             {
@@ -102,12 +102,12 @@ namespace Hiatme_Tool_Suite_v3
             HiatmeAiSettings settings,
             CancellationToken token = default)
         {
-            settings = settings ?? HiatmeAiSettings.Load();
+            settings = settings ?? HiatmeAiSettings.LoadNoProbe();
             _panelUrl = settings.BaseUrl?.Trim();
             _serverOnly = settings.UseServerGeo;
 
             bool ok = await HiatmeAiSettings.RefreshPanelConnectionAsync(token).ConfigureAwait(false);
-            settings = HiatmeAiSettings.Load();
+            settings = HiatmeAiSettings.LoadNoProbe();
             _panelUrl = settings.BaseUrl?.Trim();
             _panelReachable = ok;
             return ok;

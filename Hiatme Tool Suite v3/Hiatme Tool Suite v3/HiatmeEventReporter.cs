@@ -19,10 +19,7 @@ namespace Hiatme_Tool_Suite_v3
     /// </summary>
     internal static class HiatmeEventReporter
     {
-        private static readonly HttpClient Http = new HttpClient
-        {
-            Timeout = TimeSpan.FromSeconds(8),
-        };
+        private static readonly HttpClient Http = HiatmePanelHttp.Create(TimeSpan.FromSeconds(8));
 
         // One id per app run, so the server can group a session's events.
         private static readonly string SessionId =

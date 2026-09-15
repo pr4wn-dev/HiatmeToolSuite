@@ -97,7 +97,7 @@ namespace Hiatme_Tool_Suite_v3
         public const int PollSlowMs = 8_000;
         private const int TypingPingMs = 2_000;
 
-        private static readonly HttpClient Http = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+        private static readonly HttpClient Http = HiatmePanelHttp.Create(TimeSpan.FromSeconds(8));
 
         private readonly Func<HiatmeAiSettings> _settingsProvider;
         private readonly System.Windows.Forms.Timer _pollTimer;
@@ -174,22 +174,19 @@ namespace Hiatme_Tool_Suite_v3
             if (replyTo.HasValue) body["reply_to"] = replyTo.Value;
             try
             {
-                using (var req = new HttpRequestMessage(HttpMethod.Post, baseUrl + "/api/hiatme/chat/messages"))
-                {
-                    Auth(req, settings);
-                    req.Content = new StringContent(body.ToString(Formatting.None), Encoding.UTF8, "application/json");
-                    using (var resp = await Http.SendAsync(req).ConfigureAwait(true))
-                    {
-                        if (!resp.IsSuccessStatusCode) { SetOnline(false); return null; }
-                        SetOnline(true);
-                        _typingSent = false;
-                        var root = JObject.Parse(await resp.Content.ReadAsStringAsync().ConfigureAwait(true));
-                        var wire = root["message"]?.ToObject<TeamChatWire>();
-                        long seq = root["seq"]?.Value<long>() ?? 0;
-                        if (seq > Cursor) Interlocked.Exchange(ref _cursor, seq);
-                        return ChatMessage.FromServer(wire, ClientId);
-                    }
-                }
+                var sent = await SendOffUiAsync(
+                    HttpMethod.Post,
+                    baseUrl + "/api/hiatme/chat/messages",
+                    settings,
+                    body.ToString(Formatting.None)).ConfigureAwait(true);
+                if (!sent.Ok) { SetOnline(false); return null; }
+                SetOnline(true);
+                _typingSent = false;
+                var root = JObject.Parse(string.IsNullOrWhiteSpace(sent.Body) ? "{}" : sent.Body);
+                var wire = root["message"]?.ToObject<TeamChatWire>();
+                long seq = root["seq"]?.Value<long>() ?? 0;
+                if (seq > Cursor) Interlocked.Exchange(ref _cursor, seq);
+                return ChatMessage.FromServer(wire, ClientId);
             }
             catch
             {
@@ -233,18 +230,15 @@ namespace Hiatme_Tool_Suite_v3
             };
             try
             {
-                using (var req = new HttpRequestMessage(HttpMethod.Post, baseUrl + "/api/hiatme/chat/typing"))
-                {
-                    Auth(req, settings);
-                    req.Content = new StringContent(body.ToString(Formatting.None), Encoding.UTF8, "application/json");
-                    using (var resp = await Http.SendAsync(req).ConfigureAwait(true))
-                    {
-                        if (!resp.IsSuccessStatusCode) { SetOnline(false); return; }
-                        SetOnline(true);
-                        var root = JObject.Parse(await resp.Content.ReadAsStringAsync().ConfigureAwait(true));
-                        ApplyTyping(root["typing"]);
-                    }
-                }
+                var sent = await SendOffUiAsync(
+                    HttpMethod.Post,
+                    baseUrl + "/api/hiatme/chat/typing",
+                    settings,
+                    body.ToString(Formatting.None)).ConfigureAwait(true);
+                if (!sent.Ok) { SetOnline(false); return; }
+                SetOnline(true);
+                var root = JObject.Parse(string.IsNullOrWhiteSpace(sent.Body) ? "{}" : sent.Body);
+                ApplyTyping(root["typing"]);
             }
             catch { SetOnline(false); }
         }
@@ -279,27 +273,21 @@ namespace Hiatme_Tool_Suite_v3
                 string url = baseUrl + "/api/hiatme/chat/messages?since="
                     + Cursor.ToString(CultureInfo.InvariantCulture)
                     + "&client_id=" + Uri.EscapeDataString(ClientId);
-                using (var req = new HttpRequestMessage(HttpMethod.Get, url))
+                var sent = await SendOffUiAsync(HttpMethod.Get, url, settings, null).ConfigureAwait(true);
+                if (!sent.Ok) { SetOnline(false); return; }
+                SetOnline(true);
+                var root = JObject.Parse(string.IsNullOrWhiteSpace(sent.Body) ? "{}" : sent.Body);
+                long seq = root["seq"]?.Value<long>() ?? 0;
+                var wires = root["messages"]?.ToObject<List<TeamChatWire>>() ?? new List<TeamChatWire>();
+                bool first = Cursor == 0;
+                if (seq > Cursor) Interlocked.Exchange(ref _cursor, seq);
+                // Cold start is handled by HistoryAsync; do not replay the morning as arrivals.
+                if (!first && wires.Count > 0)
                 {
-                    Auth(req, settings);
-                    using (var resp = await Http.SendAsync(req).ConfigureAwait(true))
-                    {
-                        if (!resp.IsSuccessStatusCode) { SetOnline(false); return; }
-                        SetOnline(true);
-                        var root = JObject.Parse(await resp.Content.ReadAsStringAsync().ConfigureAwait(true));
-                        long seq = root["seq"]?.Value<long>() ?? 0;
-                        var wires = root["messages"]?.ToObject<List<TeamChatWire>>() ?? new List<TeamChatWire>();
-                        bool first = Cursor == 0;
-                        if (seq > Cursor) Interlocked.Exchange(ref _cursor, seq);
-                        // Cold start is handled by HistoryAsync; do not replay the morning as arrivals.
-                        if (!first && wires.Count > 0)
-                        {
-                            var msgs = wires.Select(w => ChatMessage.FromServer(w, ClientId)).Where(m => m != null).ToList();
-                            if (msgs.Count > 0) MessagesArrived?.Invoke(msgs);
-                        }
-                        ApplyTyping(root["typing"]);
-                    }
+                    var msgs = wires.Select(w => ChatMessage.FromServer(w, ClientId)).Where(m => m != null).ToList();
+                    if (msgs.Count > 0) MessagesArrived?.Invoke(msgs);
                 }
+                ApplyTyping(root["typing"]);
             }
             catch { SetOnline(false); }
             finally { _pollInFlight = false; }
@@ -313,20 +301,14 @@ namespace Hiatme_Tool_Suite_v3
             try
             {
                 string url = baseUrl + "/api/hiatme/chat/history?limit=" + limit.ToString(CultureInfo.InvariantCulture);
-                using (var req = new HttpRequestMessage(HttpMethod.Get, url))
-                {
-                    Auth(req, settings);
-                    using (var resp = await Http.SendAsync(req).ConfigureAwait(true))
-                    {
-                        if (!resp.IsSuccessStatusCode) { SetOnline(false); return new List<ChatMessage>(); }
-                        SetOnline(true);
-                        var root = JObject.Parse(await resp.Content.ReadAsStringAsync().ConfigureAwait(true));
-                        long seq = root["seq"]?.Value<long>() ?? 0;
-                        if (seq > Cursor) Interlocked.Exchange(ref _cursor, seq);
-                        var wires = root["messages"]?.ToObject<List<TeamChatWire>>() ?? new List<TeamChatWire>();
-                        return wires.Select(w => ChatMessage.FromServer(w, ClientId)).Where(m => m != null).ToList();
-                    }
-                }
+                var sent = await SendOffUiAsync(HttpMethod.Get, url, settings, null).ConfigureAwait(true);
+                if (!sent.Ok) { SetOnline(false); return new List<ChatMessage>(); }
+                SetOnline(true);
+                var root = JObject.Parse(string.IsNullOrWhiteSpace(sent.Body) ? "{}" : sent.Body);
+                long seq = root["seq"]?.Value<long>() ?? 0;
+                if (seq > Cursor) Interlocked.Exchange(ref _cursor, seq);
+                var wires = root["messages"]?.ToObject<List<TeamChatWire>>() ?? new List<TeamChatWire>();
+                return wires.Select(w => ChatMessage.FromServer(w, ClientId)).Where(m => m != null).ToList();
             }
             catch
             {
@@ -336,6 +318,26 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         // ------------------------------------------------------------- helpers
+
+        private async Task<(bool Ok, string Body)> SendOffUiAsync(
+            HttpMethod method, string url, HiatmeAiSettings settings, string jsonBody)
+        {
+            return await Task.Run(async () =>
+            {
+                using (var req = new HttpRequestMessage(method, url))
+                {
+                    Auth(req, settings);
+                    if (jsonBody != null)
+                        req.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
+                    using (var resp = await Http.SendAsync(req).ConfigureAwait(false))
+                    {
+                        if (!resp.IsSuccessStatusCode)
+                            return (false, (string)null);
+                        return (true, await resp.Content.ReadAsStringAsync().ConfigureAwait(false));
+                    }
+                }
+            }).ConfigureAwait(false);
+        }
 
         private static string BaseUrl(HiatmeAiSettings settings)
         {

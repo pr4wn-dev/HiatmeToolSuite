@@ -9882,7 +9882,7 @@ namespace Hiatme_Tool_Suite_v3
         public static Socket oursocket = default;
         private const string IP = "127.0.0.1";
 
-        public static HttpClient ServerHttpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+        public static HttpClient ServerHttpClient = HiatmePanelHttp.Create(TimeSpan.FromSeconds(15));
         private System.Windows.Forms.Timer _clientListTimer;
 
 

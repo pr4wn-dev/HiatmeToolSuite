@@ -20,8 +20,12 @@ namespace Hiatme_Tool_Suite_v3
         private static DateTime _healthCheckedUtc = DateTime.MinValue;
         private static bool _localHealthy;
         private static readonly TimeSpan HealthCacheTtl = TimeSpan.FromSeconds(30);
+        private static int _probeRunning;
 
-        private static readonly HttpClient HealthHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+        // Local Docker answers in milliseconds. A 15s timeout on a closed port, called
+        // synchronously from CurrentRouteBaseUri, froze remote desks for ~10s per map
+        // refresh because failed probes were not cached (only successes were).
+        private static readonly HttpClient HealthHttp = HiatmePanelHttp.Create(TimeSpan.FromSeconds(2));
 
         public static string LocalBaseUrl { get; } = NormalizeRouteBaseUrl(
             ConfigurationManager.AppSettings["OsrmBaseUrl"] ?? DefaultLocalUrl);
@@ -97,24 +101,52 @@ namespace Hiatme_Tool_Suite_v3
 
             lock (HealthLock)
             {
-                if (DateTime.UtcNow - _healthCheckedUtc < HealthCacheTtl && _localHealthy)
-                    return LocalBaseUrl;
+                // Cache hits AND misses. The old guard was `&& _localHealthy`, so every
+                // desk without Docker re-probed 127.0.0.1:5000 on every route lookup and
+                // blocked the caller until HttpClient gave up.
+                if (_healthCheckedUtc != DateTime.MinValue
+                    && DateTime.UtcNow - _healthCheckedUtc < HealthCacheTtl)
+                    return _localHealthy ? LocalBaseUrl : PublicFallbackUrl;
             }
 
-            // Synchronous probe on first route request if cache cold (Build path).
-            try
+            KickLocalProbe();
+
+            lock (HealthLock)
             {
-                bool ok = ProbeLocalAsync(CancellationToken.None).GetAwaiter().GetResult();
-                lock (HealthLock)
-                {
-                    _healthCheckedUtc = DateTime.UtcNow;
-                    _localHealthy = ok;
-                }
-                if (ok) return LocalBaseUrl;
+                if (_healthCheckedUtc != DateTime.MinValue)
+                    return _localHealthy ? LocalBaseUrl : PublicFallbackUrl;
             }
-            catch { /* fall through */ }
-
             return PublicFallbackUrl;
+        }
+
+        private static void KickLocalProbe()
+        {
+            if (Interlocked.CompareExchange(ref _probeRunning, 1, 0) != 0)
+                return;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    bool ok = await ProbeLocalAsync(CancellationToken.None).ConfigureAwait(false);
+                    lock (HealthLock)
+                    {
+                        _healthCheckedUtc = DateTime.UtcNow;
+                        _localHealthy = ok;
+                    }
+                }
+                catch
+                {
+                    lock (HealthLock)
+                    {
+                        _healthCheckedUtc = DateTime.UtcNow;
+                        _localHealthy = false;
+                    }
+                }
+                finally
+                {
+                    Interlocked.Exchange(ref _probeRunning, 0);
+                }
+            });
         }
 
         private static async Task<bool> ProbeLocalAsync(CancellationToken token)

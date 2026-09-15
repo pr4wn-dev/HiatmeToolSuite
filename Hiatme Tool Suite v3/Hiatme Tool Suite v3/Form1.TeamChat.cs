@@ -185,6 +185,11 @@ namespace Hiatme_Tool_Suite_v3
 
         private void OnTeamChatTyping(List<string> names)
         {
+            if (InvokeRequired)
+            {
+                BeginInvoke((Action)(() => OnTeamChatTyping(names)));
+                return;
+            }
             _teamChatTyping = names ?? new List<string>();
             if (_teamChatTypingLbl == null || _teamChatTypingLbl.IsDisposed) return;
             bool show = _teamChatTyping.Count > 0;
@@ -211,6 +216,7 @@ namespace Hiatme_Tool_Suite_v3
         private void OnTeamChatMessages(List<ChatMessage> msgs)
         {
             if (msgs == null || msgs.Count == 0 || _globalAiTranscript == null || _globalAiTranscript.IsDisposed) return;
+            if (InvokeRequired) { BeginInvoke((Action)(() => OnTeamChatMessages(msgs))); return; }
             using (UiStallWatch.Measure(UiScope.ChatPoll))
                 ApplyTeamChatMessages(msgs);
         }

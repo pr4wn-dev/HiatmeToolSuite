@@ -136,6 +136,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 ServicePointManager.DefaultConnectionLimit = 32;
                 ServicePointManager.Expect100Continue = false;
+                WebRequest.DefaultWebProxy = null;
             }
             catch { }
 

@@ -11,7 +11,7 @@ namespace Hiatme_Tool_Suite_v3
     /// <summary>Direct OSRM table when not using office panel (dev / local OSRM).</summary>
     internal static class OsrmTableLocal
     {
-        private static readonly HttpClient Http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+        private static readonly HttpClient Http = HiatmePanelHttp.Create(TimeSpan.FromSeconds(30));
 
         internal static async Task<(double?[,] meters, double?[,] seconds)?> FetchAsync(
             IList<GeoPoint> points, CancellationToken token)

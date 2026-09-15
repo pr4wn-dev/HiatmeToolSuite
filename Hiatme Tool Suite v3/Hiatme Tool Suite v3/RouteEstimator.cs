@@ -40,7 +40,7 @@ namespace Hiatme_Tool_Suite_v3
 
 
 
-        private static readonly HttpClient _http = new HttpClient { Timeout = TimeSpan.FromSeconds(25) };
+        private static readonly HttpClient _http = HiatmePanelHttp.Create(TimeSpan.FromSeconds(25));
 
 
 
@@ -242,10 +242,10 @@ namespace Hiatme_Tool_Suite_v3
             if (waypoints == null || waypoints.Count < 2)
                 return RoutePolylineResult.Fail("Not enough waypoints to route.");
 
-            var ai = HiatmeAiSettings.Load();
+            var ai = HiatmeAiSettings.LoadNoProbe();
             if (ai.UseServerGeo)
             {
-                if (await HiatmeGeoSettings.RefreshConnectivityAsync(ai, token).ConfigureAwait(false))
+                if (HiatmeGeoSettings.UseServer)
                 {
                     try
                     {

@@ -164,7 +164,7 @@ namespace Hiatme_Tool_Suite_v3
         public const int FlushMs = 1_500;
         private const int FlushAtCount = 12;
 
-        private static readonly HttpClient Http = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+        private static readonly HttpClient Http = HiatmePanelHttp.Create(TimeSpan.FromSeconds(8));
 
         private readonly object _gate = new object();
         private readonly List<JObject> _queue = new List<JObject>();
@@ -296,21 +296,18 @@ namespace Hiatme_Tool_Suite_v3
                     ["machine"] = ScheduleActivityIdentity.Machine(),
                     ["events"] = new JArray(batch),
                 };
-                using (var req = new HttpRequestMessage(HttpMethod.Post, baseUrl + "/api/hiatme/schedule/activity"))
+                var sent = await SendOffUiAsync(
+                    HttpMethod.Post,
+                    baseUrl + "/api/hiatme/schedule/activity",
+                    settings,
+                    body.ToString(Formatting.None)).ConfigureAwait(true);
+                if (!sent.Ok)
                 {
-                    Auth(req, settings);
-                    req.Content = new StringContent(body.ToString(Formatting.None), Encoding.UTF8, "application/json");
-                    using (var resp = await Http.SendAsync(req).ConfigureAwait(true))
-                    {
-                        if (!resp.IsSuccessStatusCode)
-                        {
-                            SetOnline(false);
-                            Requeue(batch);
-                            return;
-                        }
-                        SetOnline(true);
-                    }
+                    SetOnline(false);
+                    Requeue(batch);
+                    return;
                 }
+                SetOnline(true);
             }
             catch
             {
@@ -364,21 +361,21 @@ namespace Hiatme_Tool_Suite_v3
                         ["builder_open"] = open,
                     };
                 }
-                using (var req = new HttpRequestMessage(HttpMethod.Post, baseUrl + "/api/hiatme/schedule/presence"))
+                var sent = await SendOffUiAsync(
+                    HttpMethod.Post,
+                    baseUrl + "/api/hiatme/schedule/presence",
+                    settings,
+                    body.ToString(Formatting.None)).ConfigureAwait(true);
+                if (!sent.Ok)
                 {
-                    Auth(req, settings);
-                    req.Content = new StringContent(body.ToString(Formatting.None), Encoding.UTF8, "application/json");
-                    using (var resp = await Http.SendAsync(req).ConfigureAwait(true))
-                    {
-                        if (!resp.IsSuccessStatusCode) { SetOnline(false); return; }
-                        SetOnline(true);
-                        var text = await resp.Content.ReadAsStringAsync().ConfigureAwait(true);
-                        var root = JObject.Parse(text);
-                        var presence = root["presence"]?.ToObject<List<SchedulePresenceEntry>>()
-                            ?? new List<SchedulePresenceEntry>();
-                        PresenceUpdated?.Invoke(presence);
-                    }
+                    SetOnline(false);
+                    return;
                 }
+                SetOnline(true);
+                var root = JObject.Parse(string.IsNullOrWhiteSpace(sent.Body) ? "{}" : sent.Body);
+                var presence = root["presence"]?.ToObject<List<SchedulePresenceEntry>>()
+                    ?? new List<SchedulePresenceEntry>();
+                PresenceUpdated?.Invoke(presence);
             }
             catch
             {
@@ -409,40 +406,38 @@ namespace Hiatme_Tool_Suite_v3
                     .Append("&client_id=").Append(Uri.EscapeDataString(ClientId));
                 if (!string.IsNullOrEmpty(sd))
                     sb.Append("&service_date=").Append(Uri.EscapeDataString(sd));
-                using (var req = new HttpRequestMessage(HttpMethod.Get, sb.ToString()))
+                var sent = await SendOffUiAsync(
+                    HttpMethod.Get, sb.ToString(), settings, null).ConfigureAwait(true);
+                if (!sent.Ok)
                 {
-                    Auth(req, settings);
-                    using (var resp = await Http.SendAsync(req).ConfigureAwait(true))
+                    SetOnline(false);
+                    return;
+                }
+                SetOnline(true);
+                using (UiStallWatch.Measure(UiScope.ActivityPoll))
+                {
+                    var root = JObject.Parse(string.IsNullOrWhiteSpace(sent.Body) ? "{}" : sent.Body);
+                    var result = new ScheduleActivityPollResult
                     {
-                        if (!resp.IsSuccessStatusCode) { SetOnline(false); return; }
-                        SetOnline(true);
-                        var text = await resp.Content.ReadAsStringAsync().ConfigureAwait(true);
-                        using (UiStallWatch.Measure(UiScope.ActivityPoll))
-                        {
-                        var root = JObject.Parse(text);
-                        var result = new ScheduleActivityPollResult
-                        {
-                            Ok = root["ok"]?.Value<bool>() != false,
-                            Seq = root["seq"]?.Value<long>() ?? 0,
-                            Events = root["events"]?.ToObject<List<ScheduleActivityEvent>>()
-                                ?? new List<ScheduleActivityEvent>(),
-                            Presence = root["presence"]?.ToObject<List<SchedulePresenceEntry>>()
-                                ?? new List<SchedulePresenceEntry>(),
-                            Head = root["head"]?.Type == JTokenType.Object
-                                ? root["head"].ToObject<SchedulePublishedHead>()
-                                : null,
-                        };
-                        bool first = Cursor == 0;
-                        if (result.Seq > Cursor)
-                            Interlocked.Exchange(ref _cursor, result.Seq);
-                        // Cold start: adopt the cursor but do not replay the morning as toasts.
-                        if (!first && result.Events.Count > 0)
-                            EventsArrived?.Invoke(result.Events);
-                        PresenceUpdated?.Invoke(result.Presence);
-                        if (result.Head != null)
-                            HeadUpdated?.Invoke(result.Head);
-                        }
-                    }
+                        Ok = root["ok"]?.Value<bool>() != false,
+                        Seq = root["seq"]?.Value<long>() ?? 0,
+                        Events = root["events"]?.ToObject<List<ScheduleActivityEvent>>()
+                            ?? new List<ScheduleActivityEvent>(),
+                        Presence = root["presence"]?.ToObject<List<SchedulePresenceEntry>>()
+                            ?? new List<SchedulePresenceEntry>(),
+                        Head = root["head"]?.Type == JTokenType.Object
+                            ? root["head"].ToObject<SchedulePublishedHead>()
+                            : null,
+                    };
+                    bool first = Cursor == 0;
+                    if (result.Seq > Cursor)
+                        Interlocked.Exchange(ref _cursor, result.Seq);
+                    // Cold start: adopt the cursor but do not replay the morning as toasts.
+                    if (!first && result.Events.Count > 0)
+                        EventsArrived?.Invoke(result.Events);
+                    PresenceUpdated?.Invoke(result.Presence);
+                    if (result.Head != null)
+                        HeadUpdated?.Invoke(result.Head);
                 }
             }
             catch
@@ -466,18 +461,11 @@ namespace Hiatme_Tool_Suite_v3
                 string url = baseUrl + "/api/hiatme/schedule/activity/history?service_date="
                     + Uri.EscapeDataString(serviceDateIso.Trim())
                     + "&limit=" + limit.ToString(CultureInfo.InvariantCulture);
-                using (var req = new HttpRequestMessage(HttpMethod.Get, url))
-                {
-                    Auth(req, settings);
-                    using (var resp = await Http.SendAsync(req).ConfigureAwait(true))
-                    {
-                        if (!resp.IsSuccessStatusCode) return new List<ScheduleActivityEvent>();
-                        var text = await resp.Content.ReadAsStringAsync().ConfigureAwait(true);
-                        var root = JObject.Parse(text);
-                        return root["events"]?.ToObject<List<ScheduleActivityEvent>>()
-                            ?? new List<ScheduleActivityEvent>();
-                    }
-                }
+                var sent = await SendOffUiAsync(HttpMethod.Get, url, settings, null).ConfigureAwait(true);
+                if (!sent.Ok) return new List<ScheduleActivityEvent>();
+                var root = JObject.Parse(string.IsNullOrWhiteSpace(sent.Body) ? "{}" : sent.Body);
+                return root["events"]?.ToObject<List<ScheduleActivityEvent>>()
+                    ?? new List<ScheduleActivityEvent>();
             }
             catch
             {
@@ -486,6 +474,30 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         // ------------------------------------------------------------- helpers
+
+        /// <summary>
+        /// .NET Framework HttpClient.SendAsync started on the WinForms UI thread can
+        /// block for the entire TCP/proxy wait (8s timeout here). Hop off first.
+        /// </summary>
+        private async Task<(bool Ok, string Body)> SendOffUiAsync(
+            HttpMethod method, string url, HiatmeAiSettings settings, string jsonBody)
+        {
+            return await Task.Run(async () =>
+            {
+                using (var req = new HttpRequestMessage(method, url))
+                {
+                    Auth(req, settings);
+                    if (jsonBody != null)
+                        req.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
+                    using (var resp = await Http.SendAsync(req).ConfigureAwait(false))
+                    {
+                        if (!resp.IsSuccessStatusCode)
+                            return (false, (string)null);
+                        return (true, await resp.Content.ReadAsStringAsync().ConfigureAwait(false));
+                    }
+                }
+            }).ConfigureAwait(false);
+        }
 
         private static string BaseUrl(HiatmeAiSettings settings)
         {

@@ -53,7 +53,7 @@ namespace Hiatme_Tool_Suite_v3
             if (_globalAiDock != null && !_globalAiDock.IsDisposed)
                 return;
 
-            _globalAiSettings = HiatmeAiSettings.Load();
+            _globalAiSettings = HiatmeAiSettings.LoadNoProbe();
             _globalAiExpanded = false;
 
             _globalAiDock = new Panel
@@ -1251,7 +1251,7 @@ namespace Hiatme_Tool_Suite_v3
             try
             {
                 bool ok = await HiatmeAiSettings.RefreshPanelConnectionAsync().ConfigureAwait(true);
-                _globalAiSettings = HiatmeAiSettings.Load();
+                _globalAiSettings = HiatmeAiSettings.LoadNoProbe();
                 HiatmeAiSettings.LogProbe("dock probe ok=" + ok
                     + " base=" + (_globalAiSettings?.BaseUrl ?? "")
                     + " detail=" + HiatmeAiSettings.LastConnectionDetail);

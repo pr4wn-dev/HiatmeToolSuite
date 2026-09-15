@@ -534,6 +534,7 @@ namespace Hiatme_Tool_Suite_v3
             _gmap.MaxZoom = 18;
             _gmap.Zoom = 12;
             _gmap.Position = new PointLatLng(39.0, -95.0);
+            GMapTilePrefetch.Attach(_gmap);
 
             _markerOverlay = new GMapOverlay("driverMarker");
             _gmap.Overlays.Add(_markerOverlay);

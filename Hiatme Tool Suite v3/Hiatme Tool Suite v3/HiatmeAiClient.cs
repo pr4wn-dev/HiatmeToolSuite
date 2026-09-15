@@ -602,16 +602,10 @@ namespace Hiatme_Tool_Suite_v3
             public bool Configured { get; set; }
         }
 
-        private static readonly HttpClient SharedHttp = new HttpClient
-        {
-            Timeout = TimeSpan.FromSeconds(130),
-        };
+        private static readonly HttpClient SharedHttp = HiatmePanelHttp.Create(TimeSpan.FromSeconds(130));
 
         /// <summary>Long-running schedule-build/revise calls (panel Ollama can take several minutes).</summary>
-        private static readonly HttpClient ScheduleBuildHttp = new HttpClient
-        {
-            Timeout = TimeSpan.FromMinutes(60),
-        };
+        private static readonly HttpClient ScheduleBuildHttp = HiatmePanelHttp.Create(TimeSpan.FromMinutes(60));
 
         /// <summary>
         /// Turn opaque HttpClient failures ("An error occurred while sending the request.") into something
