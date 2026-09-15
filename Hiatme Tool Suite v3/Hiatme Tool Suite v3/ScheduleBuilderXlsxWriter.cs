@@ -143,10 +143,15 @@ namespace Hiatme_Tool_Suite_v3
             var fontToIndex = BuildFontColorMap(sheets);
             var mergeTextStyles = BuildMergeTextStyleMap(sheets, colorToStyle, fontToIndex);
 
-            if (File.Exists(outputPath))
-                File.Delete(outputPath);
+            // Write beside the live file, then replace. Delete-then-create makes
+            // OneDrive / Office treat it as a new document — Cherie kept opening
+            // the old cached copy until Remie opened the file in Excel.
+            string tmpPath = outputPath + ".writing.xlsx";
+            string bakPath = outputPath + ".bak.xlsx";
+            if (File.Exists(tmpPath))
+                File.Delete(tmpPath);
 
-            using (var zip = ZipFile.Open(outputPath, ZipArchiveMode.Create))
+            using (var zip = ZipFile.Open(tmpPath, ZipArchiveMode.Create))
             {
                 WriteEntry(zip, "[Content_Types].xml", BuildContentTypes(sheets.Count));
                 WriteEntry(zip, "_rels/.rels", BuildRootRels());
@@ -169,6 +174,45 @@ namespace Hiatme_Tool_Suite_v3
                         fontToIndex,
                         mergeTextStyles));
                 }
+            }
+
+            ReplaceWorkbookFile(tmpPath, outputPath, bakPath);
+        }
+
+        private static void ReplaceWorkbookFile(string tmpPath, string outputPath, string bakPath)
+        {
+            try
+            {
+                if (File.Exists(outputPath))
+                {
+                    File.Replace(tmpPath, outputPath, bakPath, ignoreMetadataErrors: true);
+                    try
+                    {
+                        if (File.Exists(bakPath))
+                            File.Delete(bakPath);
+                    }
+                    catch
+                    {
+                        /* leftover bak is harmless */
+                    }
+                }
+                else
+                {
+                    File.Move(tmpPath, outputPath);
+                }
+            }
+            catch
+            {
+                try
+                {
+                    if (File.Exists(tmpPath))
+                        File.Delete(tmpPath);
+                }
+                catch
+                {
+                    /* ignore */
+                }
+                throw;
             }
         }
 

@@ -13,6 +13,9 @@ namespace Hiatme_Tool_Suite_v3
         private readonly ConcurrentDictionary<string, ClusterLegMetrics> _byFingerprint =
             new ConcurrentDictionary<string, ClusterLegMetrics>(StringComparer.Ordinal);
 
+        private readonly ConcurrentDictionary<string, LockedTour> _lockedTours =
+            new ConcurrentDictionary<string, LockedTour>(StringComparer.OrdinalIgnoreCase);
+
         internal static string Fingerprint(SupeyTripCluster g)
         {
             if (g?.Trips == null || g.Trips.Count == 0)
@@ -61,6 +64,45 @@ namespace Hiatme_Tool_Suite_v3
             };
         }
 
+        internal static string TripSetKey(SupeyTripCluster g)
+        {
+            if (g?.Trips == null || g.Trips.Count == 0)
+                return "";
+            var keys = g.Trips
+                .Select(t => ScheduleBuilderSuggestPairInsert.TripKey(t))
+                .Where(k => k.Length > 0)
+                .OrderBy(k => k, StringComparer.OrdinalIgnoreCase);
+            return string.Join("|", keys);
+        }
+
+        internal void LockTour(SupeyTripCluster g, IList<string> puKeys, IList<string> doKeys)
+        {
+            string key = TripSetKey(g);
+            if (key.Length == 0 || puKeys == null || doKeys == null)
+                return;
+            _lockedTours[key] = new LockedTour
+            {
+                PickupTripKeys = puKeys.ToList(),
+                DropoffTripKeys = doKeys.ToList(),
+            };
+        }
+
+        internal bool TryApplyLockedTour(SupeyTripCluster g)
+        {
+            string key = TripSetKey(g);
+            if (key.Length == 0 || !_lockedTours.TryGetValue(key, out var locked) || locked == null)
+                return false;
+
+            var pu = ScheduleBuilderSuggestPairInsert.MapKeysToIndices(g, locked.PickupTripKeys);
+            var dof = ScheduleBuilderSuggestPairInsert.MapKeysToIndices(g, locked.DropoffTripKeys);
+            if (pu == null || dof == null)
+                return false;
+
+            SupeyClusterRouting.ApplyOrdersPublic(g, pu, dof);
+            g.SuggestTourLocked = true;
+            return true;
+        }
+
         internal async Task PrewarmDriverGroupsAsync(
             IList<SupeyTripCluster> groups,
             Dictionary<string, GeoPoint> pickupByTrip,
@@ -89,6 +131,12 @@ namespace Hiatme_Tool_Suite_v3
             public double TailDriveSeconds { get; set; }
             public bool IsStraightLineFallback { get; set; }
         }
+
+        private sealed class LockedTour
+        {
+            public List<string> PickupTripKeys { get; set; } = new List<string>();
+            public List<string> DropoffTripKeys { get; set; } = new List<string>();
+        }
     }
 
     internal static class ScheduleBuilderDriverSuggestRouting
@@ -103,8 +151,24 @@ namespace Hiatme_Tool_Suite_v3
             if (c == null)
                 return;
 
-            // Desk row order = pickup tour (same as saved schedules). Do not PU-sort here.
-            SupeyClusterRouting.ApplyManualEditTour(c);
+            bool locked = c.SuggestTourLocked
+                || (prepCache != null && prepCache.TryApplyLockedTour(c));
+            if (!locked)
+            {
+                // Desk row order = pickup tour (same as saved schedules). Do not PU-sort here.
+                SupeyClusterRouting.ApplyManualEditTour(c);
+            }
+
+            await BindClusterTourLegsAsync(c, prepCache, token).ConfigureAwait(false);
+        }
+
+        internal static async Task BindClusterTourLegsAsync(
+            SupeyTripCluster c,
+            ScheduleBuilderDriverSuggestPrepCache prepCache,
+            CancellationToken token)
+        {
+            if (c == null)
+                return;
 
             if (prepCache != null && prepCache.TryApply(c))
                 return;

@@ -88,7 +88,6 @@ namespace Hiatme_Tool_Suite_v3
         // a clear #1 vs #3 (~15–25 cost) can flip a close deadhead fight, but cannot
         // override a hard infeasible local gate.
         private const double PlacementCostMetersPerMin = 90.0;
-        private const double PlacementInfeasibleMeters = 4200.0;
         private const double PlacementMaxSwingMeters = 4800.0;
         private const double DoAnchorMatchMaxMinutes = 30.0;
 
@@ -126,7 +125,7 @@ namespace Hiatme_Tool_Suite_v3
             if (serviceDate.HasValue)
                 templateHints = new SupeyTemplateHints(serviceDate.Value.DayOfWeek.ToString());
             var scheduleRules = SupeyDispatchRulesLoader.Load();
-            var historicalHints = await LoadHistoricalHintsAsync(trip, serviceDate, token).ConfigureAwait(false);
+            var historicalHints = new ScheduleBuilderHistoricalHints();
 
             progress?.Report(new ScheduleBuilderDriverSuggestProgress { Phase = "geocode" });
 
@@ -141,14 +140,10 @@ namespace Hiatme_Tool_Suite_v3
             if (driverJobs.Count == 0)
                 return results;
 
-            if (historicalHints == null)
-                historicalHints = new ScheduleBuilderHistoricalHints();
-            await AttachForecastPlacementsAsync(
-                historicalHints, trip, driverJobs, pickupByTrip, dropoffByTrip, serviceDate, token)
-                .ConfigureAwait(false);
-            await AttachPlacementRanksAsync(
-                historicalHints, trip, driverJobs, pickupByTrip, dropoffByTrip, serviceDate, token)
-                .ConfigureAwait(false);
+            await SuggestRiderWindows.LoadAsync(allTrips, serviceDate, token).ConfigureAwait(false);
+            try
+            {
+            // ranking is extra miles + slip only — see EvaluateLinesAsync / ApplyPlacementScoreBonuses
 
             var resultsLock = new object();
             int driversStarted = 0;
@@ -227,6 +222,11 @@ namespace Hiatme_Tool_Suite_v3
                 .Where(s => s.Kind != ScheduleBuilderSuggestPlacementKind.MergeIntoGroup)
                 .Take(12)
                 .ToList();
+            }
+            finally
+            {
+                SuggestRiderWindows.Clear();
+            }
         }
 
         /// <summary>Target driver lines after applying a suggestion (for preview / confirm).</summary>
@@ -404,21 +404,14 @@ namespace Hiatme_Tool_Suite_v3
                     continue;
 
                 if (PuSpreadAllowsMerge(group, trip)
-                    && SharesMorningDropWave(group, trip)
-                    && MergePickupLocationsAllow(group, trip, pickupByTrip)
-                    && MergeFitsCapacity(group, trip, capacityPassengers))
+                    && MergeFitsCapacity(group, trip, capacityPassengers)
+                    && !MergeConcurrentPickupsTooFar(group, trip, pickupByTrip))
                 {
-                    foreach (var placement in EnumerateMergeInsertPositions(lines, gn))
-                    {
-                        await TryAddCandidateAsync(results, job.Tab, job.DisplayName, trip, lines, job.ShiftStart,
-                            ScheduleBuilderSuggestPlacementKind.MergeIntoGroup,
-                            targetGroupNumber: gn,
-                            insertBeforeLine: placement.InsertBeforeLine,
-                            insertGap: false,
-                            mergeAfterTrip: placement.MergeAfterTrip,
-                            pickupByTrip, dropoffByTrip, prepCache, baseline, homeGeo, job.ShiftEnd, capacityPassengers,
-                            templateHints, group, scheduleRules, historicalHints, token).ConfigureAwait(false);
-                    }
+                    await TryAddMergeWithPairInsertAsync(
+                        results, job.Tab, job.DisplayName, trip, lines, job.ShiftStart,
+                        targetGroupNumber: gn,
+                        pickupByTrip, dropoffByTrip, prepCache, baseline, homeGeo, job.ShiftEnd, capacityPassengers,
+                        templateHints, group, scheduleRules, historicalHints, token).ConfigureAwait(false);
                 }
 
                 if (TryFindLineAfterGroup(lines, gn, out int afterGroupLine)
@@ -515,6 +508,103 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             return PassesCheapNewGroupAfterFilter(baseline, afterGroupNumber, trip, pickupByTrip);
+        }
+
+        private static async Task TryAddMergeWithPairInsertAsync(
+            List<ScheduleBuilderDriverSuggestion> results,
+            string tab,
+            string displayName,
+            MCDownloadedTrip trip,
+            IList<ScheduleBuilderPreviewLine> baseLines,
+            TimeSpan shiftStart,
+            int targetGroupNumber,
+            Dictionary<string, GeoPoint> pickupByTrip,
+            Dictionary<string, GeoPoint> dropoffByTrip,
+            ScheduleBuilderDriverSuggestPrepCache prepCache,
+            DriverDayBaseline baseline,
+            GeoPoint? homeGeo,
+            TimeSpan shiftEnd,
+            int capacityPassengers,
+            SupeyTemplateHints templateHints,
+            SupeyTripCluster mergeGroup,
+            SupeyScheduleRules scheduleRules,
+            ScheduleBuilderHistoricalHints historicalHints,
+            CancellationToken token)
+        {
+            var linesWithoutTrip = CloneLines(baseLines);
+            if (ScheduleBuilderPreviewDrag.FindTripLineIndex(linesWithoutTrip, trip) >= 0)
+                ScheduleBuilderPreviewDrag.TryRemoveTrip(linesWithoutTrip, trip);
+
+            var groupLines = GetGroupTripLineIndexes(linesWithoutTrip, targetGroupNumber);
+            if (groupLines.Count == 0)
+                return;
+
+            var scratch = CloneLines(linesWithoutTrip);
+            ApplyPlacementToLines(
+                scratch, trip, ScheduleBuilderSuggestPlacementKind.MergeIntoGroup,
+                groupLines[groupLines.Count - 1] + 1, insertGapBeforeTrip: false);
+
+            var scratchGroups = ScheduleBuilderPreviewGroups.BuildFromPreviewLines(scratch);
+            var cluster = GetGroupOrNull(scratchGroups, targetGroupNumber);
+            if (cluster == null)
+                return;
+
+            ScheduleBuilderPreviewGroups.ApplyGeocodes(cluster, pickupByTrip, dropoffByTrip);
+
+            GeoPoint? approachFrom = null;
+            TimeSpan approachClock = shiftStart;
+            int priorIdx = targetGroupNumber - 2;
+            if (priorIdx >= 0
+                && baseline != null
+                && priorIdx < baseline.ClockAfterGroup.Count
+                && priorIdx < baseline.HasDoAfterGroup.Count
+                && baseline.HasDoAfterGroup[priorIdx])
+            {
+                approachFrom = baseline.LastDoAfterGroup[priorIdx];
+                approachClock = baseline.ClockAfterGroup[priorIdx];
+            }
+            else if (homeGeo.HasValue)
+            {
+                approachFrom = homeGeo;
+                approachClock = shiftStart;
+            }
+
+            var pair = await ScheduleBuilderSuggestPairInsert.TryBestPairAsync(
+                cluster, trip, approachFrom, approachClock, shiftEnd, capacityPassengers, token)
+                .ConfigureAwait(false);
+            if (pair == null || !pair.Feasible)
+                return;
+
+            prepCache?.LockTour(cluster, pair.PickupTripKeys, pair.DropoffTripKeys);
+
+            var placement = PlacementForPuInsert(linesWithoutTrip, targetGroupNumber, pair.PickupInsertIndex);
+            await TryAddCandidateAsync(
+                results, tab, displayName, trip, baseLines, shiftStart,
+                ScheduleBuilderSuggestPlacementKind.MergeIntoGroup,
+                targetGroupNumber,
+                insertBeforeLine: placement.InsertBeforeLine,
+                insertGap: false,
+                mergeAfterTrip: placement.MergeAfterTrip,
+                pickupByTrip, dropoffByTrip, prepCache, baseline, homeGeo, shiftEnd, capacityPassengers,
+                templateHints, mergeGroup, scheduleRules, historicalHints, token).ConfigureAwait(false);
+        }
+
+        private static MergeInsertPlacement PlacementForPuInsert(
+            IList<ScheduleBuilderPreviewLine> linesWithoutTrip,
+            int groupNumber,
+            int puInsertIndex)
+        {
+            var idxs = GetGroupTripLineIndexes(linesWithoutTrip, groupNumber);
+            if (idxs.Count == 0)
+                return new MergeInsertPlacement(0, null);
+            if (puInsertIndex <= 0)
+                return new MergeInsertPlacement(idxs[0], null);
+            if (puInsertIndex >= idxs.Count)
+            {
+                int last = idxs[idxs.Count - 1];
+                return new MergeInsertPlacement(last + 1, linesWithoutTrip[last]?.Trip);
+            }
+            return new MergeInsertPlacement(idxs[puInsertIndex], linesWithoutTrip[idxs[puInsertIndex - 1]]?.Trip);
         }
 
         private static async Task TryAddCandidateAsync(
@@ -641,7 +731,7 @@ namespace Hiatme_Tool_Suite_v3
                 case ScheduleBuilderSuggestPlacementKind.MergeIntoGroup:
                     s.Headline = "Merge into group " + targetGroupNumber + " on " + displayName + sameDriver;
                     s.Summary = eval.Feasible
-                        ? "Fits with the existing route group ???? shared pickup window and drive times work."
+                        ? "Pickup and drop slots fold into this group's tour ???? other riders still hit their windows."
                         : "May merge into group " + targetGroupNumber + ", but timing is tight or impossible.";
                     break;
                 case ScheduleBuilderSuggestPlacementKind.NewGroupAtStart:
@@ -665,6 +755,11 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             s.Reasons.AddRange(eval.Reasons);
+            if (kind == ScheduleBuilderSuggestPlacementKind.MergeIntoGroup && eval.Feasible)
+            {
+                s.Reasons.Insert(0,
+                    "Tried pickup/drop slots; kept the pair that still works for the other riders.");
+            }
             if (eval.ExtraDeadheadMeters > 0)
                 s.Reasons.Add("Adds about " + FormatMiles(eval.ExtraDeadheadMeters) + " driving for this placement.");
             else if (kind == ScheduleBuilderSuggestPlacementKind.MergeIntoGroup)
@@ -692,6 +787,7 @@ namespace Hiatme_Tool_Suite_v3
             public bool HardRejected { get; set; }
             public double Score { get; set; }
             public double ExtraDeadheadMeters { get; set; }
+            public double SlipMinutes { get; set; }
             public string FailureReason { get; set; } = "";
             public List<string> Reasons { get; } = new List<string>();
             public int MergedGroupRiders { get; set; }
@@ -958,6 +1054,19 @@ namespace Hiatme_Tool_Suite_v3
                 return eval;
             }
 
+            string focusNum = (focusTrip?.TripNumber ?? "").Trim();
+            if (focusNum.Length == 0
+                || !pickupByTrip.TryGetValue(focusNum, out var focusPu)
+                || !dropoffByTrip.TryGetValue(focusNum, out var focusDo)
+                || !SupeyOsrmLegs.IsRoutable(focusPu)
+                || !SupeyOsrmLegs.IsRoutable(focusDo))
+            {
+                eval.Feasible = false;
+                eval.FailureReason = "no pickup/drop addresses";
+                eval.Score = 1e9;
+                return eval;
+            }
+
             foreach (var g in groups)
             {
                 if (g?.Trips == null)
@@ -1111,9 +1220,10 @@ namespace Hiatme_Tool_Suite_v3
                     g, arrivalAtFirstPU, clusterDoCap);
                 if (!ok && worstIdx >= 0 && worstIdx < g.Trips.Count && lateMin > 0)
                 {
-                    double cap = SupeyTripTimingPolicy.DoLateCapMinutes(g.Trips[worstIdx]);
+                    double cap = SuggestRiderWindows.DoLateCap(g.Trips[worstIdx]);
                     if (lateMin <= cap)
                         ok = true;
+                    eval.SlipMinutes = Math.Max(eval.SlipMinutes, lateMin);
                 }
 
                 if (!ok)
@@ -1150,7 +1260,7 @@ namespace Hiatme_Tool_Suite_v3
 
             eval.ExtraDeadheadMeters = Math.Max(0, totalDeadhead - baselineTotalDeadhead);
             if (eval.Feasible)
-                eval.Score = eval.ExtraDeadheadMeters;
+                eval.Score = eval.ExtraDeadheadMeters + eval.SlipMinutes * 400.0;
             return eval;
         }
 
@@ -1325,46 +1435,7 @@ namespace Hiatme_Tool_Suite_v3
             if (eval == null)
                 return;
 
-            if (kind == ScheduleBuilderSuggestPlacementKind.MergeIntoGroup
-                && mergeGroup != null
-                && SharesMorningDropWave(mergeGroup, trip))
-            {
-                eval.Score -= DropWaveMatchScoreBonusMeters;
-                eval.Reasons.Add("Same clinic drop wave as this group — typical dispatcher merge.");
-            }
-
-            if (templateHints != null)
-            {
-                string tripNum = (trip?.TripNumber ?? "").Trim();
-                string preferred = templateHints.PreferredDriverFor(tripNum);
-                if (preferred != null
-                    && string.Equals(preferred, displayName, StringComparison.OrdinalIgnoreCase))
-                {
-                    eval.Score -= TemplateHintScoreBonusMeters;
-                    eval.Reasons.Add("Template driver for trip " + tripNum + " on " + templateHints.Weekday + ".");
-                }
-            }
-
-            if (scheduleRules != null && targetCluster != null)
-            {
-                double preferredPairingSeconds = scheduleRules.PreferredPairingBonusSeconds(targetCluster, displayName);
-                if (preferredPairingSeconds > 0)
-                {
-                    eval.Score -= PreferredPairingScoreBonusMeters;
-                    eval.Reasons.Add("Dispatch preferred pairing match on this driver.");
-                }
-
-                double loadPenaltySeconds = scheduleRules.LoadPreferencePenaltySeconds(targetCluster, displayName);
-                if (loadPenaltySeconds > 0)
-                {
-                    eval.Score += LoadPreferencePenaltyScoreMeters;
-                    eval.Reasons.Add("Dispatch load preference: this group is heavier for this driver.");
-                }
-            }
-
-            ApplyHistoricalHintBonus(eval, displayName, trip, historicalHints);
-            ApplyForecastCall(eval, displayName, historicalHints);
-            ApplyPlacementRank(eval, displayName, historicalHints);
+            // Extra miles and slip are already the score. Who had them last year does not vote.
         }
 
         private static void ApplyHistoricalHintBonus(
@@ -1534,9 +1605,8 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         /// <summary>
-        /// Server placement rank for this driver. Only when the trust gate is ready.
-        /// Lower cost wins; infeasible slots take a hard hit. Reasons are the ones
-        /// the scorer already graded against finished days.
+        /// Server placement rank among C# feasible walks only. Lower cost wins.
+        /// Python infeasible does not override a pair that already walked.
         /// </summary>
         private static void ApplyPlacementRank(
             PlacementEval eval,
@@ -1544,6 +1614,7 @@ namespace Hiatme_Tool_Suite_v3
             ScheduleBuilderHistoricalHints historicalHints)
         {
             if (eval == null
+                || !eval.Feasible
                 || historicalHints == null
                 || !historicalHints.PlacementReady
                 || historicalHints.PlacementByDriver == null
@@ -1554,23 +1625,17 @@ namespace Hiatme_Tool_Suite_v3
             if (!historicalHints.PlacementByDriver.TryGetValue(displayName.Trim(), out rank) || rank == null)
                 return;
 
-            double delta = rank.Feasible
-                ? rank.Cost * PlacementCostMetersPerMin
-                : PlacementInfeasibleMeters;
+            // C# walk is yes/no fit. Python infeasible must not bury a pair that walked.
+            if (!rank.Feasible)
+                return;
+
+            double delta = rank.Cost * PlacementCostMetersPerMin;
             if (delta > PlacementMaxSwingMeters)
                 delta = PlacementMaxSwingMeters;
             else if (delta < -PlacementMaxSwingMeters)
                 delta = -PlacementMaxSwingMeters;
 
             eval.Score += delta;
-            if (!rank.Feasible)
-            {
-                string why = (rank.Reasons ?? new List<string>()).FirstOrDefault(r => !string.IsNullOrWhiteSpace(r));
-                eval.Reasons.Add(string.IsNullOrWhiteSpace(why)
-                    ? "Placement: does not fit this driver's day."
-                    : "Placement: " + why.Trim());
-                return;
-            }
 
             if (rank.Rank == 1)
                 eval.Reasons.Add("Placement: top pick for this trip.");
@@ -1669,10 +1734,17 @@ namespace Hiatme_Tool_Suite_v3
                 if (settings == null)
                     return;
 
-                // Trust gate: do not steer Suggest Driver until replay says the scorer earns it.
-                var knowledge = await HiatmeAiClient.GetBrainKnowledgeAsync(settings, token).ConfigureAwait(false);
-                if (knowledge?.Placement?.Verdict == null || !knowledge.Placement.Verdict.Ready)
-                    return;
+                bool ready = false;
+                try
+                {
+                    var knowledge = await HiatmeAiClient.GetBrainKnowledgeAsync(settings, token)
+                        .ConfigureAwait(false);
+                    ready = knowledge?.Placement?.Verdict != null && knowledge.Placement.Verdict.Ready;
+                }
+                catch
+                {
+                    ready = false;
+                }
 
                 object tripPayload = ForecastTripPayload(trip, pickupByTrip, dropoffByTrip, serviceDate);
                 if (tripPayload == null)
@@ -1716,10 +1788,14 @@ namespace Hiatme_Tool_Suite_v3
                         Feasible = p.Feasible,
                         Cost = p.Cost,
                         Reasons = p.Reasons ?? new List<string>(),
+                        PackFits = p.Pack != null ? p.Pack.Fits : 0,
+                        PackWeight = p.Pack != null ? p.Pack.Weight : 0,
+                        SlotAfter = p.Slot != null ? (p.Slot.After ?? "") : "",
+                        SlotGroupWith = p.Slot != null ? (p.Slot.GroupWith ?? "") : "",
                     };
                 }
                 hints.PlacementByDriver = map;
-                hints.PlacementReady = map.Count > 0;
+                hints.PlacementReady = ready && map.Count > 0;
             }
             catch
             {
@@ -2039,30 +2115,26 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         /// <summary>
-        /// Reject merge unless the trip shares a BUILD-style pickup cluster with at least one
-        /// group mate (time window + PU radius). Also reject concurrent PU times that are far apart.
+        /// Same-minute pickups miles apart cannot be one stop. The pair-walk decides fold-in;
+        /// this only rejects a physics fail before we spend OSRM on the group.
         /// </summary>
-        private static bool MergePickupLocationsAllow(
+        private static bool MergeConcurrentPickupsTooFar(
             SupeyTripCluster group,
             MCDownloadedTrip trip,
             Dictionary<string, GeoPoint> pickupByTrip)
         {
             if (group?.Trips == null || group.Trips.Count == 0 || trip == null)
-                return true;
+                return false;
 
             var tripPu = SupeyTripTimes.TryParsePU(trip);
             if (!tripPu.HasValue)
-                return true;
+                return false;
 
             string tripNum = (trip.TripNumber ?? "").Trim();
             if (tripNum.Length == 0 || !pickupByTrip.TryGetValue(tripNum, out var tripPt))
-                return true;
+                return false;
             if (!SupeyOsrmLegs.IsRoutable(tripPt))
-                return true;
-
-            double puWindow = SupeyScheduleAlgorithm.ClusterTimeWindowMinutesPublic;
-            double tripPuRadius = MergePuClusterRadiusMeters(trip);
-            bool sharesPickupCluster = false;
+                return false;
 
             foreach (var other in group.Trips)
             {
@@ -2081,19 +2153,11 @@ namespace Hiatme_Tool_Suite_v3
                 double minutesApart = Math.Abs((tripPu.Value - otherPu.Value).TotalMinutes);
                 if (minutesApart <= MergeConcurrentPuMaxMinutesApart
                     && StraightMeters(tripPt, otherPt) > MergeConcurrentPuMaxMeters)
-                    return false;
-
-                double otherPuRadius = MergePuClusterRadiusMeters(other);
-                double pairRadius = Math.Min(tripPuRadius, otherPuRadius);
-                if (minutesApart <= puWindow && StraightMeters(tripPt, otherPt) <= pairRadius)
-                    sharesPickupCluster = true;
+                    return true;
             }
 
-            return sharesPickupCluster;
+            return false;
         }
-
-        private static double MergePuClusterRadiusMeters(MCDownloadedTrip trip) =>
-            SupeyScheduleAlgorithm.DetectLegPublic(trip?.TripNumber) == 'A' ? 25000.0 : 6500.0;
 
         private static SupeyTripCluster GetGroupOrNull(IList<SupeyTripCluster> groups, int groupNumber)
         {
@@ -2112,28 +2176,6 @@ namespace Hiatme_Tool_Suite_v3
 
             public int InsertBeforeLine { get; }
             public MCDownloadedTrip MergeAfterTrip { get; }
-        }
-
-        private static IEnumerable<MergeInsertPlacement> EnumerateMergeInsertPositions(
-            IList<ScheduleBuilderPreviewLine> lines,
-            int groupNumber)
-        {
-            var tripLineIndexes = GetGroupTripLineIndexes(lines, groupNumber);
-            if (tripLineIndexes.Count == 0)
-                yield break;
-
-            // Before first trip in group.
-            yield return new MergeInsertPlacement(
-                tripLineIndexes[0],
-                mergeAfterTrip: null);
-
-            // Between trips and after last trip in group.
-            for (int i = 0; i < tripLineIndexes.Count; i++)
-            {
-                int lineIdx = tripLineIndexes[i];
-                var afterTrip = lines[lineIdx]?.Trip;
-                yield return new MergeInsertPlacement(lineIdx + 1, afterTrip);
-            }
         }
 
         private static List<int> GetGroupTripLineIndexes(IList<ScheduleBuilderPreviewLine> lines, int groupNumber)

@@ -118,6 +118,9 @@ namespace Hiatme_Tool_Suite_v3
                     return;
 
                 _fsPreferredSavePath = fsbuilder.LastExportPath;
+                Task.Run(() => FsUploadSavedWorkbookToServerAsync(fsbuilder.LastExportPath))
+                    .GetAwaiter()
+                    .GetResult();
                 _fsAutoSaveDirty = false;
             }
             finally
@@ -126,7 +129,7 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
-        private void FsUploadSavedWorkbookToServer(string workbookPath)
+        private async Task FsUploadSavedWorkbookToServerAsync(string workbookPath)
         {
             if (string.IsNullOrWhiteSpace(workbookPath) || !File.Exists(workbookPath))
                 return;
@@ -143,8 +146,30 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             string iso = serviceDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-            HiatmeAiClient.UploadScheduleWorkbookFireAndForget(
-                settings, iso, workbookPath, "schedule_builder_save");
+            try
+            {
+                var result = await HiatmeAiClient.UploadScheduleWorkbookAsync(
+                    settings, iso, workbookPath, "schedule_builder_save").ConfigureAwait(false);
+                if (result != null && result.Conflict)
+                {
+                    HiatmeAiSettings.LogProbe(
+                        "workbook upload stale " + iso
+                        + " — LOAD the published schedule before saving over it");
+                }
+                else if (result == null || !result.Ok)
+                {
+                    ScheduleWorkbookResolver.QueuePendingPublish(
+                        iso, workbookPath, "schedule_builder_save");
+                }
+            }
+            catch (Exception ex)
+            {
+                ScheduleWorkbookResolver.QueuePendingPublish(
+                    iso, workbookPath, "schedule_builder_save");
+                HiatmeAiSettings.LogProbe(
+                    "workbook upload exception " + iso + " " + ex.Message
+                    + " — queued until panel is back");
+            }
         }
 
         private void FsMarkScheduleBuilderDirty()
@@ -286,7 +311,7 @@ namespace Hiatme_Tool_Suite_v3
                     promptForLocation: false,
                     openAfterSave: false,
                     reportStatus: null,
-                    publishToServer: false).ConfigureAwait(true);
+                    publishToServer: true).ConfigureAwait(true);
 
                 if (ok)
                 {
@@ -359,7 +384,7 @@ namespace Hiatme_Tool_Suite_v3
 
                 _fsPreferredSavePath = fsbuilder.LastExportPath;
                 if (publishToServer)
-                    FsUploadSavedWorkbookToServer(fsbuilder.LastExportPath);
+                    await FsUploadSavedWorkbookToServerAsync(fsbuilder.LastExportPath).ConfigureAwait(false);
                 return true;
             }
             finally

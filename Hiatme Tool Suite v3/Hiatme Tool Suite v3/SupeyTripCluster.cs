@@ -137,6 +137,11 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>True after <see cref="SupeyClusterRouting.OptimizeClusterTourAsync"/> succeeds for this group.</summary>
         public bool RoadTourOptimized { get; set; }
 
+        /// <summary>
+        /// Suggest pair-insert chose this PU/DO order. Do not reset to sheet row / deadline order.
+        /// </summary>
+        public bool SuggestTourLocked { get; set; }
+
         /// <summary>Number of riders in the cluster (= <see cref="Trips"/>.Count). Used by capacity scoring.</summary>
         public int RiderCount => Trips.Count;
 

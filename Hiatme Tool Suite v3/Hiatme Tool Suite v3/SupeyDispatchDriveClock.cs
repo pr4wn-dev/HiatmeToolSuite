@@ -27,6 +27,15 @@ namespace Hiatme_Tool_Suite_v3
             double earlyMin = SupeyDeskScheduleTiming.EarlyPuAllowanceMinutesBeforeScheduledPu(trip);
             double lateMin = SupeyTripTimingPolicy.PuLateCapMinutes(trip)
                 + SupeyTripTimingPolicy.ExtraCoveragePuSlackMinutes(trip);
+            if (SuggestRiderWindows.TryGet(trip, out var learned) && learned != null)
+            {
+                if (learned.EarlyOkMin > earlyMin)
+                    earlyMin = learned.EarlyOkMin;
+                if (learned.Hard)
+                    lateMin = 0;
+                else if (learned.AllowedLateMin > lateMin)
+                    lateMin = learned.AllowedLateMin;
+            }
             earliest = scheduled.Subtract(TimeSpan.FromMinutes(earlyMin));
             if (earliest < TimeSpan.Zero) earliest = TimeSpan.Zero;
             latest = scheduled.Add(TimeSpan.FromMinutes(lateMin));
@@ -59,8 +68,9 @@ namespace Hiatme_Tool_Suite_v3
         {
             scheduled = SupeyTripTimes.TryParseDO(trip) ?? TimeSpan.Zero;
             var commentEarliest = SupeyDeskScheduleTiming.EarliestDropoffForFeasibility(trip);
-            double lateMin = SupeyTripTimingPolicy.DoLateCapMinutes(trip);
-            if (lateMin < McTripTimingRules.LenientNaturalSlackMinutes)
+            double lateMin = SuggestRiderWindows.DoLateCap(trip);
+            if (!SuggestRiderWindows.TryGet(trip, out _)
+                && lateMin < McTripTimingRules.LenientNaturalSlackMinutes)
                 lateMin += McTripTimingRules.LenientNaturalSlackMinutes;
 
             earliest = scheduled;

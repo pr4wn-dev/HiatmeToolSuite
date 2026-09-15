@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -290,9 +291,12 @@ namespace Hiatme_Tool_Suite_v3
             int serverRev = serverExists ? meta.Revision : 0;
             int localRev = desktopExists ? ReadLocalRevision(desktopPath) : 0;
 
-            // Only replace Desktop when the server has a higher published revision
-            // (explicit SAVE/BUILD). Clock/mtime must not win — that overwrote Remie.
-            if (desktopExists && serverExists && serverRev > localRev)
+            // Pull when the published revision is newer, or when the .rev sidecar
+            // already matches (OneDrive synced the tiny sidecar) but the xlsx
+            // bytes are still the old cached copy — that is Cherie opening
+            // Remie's book and seeing yesterday until someone opens it in Excel.
+            if (desktopExists && serverExists
+                && ShouldPullServerWorkbook(desktopPath, serverRev, localRev, meta.Sha256))
             {
                 var synced = await PullServerWorkbookToDesktopAsync(
                     serviceDate, iso, desktopPath, settings, meta, cancellationToken)
@@ -364,7 +368,7 @@ namespace Hiatme_Tool_Suite_v3
                 string dir = Path.GetDirectoryName(desktopPath);
                 if (!string.IsNullOrEmpty(dir))
                     Directory.CreateDirectory(dir);
-                File.Copy(cachePath, desktopPath, overwrite: true);
+                ReplaceExistingWorkbook(cachePath, desktopPath);
                 ApplyServerMtimeToFile(desktopPath, download.Mtime ?? meta?.Mtime);
                 int rev = download.Revision > 0 ? download.Revision : (meta != null ? meta.Revision : 0);
                 if (rev > 0)
@@ -481,7 +485,7 @@ namespace Hiatme_Tool_Suite_v3
                         string dir = Path.GetDirectoryName(desktopPath);
                         if (!string.IsNullOrEmpty(dir))
                             Directory.CreateDirectory(dir);
-                        File.Copy(cachePath, desktopPath, overwrite: true);
+                        ReplaceExistingWorkbook(cachePath, desktopPath);
                         ApplyServerMtimeToFile(desktopPath, download.Mtime ?? meta?.Mtime);
                         if (!string.IsNullOrWhiteSpace(download.Etag ?? meta?.Etag))
                             WriteCachedEtag(desktopPath, download.Etag ?? meta.Etag);
@@ -538,6 +542,82 @@ namespace Hiatme_Tool_Suite_v3
                     ?? meta?.Error
                     ?? (fileName + " missing on Desktop and server"),
             };
+        }
+
+        internal static bool ShouldPullServerWorkbook(
+            string desktopPath,
+            int serverRev,
+            int localRev,
+            string serverSha256)
+        {
+            if (serverRev > localRev)
+                return true;
+            if (serverRev <= 0 || string.IsNullOrWhiteSpace(serverSha256))
+                return false;
+            string localSha = FileSha256Hex(desktopPath);
+            if (string.IsNullOrWhiteSpace(localSha))
+                return false;
+            return !string.Equals(
+                localSha,
+                serverSha256.Trim(),
+                StringComparison.OrdinalIgnoreCase);
+        }
+
+        internal static string FileSha256Hex(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+                return null;
+            try
+            {
+                using (var fs = new FileStream(
+                    path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                using (var sha = SHA256.Create())
+                {
+                    byte[] hash = sha.ComputeHash(fs);
+                    var sb = new System.Text.StringBuilder(hash.Length * 2);
+                    for (int i = 0; i < hash.Length; i++)
+                        sb.Append(hash[i].ToString("x2", CultureInfo.InvariantCulture));
+                    return sb.ToString();
+                }
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static void ReplaceExistingWorkbook(string sourcePath, string destPath)
+        {
+            if (string.IsNullOrWhiteSpace(sourcePath) || string.IsNullOrWhiteSpace(destPath))
+                throw new ArgumentException("workbook replace paths required");
+            if (!File.Exists(sourcePath))
+                throw new FileNotFoundException(sourcePath);
+
+            string destDir = Path.GetDirectoryName(destPath);
+            if (!string.IsNullOrEmpty(destDir))
+                Directory.CreateDirectory(destDir);
+
+            if (!File.Exists(destPath))
+            {
+                File.Copy(sourcePath, destPath, overwrite: false);
+                return;
+            }
+
+            string tmp = destPath + ".pulling.xlsx";
+            string bak = destPath + ".bak.xlsx";
+            if (File.Exists(tmp))
+                File.Delete(tmp);
+            File.Copy(sourcePath, tmp, overwrite: true);
+            File.Replace(tmp, destPath, bak, ignoreMetadataErrors: true);
+            try
+            {
+                if (File.Exists(bak))
+                    File.Delete(bak);
+            }
+            catch
+            {
+                /* leftover bak is harmless */
+            }
         }
 
         private static bool ServerIsNewer(double? serverMtime, double? localMtime)

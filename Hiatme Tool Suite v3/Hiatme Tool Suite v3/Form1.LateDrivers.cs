@@ -5066,15 +5066,20 @@ namespace Hiatme_Tool_Suite_v3
             }
             else
             {
+                // All-drivers = the habit board (late/early/unfinished). Same rows
+                // the score tiles count — including closed Completed lates.
                 trips = (_ldEventRows ?? new List<HiatmeAiClient.LateDriversEventRow>())
                     .Where(e => e != null)
                     .ToList();
             }
 
-            // Keep every trip visible; score tiles highlight matches in owner-draw.
+            // Score tiles pick which habit type. All-drivers lists those rows,
+            // not the van's in-progress schedule (that is per-driver).
             string chip = (_ldHabitChip ?? "all").Trim().ToLowerInvariant();
             string q = LateDriversSearchQuery;
             int totalBeforeSearch = trips.Count;
+            if (showDriver && chip != "all")
+                trips = trips.Where(e => LateDriversHabitMatchesChip(e, chip)).ToList();
             if (q.Length > 0)
                 trips = trips.Where(e => LateDriversHabitMatchesSearch(e, q)).ToList();
 
@@ -5474,8 +5479,22 @@ namespace Hiatme_Tool_Suite_v3
                 schedPu = "Will call";
 
             ApplyLateDriversExplicitClocks(e, wr, ref schedPu, ref schedDo, ref actPu, ref actDo);
-            actPu = LabelLateDriversMissingActual(actPu, wr?.ActualPuIso ?? e?.ActualPuIso, wr?.SchedPuIso ?? e?.SchedPuIso ?? e?.SchedIso, wr?.Status ?? e?.StatusLatest);
-            actDo = LabelLateDriversMissingActual(actDo, wr?.ActualDoIso ?? e?.ActualDoIso, wr?.SchedDoIso ?? e?.SchedDoIso, wr?.Status ?? e?.StatusLatest);
+            string wrStatus = wr?.Status ?? e?.StatusLatest;
+            bool onTrip = LateDriversLooksOnTrip(
+                wrStatus,
+                wr?.ActualPuIso ?? e?.ActualPuIso ?? (isPu ? e?.ActualIso : null));
+            actPu = LabelLateDriversMissingActual(
+                actPu,
+                wr?.ActualPuIso ?? e?.ActualPuIso,
+                wr?.SchedPuIso ?? e?.SchedPuIso ?? e?.SchedIso,
+                wrStatus,
+                onTrip: LateDriversWrStatusLooksOnTrip(wrStatus));
+            actDo = LabelLateDriversMissingActual(
+                actDo,
+                wr?.ActualDoIso ?? e?.ActualDoIso,
+                wr?.SchedDoIso ?? e?.SchedDoIso,
+                wrStatus,
+                onTrip: onTrip);
 
             string puStreet = wr?.PuStreet ?? "";
             string puCity = wr?.PuCity ?? "";
@@ -6446,8 +6465,24 @@ namespace Hiatme_Tool_Suite_v3
                 schedPu = "Will call";
 
             ApplyLateDriversExplicitClocks(row.HabitEvent, wr, ref schedPu, ref schedDo, ref actPu, ref actDo);
-            actPu = LabelLateDriversMissingActual(actPu, wr?.ActualPuIso ?? row.HabitEvent?.ActualPuIso, wr?.SchedPuIso ?? row.HabitEvent?.SchedPuIso, wr?.Status ?? row.HabitEvent?.StatusLatest);
-            actDo = LabelLateDriversMissingActual(actDo, wr?.ActualDoIso ?? row.HabitEvent?.ActualDoIso, wr?.SchedDoIso ?? row.HabitEvent?.SchedDoIso, wr?.Status ?? row.HabitEvent?.StatusLatest);
+            string wrStatus = wr?.Status ?? row.HabitEvent?.StatusLatest;
+            bool onTrip = LateDriversLooksOnTrip(
+                wrStatus,
+                wr?.ActualPuIso
+                    ?? row.HabitEvent?.ActualPuIso
+                    ?? (habitPu != null ? habitPu.ActualIso : null));
+            actPu = LabelLateDriversMissingActual(
+                actPu,
+                wr?.ActualPuIso ?? row.HabitEvent?.ActualPuIso,
+                wr?.SchedPuIso ?? row.HabitEvent?.SchedPuIso,
+                wrStatus,
+                onTrip: LateDriversWrStatusLooksOnTrip(wrStatus));
+            actDo = LabelLateDriversMissingActual(
+                actDo,
+                wr?.ActualDoIso ?? row.HabitEvent?.ActualDoIso,
+                wr?.SchedDoIso ?? row.HabitEvent?.SchedDoIso,
+                wrStatus,
+                onTrip: onTrip);
 
             row.SchedPuDisplay = string.IsNullOrWhiteSpace(schedPu) || schedPu == "—" ? "—" : schedPu;
             row.SchedDoDisplay = string.IsNullOrWhiteSpace(schedDo) || schedDo == "—" ? "—" : schedDo;
@@ -8042,14 +8077,21 @@ namespace Hiatme_Tool_Suite_v3
             if (string.IsNullOrWhiteSpace(tripNo))
                 return false;
 
+            var wr = FindLateDriversWrTrip(tripNo);
+            // On the trip or already punched — Late PU/DO, not a portal hole.
+            if (wr != null)
+            {
+                if (!string.IsNullOrWhiteSpace(wr.ActualPuIso)
+                    || !string.IsNullOrWhiteSpace(wr.ActualDoIso)
+                    || LateDriversWrStatusLooksOnTrip(wr.Status))
+                    return false;
+            }
+
             if (LateDriversQualityListsTrip(_ldWrQuality?.CatchupTripNos, tripNo)
                 || LateDriversQualityListsTrip(_ldWrQuality?.OverdueTripNos, tripNo))
                 return true;
 
-            var wr = FindLateDriversWrTrip(tripNo);
             if (wr == null)
-                return false;
-            if (!string.IsNullOrWhiteSpace(wr.ActualPuIso) || !string.IsNullOrWhiteSpace(wr.ActualDoIso))
                 return false;
             if (!LateDriversWrStatusLooksOpen(wr.Status))
                 return false;
@@ -8087,20 +8129,56 @@ namespace Hiatme_Tool_Suite_v3
             if (tActDo != "—") actDo = tActDo;
         }
 
-        private static bool LateDriversWrStatusLooksOpen(string status)
+        private static bool LateDriversWrStatusLooksFinished(string status)
         {
             if (string.IsNullOrWhiteSpace(status))
                 return false;
             string s = status.Trim().ToLowerInvariant();
-            if (s.Contains("cancel")
+            return s.Contains("cancel")
                 || s.Contains("complete")
                 || s.Contains("billed")
                 || s.Contains("no show")
                 || s.Contains("noshow")
                 || s.Contains("no-show")
-                || s.Contains("suspended"))
+                || s.Contains("suspended");
+        }
+
+        private static bool LateDriversWrStatusLooksOpen(string status)
+        {
+            if (string.IsNullOrWhiteSpace(status))
                 return false;
-            return true;
+            return !LateDriversWrStatusLooksFinished(status);
+        }
+
+        /// <summary>
+        /// Driver is mid-trip in WellRyde. A blank drop clock is "not dropped yet",
+        /// not a portal hole.
+        /// </summary>
+        private static bool LateDriversWrStatusLooksOnTrip(string status)
+        {
+            if (string.IsNullOrWhiteSpace(status) || LateDriversWrStatusLooksFinished(status))
+                return false;
+            string s = status.Trim().ToLowerInvariant()
+                .Replace('-', ' ').Replace('_', ' ');
+            return s.Contains("pickup departed")
+                || s.Contains("picked up")
+                || s.Contains("passenger onboard")
+                || s.Contains("onboard")
+                || s.Contains("in progress")
+                || s.Contains("en route")
+                || s.Contains("enroute")
+                || s.Contains("on route")
+                || s.Contains("at drop")
+                || s.Contains("at do")
+                || s.Contains("dropoff")
+                || s.Contains("drop off");
+        }
+
+        private static bool LateDriversLooksOnTrip(string status, string actualPuIso)
+        {
+            if (LateDriversWrStatusLooksOnTrip(status))
+                return true;
+            return !string.IsNullOrWhiteSpace(actualPuIso);
         }
 
         private static bool LateDriversIsoIsPast(string iso)
@@ -8112,13 +8190,17 @@ namespace Hiatme_Tool_Suite_v3
             string shown,
             string actualIso,
             string schedIso,
-            string status)
+            string status,
+            bool onTrip = false)
         {
             if (!string.IsNullOrWhiteSpace(shown) && shown.Trim() != "—")
                 return shown;
             if (!string.IsNullOrWhiteSpace(actualIso))
                 return string.IsNullOrWhiteSpace(shown) ? "—" : shown;
             if (!LateDriversWrStatusLooksOpen(status))
+                return string.IsNullOrWhiteSpace(shown) ? "—" : shown;
+            // On the trip (Pickup Departed / has PU) — blank DO is not a WR gap.
+            if (onTrip || LateDriversWrStatusLooksOnTrip(status))
                 return string.IsNullOrWhiteSpace(shown) ? "—" : shown;
             if (!LateDriversIsoIsPast(schedIso))
                 return string.IsNullOrWhiteSpace(shown) ? "—" : shown;

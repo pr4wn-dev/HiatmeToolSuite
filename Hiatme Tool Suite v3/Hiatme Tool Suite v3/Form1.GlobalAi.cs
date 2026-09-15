@@ -35,6 +35,12 @@ namespace Hiatme_Tool_Suite_v3
         private Label _globalAiActionBody;
         private SupeyButton _globalAiActionDoBtn;
         private SupeyButton _globalAiActionSkipBtn;
+        private Panel _globalAiQuestionCard;
+        private Label _globalAiQuestionTitle;
+        private Label _globalAiQuestionBody;
+        private SupeyButton _globalAiQuestionYesBtn;
+        private SupeyButton _globalAiQuestionSkipBtn;
+        private HiatmeAssistantQuestion _globalAiPendingQuestion;
         private List<HiatmeAssistantAction> _globalAiPendingActions;
         private SupeyStatusPill _globalAiStatusPill;
         private HiatmeAiSettings _globalAiSettings;
@@ -357,6 +363,60 @@ namespace Hiatme_Tool_Suite_v3
             _globalAiActionCard.Controls.Add(actionBtns);
             _globalAiActionCard.Controls.Add(_globalAiActionTitle);
 
+            _globalAiQuestionCard = new Panel
+            {
+                Dock = DockStyle.Bottom,
+                Height = 110,
+                Visible = false,
+                BackColor = SupeyTheme.SurfaceElevated,
+                Padding = new Padding(12, 10, 12, 10),
+            };
+            _globalAiQuestionTitle = new Label
+            {
+                Dock = DockStyle.Top,
+                Height = 20,
+                Text = "Confirm for playbook",
+                ForeColor = SupeyTheme.TextPrimary,
+                BackColor = SupeyTheme.SurfaceElevated,
+                Font = SupeyTheme.HeaderFont,
+                TextAlign = ContentAlignment.MiddleLeft,
+            };
+            var questionBtns = new Panel
+            {
+                Dock = DockStyle.Bottom,
+                Height = 32,
+                BackColor = SupeyTheme.SurfaceElevated,
+            };
+            _globalAiQuestionYesBtn = new SupeyButton
+            {
+                Text = "Yes",
+                Kind = SupeyButton.Variant.Primary,
+                Dock = DockStyle.Right,
+                Size = new Size(88, 30),
+            };
+            _globalAiQuestionYesBtn.Click += async (_, __) => await AnswerGlobalAiQuestionAsync("yes").ConfigureAwait(true);
+            _globalAiQuestionSkipBtn = new SupeyButton
+            {
+                Text = "Skip",
+                Kind = SupeyButton.Variant.Ghost,
+                Dock = DockStyle.Left,
+                Size = new Size(72, 30),
+            };
+            _globalAiQuestionSkipBtn.Click += async (_, __) => await AnswerGlobalAiQuestionAsync("skip").ConfigureAwait(true);
+            questionBtns.Controls.Add(_globalAiQuestionYesBtn);
+            questionBtns.Controls.Add(_globalAiQuestionSkipBtn);
+            _globalAiQuestionBody = new Label
+            {
+                Dock = DockStyle.Fill,
+                ForeColor = SupeyTheme.TextSecondary,
+                BackColor = SupeyTheme.SurfaceElevated,
+                Font = SupeyTheme.CaptionFont,
+                TextAlign = ContentAlignment.TopLeft,
+            };
+            _globalAiQuestionCard.Controls.Add(_globalAiQuestionBody);
+            _globalAiQuestionCard.Controls.Add(questionBtns);
+            _globalAiQuestionCard.Controls.Add(_globalAiQuestionTitle);
+
             _globalAiTranscript = new TextBox
             {
                 Dock = DockStyle.Fill,
@@ -407,6 +467,8 @@ namespace Hiatme_Tool_Suite_v3
 
             body.Controls.Add(transcriptCard);
             body.Controls.Add(_globalAiDraftCard);
+            body.Controls.Add(StackGap());
+            body.Controls.Add(_globalAiQuestionCard);
             body.Controls.Add(StackGap());
             body.Controls.Add(_globalAiActionCard);
             body.Controls.Add(StackGap());
@@ -540,6 +602,18 @@ namespace Hiatme_Tool_Suite_v3
                 }
                 if (_globalAiActionCard != null)
                     _globalAiActionCard.BackColor = SupeyTheme.SurfaceElevated;
+                if (_globalAiQuestionCard != null)
+                    _globalAiQuestionCard.BackColor = SupeyTheme.SurfaceElevated;
+                if (_globalAiQuestionTitle != null)
+                {
+                    _globalAiQuestionTitle.BackColor = SupeyTheme.SurfaceElevated;
+                    _globalAiQuestionTitle.ForeColor = SupeyTheme.TextPrimary;
+                }
+                if (_globalAiQuestionBody != null)
+                {
+                    _globalAiQuestionBody.BackColor = SupeyTheme.SurfaceElevated;
+                    _globalAiQuestionBody.ForeColor = SupeyTheme.TextSecondary;
+                }
                 if (_globalAiActionTitle != null)
                 {
                     _globalAiActionTitle.BackColor = SupeyTheme.SurfaceElevated;
@@ -593,8 +667,11 @@ namespace Hiatme_Tool_Suite_v3
                 _globalAiPendingDraft = resp.Draft;
                 ShowGlobalAiDraftPreview(resp);
                 ShowGlobalAiPendingActions(resp.Actions);
+                ShowGlobalAiQuestion(resp.Question);
                 if (_globalAiPendingDraft != null)
                     SetGlobalAiStatus("Draft ready. Review the preview, then Apply.", SupeyTheme.AccentStripe);
+                else if (_globalAiPendingQuestion != null)
+                    SetGlobalAiStatus("One playbook question — Yes or Skip.", SupeyTheme.AccentStripe);
                 else if (_globalAiPendingActions != null && _globalAiPendingActions.Count > 0)
                     SetGlobalAiStatus("Suggested action ready. Confirm to run it.", SupeyTheme.AccentStripe);
                 else
@@ -758,6 +835,59 @@ namespace Hiatme_Tool_Suite_v3
                 lines.Add("• " + (a.Label ?? a.Id));
             _globalAiActionBody.Text = string.Join("\r\n", lines);
             _globalAiActionCard.Visible = true;
+        }
+
+        private void ShowGlobalAiQuestion(HiatmeAssistantQuestion question)
+        {
+            if (_globalAiQuestionCard == null || _globalAiQuestionCard.IsDisposed)
+                return;
+            if (question == null || string.IsNullOrWhiteSpace(question.Text))
+            {
+                ClearGlobalAiQuestion();
+                return;
+            }
+            _globalAiPendingQuestion = question;
+            _globalAiQuestionTitle.Text = "Confirm for playbook";
+            _globalAiQuestionBody.Text = question.Text.Trim();
+            if (_globalAiQuestionYesBtn != null)
+                _globalAiQuestionYesBtn.Text = string.IsNullOrWhiteSpace(question.YesLabel) ? "Yes" : question.YesLabel;
+            if (_globalAiQuestionSkipBtn != null)
+                _globalAiQuestionSkipBtn.Text = string.IsNullOrWhiteSpace(question.SkipLabel) ? "Skip" : question.SkipLabel;
+            _globalAiQuestionCard.Visible = true;
+        }
+
+        private void ClearGlobalAiQuestion()
+        {
+            _globalAiPendingQuestion = null;
+            if (_globalAiQuestionCard != null && !_globalAiQuestionCard.IsDisposed)
+                _globalAiQuestionCard.Visible = false;
+            if (_globalAiQuestionBody != null)
+                _globalAiQuestionBody.Text = "";
+        }
+
+        private async Task AnswerGlobalAiQuestionAsync(string action)
+        {
+            var q = _globalAiPendingQuestion;
+            if (q == null)
+                return;
+            try
+            {
+                _globalAiSettings = _globalAiSettings ?? HiatmeAiSettings.Load();
+                await HiatmeAiClient.AnswerAssistantQuestionAsync(
+                    _globalAiSettings, q, action ?? "skip").ConfigureAwait(true);
+                ClearGlobalAiQuestion();
+                string label = string.Equals(action, "yes", StringComparison.OrdinalIgnoreCase)
+                    ? "Saved to playbook."
+                    : "Skipped.";
+                AppendGlobalAiTranscript("You", string.Equals(action, "yes", StringComparison.OrdinalIgnoreCase) ? "Yes" : "Skip");
+                SetGlobalAiStatus(label, SupeyTheme.SuccessText);
+                ReportGlobalAiOutcome("playbook_" + (action ?? "skip"), label);
+            }
+            catch (Exception ex)
+            {
+                AppendGlobalAiTranscript("Error", "Could not save answer: " + ex.Message);
+                SetGlobalAiStatus("Answer failed.", SupeyTheme.ErrorText);
+            }
         }
 
         private void RunGlobalAiPendingActions()

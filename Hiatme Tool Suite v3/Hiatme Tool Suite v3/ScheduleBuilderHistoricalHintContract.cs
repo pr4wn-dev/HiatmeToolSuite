@@ -35,8 +35,8 @@ namespace Hiatme_Tool_Suite_v3
             new Dictionary<string, ScheduleBuilderForecastCall>(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>
-        /// Server placement ranks for this trip on each driver. Only populated when the
-        /// trust gate says ready; otherwise Suggest Driver ranks as it did before.
+        /// True when replay says the full placement rank has earned a score swing.
+        /// Leftover-pack still applies from PlacementByDriver when this is false.
         /// </summary>
         public bool PlacementReady { get; set; }
 
@@ -59,6 +59,10 @@ namespace Hiatme_Tool_Suite_v3
         public bool Feasible { get; set; } = true;
         public double Cost { get; set; }
         public List<string> Reasons { get; set; } = new List<string>();
+        public int PackFits { get; set; }
+        public double PackWeight { get; set; }
+        public string SlotAfter { get; set; } = "";
+        public string SlotGroupWith { get; set; } = "";
     }
 
     internal sealed class ScheduleBuilderHistoricalTripHint

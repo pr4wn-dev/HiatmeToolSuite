@@ -88,7 +88,7 @@ namespace Hiatme_Tool_Suite_v3
             double cap = McTripTimingRules.LenientDoLateMinMinutes;
             foreach (var t in c.Trips)
             {
-                double tripCap = DoLateCapMinutes(t);
+                double tripCap = SuggestRiderWindows.DoLateCap(t);
                 if (tripCap < cap) cap = tripCap;
             }
             return cap;

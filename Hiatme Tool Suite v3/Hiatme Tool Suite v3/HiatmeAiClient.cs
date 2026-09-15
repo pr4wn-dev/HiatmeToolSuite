@@ -221,6 +221,33 @@ namespace Hiatme_Tool_Suite_v3
         public List<string> Why { get; set; }
     }
 
+    internal sealed class HiatmeRiderWindowsResponse
+    {
+        [JsonProperty("ok")]
+        public bool Ok { get; set; }
+
+        [JsonProperty("windows")]
+        public List<HiatmeRiderWindowRow> Windows { get; set; }
+    }
+
+    internal sealed class HiatmeRiderWindowRow
+    {
+        [JsonProperty("trip_number")]
+        public string TripNumber { get; set; }
+
+        [JsonProperty("client")]
+        public string Client { get; set; }
+
+        [JsonProperty("early_ok_min")]
+        public double EarlyOkMin { get; set; }
+
+        [JsonProperty("allowed_late_min")]
+        public double AllowedLateMin { get; set; }
+
+        [JsonProperty("hard")]
+        public bool Hard { get; set; }
+    }
+
     /// <summary>POST /api/hiatme/placement/suggest — rank drivers for one trip with reasons.</summary>
     internal sealed class HiatmePlacementSuggestResponse
     {
@@ -262,6 +289,39 @@ namespace Hiatme_Tool_Suite_v3
 
         [JsonProperty("reasons")]
         public List<string> Reasons { get; set; }
+
+        [JsonProperty("parts")]
+        public Dictionary<string, double> Parts { get; set; }
+
+        [JsonProperty("pack")]
+        public HiatmePlacementPack Pack { get; set; }
+
+        [JsonProperty("slot")]
+        public HiatmePlacementSlot Slot { get; set; }
+    }
+
+    internal sealed class HiatmePlacementPack
+    {
+        [JsonProperty("fits")]
+        public int Fits { get; set; }
+
+        [JsonProperty("rate")]
+        public double Rate { get; set; }
+
+        [JsonProperty("weight")]
+        public double Weight { get; set; }
+    }
+
+    internal sealed class HiatmePlacementSlot
+    {
+        [JsonProperty("after")]
+        public string After { get; set; }
+
+        [JsonProperty("before")]
+        public string Before { get; set; }
+
+        [JsonProperty("group_with")]
+        public string GroupWith { get; set; }
     }
 
     /// <summary>GET /api/hiatme/brain/knowledge — trust gate for placement suggestions.</summary>
@@ -336,6 +396,9 @@ namespace Hiatme_Tool_Suite_v3
 
         [JsonProperty("error")]
         public string Error { get; set; }
+
+        [JsonProperty("conflict")]
+        public bool Conflict { get; set; }
     }
 
     internal sealed class HiatmeAiPreReviewResponse
@@ -418,6 +481,39 @@ namespace Hiatme_Tool_Suite_v3
 
         [JsonProperty("actions")]
         public List<HiatmeAssistantAction> Actions { get; set; }
+
+        [JsonProperty("question")]
+        public HiatmeAssistantQuestion Question { get; set; }
+    }
+
+    internal sealed class HiatmeAssistantQuestion
+    {
+        [JsonProperty("id")]
+        public string Id { get; set; }
+
+        [JsonProperty("kind")]
+        public string Kind { get; set; }
+
+        [JsonProperty("text")]
+        public string Text { get; set; }
+
+        [JsonProperty("client")]
+        public string Client { get; set; }
+
+        [JsonProperty("trip_number")]
+        public string TripNumber { get; set; }
+
+        [JsonProperty("yes_label")]
+        public string YesLabel { get; set; }
+
+        [JsonProperty("skip_label")]
+        public string SkipLabel { get; set; }
+
+        [JsonProperty("override_id")]
+        public int? OverrideId { get; set; }
+
+        [JsonProperty("suggested_minutes")]
+        public int? SuggestedMinutes { get; set; }
     }
 
     internal sealed class HiatmeAssistantAction
@@ -1719,10 +1815,19 @@ namespace Hiatme_Tool_Suite_v3
 
                         if (File.Exists(destPath))
                         {
-                            try { File.Delete(destPath); }
-                            catch { }
+                            try
+                            {
+                                File.Replace(tmp, destPath, destPath + ".bak", ignoreMetadataErrors: true);
+                                try { File.Delete(destPath + ".bak"); } catch { }
+                            }
+                            catch
+                            {
+                                try { File.Delete(destPath); } catch { }
+                                File.Move(tmp, destPath);
+                            }
                         }
-                        File.Move(tmp, destPath);
+                        else
+                            File.Move(tmp, destPath);
 
                         string filename = null;
                         if (resp.Content.Headers.ContentDisposition != null)
@@ -1836,6 +1941,10 @@ namespace Hiatme_Tool_Suite_v3
                             mtime.ToString(CultureInfo.InvariantCulture));
                         if (!string.IsNullOrWhiteSpace(source))
                             req.Headers.TryAddWithoutValidation("X-Schedule-Source", source.Trim());
+                        int baseRev = ScheduleWorkbookResolver.ReadLocalRevision(workbookPath);
+                        req.Headers.TryAddWithoutValidation(
+                            "X-Schedule-Base-Revision",
+                            baseRev.ToString(CultureInfo.InvariantCulture));
 
                         using (var resp = await SharedHttp.SendAsync(req, cancellationToken)
                             .ConfigureAwait(false))
@@ -1845,13 +1954,16 @@ namespace Hiatme_Tool_Suite_v3
                             {
                                 try
                                 {
-                                    return JsonConvert.DeserializeObject<HiatmeScheduleWorkbookMeta>(text)
+                                    var failed = JsonConvert.DeserializeObject<HiatmeScheduleWorkbookMeta>(text)
                                         ?? new HiatmeScheduleWorkbookMeta
                                         {
                                             Ok = false,
                                             Exists = false,
                                             Error = "HTTP " + (int)resp.StatusCode,
                                         };
+                                    if ((int)resp.StatusCode == 409)
+                                        failed.Conflict = true;
+                                    return failed;
                                 }
                                 catch
                                 {
@@ -1859,12 +1971,16 @@ namespace Hiatme_Tool_Suite_v3
                                     {
                                         Ok = false,
                                         Exists = false,
+                                        Conflict = (int)resp.StatusCode == 409,
                                         Error = "HTTP " + (int)resp.StatusCode,
                                     };
                                 }
                             }
-                            return JsonConvert.DeserializeObject<HiatmeScheduleWorkbookMeta>(text)
+                            var ok = JsonConvert.DeserializeObject<HiatmeScheduleWorkbookMeta>(text)
                                 ?? new HiatmeScheduleWorkbookMeta { Ok = true, Exists = true };
+                            if (ok.Ok && ok.Revision > 0)
+                                ScheduleWorkbookResolver.WriteLocalRevision(workbookPath, ok.Revision);
+                            return ok;
                         }
                     }
                 }
@@ -1899,7 +2015,13 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     var result = await UploadScheduleWorkbookAsync(
                         settings, serviceDateIso, workbookPath, source).ConfigureAwait(false);
-                    if (result == null || !result.Ok)
+                    if (result != null && result.Conflict)
+                    {
+                        HiatmeAiSettings.LogProbe(
+                            "workbook upload stale " + serviceDateIso
+                            + " — LOAD the published schedule before saving over it");
+                    }
+                    else if (result == null || !result.Ok)
                     {
                         ScheduleWorkbookResolver.QueuePendingPublish(
                             serviceDateIso, workbookPath, source);
@@ -2112,9 +2234,57 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        /// <summary>Early/late room per rider for the Suggest yes/no. Does not pick a van.</summary>
+        public static async Task<List<SuggestRiderWindow>> GetRiderWindowsAsync(
+            HiatmeAiSettings settings,
+            object body,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null || body == null) return null;
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl)) return null;
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Post, baseUrl + "/api/hiatme/placement/windows"))
+                {
+                    req.Content = new StringContent(
+                        JsonConvert.SerializeObject(body), Encoding.UTF8, "application/json");
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
+                    {
+                        if (!resp.IsSuccessStatusCode) return null;
+                        var text = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        var parsed = JsonConvert.DeserializeObject<HiatmeRiderWindowsResponse>(text);
+                        if (parsed == null || parsed.Windows == null)
+                            return null;
+                        var outRows = new List<SuggestRiderWindow>();
+                        foreach (var w in parsed.Windows)
+                        {
+                            if (w == null) continue;
+                            outRows.Add(new SuggestRiderWindow
+                            {
+                                TripNumber = w.TripNumber ?? "",
+                                Client = w.Client ?? "",
+                                EarlyOkMin = w.EarlyOkMin,
+                                AllowedLateMin = w.AllowedLateMin,
+                                Hard = w.Hard,
+                            });
+                        }
+                        return outRows;
+                    }
+                }
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
         /// <summary>
-        /// Rank every candidate driver for one trip (fit, risk, pairing, group).
-        /// Ranking signal only. Empty when the server is down or the scorer is not ready.
+        /// Rank every candidate driver for one trip by waste (delay, deadhead).
+        /// Who had the rider does not pick the van.
         /// </summary>
         public static async Task<HiatmePlacementSuggestResponse> ScorePlacementSuggestAsync(
             HiatmeAiSettings settings,
@@ -2428,6 +2598,43 @@ namespace Hiatme_Tool_Suite_v3
                                 "AI assistant failed (HTTP " + (int)resp.StatusCode + ").");
                         }
                         return JsonConvert.DeserializeObject<HiatmeAssistantResponse>(text);
+                    }
+                }
+            }
+        }
+
+        public static async Task<JObject> AnswerAssistantQuestionAsync(
+            HiatmeAiSettings settings,
+            HiatmeAssistantQuestion question,
+            string action,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null) throw new ArgumentNullException(nameof(settings));
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl))
+                throw new InvalidOperationException("AI server URL is not configured.");
+
+            var body = new JObject
+            {
+                ["question"] = question == null ? new JObject() : JObject.FromObject(question),
+                ["action"] = action ?? "",
+            };
+
+            using (var req = new HttpRequestMessage(HttpMethod.Post, baseUrl + "/api/hiatme/assistant/answer"))
+            {
+                req.Content = new StringContent(body.ToString(Formatting.None), Encoding.UTF8, "application/json");
+                if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                    req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", settings.ApiToken.Trim());
+
+                using (var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+                {
+                    timeoutCts.CancelAfter(TimeSpan.FromSeconds(20));
+                    using (var resp = await SharedHttp.SendAsync(req, timeoutCts.Token).ConfigureAwait(false))
+                    {
+                        var text = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        if (!resp.IsSuccessStatusCode)
+                            throw new InvalidOperationException("AI answer failed (HTTP " + (int)resp.StatusCode + ").");
+                        return JsonConvert.DeserializeObject<JObject>(text) ?? new JObject();
                     }
                 }
             }
