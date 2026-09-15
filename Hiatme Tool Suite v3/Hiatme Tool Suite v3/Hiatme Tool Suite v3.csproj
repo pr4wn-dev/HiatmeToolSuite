@@ -890,7 +890,9 @@
     <None Include="Resources\supey-shield.png" />
   </ItemGroup>
   <ItemGroup>
-    <Content Include="Doll-icon_35209.ico" />
+    <Content Include="Doll-icon_35209.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <None Include="Resources\065391_drumrollwav-88344.mp3" />
     <Content Include="Resources\must-have-precious.mp3">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

@@ -724,21 +724,81 @@ namespace Hiatme_Tool_Suite_v3
 
         {
 
-            if (DesignMode || Icon != null) return;
+            if (DesignMode) return;
 
             try
 
             {
 
-                string path = Application.ExecutablePath;
+                Icon loaded = LoadBillyIcon();
 
-                if (string.IsNullOrEmpty(path)) return;
+                if (loaded != null)
 
-                Icon = System.Drawing.Icon.ExtractAssociatedIcon(path);
+                    Icon = loaded;
 
             }
 
             catch { }
+
+        }
+
+
+
+        /// <summary>Saw puppet (Billy) app icon — never leave the default WinForms squares.</summary>
+
+        private static Icon LoadBillyIcon()
+
+        {
+
+            try
+
+            {
+
+                string dir = AppDomain.CurrentDomain.BaseDirectory ?? "";
+
+                string[] names =
+
+                {
+
+                    "Doll-icon_35209.ico",
+
+                    System.IO.Path.Combine("Resources", "Doll-icon_35209.ico"),
+
+                };
+
+                foreach (string name in names)
+
+                {
+
+                    string path = System.IO.Path.Combine(dir, name);
+
+                    if (!System.IO.File.Exists(path)) continue;
+
+                    return new Icon(path);
+
+                }
+
+            }
+
+            catch { }
+
+
+
+            try
+
+            {
+
+                string exe = Application.ExecutablePath;
+
+                if (!string.IsNullOrEmpty(exe))
+
+                    return Icon.ExtractAssociatedIcon(exe);
+
+            }
+
+            catch { }
+
+            return null;
 
         }
 
