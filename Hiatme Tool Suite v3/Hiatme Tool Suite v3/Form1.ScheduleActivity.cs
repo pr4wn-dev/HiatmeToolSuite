@@ -9,6 +9,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Text;
 using System.Windows.Forms;
 
 namespace Hiatme_Tool_Suite_v3
@@ -72,10 +73,15 @@ namespace Hiatme_Tool_Suite_v3
             _schedActDrawer = new ScheduleActivityDrawer();
             _schedActDrawer.SetIdentity(_schedActFeed.ClientId);
             Controls.Add(_schedActDrawer);
-            Resize += (_, __) => RepositionScheduleActivityDrawer();
+            Resize += (_, __) =>
+            {
+                RepositionScheduleActivityDrawer();
+                RepositionSchedulePresencePill();
+            };
             RepositionScheduleActivityDrawer();
 
             InstallSchedulePresencePill();
+            InitDeskPoke();
 
             if (hiatmeTabControl != null)
             {
@@ -88,18 +94,72 @@ namespace Hiatme_Tool_Suite_v3
             _schedActFeed.SetFastPolling(hiatmeTabControl?.SelectedTab == tabPage6);
         }
 
+        protected override Rectangle TitleBarAuxBounds
+        {
+            get
+            {
+                if (_schedActPresencePill == null || _schedActPresencePill.IsDisposed || !_schedActPresencePill.Visible)
+                    return Rectangle.Empty;
+                return _schedActPresencePill.Bounds;
+            }
+        }
+
         private void InstallSchedulePresencePill()
         {
             if (_schedActPresencePill != null) return;
             _schedActPresencePill = new SchedulePresencePill
             {
-                Margin = new Padding(12, 6, 0, 0),
-                Visible = false,
+                Visible = true,
             };
-            _schedActPresencePill.Click += (_, __) => _ = OpenScheduleActivityDrawerAsync(-1);
-            var parent = _fsAutoSaveHintLbl?.Parent;
-            if (parent != null)
-                parent.Controls.Add(_schedActPresencePill);
+            _schedActPresencePill.MouseUp += OnSchedulePresencePillMouseUp;
+            _schedActPresencePill.LayoutChanged += (_, __) => RepositionSchedulePresencePill();
+            Controls.Add(_schedActPresencePill);
+            _schedActPresencePill.SetOthers(new List<SchedulePresenceEntry>(), null);
+            RepositionSchedulePresencePill();
+        }
+
+        private void RepositionSchedulePresencePill()
+        {
+            if (_schedActPresencePill == null || _schedActPresencePill.IsDisposed) return;
+            var theme = TitleBarThemeButtonBounds;
+            var ai = TitleBarAiButtonBounds;
+            int right = ClientSize.Width - (46 * 3) - 8;
+            if (!ai.IsEmpty) right = ai.Left;
+            if (!theme.IsEmpty) right = Math.Min(right, theme.Left);
+
+            // Keep the pill near the app title instead of floating in the center gap.
+            int titleLeft = 16 + TitleLeftInset;
+            if (ShowNavMenuButton && TitleLeadingGutterWidth > 0)
+            {
+                int navX = Math.Max(4, (TitleLeadingGutterWidth - 38) / 2);
+                titleLeft = Math.Max(titleLeft, navX + 38 + 8);
+            }
+            if (ShowIcon && Icon != null)
+                titleLeft += 28;
+
+            int titleW = TextRenderer.MeasureText(
+                Text ?? string.Empty,
+                SupeyTheme.HeaderFont,
+                new Size(int.MaxValue, ChromeTitleHeight),
+                TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding).Width;
+            int preferredX = titleLeft + titleW + 16;
+            int x = Math.Min(
+                Math.Max(8, preferredX),
+                Math.Max(8, right - 8 - Math.Max(10, _schedActPresencePill.Width)));
+            int y = Math.Max(0, (ChromeTitleHeight - _schedActPresencePill.Height) / 2);
+            var want = new Point(x, y);
+            if (_schedActPresencePill.Location != want)
+                _schedActPresencePill.Location = want;
+            _schedActPresencePill.BringToFront();
+            if (_deskPokeOverlay != null && _deskPokeOverlay.Visible)
+                _deskPokeOverlay.BringToFront();
+            Invalidate(new Rectangle(0, 0, Math.Max(1, ClientSize.Width), ChromeTitleHeight));
+        }
+
+        private void OnSchedulePresencePillMouseUp(object sender, MouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Left && e.Button != MouseButtons.Right) return;
+            ShowDeskPokeMenu(_schedActPresencePill, e.Location);
         }
 
         private int ScheduleActivityBottomInset()
@@ -128,7 +188,7 @@ namespace Hiatme_Tool_Suite_v3
                     _schedActFeed.Emit("closed", _schedActOpenDay, null);
                 var flush = _schedActFeed.FlushNowAsync();
                 var bye = _schedActFeed.HeartbeatAsync(builderOpen: false);
-                Task.WhenAll(flush, bye).Wait(TimeSpan.FromSeconds(2));
+                Task.WhenAll(flush, bye).Wait(TimeSpan.FromMilliseconds(400));
             }
             catch { }
             finally
@@ -688,7 +748,8 @@ namespace Hiatme_Tool_Suite_v3
             try
             {
                 ScheduleActivityTrackOpenDay();
-                _schedActPresencePill.SetOthers(presence ?? new List<SchedulePresenceEntry>(), ScheduleActivityCurrentDayIso());
+                _schedActOthers = presence ?? new List<SchedulePresenceEntry>();
+                _schedActPresencePill.SetOthers(_schedActOthers, ScheduleActivityCurrentDayIso());
             }
             catch { }
         }
@@ -757,17 +818,43 @@ namespace Hiatme_Tool_Suite_v3
     }
 
     /// <summary>
-    /// Status-band pill: "● Remie · Sep 17 · 3 unsaved". Dot lit in the accent while that
-    /// desk touched the day in the last ~12s, muted when idle, hollow when the panel is down.
+    /// Title-bar who's-online: one dot per desk. Accent = checked in within ~12s,
+    /// muted = still in the app but quiet, hollow ring = this PC cannot reach the panel.
+    /// Amber "N unsaved" is unpublished schedule edits — not busy/away.
     /// </summary>
     internal sealed class SchedulePresencePill : Control
     {
-        private static readonly Font PillFont = new Font("Segoe UI", 8.25f);
+        private static readonly Font PillFont = new Font("Segoe UI Semibold", 8.5f);
+        private static readonly Font MicroFont = new Font("Segoe UI", 7.5f);
+        private const string OnlineTag = "ONLINE";
+        private const string EmptyLabel = "Only you";
+        private const int BubbleSize = 14;
+        private const int BubbleGap = 4;
+        private const int MaxBubbles = 3;
         private readonly List<SchedulePresenceEntry> _others = new List<SchedulePresenceEntry>();
-        private string _myDay = "";
+        private readonly ToolTip _tip = new ToolTip
+        {
+            ShowAlways = true,
+            AutoPopDelay = 14000,
+            InitialDelay = 400,
+        };
+        private bool _online = true;
         private int _mine;
+        private string _lastKey = "";
 
-        public bool Online { get; set; } = true;
+        public bool Online
+        {
+            get { return _online; }
+            set
+            {
+                if (_online == value) return;
+                _online = value;
+                _tip.SetToolTip(this, TipText());
+                Invalidate();
+            }
+        }
+
+        public event EventHandler LayoutChanged;
 
         public SchedulePresencePill()
         {
@@ -776,79 +863,165 @@ namespace Hiatme_Tool_Suite_v3
             DoubleBuffered = true;
             BackColor = SupeyTheme.SurfaceHeader;
             Cursor = Cursors.Hand;
-            Height = 20;
+            Height = 26;
             Width = 10;
             TabStop = false;
         }
 
-        private string _lastText = "";
-        private bool _lastActive;
+        protected override void OnPaintBackground(PaintEventArgs pevent)
+        {
+            using (var b = new SolidBrush(SupeyTheme.SurfaceHeader))
+                pevent.Graphics.FillRectangle(b, ClientRectangle);
+        }
 
         public void SetOthers(List<SchedulePresenceEntry> others, string myDay)
         {
             using (UiStallWatch.Measure(UiScope.PresenceSetOthers))
-                SetOthersCore(others, myDay);
+                SetOthersCore(others);
         }
 
-        private void SetOthersCore(List<SchedulePresenceEntry> others, string myDay)
+        private void SetOthersCore(List<SchedulePresenceEntry> others)
         {
             _others.Clear();
             if (others != null) _others.AddRange(others);
-            _myDay = myDay ?? "";
-            bool vis = _others.Count > 0;
-            string text = Text_();
-            bool active = _others.Any(o => o.Active);
-            // Every poll lands here; only touch layout when what we show actually changed,
-            // or the toolbar's FlowLayoutPanel re-lays out every 3 seconds for nothing.
-            if (vis != Visible) Visible = vis;
-            if (text != _lastText)
+            // Always shown: alone it reads "Only you", so the chip (and its
+            // send-emoji menu) is discoverable even when no one else is online.
+            if (!Visible) Visible = true;
+            string key = PresenceKey();
+            if (key != _lastKey)
             {
-                _lastText = text;
-                _lastActive = active;
+                _lastKey = key;
                 Relayout();
             }
-            else if (active != _lastActive)
-            {
-                _lastActive = active;
+            else
                 Invalidate();
-            }
         }
 
         public void SetMine(int unsaved)
         {
+            if (_mine == unsaved) return;
             _mine = unsaved;
-            Invalidate();
+            string key = PresenceKey();
+            if (key != _lastKey)
+            {
+                _lastKey = key;
+                Relayout();
+            }
+            else
+            {
+                _tip.SetToolTip(this, TipText());
+                Invalidate();
+            }
         }
 
-        private string Text_()
+        private string PresenceKey()
         {
-            if (_others.Count == 0) return "";
-            var sameDay = _others.Where(o => !string.IsNullOrEmpty(_myDay) && o.ServiceDate == _myDay).ToList();
-            var show = sameDay.Count > 0 ? sameDay : _others;
-            var parts = new List<string>();
-            foreach (var o in show.Take(3))
+            var sb = new StringBuilder();
+            sb.Append(_online ? "1" : "0");
+            sb.Append('|').Append(_mine);
+            foreach (var o in _others)
             {
-                string s = o.Dispatcher ?? "?";
-                if (!string.IsNullOrEmpty(o.ServiceDate) && (sameDay.Count == 0 || show.Count > 1))
-                    s += " \u00b7 " + ScheduleActivityFormat.ShortDate(o.ServiceDate);
-                if (o.Unsaved > 0) s += " \u00b7 " + o.Unsaved + " unsaved";
-                parts.Add(s);
+                sb.Append('|').Append(o.Dispatcher ?? "")
+                    .Append('/').Append(o.ServiceDate ?? "")
+                    .Append('/').Append(o.Unsaved)
+                    .Append('/').Append(o.Active ? '1' : '0');
             }
-            if (show.Count > 3) parts.Add("+" + (show.Count - 3));
-            return string.Join("   ", parts);
+            return sb.ToString();
+        }
+
+        private static string LabelFor(SchedulePresenceEntry o)
+        {
+            string s = string.IsNullOrWhiteSpace(o.Dispatcher) ? "?" : o.Dispatcher.Trim();
+            if (!string.IsNullOrEmpty(o.ServiceDate))
+                s += " \u00b7 " + ScheduleActivityFormat.ShortDate(o.ServiceDate);
+            if (o.Unsaved > 0) s += " \u00b7 " + o.Unsaved + " unsaved";
+            return s;
         }
 
         private void Relayout()
         {
             using (UiStallWatch.Measure(UiScope.PresenceRelayout))
             {
-                using (var g = CreateGraphics())
-                {
-                    var sz = g.MeasureString(Text_(), PillFont, PointF.Empty, StringFormat.GenericTypographic);
-                    Width = (int)Math.Ceiling(sz.Width) + 30;
-                }
+                int w = MeasureWidth();
+                if (Width != w) Width = w;
+                _tip.SetToolTip(this, TipText());
                 Invalidate();
             }
+            LayoutChanged?.Invoke(this, EventArgs.Empty);
+        }
+
+        private int MeasureWidth()
+        {
+            using (var g = CreateGraphics())
+            {
+                var fmt = StringFormat.GenericTypographic;
+                float x = 8f;
+                x += 10f; // panel-status dot + gap
+                x += Math.Max(38f, g.MeasureString(OnlineTag, MicroFont, PointF.Empty, fmt).Width + 10f);
+                x += 6f;
+                string summary = SummaryText();
+                x += g.MeasureString(summary, PillFont, PointF.Empty, fmt).Width;
+
+                int show = Math.Min(MaxBubbles, _others.Count);
+                if (show > 0)
+                {
+                    x += 8f;
+                    x += show * BubbleSize + (show - 1) * BubbleGap;
+                    if (_others.Count > show)
+                    {
+                        x += 6f;
+                        string extra = "+" + (_others.Count - show);
+                        float ew = g.MeasureString(extra, MicroFont, PointF.Empty, fmt).Width;
+                        x += Math.Max(14f, ew + 6f);
+                    }
+                }
+
+                if (_mine > 0)
+                {
+                    x += 8f;
+                    string mine = _mine.ToString(CultureInfo.InvariantCulture);
+                    float mw = g.MeasureString(mine, MicroFont, PointF.Empty, fmt).Width;
+                    x += Math.Max(14f, mw + 6f);
+                }
+                return Math.Max(10, (int)Math.Ceiling(x) + 8);
+            }
+        }
+
+        private string TipText()
+        {
+            var lines = new List<string>
+            {
+                "Who's in the Tool Suite — not busy / away / DND.",
+                "Bright dot: that desk checked in within 12 seconds.",
+                "Gray dot: still in the app, quiet (drops off after ~30s).",
+                "Empty ring: this PC cannot reach the panel.",
+                "Amber \"unsaved\": unpublished schedule edits.",
+                "Click for poke/actions.",
+            };
+            if (_mine > 0)
+                lines.Add("You have " + _mine + " unsaved.");
+            if (_others.Count == 0)
+            {
+                lines.Add("");
+                lines.Add(_online
+                    ? "You're the only desk online right now."
+                    : "This PC can't reach the panel right now.");
+            }
+            if (_others.Count > 0)
+            {
+                lines.Add("");
+                foreach (var o in _others)
+                {
+                    string state = !_online ? "panel unreachable"
+                        : o.Active ? "active" : "quiet";
+                    string day = string.IsNullOrEmpty(o.ServiceDate)
+                        ? "no schedule open"
+                        : ScheduleActivityFormat.ShortDate(o.ServiceDate);
+                    string extra = o.Unsaved > 0 ? ", " + o.Unsaved + " unsaved" : "";
+                    lines.Add((o.Dispatcher ?? "?") + " — " + state + " · " + day + extra);
+                }
+            }
+            return string.Join(Environment.NewLine, lines);
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -858,30 +1031,158 @@ namespace Hiatme_Tool_Suite_v3
             g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
             var fmt = StringFormat.GenericTypographic;
             var r = new RectangleF(0.5f, 0.5f, Width - 1, Height - 1);
-            using (var b = new SolidBrush(SupeyTheme.Surface))
+            using (var b = new SolidBrush(SupeyTheme.SurfaceHeader))
             using (var p = Rounded(r, Height / 2f))
                 g.FillPath(b, p);
             using (var pen = new Pen(SupeyTheme.Divider))
             using (var p = Rounded(r, Height / 2f))
                 g.DrawPath(pen, p);
 
-            bool anyActive = _others.Any(o => o.Active);
-            var dot = new RectangleF(9, (Height - 7) / 2f, 7, 7);
-            if (!Online)
-                using (var pen = new Pen(SupeyTheme.TextMuted, 1.2f)) g.DrawEllipse(pen, dot);
-            else
-                using (var b = new SolidBrush(anyActive ? SupeyTheme.AccentPrimary : SupeyTheme.TextMuted)) g.FillEllipse(b, dot);
+            float x = 8f;
+            var panelDot = new RectangleF(x, (Height - 8) / 2f, 8, 8);
+            PaintPanelDot(g, panelDot);
+            x += 12f;
 
-            string text = Text_();
-            float x = 22;
-            // Color the "N unsaved" fragments amber.
-            foreach (var seg in SplitUnsaved(text))
+            float tagW = Math.Max(38f, g.MeasureString(OnlineTag, MicroFont, PointF.Empty, fmt).Width + 10f);
+            var tagRect = new RectangleF(x, (Height - 14f) / 2f, tagW, 14f);
+            using (var bg = new SolidBrush(_online ? SupeyTheme.AccentPrimary : SupeyTheme.TextMuted))
+            using (var p = Rounded(tagRect, tagRect.Height / 2f))
+                g.FillPath(bg, p);
+            var tagSz = g.MeasureString(OnlineTag, MicroFont, PointF.Empty, fmt);
+            using (var br = new SolidBrush(Color.White))
+                g.DrawString(OnlineTag, MicroFont, br,
+                    tagRect.X + (tagRect.Width - tagSz.Width) / 2f,
+                    tagRect.Y + (tagRect.Height - tagSz.Height) / 2f, fmt);
+            x += tagW + 6f;
+
+            string summary = SummaryText();
+            var sumSize = g.MeasureString(summary, PillFont, PointF.Empty, fmt);
+            using (var br = new SolidBrush(_online ? SupeyTheme.TextSecondary : SupeyTheme.TextMuted))
+                g.DrawString(summary, PillFont, br, x, (Height - sumSize.Height) / 2f, fmt);
+            x += sumSize.Width;
+
+            int show = Math.Min(MaxBubbles, _others.Count);
+            if (show > 0)
             {
-                var sz = g.MeasureString(seg.Item1, PillFont, PointF.Empty, fmt);
-                using (var b = new SolidBrush(seg.Item2 ? SupeyTheme.WarnText : SupeyTheme.TextSecondary))
-                    g.DrawString(seg.Item1, PillFont, b, x, (Height - sz.Height) / 2f, fmt);
-                x += sz.Width;
+                x += 8f;
+                for (int i = 0; i < show; i++)
+                {
+                    if (i > 0) x += BubbleGap;
+                    var bubble = new RectangleF(x, (Height - BubbleSize) / 2f, BubbleSize, BubbleSize);
+                    PaintBubble(g, bubble, _others[i]);
+                    x += BubbleSize;
+                }
+                if (_others.Count > show)
+                {
+                    x += 6f;
+                    string extra = "+" + (_others.Count - show);
+                    var extraSize = g.MeasureString(extra, MicroFont, PointF.Empty, fmt);
+                    var extraRect = new RectangleF(
+                        x, (Height - (extraSize.Height + 2f)) / 2f,
+                        Math.Max(14f, extraSize.Width + 6f),
+                        extraSize.Height + 2f);
+                    using (var bg = new SolidBrush(SupeyTheme.SurfaceHeader))
+                    using (var p = Rounded(extraRect, extraRect.Height / 2f))
+                        g.FillPath(bg, p);
+                    using (var pen = new Pen(SupeyTheme.Divider))
+                    using (var p = Rounded(extraRect, extraRect.Height / 2f))
+                        g.DrawPath(pen, p);
+                    using (var br = new SolidBrush(SupeyTheme.TextMuted))
+                        g.DrawString(extra, MicroFont, br,
+                            extraRect.X + (extraRect.Width - extraSize.Width) / 2f,
+                            extraRect.Y + (extraRect.Height - extraSize.Height) / 2f, fmt);
+                    x += extraRect.Width;
+                }
             }
+
+            if (_mine > 0)
+            {
+                x += 8f;
+                string mine = _mine.ToString(CultureInfo.InvariantCulture);
+                var mineSize = g.MeasureString(mine, MicroFont, PointF.Empty, fmt);
+                var mineRect = new RectangleF(
+                    x, (Height - (mineSize.Height + 2f)) / 2f,
+                    Math.Max(14f, mineSize.Width + 6f),
+                    mineSize.Height + 2f);
+                using (var bg = new SolidBrush(SupeyTheme.WarnText))
+                using (var p = Rounded(mineRect, mineRect.Height / 2f))
+                    g.FillPath(bg, p);
+                using (var br = new SolidBrush(SupeyTheme.Surface))
+                    g.DrawString(mine, MicroFont, br,
+                        mineRect.X + (mineRect.Width - mineSize.Width) / 2f,
+                        mineRect.Y + (mineRect.Height - mineSize.Height) / 2f, fmt);
+            }
+        }
+
+        private string SummaryText()
+        {
+            if (!_online) return "PANEL OFFLINE";
+            if (_others.Count <= 0) return "ONLY YOU";
+            return _others.Count == 1 ? "1 DESK" : _others.Count + " DESKS";
+        }
+
+        private static string InitialFor(SchedulePresenceEntry o)
+        {
+            string name = (o?.Dispatcher ?? "").Trim();
+            if (string.IsNullOrEmpty(name)) return "?";
+            return name.Substring(0, 1).ToUpperInvariant();
+        }
+
+        private void PaintPanelDot(Graphics g, RectangleF dot)
+        {
+            if (!_online)
+            {
+                using (var pen = new Pen(SupeyTheme.TextMuted, 1.2f))
+                    g.DrawEllipse(pen, dot);
+                return;
+            }
+            using (var b = new SolidBrush(SupeyTheme.AccentPrimary))
+                g.FillEllipse(b, dot);
+        }
+
+        private void PaintBubble(Graphics g, RectangleF rect, SchedulePresenceEntry o)
+        {
+            bool active = o != null && o.Active;
+            if (!_online)
+            {
+                using (var b = new SolidBrush(SupeyTheme.SurfaceHeader))
+                    g.FillEllipse(b, rect);
+                using (var pen = new Pen(SupeyTheme.TextMuted, 1.1f))
+                    g.DrawEllipse(pen, rect);
+                return;
+            }
+
+            using (var b = new SolidBrush(active ? SupeyTheme.AccentPrimary : SupeyTheme.SurfaceHeader))
+                g.FillEllipse(b, rect);
+            using (var pen = new Pen(active ? SupeyTheme.AccentPrimary : SupeyTheme.Divider))
+                g.DrawEllipse(pen, rect);
+
+            string initial = InitialFor(o);
+            var sz = g.MeasureString(initial, MicroFont, PointF.Empty, StringFormat.GenericTypographic);
+            using (var br = new SolidBrush(active ? Color.White : SupeyTheme.TextMuted))
+                g.DrawString(initial, MicroFont, br,
+                    rect.X + (rect.Width - sz.Width) / 2f,
+                    rect.Y + (rect.Height - sz.Height) / 2f,
+                    StringFormat.GenericTypographic);
+
+            if (o != null && o.Unsaved > 0)
+            {
+                float s = 4.4f;
+                var badge = new RectangleF(rect.Right - s, rect.Y - 0.3f, s, s);
+                using (var b = new SolidBrush(SupeyTheme.WarnText))
+                    g.FillEllipse(b, badge);
+                using (var p = new Pen(SupeyTheme.Surface, 0.8f))
+                    g.DrawEllipse(p, badge);
+            }
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                _tip.Dispose();
+            }
+            base.Dispose(disposing);
         }
 
         private static IEnumerable<Tuple<string, bool>> SplitUnsaved(string text)

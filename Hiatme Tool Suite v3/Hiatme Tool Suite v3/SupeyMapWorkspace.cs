@@ -527,6 +527,12 @@ namespace Hiatme_Tool_Suite_v3
             DisposeRouteStrokesInOverlay(_selectionMarkerOverlay);
         }
 
+        /// <summary>Stop pulse/timers so FormClosing is not fighting GMap's dispose.</summary>
+        public void StopForExit()
+        {
+            try { _selectionPulseTimer?.Stop(); } catch { }
+        }
+
         /// <summary>Clears the map + legend so the host can show "no driver selected" state.</summary>
         public void Clear()
         {

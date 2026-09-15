@@ -482,10 +482,16 @@ namespace Hiatme_Tool_Suite_v3
                 };
             }
 
+            // PUT the Desktop copy, not the email temp file. The revision sidecar
+            // lives next to savedPath; the temp xlsx has none, so the panel sees
+            // base revision 0 and 409s any day that was already published.
+            string uploadPath = !string.IsNullOrWhiteSpace(savedPath) && File.Exists(savedPath)
+                ? savedPath
+                : attachmentPath;
             var result = await HiatmeAiClient.UploadScheduleWorkbookAsync(
                 settings,
                 serviceDateIso,
-                attachmentPath,
+                uploadPath,
                 "schedule_builder_email").ConfigureAwait(true);
             if (result == null || !result.Ok)
                 return result;

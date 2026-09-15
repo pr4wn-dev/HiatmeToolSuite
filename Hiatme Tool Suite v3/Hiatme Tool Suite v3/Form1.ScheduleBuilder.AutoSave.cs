@@ -71,7 +71,7 @@ namespace Hiatme_Tool_Suite_v3
 
             try
             {
-                WaitForScheduleExportIdle(maxMs: 15000);
+                WaitForScheduleExportIdle(maxMs: 2000);
                 FsExportScheduleWorkbookShutdownSync();
             }
             catch
@@ -109,18 +109,26 @@ namespace Hiatme_Tool_Suite_v3
                 fsbuilder.PreferredExportPath = path;
                 SyncFsPreviewCsvsForExport();
 
-                fsbuilder.CreateWorkbookAsync(promptForLocation: false, openAfterSave: false)
-                    .ConfigureAwait(false)
-                    .GetAwaiter()
-                    .GetResult();
+                var save = fsbuilder.CreateWorkbookAsync(promptForLocation: false, openAfterSave: false);
+                if (!save.Wait(TimeSpan.FromSeconds(4)))
+                    return;
 
                 if (string.IsNullOrEmpty(fsbuilder.LastExportPath))
                     return;
 
                 _fsPreferredSavePath = fsbuilder.LastExportPath;
-                Task.Run(() => FsUploadSavedWorkbookToServerAsync(fsbuilder.LastExportPath))
-                    .GetAwaiter()
-                    .GetResult();
+                var upload = Task.Run(() => FsUploadSavedWorkbookToServerAsync(fsbuilder.LastExportPath));
+                if (!upload.Wait(TimeSpan.FromSeconds(2)))
+                {
+                    try
+                    {
+                        DateTime serviceDate = fsbdatepicker?.Value.Date ?? DateTime.Today;
+                        string iso = serviceDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                        ScheduleWorkbookResolver.QueuePendingPublish(
+                            iso, fsbuilder.LastExportPath, "schedule_builder_save");
+                    }
+                    catch { }
+                }
                 _fsAutoSaveDirty = false;
             }
             finally

@@ -130,6 +130,16 @@ namespace Hiatme_Tool_Suite_v3
         [JsonProperty("revision")] public int Revision { get; set; }
         [JsonProperty("age_s")] public double AgeSeconds { get; set; }
         [JsonProperty("active")] public bool Active { get; set; }
+        [JsonProperty("machine")] public string Machine { get; set; }
+    }
+
+    internal sealed class DeskPokeMessage
+    {
+        [JsonProperty("emoji")] public string Emoji { get; set; }
+        [JsonProperty("dispatcher")] public string Dispatcher { get; set; }
+        [JsonProperty("client_id")] public string ClientId { get; set; }
+        [JsonProperty("machine")] public string Machine { get; set; }
+        [JsonProperty("ts")] public double Ts { get; set; }
     }
 
     internal sealed class SchedulePublishedHead
@@ -191,6 +201,7 @@ namespace Hiatme_Tool_Suite_v3
         public event Action<List<ScheduleActivityEvent>> EventsArrived;
         public event Action<List<SchedulePresenceEntry>> PresenceUpdated;
         public event Action<SchedulePublishedHead> HeadUpdated;
+        public event Action<List<DeskPokeMessage>> PokesArrived;
         public event Action<bool> ConnectivityChanged;
 
         public bool Online { get; private set; } = true;
@@ -349,7 +360,8 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     string sd = "";
                     try { sd = ServiceDateProvider?.Invoke() ?? ""; } catch { }
-                    bool open = builderOpen && !string.IsNullOrEmpty(sd);
+                    // Stay listed while the app is running, even on other tools or
+                    // with no schedule day loaded. Shutdown passes builderOpen: false.
                     body = new JObject
                     {
                         ["dispatcher"] = DispatcherName,
@@ -358,7 +370,7 @@ namespace Hiatme_Tool_Suite_v3
                         ["service_date"] = sd,
                         ["unsaved"] = SafeInt(UnsavedCountProvider),
                         ["revision"] = SafeInt(LocalRevisionProvider),
-                        ["builder_open"] = open,
+                        ["builder_open"] = builderOpen,
                     };
                 }
                 var sent = await SendOffUiAsync(
@@ -376,6 +388,7 @@ namespace Hiatme_Tool_Suite_v3
                 var presence = root["presence"]?.ToObject<List<SchedulePresenceEntry>>()
                     ?? new List<SchedulePresenceEntry>();
                 PresenceUpdated?.Invoke(presence);
+                RaisePokes(root);
             }
             catch
             {
@@ -436,6 +449,7 @@ namespace Hiatme_Tool_Suite_v3
                     if (!first && result.Events.Count > 0)
                         EventsArrived?.Invoke(result.Events);
                     PresenceUpdated?.Invoke(result.Presence);
+                    RaisePokes(root);
                     if (result.Head != null)
                         HeadUpdated?.Invoke(result.Head);
                 }
@@ -471,6 +485,52 @@ namespace Hiatme_Tool_Suite_v3
             {
                 return new List<ScheduleActivityEvent>();
             }
+        }
+
+        /// <summary>Push a full-screen emoji at another desk. Returns false if the panel said no.</summary>
+        public async Task<bool> SendPokeAsync(string targetClientId, string emoji)
+        {
+            if (_disposed || string.IsNullOrWhiteSpace(targetClientId) || string.IsNullOrWhiteSpace(emoji))
+                return false;
+            try
+            {
+                var settings = Settings;
+                string baseUrl = BaseUrl(settings);
+                if (baseUrl == null) return false;
+                var body = new JObject
+                {
+                    ["target_client_id"] = targetClientId.Trim(),
+                    ["emoji"] = emoji.Trim(),
+                    ["dispatcher"] = DispatcherName,
+                    ["client_id"] = ClientId,
+                    ["machine"] = ScheduleActivityIdentity.Machine(),
+                };
+                var sent = await SendOffUiAsync(
+                    HttpMethod.Post,
+                    baseUrl + "/api/hiatme/desk-poke",
+                    settings,
+                    body.ToString(Formatting.None)).ConfigureAwait(true);
+                if (!sent.Ok) return false;
+                var root = JObject.Parse(string.IsNullOrWhiteSpace(sent.Body) ? "{}" : sent.Body);
+                return root["ok"]?.Value<bool>() != false;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private void RaisePokes(JObject root)
+        {
+            if (root == null) return;
+            try
+            {
+                var pokes = root["pokes"]?.ToObject<List<DeskPokeMessage>>()
+                    ?? new List<DeskPokeMessage>();
+                if (pokes.Count > 0)
+                    PokesArrived?.Invoke(pokes);
+            }
+            catch { }
         }
 
         // ------------------------------------------------------------- helpers

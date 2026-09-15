@@ -48,6 +48,10 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>Extra right-side title reserve for form-owned action buttons.</summary>
         protected virtual int TitleBarExtraRightReserve => 0;
 
+        /// <summary>Optional child in the title bar (who's-online pill). Title text and
+        /// caption-drag skip this rectangle.</summary>
+        protected virtual Rectangle TitleBarAuxBounds => Rectangle.Empty;
+
 
 
         /// <summary>Resize hit target width — matches MaterialSkin <c>BORDER_WIDTH</c>.</summary>
@@ -1001,6 +1005,14 @@ namespace Hiatme_Tool_Suite_v3
             var aiRect = AiButtonRect;
 
             if (!aiRect.IsEmpty && aiRect.Contains(p))
+
+                return true;
+
+
+
+            var aux = TitleBarAuxBounds;
+
+            if (!aux.IsEmpty && aux.Contains(p))
 
                 return true;
 
@@ -2143,6 +2155,12 @@ namespace Hiatme_Tool_Suite_v3
             if (!theme.IsEmpty)
 
                 right = Math.Min(right, theme.Left - 8);
+
+            var aux = TitleBarAuxBounds;
+
+            if (!aux.IsEmpty)
+
+                right = Math.Min(right, aux.Left - 8);
 
             return right;
 

@@ -3566,6 +3566,7 @@ namespace Hiatme_Tool_Suite_v3
             try { StopRecurringUiTimers(); } catch { }
             try { StopClientListPollingTimer(); } catch { }
             try { ShutdownListenerAndTrackedSockets(); } catch { }
+            try { GMapTilePrefetch.Shutdown(); } catch { }
             try { CloseOtherOpenForms(); } catch { }
             try { InvalidateWellRydePortalSession(); } catch { }
             try { mcLoginHandler?.Client?.Dispose(); } catch { }
@@ -3603,12 +3604,20 @@ namespace Hiatme_Tool_Suite_v3
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             _fsAppShuttingDown = true;
+            // GMap's tile loader threads are LongRunning (foreground). ReloadMap/SQLite
+            // during dispose deadlocks the UI; if close is still stuck, the watchdog kills
+            // the process so the window cannot hang forever.
+            try { GMapTilePrefetch.Shutdown(); } catch { }
+            try { _fsMap?.StopForExit(); } catch { }
+            try { _supeyMap?.StopForExit(); } catch { }
+
             try { SuspendLayout(); } catch { }
             try { ReleaseFsMapFloatForShutdown(); } catch { }
             try { FsAutoSaveBeforeShutdown(); } catch { }
             try { FsStopAutoSaveTimers(); } catch { }
 
             _applicationExitRequested = true;
+            StartExitWatchdog(TimeSpan.FromSeconds(4));
 
             _employeeStatsLoadCts?.Cancel();
             _employeeStatsLoadCts?.Dispose();
@@ -3679,6 +3688,25 @@ namespace Hiatme_Tool_Suite_v3
             try { SupeyOsrmLegs.FlushRouteCache(); } catch { }
 
             base.OnFormClosing(e);
+            if (!e.Cancel)
+            {
+                // Skip GMap Dispose / foreground tile threads keeping the CLR alive.
+                try { Environment.Exit(0); } catch { }
+            }
+        }
+
+        private static void StartExitWatchdog(TimeSpan wait)
+        {
+            var t = new Thread(() =>
+            {
+                try { Thread.Sleep(wait); } catch { }
+                try { Environment.Exit(0); } catch { }
+            })
+            {
+                IsBackground = true,
+                Name = "ExitWatchdog",
+            };
+            try { t.Start(); } catch { }
         }
 
         protected override void OnRestoredFromMinimized()
