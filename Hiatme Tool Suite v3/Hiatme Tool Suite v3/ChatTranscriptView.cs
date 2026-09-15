@@ -87,6 +87,12 @@ namespace Hiatme_Tool_Suite_v3
 
         public void Add(ChatMessage m)
         {
+            using (UiStallWatch.Measure(UiScope.ChatViewAdd))
+                AddCore(m);
+        }
+
+        private void AddCore(ChatMessage m)
+        {
             if (m == null) return;
             if (m.Seq > 0 && !_seen.Add(m.Seq)) return;
             var prev = _rows.Count > 0 ? _rows[_rows.Count - 1] : null;
@@ -251,6 +257,12 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         protected override void OnPaint(PaintEventArgs e)
+        {
+            using (UiStallWatch.Measure(UiScope.ChatViewPaint))
+                PaintCore(e);
+        }
+
+        private void PaintCore(PaintEventArgs e)
         {
             var g = e.Graphics;
             g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;

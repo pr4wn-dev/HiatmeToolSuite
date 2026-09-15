@@ -33,7 +33,7 @@ namespace Hiatme_Tool_Suite_v3
         private void InitTeamChat()
         {
             if (_teamChat != null) return;
-            _teamChat = new TeamChatFeed(() => HiatmeAiSettings.Load());
+            _teamChat = new TeamChatFeed(() => HiatmeAiSettings.LoadNoProbe());
             _teamChat.MessagesArrived += OnTeamChatMessages;
             _teamChat.TypingChanged += OnTeamChatTyping;
             _teamChat.ConnectivityChanged += on =>
@@ -211,6 +211,12 @@ namespace Hiatme_Tool_Suite_v3
         private void OnTeamChatMessages(List<ChatMessage> msgs)
         {
             if (msgs == null || msgs.Count == 0 || _globalAiTranscript == null || _globalAiTranscript.IsDisposed) return;
+            using (UiStallWatch.Measure(UiScope.ChatPoll))
+                ApplyTeamChatMessages(msgs);
+        }
+
+        private void ApplyTeamChatMessages(List<ChatMessage> msgs)
+        {
             string me = _teamChat?.ClientId ?? "";
             var fresh = new List<ChatMessage>();
             foreach (var m in msgs)

@@ -1477,6 +1477,12 @@ namespace Hiatme_Tool_Suite_v3
 
 
         private void FsTripsLv_DrawItem(object sender, DrawListViewItemEventArgs e)
+        {
+            using (UiStallWatch.Measure(UiScope.TripsDrawItem))
+                FsTripsLv_DrawItemCore(sender, e);
+        }
+
+        private void FsTripsLv_DrawItemCore(object sender, DrawListViewItemEventArgs e)
 
         {
 
@@ -1494,6 +1500,12 @@ namespace Hiatme_Tool_Suite_v3
 
 
         private void FsTripsLv_DrawSubItem(object sender, DrawListViewSubItemEventArgs e)
+        {
+            using (UiStallWatch.Measure(UiScope.TripsDrawSubItem))
+                FsTripsLv_DrawSubItemCore(sender, e);
+        }
+
+        private void FsTripsLv_DrawSubItemCore(object sender, DrawListViewSubItemEventArgs e)
 
         {
 

@@ -122,7 +122,7 @@ namespace Hiatme_Tool_Suite_v3
         {
             get
             {
-                try { return _settingsProvider?.Invoke() ?? HiatmeAiSettings.Load(); }
+                try { return _settingsProvider?.Invoke() ?? HiatmeAiSettings.LoadNoProbe(); }
                 catch { return null; }
             }
         }

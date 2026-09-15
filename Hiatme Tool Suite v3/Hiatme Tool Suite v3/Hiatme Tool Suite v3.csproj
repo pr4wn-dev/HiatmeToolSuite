@@ -155,6 +155,7 @@
     <Compile Include="ScheduleExportPaths.cs" />
     <Compile Include="ScheduleWorkbookResolver.cs" />
     <Compile Include="ScheduleActivityFeed.cs" />
+    <Compile Include="UiStallWatch.cs" />
     <Compile Include="TeamChatFeed.cs" />
     <Compile Include="ChatTranscriptView.cs">
       <SubType>Component</SubType>

@@ -202,7 +202,7 @@ namespace Hiatme_Tool_Suite_v3
         {
             get
             {
-                try { return _settingsProvider?.Invoke() ?? HiatmeAiSettings.Load(); }
+                try { return _settingsProvider?.Invoke() ?? HiatmeAiSettings.LoadNoProbe(); }
                 catch { return null; }
             }
         }
@@ -345,19 +345,25 @@ namespace Hiatme_Tool_Suite_v3
                 var settings = Settings;
                 string baseUrl = BaseUrl(settings);
                 if (baseUrl == null) return;
-                string sd = "";
-                try { sd = ServiceDateProvider?.Invoke() ?? ""; } catch { }
-                bool open = builderOpen && !string.IsNullOrEmpty(sd);
-                var body = new JObject
+                JObject body;
+                // Everything up to the first await runs on the UI thread, including the
+                // revision sidecar read inside LocalRevisionProvider.
+                using (UiStallWatch.Measure(UiScope.ActivityHeartbeat))
                 {
-                    ["dispatcher"] = DispatcherName,
-                    ["client_id"] = ClientId,
-                    ["machine"] = ScheduleActivityIdentity.Machine(),
-                    ["service_date"] = sd,
-                    ["unsaved"] = SafeInt(UnsavedCountProvider),
-                    ["revision"] = SafeInt(LocalRevisionProvider),
-                    ["builder_open"] = open,
-                };
+                    string sd = "";
+                    try { sd = ServiceDateProvider?.Invoke() ?? ""; } catch { }
+                    bool open = builderOpen && !string.IsNullOrEmpty(sd);
+                    body = new JObject
+                    {
+                        ["dispatcher"] = DispatcherName,
+                        ["client_id"] = ClientId,
+                        ["machine"] = ScheduleActivityIdentity.Machine(),
+                        ["service_date"] = sd,
+                        ["unsaved"] = SafeInt(UnsavedCountProvider),
+                        ["revision"] = SafeInt(LocalRevisionProvider),
+                        ["builder_open"] = open,
+                    };
+                }
                 using (var req = new HttpRequestMessage(HttpMethod.Post, baseUrl + "/api/hiatme/schedule/presence"))
                 {
                     Auth(req, settings);
@@ -411,6 +417,8 @@ namespace Hiatme_Tool_Suite_v3
                         if (!resp.IsSuccessStatusCode) { SetOnline(false); return; }
                         SetOnline(true);
                         var text = await resp.Content.ReadAsStringAsync().ConfigureAwait(true);
+                        using (UiStallWatch.Measure(UiScope.ActivityPoll))
+                        {
                         var root = JObject.Parse(text);
                         var result = new ScheduleActivityPollResult
                         {
@@ -433,6 +441,7 @@ namespace Hiatme_Tool_Suite_v3
                         PresenceUpdated?.Invoke(result.Presence);
                         if (result.Head != null)
                             HeadUpdated?.Invoke(result.Head);
+                        }
                     }
                 }
             }

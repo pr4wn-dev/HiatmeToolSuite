@@ -116,10 +116,13 @@ namespace Hiatme_Tool_Suite_v3
 
         public void SetRuns(IEnumerable<ScheduleToastRun> runs)
         {
-            _runs.Clear();
-            if (runs != null) _runs.AddRange(runs);
-            _layoutWidth = Width;
-            RecomputeHeight();
+            using (UiStallWatch.Measure(UiScope.ToastLayoutText))
+            {
+                _runs.Clear();
+                if (runs != null) _runs.AddRange(runs);
+                _layoutWidth = Width;
+                RecomputeHeight();
+            }
             Invalidate();
         }
 
@@ -356,6 +359,12 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         protected override void OnPaint(PaintEventArgs e)
+        {
+            using (UiStallWatch.Measure(UiScope.ToastPaint))
+                PaintCore(e);
+        }
+
+        private void PaintCore(PaintEventArgs e)
         {
             var g = e.Graphics;
             g.SmoothingMode = SmoothingMode.AntiAlias;
@@ -603,6 +612,12 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>Add a toast; if the newest live toast matches, merge into it instead.</summary>
         public ScheduleActivityToast Push(ScheduleActivityToast toast, Func<ScheduleActivityToast, bool> coalesceWith = null)
         {
+            using (UiStallWatch.Measure(UiScope.ToastPush))
+                return PushCore(toast, coalesceWith);
+        }
+
+        private ScheduleActivityToast PushCore(ScheduleActivityToast toast, Func<ScheduleActivityToast, bool> coalesceWith)
+        {
             if (_disposed || toast == null) return null;
             var newest = _slots.LastOrDefault(s => !s.Exiting)?.Toast;
             if (newest != null && coalesceWith != null
@@ -686,6 +701,12 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>Compute targets: newest at the bottom, stacking upward.</summary>
         private void Relayout(bool animate)
         {
+            using (UiStallWatch.Measure(UiScope.ToastRelayout))
+                RelayoutCore(animate);
+        }
+
+        private void RelayoutCore(bool animate)
+        {
             if (_host == null || _host.IsDisposed) return;
             int right = _host.ClientSize.Width - InsetRight;
             int y = _host.ClientSize.Height - BottomInset();
@@ -717,6 +738,12 @@ namespace Hiatme_Tool_Suite_v3
         private static double Ease(double t) => t < 0.5 ? 2 * t * t : 1 - Math.Pow(-2 * t + 2, 2) / 2;
 
         private void Step()
+        {
+            using (UiStallWatch.Measure(UiScope.ToastStep))
+                StepCore();
+        }
+
+        private void StepCore()
         {
             if (_disposed) { _tick.Stop(); return; }
             bool anyMotion = false;

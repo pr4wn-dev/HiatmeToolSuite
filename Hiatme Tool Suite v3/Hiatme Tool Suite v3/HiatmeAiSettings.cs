@@ -81,9 +81,52 @@ namespace Hiatme_Tool_Suite_v3
             lock (LoadLock)
             {
                 if (_sessionCache != null) return _sessionCache;
-                _sessionCache = LoadAndConfigureLocked();
+                using (UiStallWatch.Measure(UiScope.SettingsResolve))
+                    _sessionCache = LoadAndConfigureLocked();
                 return _sessionCache;
             }
+        }
+
+        private static HiatmeAiSettings _unresolvedCache;
+        private static int _warming;
+
+        /// <summary>
+        /// Settings read that is safe on the UI thread: it never touches the network.
+        ///
+        /// <see cref="Load"/> on a cold cache walks the panel candidate list with synchronous
+        /// 2–6s timeouts each (plus a DNS lookup), so calling it from a UI timer freezes the
+        /// window for seconds. That is what desks away from the server PC felt every time the
+        /// panel restarted: a background LAN discovery clears the session cache, then the next
+        /// poll tick re-probes on the UI thread. The server PC never noticed because its first
+        /// candidate is itself and always answers.
+        ///
+        /// Returns resolved settings when they are already warm, otherwise the file/env values
+        /// as-is (correct URL in the normal case) and warms the real resolve off-thread.
+        /// </summary>
+        public static HiatmeAiSettings LoadNoProbe()
+        {
+            lock (LoadLock)
+            {
+                if (_sessionCache != null) return _sessionCache;
+                if (_unresolvedCache == null)
+                    _unresolvedCache = LoadMerged();
+            }
+            WarmInBackground();
+            lock (LoadLock)
+            {
+                return _sessionCache ?? _unresolvedCache;
+            }
+        }
+
+        private static void WarmInBackground()
+        {
+            if (Interlocked.CompareExchange(ref _warming, 1, 0) != 0) return;
+            _ = Task.Run(() =>
+            {
+                try { Load(); }
+                catch { }
+                finally { Interlocked.Exchange(ref _warming, 0); }
+            });
         }
 
         public static void InvalidateSessionCache()
@@ -91,6 +134,7 @@ namespace Hiatme_Tool_Suite_v3
             lock (LoadLock)
             {
                 _sessionCache = null;
+                _unresolvedCache = null;
                 _sessionPanelReachable = null;
             }
             HiatmeGeoSettings.Invalidate();
@@ -102,8 +146,12 @@ namespace Hiatme_Tool_Suite_v3
             lock (LoadLock)
             {
                 _sessionCache = null;
+                _unresolvedCache = null;
                 _sessionPanelReachable = null;
             }
+            // Re-resolve here, off-thread, instead of leaving the next caller to do it. This
+            // runs from background LAN discovery, and the next caller is usually a UI timer.
+            WarmInBackground();
         }
 
         /// <summary>Re-probe panel URLs. Loopback first so the office server

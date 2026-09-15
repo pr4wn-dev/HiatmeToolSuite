@@ -3,9 +3,11 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Text;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
@@ -44,7 +46,12 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (_schedActFeed != null) return;
 
-            _schedActFeed = new ScheduleActivityFeed(() => HiatmeAiSettings.Load())
+            // Proves which scope is on the UI thread during a freeze, on this desk and
+            // on every other one, instead of us reasoning about it from the source.
+            UiStallWatch.Start();
+            UiStallWatch.StartReporting(() => HiatmeAiSettings.LoadNoProbe());
+
+            _schedActFeed = new ScheduleActivityFeed(() => HiatmeAiSettings.LoadNoProbe())
             {
                 ServiceDateProvider = ScheduleActivityCurrentDayIso,
                 UnsavedCountProvider = () => _schedActUnsaved,
@@ -128,6 +135,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 try { _schedActFeed?.Dispose(); } catch { }
                 try { _schedActStack?.Dispose(); } catch { }
+                try { UiStallWatch.FlushReport("shutdown"); } catch { }
             }
         }
 
@@ -144,15 +152,71 @@ namespace Hiatme_Tool_Suite_v3
             return d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
         }
 
+        private static readonly Stopwatch SchedActClock = Stopwatch.StartNew();
+        private int _schedActRevValue;
+        private string _schedActRevPath = "";
+        private long _schedActRevAtMs = -1;
+        private int _schedActRevReading;
+
+        /// <summary>
+        /// Our revision for the day on screen, read from memory only.
+        ///
+        /// The underlying read is File.Exists + a sidecar read against Desktop, which is
+        /// OneDrive-synced on every desk, so it can block for seconds when the folder is
+        /// syncing or the file is still a cloud placeholder. Callers are all on the UI thread
+        /// and one of them runs per arriving save event, so a blocking read here showed up as
+        /// the window freezing exactly while toasts appeared. The value only moves when we
+        /// save or pull, so a slightly stale number is always better than a stalled window.
+        /// </summary>
         private int ScheduleActivityLocalRevision()
         {
-            try
+            string p = fsbuilder?.LastExportPath ?? "";
+            if (!string.Equals(p, _schedActRevPath, StringComparison.OrdinalIgnoreCase))
             {
-                string p = fsbuilder?.LastExportPath;
-                if (string.IsNullOrWhiteSpace(p) || !File.Exists(p)) return 0;
-                return ScheduleWorkbookResolver.ReadLocalRevision(p);
+                _schedActRevPath = p;
+                _schedActRevValue = 0;
+                _schedActRevAtMs = -1;
             }
-            catch { return 0; }
+            if (!string.IsNullOrWhiteSpace(p) &&
+                (_schedActRevAtMs < 0 || SchedActClock.ElapsedMilliseconds - _schedActRevAtMs > 4000))
+                ScheduleActivityRefreshRevision(p);
+            return _schedActRevValue;
+        }
+
+        /// <summary>Re-read the revision sidecar off the UI thread; one read in flight at a time.</summary>
+        private void ScheduleActivityRefreshRevision(string path)
+        {
+            if (Interlocked.CompareExchange(ref _schedActRevReading, 1, 0) != 0) return;
+            _ = Task.Run(() =>
+            {
+                int rev = 0;
+                try
+                {
+                    if (File.Exists(path)) rev = ScheduleWorkbookResolver.ReadLocalRevision(path);
+                }
+                catch { rev = 0; }
+                finally { Interlocked.Exchange(ref _schedActRevReading, 0); }
+
+                try
+                {
+                    if (IsDisposed || !IsHandleCreated) return;
+                    BeginInvoke((Action)(() =>
+                    {
+                        if (!string.Equals(path, _schedActRevPath, StringComparison.OrdinalIgnoreCase)) return;
+                        _schedActRevValue = rev;
+                        _schedActRevAtMs = SchedActClock.ElapsedMilliseconds;
+                    }));
+                }
+                catch { }
+            });
+        }
+
+        /// <summary>Called after we publish, so the cached revision reflects our own save at once.</summary>
+        private void ScheduleActivityNoteLocalRevision(int rev)
+        {
+            if (rev <= 0) return;
+            _schedActRevValue = rev;
+            _schedActRevAtMs = SchedActClock.ElapsedMilliseconds;
         }
 
         /// <summary>Emit opened/closed when the day on screen changes; cheap, called from heartbeat/edits.</summary>
@@ -295,6 +359,7 @@ namespace Hiatme_Tool_Suite_v3
             try
             {
                 if (InvokeRequired) { BeginInvoke((Action)(() => ScheduleActivityOnPublished(iso, revision))); return; }
+                ScheduleActivityNoteLocalRevision(revision);
                 _schedActPresencePill?.SetMine(0);
                 // A newer-revision warning for this day is moot once we have just published over it.
                 _schedActStack?.DismissWhere(t =>
@@ -349,6 +414,12 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (events == null || events.Count == 0 || _schedActStack == null) return;
             if (InvokeRequired) { BeginInvoke((Action)(() => OnScheduleActivityEvents(events))); return; }
+            using (UiStallWatch.Measure(UiScope.ActivityEvents))
+                ApplyScheduleActivityEvents(events);
+        }
+
+        private void ApplyScheduleActivityEvents(List<ScheduleActivityEvent> events)
+        {
             string myDay = ScheduleActivityCurrentDayIso();
             foreach (var ev in events)
             {
@@ -715,6 +786,12 @@ namespace Hiatme_Tool_Suite_v3
 
         public void SetOthers(List<SchedulePresenceEntry> others, string myDay)
         {
+            using (UiStallWatch.Measure(UiScope.PresenceSetOthers))
+                SetOthersCore(others, myDay);
+        }
+
+        private void SetOthersCore(List<SchedulePresenceEntry> others, string myDay)
+        {
             _others.Clear();
             if (others != null) _others.AddRange(others);
             _myDay = myDay ?? "";
@@ -763,12 +840,15 @@ namespace Hiatme_Tool_Suite_v3
 
         private void Relayout()
         {
-            using (var g = CreateGraphics())
+            using (UiStallWatch.Measure(UiScope.PresenceRelayout))
             {
-                var sz = g.MeasureString(Text_(), PillFont, PointF.Empty, StringFormat.GenericTypographic);
-                Width = (int)Math.Ceiling(sz.Width) + 30;
+                using (var g = CreateGraphics())
+                {
+                    var sz = g.MeasureString(Text_(), PillFont, PointF.Empty, StringFormat.GenericTypographic);
+                    Width = (int)Math.Ceiling(sz.Width) + 30;
+                }
+                Invalidate();
             }
-            Invalidate();
         }
 
         protected override void OnPaint(PaintEventArgs e)
