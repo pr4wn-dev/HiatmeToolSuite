@@ -116,6 +116,7 @@ namespace Hiatme_Tool_Suite_v3
         {
             _runs.Clear();
             if (runs != null) _runs.AddRange(runs);
+            _layoutWidth = Width;
             RecomputeHeight();
             Invalidate();
         }
@@ -202,10 +203,17 @@ namespace Hiatme_Tool_Suite_v3
             return path;
         }
 
+        private int _layoutWidth = -1;
+
         protected override void OnSizeChanged(EventArgs e)
         {
             base.OnSizeChanged(e);
             ApplyRegion();
+            if (Width != _layoutWidth && IsHandleCreated && _runs.Count > 0)
+            {
+                _layoutWidth = Width;
+                RecomputeHeight();
+            }
         }
 
         private void ApplyRegion()
@@ -219,21 +227,43 @@ namespace Hiatme_Tool_Suite_v3
             catch { }
         }
 
+        // Layout is measured once per SetRuns/resize and cached; OnPaint only draws.
+        // Measuring every run on every repaint was enough GDI+ work at 60fps to lag
+        // the trip list while dragging or cutting.
+        private readonly List<Placed> _layout = new List<Placed>();
+        private int _layoutLines = 1;
+        private int _lineH = 17;
+        private int _nameH = 17;
+        private float _whoW;
+        private int _actionH;
+
         private void RecomputeHeight()
         {
             using (var g = CreateGraphics())
             {
-                int lines = LayoutRuns(g, null).Count;
-                int bodyH = Math.Max(1, lines) * LineHeight(g);
-                int h = PadT + NameRowHeight(g) + RowGap + bodyH + PadB;
-                if (!string.IsNullOrEmpty(ActionText))
-                    h += 5 + (int)Math.Ceiling(g.MeasureString("X", ActionFont).Height);
+                g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
+                _lineH = LineHeight(g);
+                _nameH = NameRowHeight(g);
+                _layout.Clear();
+                var lines = LayoutRuns(g, _layout);
+                _layoutLines = Math.Max(1, lines.Count);
+                _whoW = g.MeasureString(Who ?? "", NameFont, PointF.Empty, StringFormat.GenericTypographic).Width;
+                _actionH = string.IsNullOrEmpty(ActionText)
+                    ? 0
+                    : 5 + (int)Math.Ceiling(g.MeasureString("X", ActionFont).Height);
+                int h = PadT + _nameH + RowGap + _layoutLines * _lineH + PadB + _actionH;
                 Height = Math.Max(48, h);
             }
         }
 
         private static int LineHeight(Graphics g) => (int)Math.Ceiling(g.MeasureString("Xg", BodyFont).Height);
         private static int NameRowHeight(Graphics g) => (int)Math.Ceiling(g.MeasureString("Xg", NameFont).Height);
+
+        /// <summary>Only the fuse strip along the bottom edge (repainted ~10x/s while alive).</summary>
+        public Rectangle FuseRect => new Rectangle(0, Math.Max(0, Height - 3), Width, 3);
+
+        /// <summary>Only the age label at the top right (repainted once a second).</summary>
+        public Rectangle AgeRect => new Rectangle(Math.Max(0, Width - PadR - 40), 0, PadR + 40, PadT + _nameH + 2);
 
         private sealed class Placed
         {
@@ -347,10 +377,10 @@ namespace Hiatme_Tool_Suite_v3
             // Name row.
             float y = PadT;
             float x = PadL;
-            g.DrawString(Who, NameFont, new SolidBrush(textPrimary), x, y, fmt);
-            float nameW = g.MeasureString(Who, NameFont, PointF.Empty, fmt).Width;
-            x += nameW;
-            int nameH = NameRowHeight(g);
+            using (var b = new SolidBrush(textPrimary))
+                g.DrawString(Who, NameFont, b, x, y, fmt);
+            x += _whoW;
+            int nameH = _nameH;
 
             if (Unsaved.HasValue)
             {
@@ -390,18 +420,14 @@ namespace Hiatme_Tool_Suite_v3
                     g.DrawString(age, AgeFont, b, Width - PadR - asz.Width, y + (nameH - asz.Height) / 2f, fmt);
             }
 
-            // Sentence.
+            // Sentence (pre-measured in RecomputeHeight).
             y += nameH + RowGap;
-            var flat = new List<Placed>();
-            LayoutRuns(g, flat);
-            int lineH = LineHeight(g);
-            foreach (var p in flat)
+            foreach (var p in _layout)
             {
                 var box = new RectangleF(PadL + p.Box.X, y + p.Box.Y, p.Box.Width, p.Box.Height);
                 DrawRun(g, p.Run, box, fmt, textPrimary, textBody, textMuted, kind);
             }
-            int lines = flat.Count == 0 ? 1 : flat.Max(p => p.Line) + 1;
-            y += lines * lineH;
+            y += _layoutLines * _lineH;
 
             if (!string.IsNullOrEmpty(ActionText))
             {
@@ -724,24 +750,26 @@ namespace Hiatme_Tool_Suite_v3
                     anyMotion = true;
                     continue;
                 }
-                if (!t.Sticky)
-                {
-                    anyMotion = true; // fuse + age label keep repainting
-                    t.Invalidate();
-                }
+                // Fuse: repaint only the 3px strip along the bottom, not the whole card.
+                if (!t.Sticky && !anyMotion)
+                    t.Invalidate(t.FuseRect);
             }
-            if (!anyMotion && _slots.All(s => s.Toast.Sticky && s.Landed && !s.Exiting))
+
+            // Age label ("3s" -> "4s") once a second, and only that corner.
+            if ((now - _lastAgeRepaintUtc).TotalMilliseconds >= 1000)
             {
-                // Sticky-only stack: repaint the age label once a second instead of 60x.
-                _tick.Interval = 1000;
-                foreach (var s in _slots) s.Toast.Invalidate();
+                _lastAgeRepaintUtc = now;
+                foreach (var s in _slots)
+                    if (!s.Exiting && s.Landed) s.Toast.Invalidate(s.Toast.AgeRect);
             }
-            else
-            {
-                _tick.Interval = 16;
-            }
+
+            // 60fps only while something is sliding; 10fps for the fuse; idle for sticky-only.
+            int want = anyMotion ? 16 : _slots.Any(s => !s.Toast.Sticky) ? 100 : 1000;
+            if (_tick.Interval != want) _tick.Interval = want;
             if (_slots.Count == 0) _tick.Stop();
         }
+
+        private DateTime _lastAgeRepaintUtc = DateTime.MinValue;
 
         private static Point Lerp(Point a, Point b, double t) =>
             new Point((int)Math.Round(a.X + (b.X - a.X) * t), (int)Math.Round(a.Y + (b.Y - a.Y) * t));

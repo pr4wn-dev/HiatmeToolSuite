@@ -705,13 +705,31 @@ namespace Hiatme_Tool_Suite_v3
             TabStop = false;
         }
 
+        private string _lastText = "";
+        private bool _lastActive;
+
         public void SetOthers(List<SchedulePresenceEntry> others, string myDay)
         {
             _others.Clear();
             if (others != null) _others.AddRange(others);
             _myDay = myDay ?? "";
-            Visible = _others.Count > 0;
-            Relayout();
+            bool vis = _others.Count > 0;
+            string text = Text_();
+            bool active = _others.Any(o => o.Active);
+            // Every poll lands here; only touch layout when what we show actually changed,
+            // or the toolbar's FlowLayoutPanel re-lays out every 3 seconds for nothing.
+            if (vis != Visible) Visible = vis;
+            if (text != _lastText)
+            {
+                _lastText = text;
+                _lastActive = active;
+                Relayout();
+            }
+            else if (active != _lastActive)
+            {
+                _lastActive = active;
+                Invalidate();
+            }
         }
 
         public void SetMine(int unsaved)
