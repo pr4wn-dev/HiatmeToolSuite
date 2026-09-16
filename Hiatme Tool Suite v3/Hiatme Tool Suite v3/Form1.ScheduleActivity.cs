@@ -451,17 +451,31 @@ namespace Hiatme_Tool_Suite_v3
                     ActionText = "Load, then redo",
                 };
                 var runs = new List<ScheduleToastRun>();
-                string who = _schedActRecent
-                    .Where(e => e.Verb == "saved" && e.ServiceDate == iso)
-                    .OrderByDescending(e => e.Seq)
-                    .Select(e => e.Dispatcher)
-                    .FirstOrDefault();
-                runs.Add(ScheduleToastRun.Strong(string.IsNullOrEmpty(who) ? "Another desk" : who));
-                runs.Add(ScheduleToastRun.Body("published"));
-                if (serverRev > 0) runs.Add(ScheduleToastRun.Mono("rev " + serverRev));
-                runs.Add(ScheduleToastRun.Body("first. Your"));
-                runs.Add(ScheduleToastRun.Mono("rev " + mine));
-                runs.Add(ScheduleToastRun.Body("copy of " + ScheduleActivityFormat.ShortDate(iso) + " was not written."));
+                if (mine <= 0)
+                {
+                    // Not a race with another desk — this desk cannot say which published version
+                    // it started from, so the server has no way to tell a current save from one
+                    // about to overwrite newer work, and refuses. Saying "someone beat you to it"
+                    // here sends the dispatcher looking for a colleague who did nothing.
+                    runs.Add(ScheduleToastRun.Strong("This desk"));
+                    runs.Add(ScheduleToastRun.Body("lost track of which version of "
+                        + ScheduleActivityFormat.ShortDate(iso) + " it started from, so the save"
+                        + " was not written. Your edits are backed up. Load to get current."));
+                }
+                else
+                {
+                    string who = _schedActRecent
+                        .Where(e => e.Verb == "saved" && e.ServiceDate == iso)
+                        .OrderByDescending(e => e.Seq)
+                        .Select(e => e.Dispatcher)
+                        .FirstOrDefault();
+                    runs.Add(ScheduleToastRun.Strong(string.IsNullOrEmpty(who) ? "Another desk" : who));
+                    runs.Add(ScheduleToastRun.Body("published"));
+                    if (serverRev > 0) runs.Add(ScheduleToastRun.Mono("rev " + serverRev));
+                    runs.Add(ScheduleToastRun.Body("first. Your"));
+                    runs.Add(ScheduleToastRun.Mono("rev " + mine));
+                    runs.Add(ScheduleToastRun.Body("copy of " + ScheduleActivityFormat.ShortDate(iso) + " was not written."));
+                }
                 toast.SetRuns(runs);
                 _schedActStack.Push(toast);
             }

@@ -80,26 +80,82 @@ namespace Hiatme_Tool_Suite_v3
         public static string RevisionSidecarPath(string workbookPath) =>
             (workbookPath ?? "") + ".rev";
 
-        public static int ReadLocalRevision(string workbookPath)
+        /// <summary>
+        /// Per-machine record of which published revision this desk's copy is based on.
+        ///
+        /// This deliberately does not live next to the workbook. The workbook sits in
+        /// Desktop\SCHEDULES FOR {year}\, which is OneDrive-synced on every desk, so a sidecar
+        /// there is not this desk's state at all — it syncs in from whoever wrote it last,
+        /// arrives after the .xlsx it describes, or never arrives while the .xlsx does. A desk
+        /// that picked up a workbook through OneDrive rather than through our own pull ends up
+        /// reading no revision, sends a base of 0, and the server correctly refuses the save.
+        ///
+        /// It cannot recover on its own either: the revision is only written after a save
+        /// succeeds, so a desk in that state is refused every time it tries, which is exactly
+        /// what happened to one desk four times in three minutes against server rev 18.
+        /// Keeping the answer on the machine that owns it takes the sync service out of the
+        /// loop entirely.
+        /// </summary>
+        private static string RevisionStorePath(string workbookPath)
         {
-            string side = RevisionSidecarPath(workbookPath);
-            if (!File.Exists(side)) return 0;
+            string key = (workbookPath ?? "").Trim().ToLowerInvariant();
+            string hash;
+            using (var sha = SHA256.Create())
+            {
+                byte[] h = sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(key));
+                hash = BitConverter.ToString(h, 0, 10).Replace("-", "").ToLowerInvariant();
+            }
+            string dir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "HiatmeToolSuite",
+                "schedule_revisions");
+            Directory.CreateDirectory(dir);
+            return Path.Combine(dir, hash + ".rev");
+        }
+
+        private static int ReadRevisionFile(string path)
+        {
             try
             {
+                if (!File.Exists(path)) return 0;
                 int rev;
-                return int.TryParse((File.ReadAllText(side) ?? "").Trim(), out rev) ? rev : 0;
+                return int.TryParse((File.ReadAllText(path) ?? "").Trim(), out rev) ? rev : 0;
             }
-            catch
+            catch { return 0; }
+        }
+
+        public static int ReadLocalRevision(string workbookPath)
+        {
+            if (string.IsNullOrWhiteSpace(workbookPath)) return 0;
+
+            string store;
+            try { store = RevisionStorePath(workbookPath); }
+            catch { return ReadRevisionFile(RevisionSidecarPath(workbookPath)); }
+
+            int rev = ReadRevisionFile(store);
+            if (rev > 0) return rev;
+
+            // Desks upgrading into this carry their history in the old synced sidecar. Adopt it
+            // once so nobody starts from zero — and therefore locked out of saving — on upgrade.
+            int legacy = ReadRevisionFile(RevisionSidecarPath(workbookPath));
+            if (legacy > 0)
             {
-                return 0;
+                try { File.WriteAllText(store, legacy.ToString(CultureInfo.InvariantCulture)); }
+                catch { }
             }
+            return legacy;
         }
 
         public static void WriteLocalRevision(string workbookPath, int revision)
         {
             if (string.IsNullOrWhiteSpace(workbookPath) || revision <= 0)
                 return;
-            try { File.WriteAllText(RevisionSidecarPath(workbookPath), revision.ToString(CultureInfo.InvariantCulture)); }
+            string text = revision.ToString(CultureInfo.InvariantCulture);
+            try { File.WriteAllText(RevisionStorePath(workbookPath), text); }
+            catch { }
+            // Still written so rolling a desk back to an older build does not strand it at zero.
+            // Older builds read only this copy; newer ones prefer the per-machine store above.
+            try { File.WriteAllText(RevisionSidecarPath(workbookPath), text); }
             catch { }
         }
 
@@ -290,6 +346,23 @@ namespace Hiatme_Tool_Suite_v3
             bool serverExists = meta != null && meta.Ok && meta.Exists;
             int serverRev = serverExists ? meta.Revision : 0;
             int localRev = desktopExists ? ReadLocalRevision(desktopPath) : 0;
+
+            // A copy that is byte-identical to what is published IS based on that revision,
+            // whether or not this desk was ever told so. Recording it here is what stops a desk
+            // that received the workbook through OneDrive rather than through our own pull from
+            // sitting at base 0 — a state it cannot leave, because the base is only written
+            // after a save succeeds and the server refuses every save made from base 0.
+            // Safe to adopt precisely because it is gated on the bytes matching.
+            if (desktopExists && serverExists && serverRev > localRev
+                && !string.IsNullOrWhiteSpace(meta.Sha256)
+                && string.Equals(
+                    FileSha256Hex(desktopPath),
+                    meta.Sha256.Trim(),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                WriteLocalRevision(desktopPath, serverRev);
+                localRev = serverRev;
+            }
 
             // Pull when the published revision is newer, or when the .rev sidecar
             // already matches (OneDrive synced the tiny sidecar) but the xlsx

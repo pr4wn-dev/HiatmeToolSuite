@@ -166,9 +166,14 @@ namespace Hiatme_Tool_Suite_v3
                     settings, iso, workbookPath, "schedule_builder_save").ConfigureAwait(false);
                 if (result != null && result.Conflict)
                 {
+                    // The remedy for a rejection is to load the published copy, which overwrites
+                    // whatever is on this desk. Keep a copy first: the edits in it never reached
+                    // the server, so this is the only place they still exist.
+                    string kept = ScheduleWorkbookResolver.BackupLocalWorkbook(workbookPath, iso);
                     HiatmeAiSettings.LogProbe(
                         "workbook upload stale " + iso
-                        + " — LOAD the published schedule before saving over it");
+                        + " — LOAD the published schedule before saving over it"
+                        + (string.IsNullOrEmpty(kept) ? "" : " (this copy kept at " + kept + ")"));
                     ScheduleActivityOnRejected(iso, result);
                 }
                 else if (result == null || !result.Ok)
