@@ -19,6 +19,8 @@ namespace Hiatme_Tool_Suite_v3
         Muted,
         /// <summary>A teammate (or the AI) said something while the dock was hidden.</summary>
         Chat,
+        /// <summary>The panel is asking the desk to confirm something for the playbook.</summary>
+        Question,
     }
 
     /// <summary>One inline piece of a toast sentence.</summary>
@@ -93,6 +95,25 @@ namespace Hiatme_Tool_Suite_v3
         public int Count { get; set; } = 1;
         public bool? Unsaved { get; set; }
         public string ActionText { get; set; }
+
+        /// <summary>
+        /// A second choice, drawn to the left of <see cref="ActionText"/>.
+        ///
+        /// Every other toast offers one way out, so a click anywhere could mean it. A question
+        /// has two answers that are not interchangeable, so the words themselves have to be the
+        /// targets — see <see cref="RequireActionClick"/>.
+        /// </summary>
+        public string SecondaryActionText { get; set; }
+
+        /// <summary>
+        /// Only a click on an action word counts; clicks elsewhere do nothing.
+        ///
+        /// Without this, brushing the toast while reaching for the trip list would answer a
+        /// question on the dispatcher's behalf and write it to the playbook as a considered
+        /// reply. A stray click has to be able to mean nothing.
+        /// </summary>
+        public bool RequireActionClick { get; set; }
+
         public object Payload { get; set; }
         /// <summary>Lifetime in ms; 0 = sticky (no fuse, never auto-dismisses).</summary>
         public int LifetimeMs { get; set; } = 8000;
@@ -103,6 +124,9 @@ namespace Hiatme_Tool_Suite_v3
         public DateTime BornUtc => _bornUtc;
 
         public event EventHandler Activated;
+
+        /// <summary>The second action was clicked (Skip, on a question).</summary>
+        public event EventHandler SecondaryActivated;
 
         public ScheduleActivityToast()
         {
@@ -192,6 +216,7 @@ namespace Hiatme_Tool_Suite_v3
                     case ScheduleToastKind.Behind: return SupeyTheme.WarnText;
                     case ScheduleToastKind.Rejected: return SupeyTheme.ErrorText;
                     case ScheduleToastKind.Chat: return SupeyTheme.TextLink;
+                    case ScheduleToastKind.Question: return SupeyTheme.AccentStripe;
                     default: return SupeyTheme.Divider;
                 }
             }
@@ -266,11 +291,55 @@ namespace Hiatme_Tool_Suite_v3
                 var lines = LayoutRuns(g, _layout);
                 _layoutLines = Math.Max(1, lines.Count);
                 _whoW = g.MeasureString(Who ?? "", NameFont, PointF.Empty, StringFormat.GenericTypographic).Width;
-                _actionH = string.IsNullOrEmpty(ActionText)
-                    ? 0
-                    : 5 + (int)Math.Ceiling(g.MeasureString("X", ActionFont).Height);
+                bool anyAction = !string.IsNullOrEmpty(ActionText) || !string.IsNullOrEmpty(SecondaryActionText);
+                _actionH = anyAction
+                    ? 5 + (int)Math.Ceiling(g.MeasureString("X", ActionFont).Height)
+                    : 0;
+                LayoutActions(g, PadT + _nameH + RowGap + _layoutLines * _lineH + 5);
                 int h = PadT + _nameH + RowGap + _layoutLines * _lineH + PadB + _actionH;
                 Height = Math.Max(48, h);
+            }
+        }
+
+        private Rectangle _actionRect = Rectangle.Empty;
+        private Rectangle _secondaryRect = Rectangle.Empty;
+        private bool _hoverAction;
+        private bool _hoverSecondary;
+
+        /// <summary>
+        /// Place the action words right-to-left and remember where they landed.
+        ///
+        /// Measured here rather than in OnPaint because the click targets have to exist whether
+        /// or not a paint has happened, and because partial repaints (the fuse strip, the age
+        /// label) never run the full paint path that would otherwise compute them.
+        /// </summary>
+        private void LayoutActions(Graphics g, int y)
+        {
+            _actionRect = Rectangle.Empty;
+            _secondaryRect = Rectangle.Empty;
+            var fmt = StringFormat.GenericTypographic;
+            int right = Width - PadR;
+            // Slop around the glyphs: these words are 8pt, and a target you have to aim at is a
+            // target that gets misclicked into the wrong answer.
+            const int PadClickX = 6;
+            const int PadClickY = 4;
+
+            if (!string.IsNullOrEmpty(ActionText))
+            {
+                var sz = g.MeasureString(ActionText.ToUpperInvariant(), ActionFont, PointF.Empty, fmt);
+                int w = (int)Math.Ceiling(sz.Width);
+                _actionRect = new Rectangle(
+                    right - w - PadClickX, y - PadClickY,
+                    w + PadClickX * 2, (int)Math.Ceiling(sz.Height) + PadClickY * 2);
+                right -= w + 14;
+            }
+            if (!string.IsNullOrEmpty(SecondaryActionText))
+            {
+                var sz = g.MeasureString(SecondaryActionText.ToUpperInvariant(), ActionFont, PointF.Empty, fmt);
+                int w = (int)Math.Ceiling(sz.Width);
+                _secondaryRect = new Rectangle(
+                    right - w - PadClickX, y - PadClickY,
+                    w + PadClickX * 2, (int)Math.Ceiling(sz.Height) + PadClickY * 2);
             }
         }
 
@@ -453,16 +522,35 @@ namespace Hiatme_Tool_Suite_v3
             }
             y += _layoutLines * _lineH;
 
-            if (!string.IsNullOrEmpty(ActionText))
+            if (!string.IsNullOrEmpty(ActionText) || !string.IsNullOrEmpty(SecondaryActionText))
             {
                 y += 5;
-                string a = ActionText.ToUpperInvariant();
-                var asz = g.MeasureString(a, ActionFont, PointF.Empty, fmt);
                 Color ac = Kind == ScheduleToastKind.Rejected ? SupeyTheme.ErrorText : SupeyTheme.AccentPrimary;
                 if (Kind == ScheduleToastKind.Behind) ac = SupeyTheme.WarnText;
                 if (Kind == ScheduleToastKind.Chat) ac = SupeyTheme.TextLink;
-                using (var b = new SolidBrush(Dimmed(_hover ? SupeyTheme.TextPrimary : ac)))
-                    g.DrawString(a, ActionFont, b, Width - PadR - asz.Width, y, fmt);
+                if (Kind == ScheduleToastKind.Question) ac = SupeyTheme.SuccessText;
+
+                // With two choices, lighting up both on hover would say the toast is one button.
+                // Only the word under the pointer brightens, so it is obvious which answer a
+                // click is about to give.
+                bool single = string.IsNullOrEmpty(SecondaryActionText);
+
+                if (!string.IsNullOrEmpty(ActionText))
+                {
+                    bool lit = single ? _hover : _hoverAction;
+                    string a = ActionText.ToUpperInvariant();
+                    var asz = g.MeasureString(a, ActionFont, PointF.Empty, fmt);
+                    using (var b = new SolidBrush(Dimmed(lit ? SupeyTheme.TextPrimary : ac)))
+                        g.DrawString(a, ActionFont, b, Width - PadR - asz.Width, y, fmt);
+                }
+                if (!string.IsNullOrEmpty(SecondaryActionText))
+                {
+                    // Declining is always available but never the thing being urged, so it stays
+                    // muted until pointed at.
+                    string s = SecondaryActionText.ToUpperInvariant();
+                    using (var b = new SolidBrush(Dimmed(_hoverSecondary ? SupeyTheme.TextPrimary : SupeyTheme.TextMuted)))
+                        g.DrawString(s, ActionFont, b, _secondaryRect.X + 6, y, fmt);
+                }
             }
 
             // Fuse along the bottom edge.
@@ -558,10 +646,25 @@ namespace Hiatme_Tool_Suite_v3
             Invalidate();
         }
 
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);
+            bool a = _actionRect != Rectangle.Empty && _actionRect.Contains(e.Location);
+            bool s = _secondaryRect != Rectangle.Empty && _secondaryRect.Contains(e.Location);
+            if (a == _hoverAction && s == _hoverSecondary) return;
+            _hoverAction = a;
+            _hoverSecondary = s;
+            // A pointer that is not over an answer should not look like it can click one.
+            Cursor = (RequireActionClick && !a && !s) ? Cursors.Default : Cursors.Hand;
+            Invalidate();
+        }
+
         protected override void OnMouseLeave(EventArgs e)
         {
             base.OnMouseLeave(e);
             _hover = false;
+            _hoverAction = false;
+            _hoverSecondary = false;
             if (_pauseStartUtc.HasValue)
             {
                 _paused += DateTime.UtcNow - _pauseStartUtc.Value;
@@ -573,8 +676,20 @@ namespace Hiatme_Tool_Suite_v3
         protected override void OnMouseClick(MouseEventArgs e)
         {
             base.OnMouseClick(e);
-            if (e.Button == MouseButtons.Left)
-                Activated?.Invoke(this, EventArgs.Empty);
+            if (e.Button != MouseButtons.Left) return;
+
+            if (_secondaryRect != Rectangle.Empty && _secondaryRect.Contains(e.Location))
+            {
+                SecondaryActivated?.Invoke(this, EventArgs.Empty);
+                return;
+            }
+            // On a question, only the words answer. Anywhere else is a miss, and a miss must not
+            // be recorded as the dispatcher's opinion.
+            if (RequireActionClick
+                && !(_actionRect != Rectangle.Empty && _actionRect.Contains(e.Location)))
+                return;
+
+            Activated?.Invoke(this, EventArgs.Empty);
         }
     }
 
@@ -610,6 +725,15 @@ namespace Hiatme_Tool_Suite_v3
         private bool _disposed;
 
         public event Action<ScheduleActivityToast> ToastClicked;
+
+        /// <summary>The toast's second action was clicked (Skip, on a question).</summary>
+        public event Action<ScheduleActivityToast> ToastSecondaryClicked;
+
+        /// <summary>A toast ran out its fuse without anyone acting on it.</summary>
+        public event Action<ScheduleActivityToast> ToastExpired;
+
+        /// <summary>Toasts currently on screen and not already sliding out.</summary>
+        public int VisibleCount => _slots.Count(s => !s.Exiting);
 
         public ScheduleActivityToastStack(Control host, Func<int> bottomInset = null)
         {
@@ -652,6 +776,7 @@ namespace Hiatme_Tool_Suite_v3
 
             toast.Width = ScheduleActivityToast.DefaultWidth;
             toast.Activated += (s, e) => ToastClicked?.Invoke((ScheduleActivityToast)s);
+            toast.SecondaryActivated += (s, e) => ToastSecondaryClicked?.Invoke((ScheduleActivityToast)s);
             _host.Controls.Add(toast);
             toast.BringToFront();
             var slot = new Slot { Toast = toast, Entering = true, MotionStartUtc = DateTime.UtcNow };
@@ -791,6 +916,9 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     BeginExit(s);
                     anyMotion = true;
+                    // Distinct from a dismissal: nobody acted. A question that runs out has not
+                    // been answered, and the caller needs to be able to tell those apart.
+                    try { ToastExpired?.Invoke(t); } catch { }
                     continue;
                 }
                 // Fuse: repaint only the 3px strip along the bottom, not the whole card.

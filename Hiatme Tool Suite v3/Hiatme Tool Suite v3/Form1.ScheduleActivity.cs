@@ -69,6 +69,14 @@ namespace Hiatme_Tool_Suite_v3
 
             _schedActStack = new ScheduleActivityToastStack(this, ScheduleActivityBottomInset);
             _schedActStack.ToastClicked += OnScheduleActivityToastClicked;
+            _schedActStack.ToastSecondaryClicked += t =>
+            {
+                if (t != null && t.Kind == ScheduleToastKind.Question) AnswerPlaybookAsk(t, "skip");
+            };
+            _schedActStack.ToastExpired += t =>
+            {
+                if (t != null && t.Kind == ScheduleToastKind.Question) PlaybookAskExpired();
+            };
 
             _schedActDrawer = new ScheduleActivityDrawer();
             _schedActDrawer.SetIdentity(_schedActFeed.ClientId);
@@ -82,6 +90,7 @@ namespace Hiatme_Tool_Suite_v3
 
             InstallSchedulePresencePill();
             InitDeskPoke();
+            InitPlaybookAsk();
 
             if (hiatmeTabControl != null)
             {
@@ -193,6 +202,7 @@ namespace Hiatme_Tool_Suite_v3
             catch { }
             finally
             {
+                try { ShutdownPlaybookAsk(); } catch { }
                 try { _schedActFeed?.Dispose(); } catch { }
                 try { _schedActStack?.Dispose(); } catch { }
                 try { UiStallWatch.FlushReport("shutdown"); } catch { }
@@ -799,6 +809,11 @@ namespace Hiatme_Tool_Suite_v3
                 if (toast.Kind == ScheduleToastKind.Chat)
                 {
                     OnTeamChatToastClicked(toast);
+                    return;
+                }
+                if (toast.Kind == ScheduleToastKind.Question)
+                {
+                    AnswerPlaybookAsk(toast, "yes");
                     return;
                 }
                 if (toast.Kind == ScheduleToastKind.Behind || toast.Kind == ScheduleToastKind.Rejected)
