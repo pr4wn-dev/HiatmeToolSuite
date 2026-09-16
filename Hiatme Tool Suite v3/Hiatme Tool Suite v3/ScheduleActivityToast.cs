@@ -81,6 +81,12 @@ namespace Hiatme_Tool_Suite_v3
         public string Who { get; set; } = "";
         public string Verb { get; set; } = "";
         public string ServiceDate { get; set; } = "";
+        /// <summary>
+        /// This toast is about a schedule other than the one on screen. Off-day edits never reach
+        /// a toast at all; the low-volume events that do (a save, someone opening a day) are worth
+        /// knowing about but should not read as loud as work on your own schedule.
+        /// </summary>
+        public bool OffDay { get; set; }
         public string SourceClientId { get; set; } = "";
         public string ToTab { get; set; } = "";
         public double EventTs { get; set; }
@@ -192,6 +198,12 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         private bool IsMuted => Kind == ScheduleToastKind.Muted || Kind == ScheduleToastKind.Presence;
+
+        /// <summary>
+        /// Dim the wording, but not the kind tick. An off-day save keeps its green tick so it still
+        /// reads as a save at a glance; only the sentence recedes.
+        /// </summary>
+        private bool IsSubdued => IsMuted || OffDay;
 
         // ------------------------------------------------------------- geometry
 
@@ -373,8 +385,8 @@ namespace Hiatme_Tool_Suite_v3
 
             Color kind = KindColor;
             Color tick = IsMuted ? SupeyTheme.Divider : kind;
-            Color textPrimary = Dimmed(IsMuted ? SupeyTheme.TextSecondary : SupeyTheme.TextPrimary);
-            Color textBody = Dimmed(IsMuted ? SupeyTheme.TextMuted : SupeyTheme.TextSecondary);
+            Color textPrimary = Dimmed(IsSubdued ? SupeyTheme.TextSecondary : SupeyTheme.TextPrimary);
+            Color textBody = Dimmed(IsSubdued ? SupeyTheme.TextMuted : SupeyTheme.TextSecondary);
             Color textMuted = Dimmed(SupeyTheme.TextMuted);
 
             var outer = new Rectangle(0, 0, Width - 1, Height - 1);
@@ -487,7 +499,7 @@ namespace Hiatme_Tool_Suite_v3
                 case ScheduleToastRun.Style.ChipWarn:
                     {
                         Color edge = run.Kind == ScheduleToastRun.Style.ChipAccent
-                            ? (IsMuted ? SupeyTheme.TextMuted : kind)
+                            ? (IsSubdued ? SupeyTheme.TextMuted : kind)
                             : run.Kind == ScheduleToastRun.Style.ChipWarn
                                 ? SupeyTheme.WarnText
                                 : SupeyTheme.Divider;

@@ -512,6 +512,7 @@ namespace Hiatme_Tool_Suite_v3
                             Who = ev.Dispatcher,
                             Verb = ev.Verb,
                             ServiceDate = ev.ServiceDate,
+                            OffDay = !sameDay,
                             SourceClientId = ev.ClientId,
                             EventTs = ev.Ts,
                             LifetimeMs = behind ? 0 : (sameDay ? 6000 : 5000),
@@ -553,6 +554,7 @@ namespace Hiatme_Tool_Suite_v3
                             Who = ev.Dispatcher,
                             Verb = ev.Verb,
                             ServiceDate = ev.ServiceDate,
+                            OffDay = !sameDay,
                             SourceClientId = ev.ClientId,
                             EventTs = ev.Ts,
                             LifetimeMs = 5000,
@@ -565,11 +567,24 @@ namespace Hiatme_Tool_Suite_v3
                     }
                 default:
                     {
+                        // Edits on a schedule other than the one on screen never toast.
+                        //
+                        // One fires per undo snapshot, so this is effectively all of the feed's
+                        // volume, and it is the one kind of event you cannot act on from here:
+                        // knowing Remie moved a trip on the 18th while you are building the 17th
+                        // changes nothing you are doing. Saves and presence still come through
+                        // because they are a handful a day and do tell you something useful.
+                        //
+                        // Nothing is lost by dropping these. The caller has already added the
+                        // event to _schedActRecent and hands the whole batch to the history
+                        // drawer, which pulls any day in full from the server on demand.
+                        if (!sameDay) return;
+
                         var d = ev.Detail ?? new ScheduleActivityDetail();
                         string toTab = d.ToTab ?? d.Tab ?? "";
                         var t = new ScheduleActivityToast
                         {
-                            Kind = sameDay ? ScheduleToastKind.Edit : ScheduleToastKind.Muted,
+                            Kind = ScheduleToastKind.Edit,
                             Who = ev.Dispatcher,
                             Verb = ev.Verb,
                             ServiceDate = ev.ServiceDate,
@@ -578,7 +593,7 @@ namespace Hiatme_Tool_Suite_v3
                             EventTs = ev.Ts,
                             Count = Math.Max(1, d.EffectiveCount),
                             Unsaved = !(ev.Saved ?? false),
-                            LifetimeMs = sameDay ? 8000 : 5000,
+                            LifetimeMs = 8000,
                             Payload = new List<ScheduleActivityEvent> { ev },
                         };
                         t.SetRuns(BuildScheduleActivityRuns(new List<ScheduleActivityEvent> { ev }, sameDay));
