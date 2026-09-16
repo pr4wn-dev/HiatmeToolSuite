@@ -502,6 +502,15 @@ namespace Hiatme_Tool_Suite_v3
                 _ = ProbeGlobalAiPanelAsync();
                 MaybeLoadGlobalAiQuestion();
             }
+            else
+            {
+                // Let go of the question on the way out. The card is hidden now, so holding it
+                // helps nobody — and the corner refuses to ask while the dock has one pending,
+                // to avoid putting the same question in two places. Keeping it meant a single
+                // visit to the chat silenced the corner until somebody came back and answered
+                // here, which is the exact habit the corner exists to stop relying on.
+                ClearGlobalAiQuestion();
+            }
             TeamChatOnDockToggled(expanded);
             RefreshTitleBarChrome();
         }

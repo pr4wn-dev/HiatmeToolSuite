@@ -36,6 +36,11 @@ namespace Hiatme_Tool_Suite_v3
         private const int AskGapAfterIgnoredMs = 25 * 60_000;
         private const int AskTickMs = 20_000;
 
+        // Shorter before the first one. Waiting a full gap after launch meant a desk opened in
+        // the morning, got asked nothing for five minutes, and anyone checking whether this
+        // works at all concluded it does not. Long enough to be past the startup rush.
+        private const int AskFirstGapMs = 45_000;
+
         // Long enough to read a sentence and decide, short enough that an unanswered one is gone
         // before it becomes scenery. Hovering pauses this, so reading it does not race the fuse.
         private const int AskToastLifetimeMs = 30_000;
@@ -43,7 +48,7 @@ namespace Hiatme_Tool_Suite_v3
         private void InitPlaybookAsk()
         {
             if (_askTimer != null) return;
-            _askNextAtMs = _askClock.ElapsedMilliseconds + AskGapMs;
+            _askNextAtMs = _askClock.ElapsedMilliseconds + AskFirstGapMs;
             _askTimer = new System.Windows.Forms.Timer { Interval = AskTickMs };
             _askTimer.Tick += (_, __) => MaybeAskPlaybookQuestion();
             _askTimer.Start();
