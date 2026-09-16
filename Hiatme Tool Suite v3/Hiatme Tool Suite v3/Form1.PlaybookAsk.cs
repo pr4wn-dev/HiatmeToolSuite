@@ -137,13 +137,24 @@ namespace Hiatme_Tool_Suite_v3
                 ActionText = string.IsNullOrWhiteSpace(q.YesLabel) ? "Yes" : q.YesLabel.Trim(),
                 SecondaryActionText = string.IsNullOrWhiteSpace(q.SkipLabel) ? "Not sure" : q.SkipLabel.Trim(),
                 RequireActionClick = true,
+                // A question is a sentence, not an event fragment, and it cannot be answered
+                // if it cannot be read. Events get three lines; this gets as many as it needs.
+                MaxTextLines = 6,
                 Payload = q,
             };
 
             var runs = new List<ScheduleToastRun>();
-            if (!string.IsNullOrWhiteSpace(q.Client))
-                runs.Add(ScheduleToastRun.Chip(q.Client.Trim()));
-            runs.Add(ScheduleToastRun.Body(q.Text.Trim()));
+            string body = (q.Text ?? "").Trim();
+            string client = (q.Client ?? "").Trim();
+            if (!string.IsNullOrEmpty(client))
+            {
+                runs.Add(ScheduleToastRun.Chip(client));
+                // The chip already names them, and questions are written to open with the
+                // client's name, so leaving it in prints it twice in the same breath.
+                if (body.StartsWith(client, StringComparison.OrdinalIgnoreCase))
+                    body = body.Substring(client.Length).TrimStart();
+            }
+            runs.Add(ScheduleToastRun.Body(body));
             toast.SetRuns(runs);
 
             _askToast = toast;

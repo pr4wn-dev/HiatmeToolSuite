@@ -359,6 +359,39 @@ namespace Hiatme_Tool_Suite_v3
             public int Line;
         }
 
+        /// <summary>
+        /// Runs to lay out, with prose split into individual words.
+        ///
+        /// Lines can only break between runs, so a whole sentence handed over as one run has no
+        /// break in it: it overflows the card and is clipped mid-word. That never showed while
+        /// every toast was assembled from short fragments ("Remie", "moved", "rev 18"), but a
+        /// question is a sentence somebody wrote, and it has to be readable to be answerable.
+        ///
+        /// Chips are left whole — they are drawn as a box around their text and half a chip is
+        /// not a thing.
+        /// </summary>
+        private IEnumerable<ScheduleToastRun> WrappableRuns()
+        {
+            foreach (var run in _runs)
+            {
+                bool isChip = run.Kind == ScheduleToastRun.Style.Chip
+                    || run.Kind == ScheduleToastRun.Style.ChipAccent
+                    || run.Kind == ScheduleToastRun.Style.ChipWarn;
+                if (isChip || string.IsNullOrEmpty(run.Text) || run.Text.IndexOf(' ') < 0)
+                {
+                    yield return run;
+                    continue;
+                }
+                foreach (var word in run.Text.Split(' '))
+                {
+                    if (word.Length > 0) yield return new ScheduleToastRun(word, run.Kind);
+                }
+            }
+        }
+
+        /// <summary>Lines of text before truncation. A question needs more room than an event.</summary>
+        public int MaxTextLines { get; set; } = MaxLines;
+
         /// <summary>Greedy flow layout of runs into lines; returns per-line lists.</summary>
         private List<List<Placed>> LayoutRuns(Graphics g, List<Placed> flat)
         {
@@ -372,7 +405,7 @@ namespace Hiatme_Tool_Suite_v3
             float spaceW = Math.Max(3f,
                 g.MeasureString("a a", BodyFont, PointF.Empty, fmt).Width
                 - g.MeasureString("aa", BodyFont, PointF.Empty, fmt).Width);
-            foreach (var run in _runs)
+            foreach (var run in WrappableRuns())
             {
                 if (string.IsNullOrEmpty(run.Text)) continue;
                 SizeF sz = MeasureRun(g, run, fmt);
@@ -382,7 +415,7 @@ namespace Hiatme_Tool_Suite_v3
                 float need = gap + sz.Width;
                 if (x > 0 && x + need > maxW)
                 {
-                    if (lines.Count >= MaxLines) break;
+                    if (lines.Count >= MaxTextLines) break;
                     lines.Add(new List<Placed>());
                     x = 0;
                     gap = 0;
