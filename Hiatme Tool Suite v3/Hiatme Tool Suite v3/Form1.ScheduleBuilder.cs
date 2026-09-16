@@ -1505,6 +1505,37 @@ namespace Hiatme_Tool_Suite_v3
                 FsTripsLv_DrawSubItemCore(sender, e);
         }
 
+        private Font _fsTripsFontBase;
+        private Font _fsTripsBoldFont;
+        private Font _fsTripsItalicFont;
+
+        /// <summary>
+        /// Bold/italic variants of the trip list font, built once and reused.
+        ///
+        /// These used to be <c>new Font(...)</c> per cell inside DrawSubItem and were never
+        /// disposed, so every repaint of a section header or gap note leaked a GDI handle and
+        /// queued a finalizer. Across a day of binds that is tens of thousands of handles
+        /// against a 10,000-per-process limit, which drags every later GDI call down.
+        /// </summary>
+        private Font FsTripsDerivedFont(FontStyle style)
+        {
+            Font baseFont = _fsTripsLv?.Font;
+            if (baseFont == null) return null;
+
+            if (!ReferenceEquals(baseFont, _fsTripsFontBase))
+            {
+                _fsTripsBoldFont?.Dispose();
+                _fsTripsItalicFont?.Dispose();
+                _fsTripsBoldFont = null;
+                _fsTripsItalicFont = null;
+                _fsTripsFontBase = baseFont;
+            }
+
+            if (style == FontStyle.Bold)
+                return _fsTripsBoldFont ?? (_fsTripsBoldFont = new Font(baseFont, FontStyle.Bold));
+            return _fsTripsItalicFont ?? (_fsTripsItalicFont = new Font(baseFont, FontStyle.Italic));
+        }
+
         private void FsTripsLv_DrawSubItemCore(object sender, DrawListViewSubItemEventArgs e)
 
         {
@@ -1643,10 +1674,10 @@ namespace Hiatme_Tool_Suite_v3
 
             Font drawFont = isSection && !isReservesTab && e.ColumnIndex == ScheduleBuilderTripAlertsColumn.SectionLabelColumnIndex
 
-                ? new Font(_fsTripsLv.Font, FontStyle.Bold)
+                ? FsTripsDerivedFont(FontStyle.Bold)
 
                 : (isGap && gapTag != null && !string.IsNullOrWhiteSpace(gapTag.NoteText) && e.ColumnIndex == ScheduleBuilderTripAlertsColumn.GapNoteColumnIndex)
-                    ? new Font(_fsTripsLv.Font, FontStyle.Italic)
+                    ? FsTripsDerivedFont(FontStyle.Italic)
                     : _fsTripsLv.Font;
 
             TextFormatFlags align = TextFormatFlags.Left;

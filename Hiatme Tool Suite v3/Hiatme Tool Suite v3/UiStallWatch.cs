@@ -38,6 +38,14 @@ namespace Hiatme_Tool_Suite_v3
         SettingsResolve,
         /// <summary>GMap.NET tile HTTP. Must never stay on the UI thread.</summary>
         MapTile,
+        // Driver Habits "Live" redraw, split by phase. The 60s poll costs that desk ~300ms
+        // whenever the data changed, and the trip list and driver strip are both already
+        // batched, so these name the phase that spends it instead of us guessing again.
+        HabitsPresent,
+        HabitsStrip,
+        HabitsTripPane,
+        HabitsScorecard,
+        HabitsLayout,
         Count,
     }
 
@@ -57,6 +65,14 @@ namespace Hiatme_Tool_Suite_v3
         private const int BeatMs = 20;
         private const int WatchMs = 25;
         private const int MaxStallRecords = 400;
+
+        /// <summary>
+        /// Gaps longer than this are the machine sleeping, locking or hibernating, not a
+        /// freeze anyone sat through. Cherie's desk reported a "5,903,019ms stall" — 98
+        /// minutes, exactly the gap between her 07:42 and 09:21 activity — which made the
+        /// worst-stall figure useless on every report that desk sent.
+        /// </summary>
+        private const int SleepGapMs = 60_000;
 
         private static readonly object Gate = new object();
         private static readonly long[] Calls = new long[(int)UiScope.Count];
@@ -168,7 +184,15 @@ namespace Hiatme_Tool_Suite_v3
                 lastReported = startedAt;
                 string stack;
                 lock (Gate) stack = _lastUiStack;
-                RecordStall(Interlocked.Read(ref _lastBeatMs) - startedAt, (UiScope)scope, inScopeMs, stack);
+                double stalledMs = Interlocked.Read(ref _lastBeatMs) - startedAt;
+                if (stalledMs >= SleepGapMs)
+                {
+                    Append(DateTime.Now.ToString("HH:mm:ss.fff")
+                        + "  (ignored " + (stalledMs / 1000.0).ToString("N0", CultureInfo.InvariantCulture)
+                        + "s gap - machine asleep or locked)");
+                    continue;
+                }
+                RecordStall(stalledMs, (UiScope)scope, inScopeMs, stack);
             }
         }
 

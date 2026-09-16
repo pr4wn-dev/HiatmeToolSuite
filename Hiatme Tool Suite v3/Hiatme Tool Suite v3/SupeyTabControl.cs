@@ -34,7 +34,15 @@ namespace Hiatme_Tool_Suite_v3
             SetStyle(ControlStyles.OptimizedDoubleBuffer, true);
             EnableDoubleBuffering(this);
 
-            Multiline = false;
+            // Must stay true. A single-row tab control that thinks its tabs overflow creates a
+            // native msctls_updown32 scroller — the gray left/right arrows — as a child window.
+            // We owner-draw the strip and SetWindowTheme it to classic, but that spinner is a
+            // separate unthemed window we never paint, so it shows through over page content and
+            // lingers at stale positions while the header is squashed to 1px. Multiline makes the
+            // native control wrap instead of scroll, so the spinner is never created at all.
+            // Nothing else changes: TCM_ADJUSTRECT is swallowed, so extra header rows cannot take
+            // space from the page, and each row is 1px and invisible anyway.
+            Multiline = true;
             SizeMode = TabSizeMode.Fixed;
             ItemSize = new Size(0, 1);
             Appearance = TabAppearance.FlatButtons;
@@ -96,7 +104,7 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (!DesignMode)
             {
-                Multiline = false;
+                Multiline = true;
                 SizeMode = TabSizeMode.Fixed;
                 ItemSize = new Size(0, 1);
                 DrawMode = TabDrawMode.OwnerDrawFixed;

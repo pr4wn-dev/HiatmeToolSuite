@@ -2321,29 +2321,45 @@ namespace Hiatme_Tool_Suite_v3
 
         private void PresentLateDriversLoadedData()
         {
-            // Day/Live: pull schedule roster so clean drivers still appear in the strip.
-            MergeLateDriversScheduleRosterIntoDriverRows();
-            // Always show workbook tab names; fold WR spellings onto those tiles.
-            RemapLateDriversRowsToScheduleNames();
-            RefreshLateDriversOffScheduleCache();
-            LayoutLateDriversTabPanels();
-            LayoutLateDriversDriverStripRow();
-            BindLateDriversDriverStrip();
-            RefreshLateDriversScorecard();
-            RefreshLateDriversOtpMeter();
-            BindLateDriversTripPane();
-            UpdateLateDriversToolbarHints();
-            // Always re-evaluate blink/chirp after habit payload changes (strip render can early-return).
-            FlushLateDriversPendingCancelFocus();
-            SyncLateDriversDriverAlertBlink();
-            try
+            using (UiStallWatch.Measure(UiScope.HabitsPresent))
             {
-                ldTripLv?.Invalidate(true);
-                ldDriverStrip?.Invalidate(true);
-                ldScorecardHost?.Invalidate(true);
-                ldOtpMeter?.Invalidate();
+                // Day/Live: pull schedule roster so clean drivers still appear in the strip.
+                MergeLateDriversScheduleRosterIntoDriverRows();
+                // Always show workbook tab names; fold WR spellings onto those tiles.
+                RemapLateDriversRowsToScheduleNames();
+                RefreshLateDriversOffScheduleCache();
+
+                using (UiStallWatch.Measure(UiScope.HabitsLayout))
+                {
+                    LayoutLateDriversTabPanels();
+                    LayoutLateDriversDriverStripRow();
+                }
+
+                using (UiStallWatch.Measure(UiScope.HabitsStrip))
+                    BindLateDriversDriverStrip();
+
+                using (UiStallWatch.Measure(UiScope.HabitsScorecard))
+                {
+                    RefreshLateDriversScorecard();
+                    RefreshLateDriversOtpMeter();
+                }
+
+                using (UiStallWatch.Measure(UiScope.HabitsTripPane))
+                    BindLateDriversTripPane();
+
+                UpdateLateDriversToolbarHints();
+                // Always re-evaluate blink/chirp after habit payload changes (strip render can early-return).
+                FlushLateDriversPendingCancelFocus();
+                SyncLateDriversDriverAlertBlink();
+                try
+                {
+                    ldTripLv?.Invalidate(true);
+                    ldDriverStrip?.Invalidate(true);
+                    ldScorecardHost?.Invalidate(true);
+                    ldOtpMeter?.Invalidate();
+                }
+                catch { }
             }
-            catch { }
         }
 
         /// <summary>
