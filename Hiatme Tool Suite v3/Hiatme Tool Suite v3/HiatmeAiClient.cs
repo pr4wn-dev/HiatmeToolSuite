@@ -2600,6 +2600,51 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        /// <summary>
+        /// One pending playbook question, or null when there is nothing to ask.
+        ///
+        /// A question used to arrive only as a tail on an assistant reply, so a desk that
+        /// never typed into the dock was never asked anything — the confirmed count sat at
+        /// zero while hundreds of clients had enough history to be asked about. This lets
+        /// the dock pull one on its own.
+        /// </summary>
+        public static async Task<HiatmeAssistantQuestion> GetAssistantQuestionAsync(
+            HiatmeAiSettings settings,
+            string serviceDate = "",
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null) throw new ArgumentNullException(nameof(settings));
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl))
+                return null;
+
+            var url = baseUrl + "/api/hiatme/assistant/question";
+            if (!string.IsNullOrWhiteSpace(serviceDate))
+                url += "?service_date=" + Uri.EscapeDataString(serviceDate.Trim());
+
+            using (var req = new HttpRequestMessage(HttpMethod.Get, url))
+            {
+                if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                    req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", settings.ApiToken.Trim());
+
+                using (var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+                {
+                    timeoutCts.CancelAfter(TimeSpan.FromSeconds(10));
+                    using (var resp = await SharedHttp.SendAsync(req, timeoutCts.Token).ConfigureAwait(false))
+                    {
+                        if (!resp.IsSuccessStatusCode)
+                            return null;
+                        var text = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        var obj = JsonConvert.DeserializeObject<JObject>(text);
+                        var q = obj?["question"];
+                        if (q == null || q.Type == JTokenType.Null)
+                            return null;
+                        return q.ToObject<HiatmeAssistantQuestion>();
+                    }
+                }
+            }
+        }
+
         public static async Task<JObject> AnswerAssistantQuestionAsync(
             HiatmeAiSettings settings,
             HiatmeAssistantQuestion question,

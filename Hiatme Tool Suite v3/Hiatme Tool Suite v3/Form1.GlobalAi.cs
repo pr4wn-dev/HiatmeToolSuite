@@ -500,6 +500,7 @@ namespace Hiatme_Tool_Suite_v3
                 _globalAiDock?.BringToFront();
                 try { _globalAiPrompt?.Focus(); } catch { }
                 _ = ProbeGlobalAiPanelAsync();
+                MaybeLoadGlobalAiQuestion();
             }
             TeamChatOnDockToggled(expanded);
             RefreshTitleBarChrome();
@@ -855,6 +856,59 @@ namespace Hiatme_Tool_Suite_v3
             _globalAiQuestionCard.Visible = true;
         }
 
+        private int _globalAiQuestionFetching;
+        private long _globalAiQuestionFetchedAtMs = -1;
+        private static readonly System.Diagnostics.Stopwatch GlobalAiQuestionClock =
+            System.Diagnostics.Stopwatch.StartNew();
+        private const int GlobalAiQuestionMinGapMs = 120_000;
+
+        /// <summary>
+        /// Pull one playbook question when the dock opens.
+        ///
+        /// Questions only ever rode along on an assistant reply, so a desk that stopped
+        /// typing into the dock was never asked anything — which is why nothing had ever
+        /// been confirmed while hundreds of clients had the history to be asked about.
+        /// Opening the dock is when the dispatcher is actually looking at it, so that is
+        /// the honest moment to ask. Never replaces a card already on screen, and asks at
+        /// most once every couple of minutes so reopening the dock is not a quiz.
+        /// </summary>
+        private void MaybeLoadGlobalAiQuestion()
+        {
+            if (_globalAiPendingQuestion != null) return;
+            if (_globalAiQuestionCard == null || _globalAiQuestionCard.IsDisposed) return;
+            if (_globalAiQuestionFetchedAtMs >= 0 &&
+                GlobalAiQuestionClock.ElapsedMilliseconds - _globalAiQuestionFetchedAtMs < GlobalAiQuestionMinGapMs)
+                return;
+            if (Interlocked.CompareExchange(ref _globalAiQuestionFetching, 1, 0) != 0) return;
+
+            _ = Task.Run(async () =>
+            {
+                HiatmeAssistantQuestion q = null;
+                try
+                {
+                    // LoadNoProbe: this runs off a dock click, and the probing Load walks the
+                    // panel candidate list with multi-second timeouts.
+                    var s = _globalAiSettings ?? HiatmeAiSettings.LoadNoProbe();
+                    q = await HiatmeAiClient.GetAssistantQuestionAsync(s).ConfigureAwait(false);
+                }
+                catch { }
+                finally { Interlocked.Exchange(ref _globalAiQuestionFetching, 0); }
+
+                if (q == null) return;
+                try
+                {
+                    if (IsDisposed || !IsHandleCreated) return;
+                    BeginInvoke((Action)(() =>
+                    {
+                        if (_globalAiPendingQuestion != null) return;
+                        _globalAiQuestionFetchedAtMs = GlobalAiQuestionClock.ElapsedMilliseconds;
+                        ShowGlobalAiQuestion(q);
+                    }));
+                }
+                catch { }
+            });
+        }
+
         private void ClearGlobalAiQuestion()
         {
             _globalAiPendingQuestion = null;
@@ -871,16 +925,23 @@ namespace Hiatme_Tool_Suite_v3
                 return;
             try
             {
-                _globalAiSettings = _globalAiSettings ?? HiatmeAiSettings.Load();
+                _globalAiSettings = _globalAiSettings ?? HiatmeAiSettings.LoadNoProbe();
                 await HiatmeAiClient.AnswerAssistantQuestionAsync(
                     _globalAiSettings, q, action ?? "skip").ConfigureAwait(true);
                 ClearGlobalAiQuestion();
-                string label = string.Equals(action, "yes", StringComparison.OrdinalIgnoreCase)
+                bool yes = string.Equals(action, "yes", StringComparison.OrdinalIgnoreCase);
+                string label = yes
                     ? "Saved to playbook."
                     : "Skipped.";
-                AppendGlobalAiTranscript("You", string.Equals(action, "yes", StringComparison.OrdinalIgnoreCase) ? "Yes" : "Skip");
+                AppendGlobalAiTranscript("You", yes ? "Yes" : "Skip");
                 SetGlobalAiStatus(label, SupeyTheme.SuccessText);
                 ReportGlobalAiOutcome("playbook_" + (action ?? "skip"), label);
+
+                // Someone who just answered is willing to answer another, so offer the next
+                // one straight away rather than making them wait out the idle gap. The gap
+                // exists to stop the dock nagging on open, not to ration a working session.
+                _globalAiQuestionFetchedAtMs = -1;
+                MaybeLoadGlobalAiQuestion();
             }
             catch (Exception ex)
             {
