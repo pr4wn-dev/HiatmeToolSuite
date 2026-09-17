@@ -1801,6 +1801,11 @@ namespace Hiatme_Tool_Suite_v3
                 SetSupeyStatus(warning);
             }
             RebuildSupeyDriversList();
+
+            // Seats and shifts are the panel's to decide, so the disk copy is only a starting
+            // point. Deliberately not awaited: the roster shows immediately from disk and
+            // redraws if the shared numbers differ.
+            _ = PullSharedRosterAsync(RebuildSupeyDriversList);
         }
 
         /// <summary>Match roster row by reference, WellRyde SEC id, schedule tab, or name.</summary>
@@ -1948,6 +1953,7 @@ namespace Hiatme_Tool_Suite_v3
             if (saved.Ok)
             {
                 PersistSupeyDriverEmailsSafely();
+                PushSharedRoster();
                 _supeyRosterLastSaved = saved.SavedAtLocal;
                 if (_supeyRosterFooter != null && _supeyRoster != null)
                 {

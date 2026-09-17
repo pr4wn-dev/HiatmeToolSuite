@@ -1292,6 +1292,115 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        /// <summary>
+        /// The van roster as the panel holds it, or null when the panel cannot be reached.
+        /// </summary>
+        /// <remarks>
+        /// Capacity and shift used to live only in this PC's SupeyDrivers.json, so a van set to
+        /// five seats on one desk was still four everywhere else and the solver gave different
+        /// answers depending on who asked. The panel holds them now. Null means "could not ask"
+        /// and must not be confused with "the roster is empty" — the caller keeps its local copy
+        /// in that case rather than blanking numbers somebody set.
+        /// </remarks>
+        public static async Task<List<SupeyDriverProfile>> GetRosterAsync(
+            HiatmeAiSettings settings,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null)
+                return null;
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl))
+                return null;
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Get, baseUrl + "/api/hiatme/roster"))
+                {
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
+                    {
+                        if (!resp.IsSuccessStatusCode)
+                            return null;
+                        var root = JObject.Parse(await resp.Content.ReadAsStringAsync().ConfigureAwait(false));
+                        var arr = root["drivers"] as JArray ?? new JArray();
+                        var list = new List<SupeyDriverProfile>(arr.Count);
+                        foreach (var token in arr)
+                        {
+                            if (token == null || token.Type != JTokenType.Object) continue;
+                            var name = (string)token["name"] ?? "";
+                            if (string.IsNullOrWhiteSpace(name)) continue;
+                            list.Add(new SupeyDriverProfile
+                            {
+                                Name = name.Trim(),
+                                ScheduleTabKey = (string)token["schedule_tab"] ?? "",
+                                CapacityPassengers = (int?)token["capacity"] ?? 0,
+                                ShiftStart = (string)token["shift_start"] ?? "",
+                                ShiftEnd = (string)token["shift_end"] ?? "",
+                                VehicleLabel = (string)token["vehicle_label"] ?? "",
+                            });
+                        }
+                        return list;
+                    }
+                }
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Push this desk's roster so every other desk reads the same seats and shifts.
+        /// </summary>
+        public static async Task<bool> PushRosterAsync(
+            HiatmeAiSettings settings,
+            IList<SupeyDriverProfile> drivers,
+            string savedBy = "",
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null || drivers == null || drivers.Count == 0)
+                return false;
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl))
+                return false;
+            try
+            {
+                var rows = new JArray();
+                foreach (var d in drivers)
+                {
+                    if (d == null || string.IsNullOrWhiteSpace(d.Name)) continue;
+                    rows.Add(new JObject
+                    {
+                        ["name"] = d.Name.Trim(),
+                        ["schedule_tab"] = d.ScheduleTabKey ?? "",
+                        ["capacity"] = d.CapacityPassengers,
+                        ["shift_start"] = d.ShiftStart ?? "",
+                        ["shift_end"] = d.ShiftEnd ?? "",
+                        ["vehicle_label"] = d.VehicleLabel ?? "",
+                    });
+                }
+                if (rows.Count == 0)
+                    return false;
+
+                var payload = new JObject { ["by"] = savedBy ?? "", ["drivers"] = rows };
+                using (var req = new HttpRequestMessage(HttpMethod.Post, baseUrl + "/api/hiatme/roster"))
+                {
+                    req.Content = new StringContent(
+                        payload.ToString(Formatting.None), Encoding.UTF8, "application/json");
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
+                        return resp.IsSuccessStatusCode;
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         public static async Task<GmailDefaultsDocument> GetGmailDefaultsAsync(
             HiatmeAiSettings settings,
             CancellationToken cancellationToken = default)

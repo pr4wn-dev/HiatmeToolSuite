@@ -402,6 +402,10 @@
       <DependentUpon>Form1.cs</DependentUpon>
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="Form1.RosterSync.cs">
+      <DependentUpon>Form1.cs</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="Form1.PlaybookAsk.cs">
       <DependentUpon>Form1.cs</DependentUpon>
       <SubType>Form</SubType>

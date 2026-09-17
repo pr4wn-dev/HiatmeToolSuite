@@ -40,6 +40,10 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             _fsDriverRosterLoaded = true;
+
+            // Schedule Builder is where capacity actually bites, so it must be reading the
+            // seats everybody else is reading rather than whatever this PC last had.
+            _ = PullSharedRosterAsync(RebuildFsDriversList);
         }
 
         private async Task SyncFsDriverEmailsAsync(bool reportOffline = false)
@@ -284,6 +288,7 @@ namespace Hiatme_Tool_Suite_v3
             if (saved.Ok)
             {
                 PersistFsDriverEmailsLocally();
+                PushSharedRoster();
                 _supeyRosterLastSaved = saved.SavedAtLocal;
                 RebuildFsDriversList();
                 if (_supeyDriversLv != null)

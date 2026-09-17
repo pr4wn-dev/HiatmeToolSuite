@@ -107,6 +107,51 @@ namespace Hiatme_Tool_Suite_v3
         }
 
         /// <summary>
+        /// Fold the shared roster from the panel into what this PC has on disk.
+        /// </summary>
+        /// <remarks>
+        /// Capacity and shift are the panel's to decide — that is the whole point of moving
+        /// them off individual machines. Everything else stays local: the name and home come
+        /// from WellRyde, and a driver this PC knows about who is not on the shared roster yet
+        /// is kept rather than dropped, because "the panel has not heard of them" is not the
+        /// same as "they do not exist". A null <paramref name="shared"/> means the panel could
+        /// not be reached and the local roster is returned untouched.
+        /// </remarks>
+        public static List<SupeyDriverProfile> MergeShared(
+            IList<SupeyDriverProfile> local, IList<SupeyDriverProfile> shared)
+        {
+            var merged = new List<SupeyDriverProfile>(local ?? new List<SupeyDriverProfile>());
+            if (shared == null || shared.Count == 0)
+                return merged;
+
+            foreach (var remote in shared)
+            {
+                if (remote == null || string.IsNullOrWhiteSpace(remote.Name)) continue;
+
+                var match = merged.Find(d =>
+                    d != null && string.Equals(
+                        (d.Name ?? "").Trim(), remote.Name.Trim(), StringComparison.OrdinalIgnoreCase));
+
+                if (match == null)
+                {
+                    merged.Add(remote);
+                    continue;
+                }
+                if (remote.CapacityPassengers > 0)
+                    match.CapacityPassengers = remote.CapacityPassengers;
+                if (!string.IsNullOrWhiteSpace(remote.ShiftStart))
+                    match.ShiftStart = remote.ShiftStart;
+                if (!string.IsNullOrWhiteSpace(remote.ShiftEnd))
+                    match.ShiftEnd = remote.ShiftEnd;
+                if (!string.IsNullOrWhiteSpace(remote.VehicleLabel))
+                    match.VehicleLabel = remote.VehicleLabel;
+                if (!string.IsNullOrWhiteSpace(remote.ScheduleTabKey))
+                    match.ScheduleTabKey = remote.ScheduleTabKey;
+            }
+            return merged;
+        }
+
+        /// <summary>
         /// Atomically writes the roster: serialize to a temp file in the same directory, then
         /// <see cref="File.Replace(string,string,string)"/> over the live file with a .bak so a
         /// crash mid-write can't truncate the saved roster.

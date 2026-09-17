@@ -73,7 +73,7 @@ namespace Hiatme_Tool_Suite_v3
                 else
                 {
                     _helpLabel.Text =
-                        "Name and home were loaded from WellRyde. Capacity and shift stay on this PC. Save updates the portal.";
+                        "Name and home were loaded from WellRyde. Capacity and shift are shared with every desk. Save updates the portal.";
                 }
             }
         }
