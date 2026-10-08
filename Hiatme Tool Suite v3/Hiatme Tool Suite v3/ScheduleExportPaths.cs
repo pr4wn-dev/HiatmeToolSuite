@@ -16,6 +16,23 @@ namespace Hiatme_Tool_Suite_v3
         public static string WorkbookFileName(string monthName, int day, int year) =>
             "Schedule for " + monthName + " " + day + " " + year + ".xlsx";
 
+        public static bool TryParseWorkbookServiceDate(string fileName, out DateTime serviceDate)
+        {
+            serviceDate = default;
+            string name = Path.GetFileNameWithoutExtension(fileName ?? "");
+            const string prefix = "Schedule for ";
+            if (name.Length <= prefix.Length
+                || name.IndexOf(prefix, StringComparison.OrdinalIgnoreCase) != 0)
+                return false;
+            string rest = name.Substring(prefix.Length).Trim();
+            return DateTime.TryParseExact(
+                rest,
+                new[] { "MMMM d yyyy", "MMMM dd yyyy" },
+                System.Globalization.CultureInfo.GetCultureInfo("en-US"),
+                System.Globalization.DateTimeStyles.None,
+                out serviceDate);
+        }
+
         /// <summary>Current user's Desktop (OneDrive redirect when configured).</summary>
         public static string GetUserDesktopPath() =>
             Environment.GetFolderPath(Environment.SpecialFolder.Desktop);

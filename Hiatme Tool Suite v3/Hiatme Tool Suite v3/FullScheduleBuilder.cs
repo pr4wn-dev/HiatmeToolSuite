@@ -85,6 +85,11 @@ namespace Hiatme_Tool_Suite_v3
         /// <summary>When set, SAVE uses this path instead of prompting (e.g. loaded .xlsx).</summary>
         internal string PreferredExportPath { get; set; }
 
+        /// <summary>
+        /// Bytes we just wrote, off OneDrive. Upload this. Desktop can still be yesterday.
+        /// </summary>
+        internal string LastVerifiedExportPath { get; private set; }
+
         public DateTime ServiceDate
         {
             get
@@ -301,6 +306,7 @@ namespace Hiatme_Tool_Suite_v3
         private void ClearLastExport()
         {
             LastExportPath = null;
+            LastVerifiedExportPath = null;
             LastExportWasCsv = false;
         }
         public async Task DownloadMCTrips(DateTime mcdate, MCLoginHandler mcLoginHandler)
@@ -1941,9 +1947,7 @@ namespace Hiatme_Tool_Suite_v3
             else
             {
                 await AsyncUpdateLoadingScreen("Saving schedule…");
-                path = !string.IsNullOrWhiteSpace(PreferredExportPath)
-                    ? PreferredExportPath
-                    : defaultFullPath;
+                path = ScheduleWorkbookResolver.LocalCachePath(ServiceDate);
             }
 
             await AsyncUpdateLoadingScreen("Building workbook");
@@ -1954,9 +1958,13 @@ namespace Hiatme_Tool_Suite_v3
             // Excel COM CSV import drops leading empty columns and breaks blank-row round-trip.
             if (workbookTabs != null && workbookTabs.Count > 0)
             {
+                string verified = ScheduleWorkbookResolver.LocalCachePath(ServiceDate);
                 await RunWorkbookWriteAsync(path,
-                    () => ScheduleBuilderXlsxWriter.WriteWorkbookFromTabs(path, workbookTabs, WorkbookColumnWidths))
+                    () => ScheduleBuilderXlsxWriter.WriteWorkbookFromTabs(
+                        path, workbookTabs, WorkbookColumnWidths, verified))
                     .ConfigureAwait(false);
+                if (File.Exists(verified))
+                    LastVerifiedExportPath = verified;
                 await FinishWorkbookExportAsync(path, openAfterSave).ConfigureAwait(false);
                 return;
             }
@@ -2095,9 +2103,13 @@ namespace Hiatme_Tool_Suite_v3
                 try { newWorkbook?.Close(false); xlApp?.Quit(); } catch { }
                 if (workbookTabs != null && workbookTabs.Count > 0)
                 {
+                    string verified = ScheduleWorkbookResolver.LocalCachePath(ServiceDate);
                     await RunWorkbookWriteAsync(path,
-                        () => ScheduleBuilderXlsxWriter.WriteWorkbookFromTabs(path, workbookTabs, WorkbookColumnWidths))
+                        () => ScheduleBuilderXlsxWriter.WriteWorkbookFromTabs(
+                            path, workbookTabs, WorkbookColumnWidths, verified))
                         .ConfigureAwait(false);
+                    if (File.Exists(verified))
+                        LastVerifiedExportPath = verified;
                 }
                 else
                 {

@@ -152,6 +152,10 @@ try {
             $dj.BaseUrl = 'http://192.168.1.4:8787'
             $dj.LastResolvedBaseUrl = 'http://192.168.1.4:8787'
             $dj.FallbackBaseUrls = @('http://72.71.232.164:8787', 'http://127.0.0.1:8787')
+            # Keep this even when the build-machine defaults file omitted it.
+            # 4.0.0.82 shipped without it, so CHERIES never uploaded templates.
+            $dj | Add-Member -NotePropertyName TemplateSyncEnabled -NotePropertyValue $false -Force
+            $dj | Add-Member -NotePropertyName TemplateSyncMachines -NotePropertyValue @('CHERIES') -Force
             $dj | ConvertTo-Json -Depth 5 | Set-Content -Path $defaultsPath -Encoding UTF8
             Write-Host "  Scrubbed ApiToken from packaged hiatme_ai.defaults.json (office+public URLs kept)."
         } catch {

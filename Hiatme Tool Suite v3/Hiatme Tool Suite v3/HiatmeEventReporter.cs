@@ -3,6 +3,7 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Reflection;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -179,6 +180,66 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        /// <summary>One WellRyde or Modivcare HTTP call. Fire-and-forget.</summary>
+        public static void ReportPortalRequest(
+            string portal,
+            string method,
+            Uri uri,
+            int? status,
+            int ms,
+            bool ok)
+        {
+            try
+            {
+                var body = new JObject
+                {
+                    ["portal"] = portal ?? "",
+                    ["method"] = method ?? "",
+                    ["url"] = uri == null ? "" : uri.AbsolutePath,
+                    ["ms"] = ms,
+                    ["ok"] = ok,
+                    ["machine"] = SafeMachineName(),
+                };
+                if (status.HasValue)
+                    body["status"] = status.Value;
+                _ = Task.Run(() => PostPortalAsync(body));
+            }
+            catch
+            {
+                /* telemetry must never disrupt the app */
+            }
+        }
+
+        private static async Task PostPortalAsync(JObject body)
+        {
+            try
+            {
+                var settings = HiatmeAiSettings.Load();
+                if (settings == null || string.IsNullOrWhiteSpace(settings.BaseUrl))
+                    return;
+                string url = settings.BaseUrl.Trim().TrimEnd('/') + "/api/hiatme/toolsuite/portal-request";
+                using (var req = new HttpRequestMessage(HttpMethod.Post, url)
+                {
+                    Content = new StringContent(
+                        body.ToString(Formatting.None), Encoding.UTF8, "application/json"),
+                })
+                {
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                    {
+                        req.Headers.Authorization =
+                            new AuthenticationHeaderValue("Bearer", settings.ApiToken.Trim());
+                    }
+                    using (await Http.SendAsync(req).ConfigureAwait(false))
+                    {
+                    }
+                }
+            }
+            catch
+            {
+                /* swallow */
+            }
+        }
+
         private static string SafeMachineName()
         {
             try
@@ -188,6 +249,50 @@ namespace Hiatme_Tool_Suite_v3
             catch
             {
                 return "";
+            }
+        }
+    }
+
+    /// <summary>Counts each portal HTTP call and tells the panel. Never throws to the caller.</summary>
+    internal sealed class PortalRequestReporter : DelegatingHandler
+    {
+        private readonly string _portal;
+
+        public PortalRequestReporter(HttpMessageHandler inner, string portal)
+            : base(inner)
+        {
+            _portal = portal;
+        }
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            var started = DateTime.UtcNow;
+            try
+            {
+                var response = await base.SendAsync(request, cancellationToken).ConfigureAwait(false);
+                int ms = (int)(DateTime.UtcNow - started).TotalMilliseconds;
+                HiatmeEventReporter.ReportPortalRequest(
+                    _portal,
+                    request.Method == null ? "" : request.Method.Method,
+                    request.RequestUri,
+                    (int)response.StatusCode,
+                    ms,
+                    response.IsSuccessStatusCode);
+                return response;
+            }
+            catch
+            {
+                int ms = (int)(DateTime.UtcNow - started).TotalMilliseconds;
+                HiatmeEventReporter.ReportPortalRequest(
+                    _portal,
+                    request == null || request.Method == null ? "" : request.Method.Method,
+                    request == null ? null : request.RequestUri,
+                    null,
+                    ms,
+                    false);
+                throw;
             }
         }
     }

@@ -99,8 +99,7 @@ namespace Hiatme_Tool_Suite_v3
             _fsScheduleBuilderExportBusy = true;
             try
             {
-                if (fsbdatepicker != null && !fsbdatepicker.IsDisposed)
-                    fsbuilder.ApplyServiceDate(fsbdatepicker.Value);
+                FsSyncServiceDateFromPickerIfAligned();
 
                 string path = FsResolveScheduleBuilderSavePath(allowDefault: true);
                 if (string.IsNullOrWhiteSpace(path))
@@ -117,7 +116,8 @@ namespace Hiatme_Tool_Suite_v3
                     return;
 
                 _fsPreferredSavePath = fsbuilder.LastExportPath;
-                var upload = Task.Run(() => FsUploadSavedWorkbookToServerAsync(fsbuilder.LastExportPath));
+                var upload = Task.Run(() => FsUploadSavedWorkbookToServerAsync(
+                    fsbuilder.LastVerifiedExportPath ?? fsbuilder.LastExportPath));
                 if (!upload.Wait(TimeSpan.FromSeconds(2)))
                 {
                     try
@@ -125,7 +125,9 @@ namespace Hiatme_Tool_Suite_v3
                         DateTime serviceDate = fsbdatepicker?.Value.Date ?? DateTime.Today;
                         string iso = serviceDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
                         ScheduleWorkbookResolver.QueuePendingPublish(
-                            iso, fsbuilder.LastExportPath, "schedule_builder_save");
+                            iso,
+                            fsbuilder.LastVerifiedExportPath ?? fsbuilder.LastExportPath,
+                            "schedule_builder_save");
                     }
                     catch { }
                 }
@@ -183,6 +185,18 @@ namespace Hiatme_Tool_Suite_v3
                 }
                 else
                 {
+                    if (result.Revision > 0)
+                    {
+                        ScheduleWorkbookResolver.WriteLocalRevision(workbookPath, result.Revision);
+                    }
+                    ScheduleWorkbookResolver.NotePublishedSha(
+                        iso, ScheduleWorkbookResolver.FileSha256Hex(workbookPath));
+                    DateTime day;
+                    if (!DateTime.TryParseExact(
+                            iso, "yyyy-MM-dd", CultureInfo.InvariantCulture,
+                            System.Globalization.DateTimeStyles.None, out day))
+                        day = fsbdatepicker?.Value.Date ?? DateTime.Today;
+                    ScheduleWorkbookResolver.MirrorCacheToDesktop(day, result.Revision);
                     ScheduleActivityOnPublished(iso, result.Revision);
                 }
             }
@@ -242,25 +256,7 @@ namespace Hiatme_Tool_Suite_v3
                 catch { /* keep picker date */ }
             }
 
-            string month = serviceDate.ToString("MMMM");
-            ScheduleExportPaths.GetDefaultWorkbookSaveLocation(
-                month,
-                serviceDate.Day.ToString(),
-                serviceDate.Year.ToString(),
-                out string yearFolder,
-                out _,
-                out string fullPath);
-
-            try
-            {
-                Directory.CreateDirectory(yearFolder);
-            }
-            catch
-            {
-                // ignore — write will fail with a clearer error
-            }
-
-            return fullPath;
+            return ScheduleWorkbookResolver.LocalCachePath(serviceDate);
         }
 
         private void FsUpdateAutoSaveHint()
@@ -386,8 +382,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 reportStatus?.Invoke("Preparing export…");
 
-                if (fsbdatepicker != null)
-                    fsbuilder.ApplyServiceDate(fsbdatepicker.Value);
+                FsSyncServiceDateFromPickerIfAligned();
 
                 if (!promptForLocation)
                 {
@@ -408,7 +403,8 @@ namespace Hiatme_Tool_Suite_v3
 
                 _fsPreferredSavePath = fsbuilder.LastExportPath;
                 if (publishToServer)
-                    await FsUploadSavedWorkbookToServerAsync(fsbuilder.LastExportPath).ConfigureAwait(false);
+                    await FsUploadSavedWorkbookToServerAsync(
+                        fsbuilder.LastVerifiedExportPath ?? fsbuilder.LastExportPath).ConfigureAwait(false);
                 return true;
             }
             finally

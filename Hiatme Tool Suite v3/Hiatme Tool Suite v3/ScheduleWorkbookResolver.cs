@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -56,6 +57,182 @@ namespace Hiatme_Tool_Suite_v3
             ScheduleExportPaths.GetDefaultWorkbookSaveLocation(
                 serviceDate, out _, out string fileName, out _);
             return Path.Combine(LocalCacheYearFolder(serviceDate.Year), fileName);
+        }
+
+        private static readonly ConcurrentDictionary<string, string> LatestShaByDay =
+            new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        private static string ShaHistoryPath(string serviceDateIso)
+        {
+            string dir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "HiatmeToolSuite",
+                "schedule_shas");
+            Directory.CreateDirectory(dir);
+            return Path.Combine(dir, (serviceDateIso ?? "").Trim() + ".txt");
+        }
+
+        public static void NotePublishedSha(string serviceDateIso, string sha256)
+        {
+            if (string.IsNullOrWhiteSpace(serviceDateIso) || string.IsNullOrWhiteSpace(sha256))
+                return;
+            string iso = serviceDateIso.Trim();
+            string sha = sha256.Trim();
+            LatestShaByDay[iso] = sha;
+            try
+            {
+                string path = ShaHistoryPath(iso);
+                var have = new List<string>();
+                if (File.Exists(path))
+                {
+                    foreach (string line in File.ReadAllLines(path))
+                    {
+                        if (!string.IsNullOrWhiteSpace(line))
+                            have.Add(line.Trim());
+                    }
+                }
+                have.RemoveAll(s => string.Equals(s, sha, StringComparison.OrdinalIgnoreCase));
+                have.Add(sha);
+                if (have.Count > 16)
+                    have.RemoveRange(0, have.Count - 16);
+                File.WriteAllLines(path, have);
+            }
+            catch { }
+        }
+
+        /// <summary>
+        /// Excel OPEN is not a save. Publish only when bytes changed while Excel had it.
+        /// </summary>
+        public static string ExcelDesktopPublishDecision(
+            string deskSha,
+            string cacheSha,
+            bool locked,
+            string shaWhenLocked,
+            bool deskShaAlreadyShipped)
+        {
+            deskSha = (deskSha ?? "").Trim();
+            cacheSha = (cacheSha ?? "").Trim();
+            shaWhenLocked = (shaWhenLocked ?? "").Trim();
+            if (deskSha.Length == 0)
+                return "ignore";
+            if (locked)
+                return "ignore";
+            if (cacheSha.Length > 0
+                && string.Equals(deskSha, cacheSha, StringComparison.OrdinalIgnoreCase))
+                return "ignore";
+            if (deskShaAlreadyShipped)
+                return "restore";
+            if (shaWhenLocked.Length > 0
+                && string.Equals(deskSha, shaWhenLocked, StringComparison.OrdinalIgnoreCase))
+                return cacheSha.Length > 0
+                    && !string.Equals(deskSha, cacheSha, StringComparison.OrdinalIgnoreCase)
+                    ? "restore"
+                    : "ignore";
+            return "ignore";
+        }
+
+        public static bool MatchesPublishedSha(string serviceDateIso, string sha256) =>
+            IsKnownPublishedSha(serviceDateIso, sha256);
+
+        public static bool IsKnownPublishedSha(string serviceDateIso, string sha256)
+        {
+            if (string.IsNullOrWhiteSpace(serviceDateIso) || string.IsNullOrWhiteSpace(sha256))
+                return false;
+            string iso = serviceDateIso.Trim();
+            string sha = sha256.Trim();
+            if (LatestShaByDay.TryGetValue(iso, out string latest)
+                && string.Equals(latest, sha, StringComparison.OrdinalIgnoreCase))
+                return true;
+            try
+            {
+                string path = ShaHistoryPath(iso);
+                if (!File.Exists(path))
+                    return false;
+                foreach (string line in File.ReadAllLines(path))
+                {
+                    if (string.Equals((line ?? "").Trim(), sha, StringComparison.OrdinalIgnoreCase))
+                        return true;
+                }
+            }
+            catch { }
+            return false;
+        }
+
+        public static bool FileIsLocked(string path)
+        {
+            try
+            {
+                using (var fs = new FileStream(
+                    path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                    return false;
+            }
+            catch (IOException) { return File.Exists(path); }
+            catch (UnauthorizedAccessException) { return File.Exists(path); }
+            catch { return false; }
+        }
+
+        /// <summary>
+        /// Copy the published cache to Desktop so Excel opened from Explorer sees
+        /// the same board. Skips while Excel has the Desktop file locked.
+        /// </summary>
+        public static void MirrorCacheToDesktop(DateTime serviceDate, int revision = 0)
+        {
+            string cachePath = LocalCachePath(serviceDate);
+            if (!File.Exists(cachePath))
+                return;
+            ScheduleExportPaths.GetDefaultWorkbookSaveLocation(
+                serviceDate, out _, out _, out string desktopPath);
+            if (string.IsNullOrWhiteSpace(desktopPath))
+                return;
+            string sha = FileSha256Hex(cachePath);
+            string iso = serviceDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            NotePublishedSha(iso, sha);
+            if (revision > 0)
+            {
+                WriteLocalRevision(cachePath, revision);
+                WriteLocalRevision(desktopPath, revision);
+            }
+            if (File.Exists(desktopPath) && FileIsLocked(desktopPath))
+                return;
+            try
+            {
+                string dir = Path.GetDirectoryName(desktopPath);
+                if (!string.IsNullOrEmpty(dir))
+                    Directory.CreateDirectory(dir);
+                ReplaceExistingWorkbook(cachePath, desktopPath);
+            }
+            catch
+            {
+                /* OneDrive / Excel lock */
+            }
+        }
+
+        /// <summary>
+        /// Excel/OneDrive put an already-published (old) file back on Desktop.
+        /// Put the last Builder save back once Excel lets go.
+        /// </summary>
+        public static void RestoreDesktopIfReverted(DateTime serviceDate)
+        {
+            string cachePath = LocalCachePath(serviceDate);
+            if (!File.Exists(cachePath))
+                return;
+            ScheduleExportPaths.GetDefaultWorkbookSaveLocation(
+                serviceDate, out _, out _, out string desktopPath);
+            if (string.IsNullOrWhiteSpace(desktopPath) || !File.Exists(desktopPath))
+                return;
+            if (FileIsLocked(desktopPath))
+                return;
+            string deskSha = FileSha256Hex(desktopPath);
+            string cacheSha = FileSha256Hex(cachePath);
+            if (string.IsNullOrWhiteSpace(deskSha) || string.IsNullOrWhiteSpace(cacheSha))
+                return;
+            if (string.Equals(deskSha, cacheSha, StringComparison.OrdinalIgnoreCase))
+                return;
+            try
+            {
+                ReplaceExistingWorkbook(cachePath, desktopPath);
+            }
+            catch { }
         }
 
         public static string EtagSidecarPath(string workbookPath) =>
@@ -347,43 +524,28 @@ namespace Hiatme_Tool_Suite_v3
             int serverRev = serverExists ? meta.Revision : 0;
             int localRev = desktopExists ? ReadLocalRevision(desktopPath) : 0;
 
-            // A copy that is byte-identical to what is published IS based on that revision,
-            // whether or not this desk was ever told so. Recording it here is what stops a desk
-            // that received the workbook through OneDrive rather than through our own pull from
-            // sitting at base 0 — a state it cannot leave, because the base is only written
-            // after a save succeeds and the server refuses every save made from base 0.
-            // Safe to adopt precisely because it is gated on the bytes matching.
-            if (desktopExists && serverExists && serverRev > localRev
-                && !string.IsNullOrWhiteSpace(meta.Sha256)
-                && string.Equals(
-                    FileSha256Hex(desktopPath),
-                    meta.Sha256.Trim(),
-                    StringComparison.OrdinalIgnoreCase))
+            // A published day is loaded from LocalAppData, never from Desktop\OneDrive.
+            // OneDrive / Office keep serving Remie's yesterday even when the bytes on
+            // disk look current. Cherie opening that path is how Builder gets stale.
+            if (serverExists && serverRev > 0 && settings != null)
             {
-                WriteLocalRevision(desktopPath, serverRev);
-                localRev = serverRev;
-            }
-
-            // Pull when the published revision is newer, or when the .rev sidecar
-            // already matches (OneDrive synced the tiny sidecar) but the xlsx
-            // bytes are still the old cached copy — that is Cherie opening
-            // Remie's book and seeing yesterday until someone opens it in Excel.
-            if (desktopExists && serverExists
-                && ShouldPullServerWorkbook(desktopPath, serverRev, localRev, meta.Sha256))
-            {
-                var synced = await PullServerWorkbookToDesktopAsync(
-                    serviceDate, iso, desktopPath, settings, meta, cancellationToken)
+                var published = await OpenPublishedWorkbookForReadAsync(
+                    serviceDate, iso, fileName, desktopPath, desktopExists, settings, meta, cancellationToken)
                     .ConfigureAwait(false);
-                if (synced != null)
-                    return synced;
+                if (published != null && !string.IsNullOrWhiteSpace(published.FullPath)
+                    && File.Exists(published.FullPath))
+                    return published;
             }
 
-            // Local Desktop exists and is at least as new as the server mirror.
+            if (serverExists && settings != null)
+            {
+                return await ResolveFromServerCacheAsync(
+                    serviceDate, iso, fileName, settings, meta, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
             if (desktopExists)
             {
-                // Never publish from LOAD — AutoSave + "local newer" was stomping
-                // other desks' explicit SAVE. Only SAVE SCHEDULE / BUILD upload.
-
                 return new ScheduleWorkbookResolveResult
                 {
                     FullPath = desktopPath,
@@ -394,7 +556,6 @@ namespace Hiatme_Tool_Suite_v3
                 };
             }
 
-            // No local Desktop file — use server cache (download when stale/missing).
             if (settings == null || string.IsNullOrWhiteSpace(settings.BaseUrl))
             {
                 return new ScheduleWorkbookResolveResult
@@ -408,6 +569,52 @@ namespace Hiatme_Tool_Suite_v3
             return await ResolveFromServerCacheAsync(
                 serviceDate, iso, fileName, settings, meta, cancellationToken)
                 .ConfigureAwait(false);
+        }
+
+        private static async Task<ScheduleWorkbookResolveResult> OpenPublishedWorkbookForReadAsync(
+            DateTime serviceDate,
+            string iso,
+            string fileName,
+            string desktopPath,
+            bool desktopExists,
+            HiatmeAiSettings settings,
+            HiatmeScheduleWorkbookMeta meta,
+            CancellationToken cancellationToken)
+        {
+            string cachePath = LocalCachePath(serviceDate);
+            string wantSha = (meta != null ? meta.Sha256 : null) ?? "";
+            bool cacheFresh = File.Exists(cachePath)
+                && !string.IsNullOrWhiteSpace(wantSha)
+                && string.Equals(
+                    FileSha256Hex(cachePath),
+                    wantSha.Trim(),
+                    StringComparison.OrdinalIgnoreCase);
+
+            if (!cacheFresh)
+            {
+                var download = await HiatmeAiClient.DownloadScheduleWorkbookAsync(
+                    settings, iso, cachePath, cancellationToken).ConfigureAwait(false);
+                if (download == null || !download.Ok || !File.Exists(cachePath))
+                    return null;
+            }
+
+            int rev = meta != null && meta.Revision > 0 ? meta.Revision : 0;
+            if (rev > 0)
+            {
+                WriteLocalRevision(cachePath, rev);
+                if (desktopExists)
+                    WriteLocalRevision(desktopPath, rev);
+            }
+
+            return new ScheduleWorkbookResolveResult
+            {
+                FullPath = cachePath,
+                FileName = fileName,
+                Source = "server_cache",
+                Revision = rev,
+                ServiceDateIso = iso,
+                Etag = meta != null ? meta.Etag : null,
+            };
         }
 
         private static async Task<ScheduleWorkbookResolveResult> PullServerWorkbookToDesktopAsync(
@@ -436,6 +643,7 @@ namespace Hiatme_Tool_Suite_v3
 
             BackupLocalWorkbook(desktopPath, iso);
 
+            int rev = download.Revision > 0 ? download.Revision : (meta != null ? meta.Revision : 0);
             try
             {
                 string dir = Path.GetDirectoryName(desktopPath);
@@ -443,21 +651,12 @@ namespace Hiatme_Tool_Suite_v3
                     Directory.CreateDirectory(dir);
                 ReplaceExistingWorkbook(cachePath, desktopPath);
                 ApplyServerMtimeToFile(desktopPath, download.Mtime ?? meta?.Mtime);
-                int rev = download.Revision > 0 ? download.Revision : (meta != null ? meta.Revision : 0);
                 if (rev > 0)
                     WriteLocalRevision(desktopPath, rev);
             }
-            catch (Exception ex)
+            catch
             {
-                return new ScheduleWorkbookResolveResult
-                {
-                    FullPath = cachePath,
-                    FileName = download.Filename ?? Path.GetFileName(cachePath),
-                    Source = "server_cache",
-                    Etag = download.Etag ?? meta?.Etag,
-                    ServiceDateIso = iso,
-                    Error = "could not update Desktop: " + ex.Message,
-                };
+                // Desktop is a convenience copy. Builder opens the cache.
             }
 
             string etag = download.Etag ?? meta?.Etag;
@@ -469,11 +668,11 @@ namespace Hiatme_Tool_Suite_v3
 
             return new ScheduleWorkbookResolveResult
             {
-                FullPath = desktopPath,
-                FileName = download.Filename ?? Path.GetFileName(desktopPath),
-                Source = "desktop_synced",
+                FullPath = cachePath,
+                FileName = download.Filename ?? Path.GetFileName(cachePath),
+                Source = "server_cache",
                 Etag = etag,
-                Revision = download.Revision > 0 ? download.Revision : (meta != null ? meta.Revision : 0),
+                Revision = rev,
                 ServiceDateIso = iso,
             };
         }
@@ -567,20 +766,10 @@ namespace Hiatme_Tool_Suite_v3
                             : (meta != null ? meta.Revision : 0);
                         if (seedRev > 0)
                             WriteLocalRevision(desktopPath, seedRev);
-
-                        return new ScheduleWorkbookResolveResult
-                        {
-                            FullPath = desktopPath,
-                            FileName = download.Filename ?? fileName,
-                            Source = "desktop_synced",
-                            Etag = download.Etag ?? meta?.Etag,
-                            Revision = seedRev,
-                            ServiceDateIso = iso,
-                        };
                     }
                     catch
                     {
-                        // fall through to cache-only
+                        // Desktop is a convenience copy. Builder opens the cache.
                     }
                 }
 

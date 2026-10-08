@@ -883,6 +883,7 @@ namespace Hiatme_Tool_Suite_v3
         /// </summary>
         private void MaybeLoadGlobalAiQuestion()
         {
+            if (!PlaybookCornerAskEnabled) return;
             if (_globalAiPendingQuestion != null) return;
             if (_globalAiQuestionCard == null || _globalAiQuestionCard.IsDisposed) return;
             if (_globalAiQuestionFetchedAtMs >= 0 &&

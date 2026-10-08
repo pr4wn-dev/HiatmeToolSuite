@@ -298,6 +298,14 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             ScheduleBuilderPreviewDrag.InsertTripLine(lines, trip, insertAt, reserveBand, rerouted);
+
+            // Keep a mid-day insert as its own group so later batches shift 10→11, not merge.
+            if (kind == ScheduleBuilderSuggestPlacementKind.NewGroupAfterGroup
+                && insertAt + 1 < lines.Count
+                && lines[insertAt + 1]?.Kind == ScheduleBuilderPreviewLine.LineKind.Trip)
+            {
+                ScheduleBuilderPreviewDrag.InsertGapLine(lines, insertAt + 1);
+            }
         }
 
         private sealed class DriverSuggestJob
@@ -359,7 +367,8 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             var linesWithoutTrip = CloneLines(lines);
-            if (ScheduleBuilderPreviewDrag.FindTripLineIndex(linesWithoutTrip, trip) >= 0)
+            bool sameDriver = ScheduleBuilderPreviewDrag.FindTripLineIndex(linesWithoutTrip, trip) >= 0;
+            if (sameDriver)
                 ScheduleBuilderPreviewDrag.TryRemoveTrip(linesWithoutTrip, trip);
 
             var baselineGroups = ScheduleBuilderPreviewGroups.BuildFromPreviewLines(linesWithoutTrip);
@@ -367,34 +376,38 @@ namespace Hiatme_Tool_Suite_v3
                 baselineGroups, job.ShiftStart, pickupByTrip, dropoffByTrip, prepCache, token)
                 .ConfigureAwait(false);
 
-            var groups = ScheduleBuilderPreviewGroups.BuildFromPreviewLines(lines);
+            // Slots are named from the board without this trip, so a mid-day hole
+            // stays "after 9 → group 10" instead of "last group 12".
+            var groups = baselineGroups;
             var tripPu = SupeyTripTimes.TryParsePU(trip);
             int capacityPassengers = DriverCapacityPassengers(job.Profile);
 
             if (groups.Count == 0)
             {
-                await TryAddCandidateAsync(results, job.Tab, job.DisplayName, trip, lines, job.ShiftStart,
+                await TryAddCandidateAsync(results, job.Tab, job.DisplayName, trip, linesWithoutTrip, job.ShiftStart,
                     ScheduleBuilderSuggestPlacementKind.NewGroupAtEnd,
                     targetGroupNumber: 1,
-                    insertBeforeLine: lines.Count,
+                    insertBeforeLine: linesWithoutTrip.Count,
                     insertGap: false,
                     mergeAfterTrip: null,
                     pickupByTrip, dropoffByTrip, prepCache, baseline, homeGeo, job.ShiftEnd, capacityPassengers,
-                    templateHints, null, scheduleRules, historicalHints, token).ConfigureAwait(false);
+                    templateHints, null, scheduleRules, historicalHints, token,
+                    sameDriver).ConfigureAwait(false);
                 return results;
             }
 
-            if (TryFindFirstTripLine(lines, out int firstTripLine)
+            if (TryFindFirstTripLine(linesWithoutTrip, out int firstTripLine)
                 && ShouldTryNewGroupAtStart(groups, tripPu))
             {
-                await TryAddCandidateAsync(results, job.Tab, job.DisplayName, trip, lines, job.ShiftStart,
+                await TryAddCandidateAsync(results, job.Tab, job.DisplayName, trip, linesWithoutTrip, job.ShiftStart,
                     ScheduleBuilderSuggestPlacementKind.NewGroupAtStart,
                     targetGroupNumber: 1,
                     insertBeforeLine: firstTripLine,
                     insertGap: false,
                     mergeAfterTrip: null,
                     pickupByTrip, dropoffByTrip, prepCache, baseline, homeGeo, job.ShiftEnd, capacityPassengers,
-                    templateHints, null, scheduleRules, historicalHints, token).ConfigureAwait(false);
+                    templateHints, null, scheduleRules, historicalHints, token,
+                    sameDriver).ConfigureAwait(false);
             }
 
             for (int gn = 1; gn <= groups.Count; gn++)
@@ -408,37 +421,45 @@ namespace Hiatme_Tool_Suite_v3
                     && !MergeConcurrentPickupsTooFar(group, trip, pickupByTrip))
                 {
                     await TryAddMergeWithPairInsertAsync(
-                        results, job.Tab, job.DisplayName, trip, lines, job.ShiftStart,
+                        results, job.Tab, job.DisplayName, trip, linesWithoutTrip, job.ShiftStart,
                         targetGroupNumber: gn,
                         pickupByTrip, dropoffByTrip, prepCache, baseline, homeGeo, job.ShiftEnd, capacityPassengers,
                         templateHints, group, scheduleRules, historicalHints, token).ConfigureAwait(false);
                 }
 
-                if (TryFindLineAfterGroup(lines, gn, out int afterGroupLine)
+                // Last group is AtEnd. After N is only the hole before N+1.
+                if (gn < groups.Count
+                    && TryFindLineAfterGroup(linesWithoutTrip, gn, out int afterGroupLine)
                     && ShouldTryNewGroupAfterGroup(groups, gn, tripPu, baseline, trip, pickupByTrip))
                 {
-                    await TryAddCandidateAsync(results, job.Tab, job.DisplayName, trip, lines, job.ShiftStart,
+                    await TryAddCandidateAsync(results, job.Tab, job.DisplayName, trip, linesWithoutTrip, job.ShiftStart,
                         ScheduleBuilderSuggestPlacementKind.NewGroupAfterGroup,
                         targetGroupNumber: gn + 1,
                         insertBeforeLine: afterGroupLine,
-                        insertGap: NeedsGapBeforeNewGroup(lines, afterGroupLine),
+                        insertGap: NeedsGapBeforeNewGroup(linesWithoutTrip, afterGroupLine),
                         mergeAfterTrip: null,
                         pickupByTrip, dropoffByTrip, prepCache, baseline, homeGeo, job.ShiftEnd, capacityPassengers,
-                        templateHints, null, scheduleRules, historicalHints, token).ConfigureAwait(false);
+                        templateHints, null, scheduleRules, historicalHints, token,
+                        sameDriver).ConfigureAwait(false);
                 }
             }
 
             if (ShouldTryNewGroupAtEnd(groups, tripPu))
             {
-                await TryAddCandidateAsync(results, job.Tab, job.DisplayName, trip, lines, job.ShiftStart,
+                await TryAddCandidateAsync(results, job.Tab, job.DisplayName, trip, linesWithoutTrip, job.ShiftStart,
                     ScheduleBuilderSuggestPlacementKind.NewGroupAtEnd,
                     targetGroupNumber: groups.Count + 1,
-                    insertBeforeLine: lines.Count,
-                    insertGap: NeedsGapBeforeNewGroup(lines, lines.Count),
+                    insertBeforeLine: linesWithoutTrip.Count,
+                    insertGap: NeedsGapBeforeNewGroup(linesWithoutTrip, linesWithoutTrip.Count),
                     mergeAfterTrip: null,
                     pickupByTrip, dropoffByTrip, prepCache, baseline, homeGeo, job.ShiftEnd, capacityPassengers,
-                    templateHints, null, scheduleRules, historicalHints, token).ConfigureAwait(false);
+                    templateHints, null, scheduleRules, historicalHints, token,
+                    sameDriver).ConfigureAwait(false);
             }
+
+            // Between 9 and 10 is group 10. Do not also keep "last group" on this van.
+            if (results.Exists(r => r.Kind == ScheduleBuilderSuggestPlacementKind.NewGroupAfterGroup))
+                results.RemoveAll(r => r.Kind == ScheduleBuilderSuggestPlacementKind.NewGroupAtEnd);
 
             return results;
         }
@@ -471,7 +492,7 @@ namespace Hiatme_Tool_Suite_v3
             TimeSpan anchor = last.LatestPickup > last.EarliestPickup
                 ? last.LatestPickup
                 : last.EarliestPickup;
-            return tripPu.Value >= anchor.Subtract(TimeSpan.FromMinutes(ClusterWindowMinutes));
+            return tripPu.Value >= anchor;
         }
 
         private static bool ShouldTryNewGroupAfterGroup(
@@ -482,11 +503,14 @@ namespace Hiatme_Tool_Suite_v3
             MCDownloadedTrip trip,
             Dictionary<string, GeoPoint> pickupByTrip)
         {
-            if (groups == null || afterGroupNumber < 1 || afterGroupNumber > groups.Count)
+            if (groups == null || afterGroupNumber < 1 || afterGroupNumber >= groups.Count)
                 return false;
 
             if (!tripPu.HasValue)
-                return PassesCheapNewGroupAfterFilter(baseline, afterGroupNumber, trip, pickupByTrip);
+                return false;
+
+            if (!TripFitsHoleAfterGroup(groups, afterGroupNumber, tripPu.Value))
+                return false;
 
             // Driver must be free — prior batch finished before this trip's PU window closes.
             int priorIdx = afterGroupNumber - 1;
@@ -498,16 +522,31 @@ namespace Hiatme_Tool_Suite_v3
                     return false;
             }
 
-            // Slot is before the next group's first pickup (dispatcher gap between batches).
-            if (afterGroupNumber < groups.Count)
-            {
-                var next = groups[afterGroupNumber];
-                if (next.EarliestPickup != TimeSpan.MaxValue
-                    && tripPu.Value >= next.EarliestPickup)
-                    return false;
-            }
-
             return PassesCheapNewGroupAfterFilter(baseline, afterGroupNumber, trip, pickupByTrip);
+        }
+
+        /// <summary>
+        /// Pickup sits in the hole after group N and before group N+1.
+        /// That hole is new group N+1. Later groups shift up. Last group is AtEnd.
+        /// </summary>
+        internal static bool TripFitsHoleAfterGroup(
+            IList<SupeyTripCluster> groups,
+            int afterGroupNumber,
+            TimeSpan tripPu)
+        {
+            if (groups == null || afterGroupNumber < 1 || afterGroupNumber >= groups.Count)
+                return false;
+
+            var prior = groups[afterGroupNumber - 1];
+            var next = groups[afterGroupNumber];
+            if (prior == null || next == null)
+                return false;
+
+            if (prior.EarliestPickup != TimeSpan.MaxValue && tripPu < prior.EarliestPickup)
+                return false;
+            if (next.EarliestPickup != TimeSpan.MaxValue && tripPu >= next.EarliestPickup)
+                return false;
+            return true;
         }
 
         private static async Task TryAddMergeWithPairInsertAsync(
@@ -630,19 +669,19 @@ namespace Hiatme_Tool_Suite_v3
             SupeyTripCluster mergeGroup,
             SupeyScheduleRules scheduleRules,
             ScheduleBuilderHistoricalHints historicalHints,
-            CancellationToken token)
+            CancellationToken token,
+            bool relocateOnSameDriver = false)
         {
             var trialLines = CloneLines(baseLines);
             int removedAt = ScheduleBuilderPreviewDrag.FindTripLineIndex(trialLines, trip);
-            bool relocateOnSameDriver = removedAt >= 0;
-            if (relocateOnSameDriver)
+            if (removedAt >= 0)
                 ScheduleBuilderPreviewDrag.TryRemoveTrip(trialLines, trip);
 
             int storedInsertBeforeLine = insertBeforeLine;
-            if (relocateOnSameDriver && storedInsertBeforeLine > removedAt)
+            if (removedAt >= 0 && storedInsertBeforeLine > removedAt)
                 storedInsertBeforeLine--;
 
-            if (relocateOnSameDriver && storedInsertBeforeLine == removedAt && !insertGap
+            if (removedAt >= 0 && storedInsertBeforeLine == removedAt && !insertGap
                 && kind != ScheduleBuilderSuggestPlacementKind.NewGroupAtStart)
                 return;
 
@@ -747,9 +786,10 @@ namespace Hiatme_Tool_Suite_v3
                         : "New last group on " + displayName + " ???? may not fit shift/timing.";
                     break;
                 default:
-                    s.Headline = "New group after group " + (targetGroupNumber - 1) + " on " + displayName + sameDriver;
+                    s.Headline = "New group " + targetGroupNumber + " after group "
+                        + (targetGroupNumber - 1) + " on " + displayName + sameDriver;
                     s.Summary = eval.Feasible
-                        ? "Trip in its own group between existing routes ???? times and drive fit."
+                        ? "Trip becomes group " + targetGroupNumber + "; later groups shift up."
                         : "Separate group on " + displayName + " ???? timing may not work.";
                     break;
             }

@@ -10,5 +10,9 @@
   "AllowLocalSolveFallback": false,
   "UseWeekdayTemplates": true,
   "FinishRemainingAfterTemplates": true,
-  "RememberOnSave": true
+  "RememberOnSave": true,
+  "TemplateSyncEnabled": false,
+  "TemplateSyncMachines": [
+    "CHERIES"
+  ]
 }

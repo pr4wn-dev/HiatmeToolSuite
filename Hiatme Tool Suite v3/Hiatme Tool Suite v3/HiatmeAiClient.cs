@@ -514,6 +514,27 @@ namespace Hiatme_Tool_Suite_v3
 
         [JsonProperty("suggested_minutes")]
         public int? SuggestedMinutes { get; set; }
+
+        [JsonProperty("driver")]
+        public string Driver { get; set; }
+
+        [JsonProperty("subject")]
+        public string Subject { get; set; }
+
+        [JsonProperty("correction_key")]
+        public string CorrectionKey { get; set; }
+
+        [JsonProperty("edit_key")]
+        public string EditKey { get; set; }
+
+        [JsonProperty("service_date")]
+        public string ServiceDate { get; set; }
+
+        [JsonProperty("weekday")]
+        public string Weekday { get; set; }
+
+        [JsonProperty("multi_van")]
+        public bool? MultiVan { get; set; }
     }
 
     internal sealed class HiatmeAssistantAction
@@ -2527,6 +2548,7 @@ namespace Hiatme_Tool_Suite_v3
         public static async Task SyncTemplatesAsync(
             HiatmeAiSettings settings,
             bool purgeMissing = false,
+            bool liveDesk = false,
             CancellationToken cancellationToken = default)
         {
             if (settings == null) throw new ArgumentNullException(nameof(settings));
@@ -2565,6 +2587,9 @@ namespace Hiatme_Tool_Suite_v3
             {
                 ["templates"] = arr,
                 ["purge_missing"] = purgeMissing,
+                ["live"] = liveDesk,
+                ["machine"] = ScheduleActivityIdentity.Machine(),
+                ["dispatcher"] = ScheduleActivityIdentity.DispatcherName(),
             };
 
             using (var req = new HttpRequestMessage(HttpMethod.Post, baseUrl + "/api/hiatme/templates/sync"))
@@ -2586,10 +2611,23 @@ namespace Hiatme_Tool_Suite_v3
 
         public static void SyncTemplatesFireAndForget(HiatmeAiSettings settings)
         {
-            if (settings == null) return;
+            SyncDeskTemplatesFireAndForget(settings);
+        }
+
+        /// <summary>
+        /// Push this PC's Monday–Sunday template CSVs to the panel (templates_live/&lt;machine&gt;/).
+        /// Runs at app startup and after Replace templates — not tied to the AI dock.
+        /// </summary>
+        public static void SyncDeskTemplatesFireAndForget(HiatmeAiSettings settings)
+        {
+            if (settings == null || !settings.ShouldUploadDeskTemplates()) return;
             _ = Task.Run(async () =>
             {
-                try { await SyncTemplatesAsync(settings).ConfigureAwait(false); }
+                try
+                {
+                    await SyncTemplatesAsync(
+                        settings, purgeMissing: true, liveDesk: true).ConfigureAwait(false);
+                }
                 catch { /* non-fatal */ }
             });
         }
@@ -2750,6 +2788,37 @@ namespace Hiatme_Tool_Suite_v3
                             return null;
                         return q.ToObject<HiatmeAssistantQuestion>();
                     }
+                }
+            }
+        }
+
+        public static async Task DismissAssistantQuestionAsync(
+            HiatmeAiSettings settings,
+            HiatmeAssistantQuestion question,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null || question == null) return;
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl)) return;
+
+            var body = new JObject { ["question"] = JObject.FromObject(question) };
+            using (var req = new HttpRequestMessage(HttpMethod.Post, baseUrl + "/api/hiatme/assistant/question/dismiss"))
+            {
+                req.Content = new StringContent(body.ToString(Formatting.None), Encoding.UTF8, "application/json");
+                if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                    req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", settings.ApiToken.Trim());
+
+                using (var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+                {
+                    timeoutCts.CancelAfter(TimeSpan.FromSeconds(8));
+                    try
+                    {
+                        using (var resp = await SharedHttp.SendAsync(req, timeoutCts.Token).ConfigureAwait(false))
+                        {
+                            _ = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        }
+                    }
+                    catch { }
                 }
             }
         }

@@ -34,14 +34,13 @@ namespace Hiatme_Tool_Suite_v3
                 throw new ArgumentException("At least one suggestion is required.", nameof(suggestions));
 
             Text = "Suggest driver — " + (tripLabel ?? "trip");
-            FormBorderStyle = FormBorderStyle.FixedDialog;
-            MaximizeBox = false;
+            FormBorderStyle = FormBorderStyle.Sizable;
+            MaximizeBox = true;
             MinimizeBox = false;
             ShowInTaskbar = false;
             StartPosition = FormStartPosition.CenterParent;
-            ClientSize = new Size(700, 560);
-            MinimumSize = new Size(700, 560);
-            MaximumSize = new Size(700, 560);
+            ClientSize = new Size(760, 720);
+            MinimumSize = new Size(720, 620);
             BackColor = SupeyTheme.Surface;
 
             try
@@ -56,22 +55,19 @@ namespace Hiatme_Tool_Suite_v3
                 BackColor = SupeyTheme.SurfaceHeader,
             };
 
-            var footerButtons = new FlowLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                FlowDirection = FlowDirection.RightToLeft,
-                WrapContents = false,
-                Padding = new Padding(0, 8, 16, 12),
-                BackColor = SupeyTheme.SurfaceHeader,
-            };
+            const int btnW = 96;
+            const int btnH = 36;
+            const int gap = 8;
+            const int pad = 16;
+            int btnY = (footer.Height - btnH) / 2;
 
             _confirmBtn = new DarkOnAccentMaterialButton
             {
-                Text = "MOVE TRIP",
+                Text = "MOVE",
                 AutoSize = false,
                 Type = SupeyMaterialButton.MaterialButtonType.Contained,
                 UseAccentColor = true,
-                Size = new Size(110, 36),
+                Size = new Size(btnW, btnH),
                 DialogResult = DialogResult.OK,
             };
 
@@ -81,8 +77,7 @@ namespace Hiatme_Tool_Suite_v3
                 AutoSize = false,
                 Type = SupeyMaterialButton.MaterialButtonType.Outlined,
                 UseAccentColor = true,
-                Size = new Size(88, 36),
-                Margin = new Padding(0, 0, 8, 0),
+                Size = new Size(btnW, btnH),
             };
             nextBtn.Click += (s, e) => ShowSuggestion(_index + 1);
 
@@ -93,21 +88,31 @@ namespace Hiatme_Tool_Suite_v3
                 Type = SupeyMaterialButton.MaterialButtonType.Text,
                 UseAccentColor = false,
                 NoAccentTextColor = SupeyTheme.TextSecondary,
-                Size = new Size(88, 36),
-                Margin = new Padding(0, 0, 8, 0),
+                Size = new Size(btnW, btnH),
                 DialogResult = DialogResult.Cancel,
             };
 
-            footerButtons.Controls.Add(_confirmBtn);
-            footerButtons.Controls.Add(nextBtn);
-            footerButtons.Controls.Add(cancelBtn);
-            footer.Controls.Add(footerButtons);
+            void LayoutFooterButtons()
+            {
+                int moveX = footer.ClientSize.Width - pad - btnW;
+                int nextX = moveX - gap - btnW;
+                int cancelX = nextX - gap - btnW;
+                _confirmBtn.Location = new Point(moveX, btnY);
+                nextBtn.Location = new Point(nextX, btnY);
+                cancelBtn.Location = new Point(cancelX, btnY);
+            }
+
+            footer.Controls.Add(cancelBtn);
+            footer.Controls.Add(nextBtn);
+            footer.Controls.Add(_confirmBtn);
+            footer.Resize += (s, e) => LayoutFooterButtons();
+            LayoutFooterButtons();
 
             var body = new Panel
             {
                 Dock = DockStyle.Fill,
                 BackColor = SupeyTheme.Surface,
-                Padding = new Padding(16, 72, 16, 8),
+                Padding = new Padding(16, 12, 16, 8),
             };
 
             _counterLbl = new Label
@@ -140,8 +145,26 @@ namespace Hiatme_Tool_Suite_v3
             _previewPanel = new ScheduleDriverSuggestPreviewPanel
             {
                 Dock = DockStyle.Top,
-                Height = 280,
+                Height = 240,
                 Margin = new Padding(0, 4, 0, 6),
+            };
+
+            var whyLbl = new Label
+            {
+                Dock = DockStyle.Top,
+                Height = 28,
+                Text = "Why this slot",
+                ForeColor = SupeyTheme.TextSecondary,
+                Font = new Font("Segoe UI Semibold", 9f),
+                TextAlign = ContentAlignment.MiddleLeft,
+                Padding = new Padding(0, 6, 0, 0),
+            };
+
+            var reasonsHost = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = SupeyTheme.SurfaceElevated,
+                Padding = new Padding(10, 8, 6, 8),
             };
 
             _reasonsBox = new TextBox
@@ -149,15 +172,19 @@ namespace Hiatme_Tool_Suite_v3
                 Dock = DockStyle.Fill,
                 Multiline = true,
                 ReadOnly = true,
-                BorderStyle = BorderStyle.FixedSingle,
-                BackColor = SupeyTheme.SurfaceBase,
+                WordWrap = true,
+                BorderStyle = BorderStyle.None,
+                BackColor = SupeyTheme.SurfaceElevated,
                 ForeColor = SupeyTheme.TextPrimary,
-                Font = new Font("Segoe UI", 9.25f),
+                Font = new Font("Segoe UI", 10f),
                 ScrollBars = ScrollBars.Vertical,
+                TabStop = false,
             };
+            reasonsHost.Controls.Add(_reasonsBox);
 
             var stack = new Panel { Dock = DockStyle.Fill, BackColor = SupeyTheme.Surface };
-            stack.Controls.Add(_reasonsBox);
+            stack.Controls.Add(reasonsHost);
+            stack.Controls.Add(whyLbl);
             stack.Controls.Add(_previewPanel);
             stack.Controls.Add(_summaryLbl);
             stack.Controls.Add(_headlineLbl);
@@ -173,6 +200,7 @@ namespace Hiatme_Tool_Suite_v3
 
             SupeyDarkScrollBars.Apply(this);
             SupeyDarkScrollBars.Apply(body);
+            SupeyDarkScrollBars.Apply(_reasonsBox);
 
             ShowSuggestion(0);
         }
@@ -210,9 +238,9 @@ namespace Hiatme_Tool_Suite_v3
                         lines.Add("• " + r.Trim());
                 }
             }
-            _reasonsBox.Text = string.Join(Environment.NewLine, lines);
+            _reasonsBox.Text = string.Join(Environment.NewLine + Environment.NewLine, lines);
 
-            _confirmBtn.Text = s.Feasible ? "MOVE TRIP" : "MOVE ANYWAY";
+            _confirmBtn.Text = "MOVE";
         }
     }
 }

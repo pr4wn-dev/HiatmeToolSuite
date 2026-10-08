@@ -48,7 +48,8 @@ namespace Hiatme_Tool_Suite_v3
         public static void WriteWorkbookFromTabs(
             string outputPath,
             IReadOnlyList<ScheduleBuilderPreviewCsvExport.WorkbookTab> tabs,
-            double[] preferredColumnWidths = null)
+            double[] preferredColumnWidths = null,
+            string verifiedCopyPath = null)
         {
             if (string.IsNullOrWhiteSpace(outputPath))
                 throw new ArgumentException("Output path is required.", nameof(outputPath));
@@ -74,7 +75,7 @@ namespace Hiatme_Tool_Suite_v3
             if (sheets.Count == 0)
                 throw new InvalidOperationException("No readable workbook tabs were found.");
 
-            WriteWorkbookInternal(outputPath, sheets, preferredColumnWidths);
+            WriteWorkbookInternal(outputPath, sheets, preferredColumnWidths, verifiedCopyPath);
         }
 
         public static void WriteWorkbookFromCsvFiles(string outputPath, IReadOnlyList<string> csvFilePaths)
@@ -108,7 +109,8 @@ namespace Hiatme_Tool_Suite_v3
         private static void WriteWorkbookInternal(
             string outputPath,
             IReadOnlyList<(string Name, List<List<string>> Rows, Dictionary<(int Row, int Col), Color> Fills, List<ScheduleBuilderPreviewCsvExport.WorkbookTab.RowMergeBar> MergeBars)> sheets,
-            double[] preferredColumnWidths = null)
+            double[] preferredColumnWidths = null,
+            string verifiedCopyPath = null)
         {
             string dir = Path.GetDirectoryName(outputPath);
             if (!string.IsNullOrEmpty(dir))
@@ -176,6 +178,13 @@ namespace Hiatme_Tool_Suite_v3
                 }
             }
 
+            if (!string.IsNullOrWhiteSpace(verifiedCopyPath))
+            {
+                string vdir = Path.GetDirectoryName(verifiedCopyPath);
+                if (!string.IsNullOrEmpty(vdir))
+                    Directory.CreateDirectory(vdir);
+                File.Copy(tmpPath, verifiedCopyPath, overwrite: true);
+            }
             ReplaceWorkbookFile(tmpPath, outputPath, bakPath);
         }
 

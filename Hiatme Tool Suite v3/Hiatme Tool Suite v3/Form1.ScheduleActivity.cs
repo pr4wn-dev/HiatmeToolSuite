@@ -214,12 +214,7 @@ namespace Hiatme_Tool_Suite_v3
         private string ScheduleActivityCurrentDayIso()
         {
             if (!_fsHasPreview) return "";
-            DateTime d = fsbdatepicker?.Value.Date ?? DateTime.Today;
-            if (fsbuilder != null)
-            {
-                try { d = fsbuilder.ServiceDate; } catch { }
-            }
-            return d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            return FsBoardServiceDate().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
         }
 
         private static readonly Stopwatch SchedActClock = Stopwatch.StartNew();
@@ -294,6 +289,8 @@ namespace Hiatme_Tool_Suite_v3
         {
             if (_schedActFeed == null) return;
             string now = ScheduleActivityCurrentDayIso();
+            if (string.IsNullOrEmpty(now))
+                return;
             if (string.Equals(now, _schedActOpenDay, StringComparison.Ordinal)) return;
             if (!string.IsNullOrEmpty(_schedActOpenDay))
                 _schedActFeed.Emit("closed", _schedActOpenDay, null);
@@ -833,6 +830,8 @@ namespace Hiatme_Tool_Suite_v3
 
         private void ScheduleActivityLoadDay(string iso)
         {
+            if (_fsLoadInFlight)
+                return;
             if (!DateTime.TryParseExact(iso ?? "", "yyyy-MM-dd", CultureInfo.InvariantCulture,
                     DateTimeStyles.None, out var day))
                 return;

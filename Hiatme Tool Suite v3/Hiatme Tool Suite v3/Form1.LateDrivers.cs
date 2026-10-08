@@ -42,6 +42,7 @@ namespace Hiatme_Tool_Suite_v3
         private Label ldDriverCaptionLbl;
         private Label ldTripCaptionLbl;
         private Panel ldDriverStripHost;
+        private Panel ldFreeEdgeLane;
         private Panel ldDriverStripHeader;
         private Panel ldDriverStripRow;
         private FlowLayoutPanel ldDriverStrip;
@@ -59,11 +60,11 @@ namespace Hiatme_Tool_Suite_v3
         private SupeyListView ldTripLv;
 
         private const int LateDriversToolbarInnerH = 42;
-        private const int LateDriversDriverStripH = 114;
+        private const int LateDriversDriverStripH = 144;
         private const int LateDriversHeroH = 118;
         private const int LateDriversOtpMeterW = 148;
-        private const int LateDriversDriverTileW = 148;
-        private const int LateDriversDriverTileH = 78;
+        private const int LateDriversDriverTileW = 188;
+        private const int LateDriversDriverTileH = 108;
         private const int LateDriversDriverTileGap = 8;
         private const int LateDriversDriverNavBtnW = 36;
         private string _ldLastHash;
@@ -263,6 +264,8 @@ namespace Hiatme_Tool_Suite_v3
                     ldDriverCaptionLbl = null;
                     ldTripCaptionLbl = null;
                     ldDriverStripHost = null;
+                    ldFreeEdgeLane = null;
+                    _ldFreeEdges.Clear();
                     ldDriverStripHeader = null;
                     ldDriverStripRow = null;
                     ldDriverStrip = null;
@@ -444,6 +447,8 @@ namespace Hiatme_Tool_Suite_v3
                 ldMainCard.Controls.Add(ldStageHost);
                 ldMainCard.Controls.Add(ldHeroHost);
                 ldMainCard.Controls.Add(ldDriverStripHost);
+                if (ldFreeEdgeLane != null)
+                    ldMainCard.Controls.Add(ldFreeEdgeLane);
                 ldMainCard.Controls.Add(ldRangeCaptionLbl);
                 if (ldBellAlertHost != null)
                     ldMainCard.Controls.Add(ldBellAlertHost);
@@ -663,6 +668,15 @@ namespace Hiatme_Tool_Suite_v3
             ldDriverStripRow.Controls.Add(ldDriverNextBtn);
             ldDriverStripHost.Controls.Add(ldDriverStripRow);
             ldDriverStripHost.Controls.Add(ldDriverStripHeader);
+            ldFreeEdgeLane = new Panel
+            {
+                Name = "ldFreeEdgeLane",
+                Dock = DockStyle.Top,
+                Height = 108,
+                Visible = false,
+                BackColor = SupeyTheme.Surface,
+            };
+            ldFreeEdgeLane.Resize += (_, __) => UpdateLateDriversFreeEdges();
 
             // ── Scorecard hero (host adds side padding; docked Margin is ignored) ─
             ldHeroHost = new Panel
@@ -1582,6 +1596,8 @@ namespace Hiatme_Tool_Suite_v3
             }
             if (ldDriverStripHost != null && !ldDriverStripHost.IsDisposed)
                 ldDriverStripHost.BackColor = Color.Transparent;
+            if (ldFreeEdgeLane != null && !ldFreeEdgeLane.IsDisposed)
+                ldFreeEdgeLane.BackColor = Color.Transparent;
             if (ldDriverStripRow != null && !ldDriverStripRow.IsDisposed)
                 ldDriverStripRow.BackColor = Color.Transparent;
             if (ldDriverStrip != null && !ldDriverStrip.IsDisposed)
@@ -1710,6 +1726,7 @@ namespace Hiatme_Tool_Suite_v3
             top += LateDriversVisibleHostHeight(ldSearchHost);
             top += LateDriversVisibleHostHeight(ldBellAlertHost);
             top += LateDriversVisibleHostHeight(ldRangeCaptionLbl);
+            top += LateDriversVisibleHostHeight(ldFreeEdgeLane);
             top += LateDriversVisibleHostHeight(ldDriverStripHost);
             top += LateDriversVisibleHostHeight(ldHeroHost);
 
@@ -2215,6 +2232,14 @@ namespace Hiatme_Tool_Suite_v3
             finally
             {
                 _ldLoadInFlight = false;
+                try
+                {
+                    if (!IsDisposed)
+                    {
+                        BeginInvoke(new Action(QueueLateDriversFreeUpdate));
+                    }
+                }
+                catch { }
                 if (liveMode)
                 {
                     await StopLateDriversLiveScanAfterMinimumAsync().ConfigureAwait(true);
@@ -2750,6 +2775,8 @@ namespace Hiatme_Tool_Suite_v3
                 int stripW = Math.Max(0, w - left - nav - gap);
                 ldDriverStrip.SetBounds(left, 0, stripW, h);
             }
+            if (!_ldDriverStripRendering)
+                UpdateLateDriversFreeEdges();
         }
 
         private int LateDriversDriverStripPageSize(bool assumeNavVisible = false)
@@ -2758,6 +2785,8 @@ namespace Hiatme_Tool_Suite_v3
                 return 1;
             int slot = LateDriversDriverTileW + LateDriversDriverTileGap;
             int inner = ldDriverStrip.ClientSize.Width;
+            if (hiatmeTabControl != null && hiatmeTabControl.ClientSize.Width > 0)
+                inner = Math.Min(inner, hiatmeTabControl.ClientSize.Width);
             if (assumeNavVisible && ldDriverStripRow != null && !ldDriverStripRow.IsDisposed)
             {
                 // Render calculation uses strip width after nav reservation.
@@ -2794,6 +2823,7 @@ namespace Hiatme_Tool_Suite_v3
         /// </summary>
         private void DisposeLateDriversDriverTiles()
         {
+            DisposeLateDriversStars();
             if (ldDriverStrip != null && !ldDriverStrip.IsDisposed)
             {
                 try { ldDriverStrip.Controls.Clear(); }
@@ -2822,6 +2852,8 @@ namespace Hiatme_Tool_Suite_v3
                 int rowW = ldDriverStripRow != null && !ldDriverStripRow.IsDisposed
                     ? ldDriverStripRow.ClientSize.Width
                     : 0;
+                if (hiatmeTabControl != null && hiatmeTabControl.ClientSize.Width > 0)
+                    rowW = Math.Min(rowW, hiatmeTabControl.ClientSize.Width);
                 // Decide overflow from the real page capacity (without nav first).
                 int pageNoNav = Math.Max(1, Math.Max(1, rowW / Math.Max(1, slot)) - 2);
                 bool canPage = rows.Count > pageNoNav;
@@ -2837,6 +2869,11 @@ namespace Hiatme_Tool_Suite_v3
                     _ldDriverScrollOffset = maxOff;
                 if (_ldDriverScrollOffset < 0)
                     _ldDriverScrollOffset = 0;
+                if (LateDriversFreeEdgeTest && !_ldFreeEdgeTestShifted && maxOff >= 2)
+                {
+                    _ldFreeEdgeTestShifted = true;
+                    _ldDriverScrollOffset = 1;
+                }
                 if (ldDriverPrevBtn != null && !ldDriverPrevBtn.IsDisposed)
                     ldDriverPrevBtn.Enabled = canPage && _ldDriverScrollOffset > 0;
                 if (ldDriverNextBtn != null && !ldDriverNextBtn.IsDisposed)
@@ -2905,12 +2942,15 @@ namespace Hiatme_Tool_Suite_v3
                 }
 
                 StyleLateDriversDriverTiles();
+                PaintLateDriversFreeLabels();
                 SyncLateDriversDriverAlertBlink();
             }
             finally
             {
                 ldDriverStrip.ResumeLayout(true);
                 _ldDriverStripRendering = false;
+                RepositionLateDriversStars();
+                UpdateLateDriversFreeEdges();
             }
         }
 
@@ -3970,23 +4010,30 @@ namespace Hiatme_Tool_Suite_v3
                 return true;
             if (LateDriversTripNosEqualForChip(t, q))
                 return true;
-            if (t.IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0)
+            string legT = ScheduleBuilderPreviewDrag.TripLegKey(t);
+            string legQ = ScheduleBuilderPreviewDrag.TripLegKey(q);
+            if (!string.IsNullOrEmpty(legQ) && !string.IsNullOrEmpty(legT)
+                && string.Equals(legT, legQ, StringComparison.OrdinalIgnoreCase))
                 return true;
             string nt = ScheduleBuilderModivcareTripMatch.NormalizeTripNumber(t);
             string nq = ScheduleBuilderModivcareTripMatch.NormalizeTripNumber(q);
             if (!string.IsNullOrEmpty(nq) && !string.IsNullOrEmpty(nt)
-                && nt.IndexOf(nq, StringComparison.OrdinalIgnoreCase) >= 0)
+                && string.Equals(nt, nq, StringComparison.OrdinalIgnoreCase))
                 return true;
+            bool qShort = q.Length <= 4 && q.All(char.IsDigit);
+            if (!qShort)
+            {
+                if (t.IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0)
+                    return true;
+                if (!string.IsNullOrEmpty(nq) && !string.IsNullOrEmpty(nt)
+                    && nt.IndexOf(nq, StringComparison.OrdinalIgnoreCase) >= 0)
+                    return true;
+            }
             string ft = WellRydeFilterDataParser.FormatTripIdForScheduleMatch(t);
             string fq = WellRydeFilterDataParser.FormatTripIdForScheduleMatch(q);
             if (!string.IsNullOrEmpty(ft) && !string.IsNullOrEmpty(fq)
                 && (string.Equals(ft, fq, StringComparison.OrdinalIgnoreCase)
                     || LateDriversTripNosEqualForChip(ft, fq)))
-                return true;
-            string legT = ScheduleBuilderPreviewDrag.TripLegKey(t);
-            string legQ = ScheduleBuilderPreviewDrag.TripLegKey(q);
-            if (!string.IsNullOrEmpty(legQ) && !string.IsNullOrEmpty(legT)
-                && string.Equals(legT, legQ, StringComparison.OrdinalIgnoreCase))
                 return true;
             return false;
         }

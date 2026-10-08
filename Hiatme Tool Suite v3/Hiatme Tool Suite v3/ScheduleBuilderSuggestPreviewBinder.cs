@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
-using System.Linq;
 using System.Windows.Forms;
 
 namespace Hiatme_Tool_Suite_v3
@@ -34,13 +33,12 @@ namespace Hiatme_Tool_Suite_v3
                     ? "new first group"
                     : suggestion.Kind == ScheduleBuilderSuggestPlacementKind.NewGroupAtEnd
                         ? "new last group"
-                        : "new group " + suggestion.TargetGroupNumber;
+                        : "new group " + suggestion.TargetGroupNumber
+                            + " after group " + (suggestion.TargetGroupNumber - 1);
 
             return suggestion.DriverDisplayName + " — " + placement
-                + (suggestion.Kind == ScheduleBuilderSuggestPlacementKind.MergeIntoGroup
-                    ? " · desk order"
-                    : " · pickup-time order")
-                + " · faded = earlier/later on route";
+                + " · desk order"
+                + " · faded = earlier/later on the sheet";
         }
 
         public static void ConfigureListView(ListView lv)
@@ -98,34 +96,25 @@ namespace Hiatme_Tool_Suite_v3
                 return;
             }
 
-            var chrono = BuildChronologicalGroupOrder(groups);
-            int focusChrono = chrono.FindIndex(x => x.GroupIndex == focusGroupIdx);
-            if (focusChrono < 0)
-                focusChrono = 0;
-
-            int firstChrono = Math.Max(0, focusChrono - 1);
-            int lastChrono = Math.Min(chrono.Count - 1, focusChrono + 1);
+            int first = Math.Max(0, focusGroupIdx - 1);
+            int last = Math.Min(groups.Count - 1, focusGroupIdx + 1);
             caption = BuildCaption(suggestion, focusGroupIdx, groups.Count);
 
-            for (int ci = firstChrono; ci <= lastChrono; ci++)
+            for (int i = first; i <= last; i++)
             {
-                if (ci > firstChrono)
+                if (i > first)
                     AddGapRow(lv);
 
-                var entry = chrono[ci];
-                var g = groups[entry.GroupIndex];
-                bool isContext = entry.GroupIndex != focusGroupIdx;
-                string suffix = ci < focusChrono
-                    ? " · earlier on route"
-                    : ci > focusChrono ? " · later on route" : "";
+                var g = groups[i];
+                bool isContext = i != focusGroupIdx;
+                string suffix = i < focusGroupIdx
+                    ? " · above on the sheet"
+                    : i > focusGroupIdx ? " · below on the sheet" : "";
 
                 string note = FindGroupNoteOnLines(placed, g?.GroupNumber ?? 0);
                 AddGroupRow(lv, g, note, suffix, isContext, showGroupColors);
 
-                IEnumerable<MCDownloadedTrip> trips = suggestion.Kind == ScheduleBuilderSuggestPlacementKind.MergeIntoGroup
-                    ? TripsInDeskOrder(placed, g)
-                    : SortTripsByPickup(g);
-                foreach (var trip in trips)
+                foreach (var trip in TripsInDeskOrder(placed, g))
                 {
                     if (trip == null)
                         continue;
@@ -137,54 +126,7 @@ namespace Hiatme_Tool_Suite_v3
             lv.EndUpdate();
         }
 
-        private sealed class ChronoGroup
-        {
-            public int GroupIndex { get; set; }
-            public TimeSpan SortKey { get; set; }
-        }
-
-        private static List<ChronoGroup> BuildChronologicalGroupOrder(IList<SupeyTripCluster> groups)
-        {
-            var list = new List<ChronoGroup>();
-            for (int i = 0; i < groups.Count; i++)
-            {
-                var g = groups[i];
-                TimeSpan key = g?.EarliestPickup ?? TimeSpan.MaxValue;
-                if (key == TimeSpan.MaxValue && g?.Trips != null)
-                {
-                    foreach (var t in g.Trips)
-                    {
-                        var pu = SupeyTripTimes.TryParsePU(t);
-                        if (pu.HasValue && pu.Value < key)
-                            key = pu.Value;
-                    }
-                }
-                if (key == TimeSpan.MaxValue)
-                    key = TimeSpan.FromHours(12).Add(TimeSpan.FromMinutes(i));
-
-                list.Add(new ChronoGroup { GroupIndex = i, SortKey = key });
-            }
-
-            return list
-                .OrderBy(x => x.SortKey)
-                .ThenBy(x => x.GroupIndex)
-                .ToList();
-        }
-
-        private static IEnumerable<MCDownloadedTrip> SortTripsByPickup(SupeyTripCluster g)
-        {
-            if (g?.Trips == null)
-                yield break;
-
-            var sorted = g.Trips
-                .Where(t => t != null)
-                .OrderBy(t => SupeyTripTimes.TryParsePU(t) ?? TimeSpan.MaxValue)
-                .ThenBy(t => (t.TripNumber ?? "").Trim(), StringComparer.OrdinalIgnoreCase);
-            foreach (var t in sorted)
-                yield return t;
-        }
-
-        /// <summary>Line-list order for merged groups (insert position), not PU sort.</summary>
+        /// <summary>Line-list order so the preview matches where MOVE writes.</summary>
         private static IEnumerable<MCDownloadedTrip> TripsInDeskOrder(
             IList<ScheduleBuilderPreviewLine> placed,
             SupeyTripCluster g)

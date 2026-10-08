@@ -128,7 +128,7 @@ namespace Hiatme_Tool_Suite_v3
             };
 
             int timeoutSeconds = Math.Max(5, httpTimeoutSeconds);
-            _client = new HttpClient(_handler)
+            _client = new HttpClient(new PortalRequestReporter(_handler, "wellryde"))
             {
                 Timeout = TimeSpan.FromSeconds(timeoutSeconds),
             };

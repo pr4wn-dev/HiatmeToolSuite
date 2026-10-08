@@ -3008,6 +3008,7 @@ namespace Hiatme_Tool_Suite_v3
             try { _ = RunStartupUpdateCheckAsync(); } catch { }
             // Live "who is doing what in the Schedule Builder" feed (toasts bottom-right).
             try { InitScheduleActivityFeed(); } catch { }
+            try { SyncDeskTemplatesToPanel(); } catch { }
         }
 
         // ---------- Updates ----------
@@ -8495,6 +8496,8 @@ namespace Hiatme_Tool_Suite_v3
                     return;
                 }
 
+                SyncDeskTemplatesToPanel();
+
                 if (tbuilder.ScheduleWeekdayMismatchWarning && !string.IsNullOrEmpty(tbuilder.InferredWeekdayFromSchedule))
                 {
                     MessageBox.Show(
@@ -9533,6 +9536,7 @@ namespace Hiatme_Tool_Suite_v3
                     if (!_ddBuilt)
                         InitializeDriverDisciplineTab();
                 }
+                SyncLateDriversHabitMarkers();
 
                 var opened = hiatmeTabControl.SelectedTab;
                 if (opened != null && opened != tabPage1)

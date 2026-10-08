@@ -45,8 +45,12 @@ namespace Hiatme_Tool_Suite_v3
         // before it becomes scenery. Hovering pauses this, so reading it does not race the fuse.
         private const int AskToastLifetimeMs = 30_000;
 
+        // Playbook corner toasts are off until learning is deliberately re-enabled on the panel.
+        private const bool PlaybookCornerAskEnabled = false;
+
         private void InitPlaybookAsk()
         {
+            if (!PlaybookCornerAskEnabled) return;
             if (_askTimer != null) return;
             _askNextAtMs = _askClock.ElapsedMilliseconds + AskFirstGapMs;
             _askTimer = new System.Windows.Forms.Timer { Interval = AskTickMs };
@@ -235,9 +239,22 @@ namespace Hiatme_Tool_Suite_v3
         /// </summary>
         private void PlaybookAskExpired()
         {
+            var q = _askPending;
             _askToast = null;
             _askPending = null;
             _askNextAtMs = _askClock.ElapsedMilliseconds + AskGapAfterIgnoredMs;
+            if (q != null)
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        var s = _globalAiSettings ?? HiatmeAiSettings.LoadNoProbe();
+                        await HiatmeAiClient.DismissAssistantQuestionAsync(s, q).ConfigureAwait(false);
+                    }
+                    catch { }
+                });
+            }
         }
     }
 }

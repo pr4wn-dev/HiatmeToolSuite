@@ -472,6 +472,8 @@ namespace Hiatme_Tool_Suite_v3
 
                 fsbdatepicker.TextColor = SupeyTheme.TextPrimary;
 
+                fsbdatepicker.ValueChanged += fsbdatepicker_ValueChanged;
+
             }
 
 
@@ -551,7 +553,7 @@ namespace Hiatme_Tool_Suite_v3
             _fsSaveBtn.Click += fsSaveBtn_Click;
 
             saveTip.SetToolTip(_fsSaveBtn,
-                "Save the workbook using the service date (no file dialog). Overwrites the loaded .xlsx, or saves to Desktop\\SCHEDULES FOR {year}\\.");
+                "Save this date to the shared board. Excel on Desktop is not the board.");
 
             _fsAssignBtn = new SupeyButton
             {
@@ -673,7 +675,11 @@ namespace Hiatme_Tool_Suite_v3
 
             string msg = text ?? "";
             if (_fsToolbarStatusLbl != null && !_fsToolbarStatusLbl.IsDisposed)
+            {
+                _fsToolbarStatusLbl.ForeColor = SupeyTheme.TextSecondary;
                 _fsToolbarStatusLbl.Text = msg;
+                FsAppendDateMismatchToStatus();
+            }
 
             if (sbstatuslbl != null && !sbstatuslbl.IsDisposed)
             {
@@ -2153,6 +2159,8 @@ namespace Hiatme_Tool_Suite_v3
         private async void fsLoadBtn_Click(object sender, EventArgs e)
 
         {
+            if (_fsLoadInFlight)
+                return;
 
             DateTime loadDay = fsbdatepicker?.Value.Date ?? DateTime.Today;
             string path = null;
@@ -2215,8 +2223,7 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             {
-
-                _fsHasPreview = false;
+                _fsLoadInFlight = true;
 
                 SetFsPreviewExportButtonsEnabled(false);
 
@@ -2242,10 +2249,7 @@ namespace Hiatme_Tool_Suite_v3
 
                     if (ext == ".xlsx" || ext == ".xls")
                     {
-                        // Prefer saving back to Desktop when that file exists; cache loads stay cache.
-                        ScheduleExportPaths.GetDefaultWorkbookSaveLocation(
-                            loadDay, out _, out _, out string desktopSave);
-                        _fsPreferredSavePath = File.Exists(desktopSave) ? desktopSave : path;
+                        _fsPreferredSavePath = ScheduleWorkbookResolver.LocalCachePath(loadDay);
                         load = await ScheduleBuilderScheduleLoad.LoadFromWorkbookAsync(path)
                             .ConfigureAwait(true);
                     }
@@ -2292,13 +2296,17 @@ namespace Hiatme_Tool_Suite_v3
 
                     }
 
+                    if (!FsConfirmLoadServiceDate(loadDay, load.ServiceDate))
+                    {
+                        SetScheduleBuilderStatus("Load cancelled — date picker unchanged.");
+                        return;
+                    }
 
+                    _fsHasPreview = false;
 
-                    DateTime serviceDate = load.ServiceDate ?? DateTime.Today;
+                    DateTime serviceDate = load.ServiceDate ?? loadDay;
 
-                    if (load.ServiceDate.HasValue && fsbdatepicker != null)
-
-                        fsbdatepicker.Value = load.ServiceDate.Value;
+                    FsNoteLoadedBoardDate(serviceDate);
 
                     fsbuilder = FullScheduleBuilder.FromServiceDate(serviceDate);
 
@@ -2330,6 +2338,7 @@ namespace Hiatme_Tool_Suite_v3
                     FsSetReroutedTripKeyCache(reroutedKeys);
 
                     _fsHasPreview = true;
+                    FsNoteLoadedBoardDate(serviceDate);
                     SetFsPreviewExportButtonsEnabled(true);
 
                     UpdateTabLoadingOverlayMessage(tabPage6, "Verifying reroutes on Modivcare…");
@@ -2457,6 +2466,8 @@ namespace Hiatme_Tool_Suite_v3
                 finally
 
                 {
+
+                    _fsLoadInFlight = false;
 
                     HideTabLoadingOverlay(tabPage6, force: true);
 
@@ -2612,6 +2623,8 @@ namespace Hiatme_Tool_Suite_v3
                     l => l.Count(x => x?.Kind == ScheduleBuilderPreviewLine.LineKind.Trip));
 
                 _fsHasPreview = true;
+
+                FsNoteLoadedBoardDate(fsbdatepicker.Value.Date);
 
                 SetFsPreviewExportButtonsEnabled(true);
 
@@ -3509,6 +3522,10 @@ namespace Hiatme_Tool_Suite_v3
                 return;
 
             }
+
+            if (FsBlockSaveWhenDatePickerMismatch("saving"))
+
+                return;
 
 
 

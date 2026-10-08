@@ -49,6 +49,34 @@ namespace Hiatme_Tool_Suite_v3
         public bool UseWeekdayTemplates { get; set; } = true;
         public bool FinishRemainingAfterTemplates { get; set; } = true;
 
+        /// <summary>Force template upload to the panel (normally off on dev PCs).</summary>
+        public bool TemplateSyncEnabled { get; set; } = false;
+
+        /// <summary>PC names (Environment.MachineName) that may upload templates at launch / after Replace.</summary>
+        public List<string> TemplateSyncMachines { get; set; }
+
+        /// <summary>Whether this desk should push Monday–Sunday CSV folders to the panel.</summary>
+        public bool ShouldUploadDeskTemplates()
+        {
+            if (TemplateSyncEnabled)
+                return true;
+            string machine = ScheduleActivityIdentity.Machine();
+            if (string.IsNullOrWhiteSpace(machine))
+                return false;
+            // Empty list used to mean "upload nobody." Packaged defaults dropped
+            // TemplateSyncMachines in 4.0.0.82, so Cherie's desk never uploaded.
+            if (TemplateSyncMachines == null || TemplateSyncMachines.Count == 0)
+                return string.Equals(machine, "CHERIES", StringComparison.OrdinalIgnoreCase);
+            foreach (var m in TemplateSyncMachines)
+            {
+                if (string.IsNullOrWhiteSpace(m))
+                    continue;
+                if (string.Equals(m.Trim(), machine, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+            return false;
+        }
+
         private static string BaseDir => AppDomain.CurrentDomain.BaseDirectory;
         private static string PersonalConfigPath => Path.Combine(BaseDir, "hiatme_ai.json");
         private static string DefaultsConfigPath => Path.Combine(BaseDir, "hiatme_ai.defaults.json");
@@ -796,6 +824,10 @@ namespace Hiatme_Tool_Suite_v3
                     target.UseWeekdayTemplates = jo["UseWeekdayTemplates"].Value<bool>();
                 if (jo["FinishRemainingAfterTemplates"] != null)
                     target.FinishRemainingAfterTemplates = jo["FinishRemainingAfterTemplates"].Value<bool>();
+                if (jo["TemplateSyncEnabled"] != null)
+                    target.TemplateSyncEnabled = jo["TemplateSyncEnabled"].Value<bool>();
+                if (jo["TemplateSyncMachines"] is JArray tsm && tsm.Count > 0)
+                    target.TemplateSyncMachines = tsm.ToObject<List<string>>();
             }
             catch { }
         }
