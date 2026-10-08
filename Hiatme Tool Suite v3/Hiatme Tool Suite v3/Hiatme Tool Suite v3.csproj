@@ -404,7 +404,11 @@
       <DependentUpon>Form1.cs</DependentUpon>
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="Form1.ScheduleActivity.cs">
+            <Compile Include="Form1.ScheduleActivity.cs">
+      <DependentUpon>Form1.cs</DependentUpon>
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Form1.BillingDays.cs">
       <DependentUpon>Form1.cs</DependentUpon>
       <SubType>Form</SubType>
     </Compile>

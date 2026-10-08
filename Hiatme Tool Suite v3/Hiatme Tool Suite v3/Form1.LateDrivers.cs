@@ -3912,6 +3912,8 @@ namespace Hiatme_Tool_Suite_v3
         private void SelectLateDriversDriver(string driverName, string focusTripNo)
         {
             string next = string.IsNullOrWhiteSpace(driverName) ? null : driverName.Trim();
+            if (!string.IsNullOrEmpty(next))
+                DismissLateDriversFreeEdge(next);
             bool changed = !string.Equals(
                 _ldSelectedDriver ?? "",
                 next ?? "",

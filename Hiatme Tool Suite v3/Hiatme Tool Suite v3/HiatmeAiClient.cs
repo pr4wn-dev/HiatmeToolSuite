@@ -1104,6 +1104,67 @@ namespace Hiatme_Tool_Suite_v3
             return list;
         }
 
+        public sealed class BillingOpenDays
+        {
+            public bool Ok { get; set; }
+
+            [JsonProperty("count")]
+            public int Count { get; set; }
+
+            [JsonProperty("checked_on")]
+            public string CheckedOn { get; set; }
+
+            [JsonProperty("days")]
+            public List<BillingOpenDay> Days { get; set; }
+
+            public string Error { get; set; }
+        }
+
+        public sealed class BillingOpenDay
+        {
+            [JsonProperty("date")]
+            public string Date { get; set; }
+
+            [JsonProperty("billable")]
+            public int Billable { get; set; }
+        }
+
+        /// <summary>GET /api/hiatme/billing/open-days — past three months still ready to bill.</summary>
+        public static async Task<BillingOpenDays> GetBillingOpenDaysAsync(
+            HiatmeAiSettings settings,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null) return null;
+            var baseUrl = (settings.BaseUrl ?? "").Trim().TrimEnd('/');
+            if (string.IsNullOrEmpty(baseUrl)) return null;
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Get, baseUrl + "/api/hiatme/billing/open-days"))
+                {
+                    if (!string.IsNullOrWhiteSpace(settings.ApiToken))
+                        req.Headers.Authorization = new AuthenticationHeaderValue(
+                            "Bearer", settings.ApiToken.Trim());
+                    using (var resp = await SharedHttp.SendAsync(req, cancellationToken).ConfigureAwait(false))
+                    {
+                        var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        if (!resp.IsSuccessStatusCode)
+                            return new BillingOpenDays { Ok = false, Error = body };
+                        var parsed = JsonConvert.DeserializeObject<BillingOpenDays>(body);
+                        if (parsed == null)
+                            return new BillingOpenDays { Ok = false, Error = "empty" };
+                        parsed.Ok = true;
+                        if (parsed.Days == null)
+                            parsed.Days = new List<BillingOpenDay>();
+                        return parsed;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                return new BillingOpenDays { Ok = false, Error = ex.Message };
+            }
+        }
+
         public static Task<List<HiatmeAiRuleItem>> GetProposedRulesAsync(
             HiatmeAiSettings settings,
             CancellationToken cancellationToken = default)

@@ -24,8 +24,7 @@ namespace Hiatme_Tool_Suite_v3
     {
         private const int LateDriversFreeMinMinutes = 15;
 
-        // Temporary test: first, middle, and last driver in the strip are treated as free.
-        private const bool LateDriversFreeEdgeTest = true;
+        private const bool LateDriversFreeEdgeTest = false;
         private bool _ldFreeEdgeTestShifted;
 
         private sealed class LateDriversFreeWindow
@@ -194,6 +193,43 @@ namespace Hiatme_Tool_Suite_v3
                     return false;
             }
             return any;
+        }
+
+        /// <summary>
+        /// The driver's scheduled day is over, but at least one ticket is still open.
+        /// </summary>
+        private bool LateDriversDriverLeftOpenTickets(string driver, DateTime now)
+        {
+            if (_ldWrTripsByTripNo == null || string.IsNullOrWhiteSpace(driver))
+                return false;
+            bool any = false;
+            bool anyOpen = false;
+            bool anyFuture = false;
+            DateTime lastEnd = DateTime.MinValue;
+            foreach (var trip in _ldWrTripsByTripNo.Values)
+            {
+                if (trip == null || !LateDriversDriverNamesMatch(trip.Driver, driver))
+                    continue;
+                if (LateDriversTripIsCancelled(trip))
+                    continue;
+                any = true;
+                if (!LateDriversTripIsFinished(trip, now))
+                    anyOpen = true;
+                if (LateDriversSchedPuIsWillCall("", null, trip))
+                    continue;
+                if (TryParseLateDriversIso(trip.SchedPuIso, out var pu) && LateDriversAsLocal(pu) > now)
+                    anyFuture = true;
+                DateTime end = DateTime.MinValue;
+                if (TryParseLateDriversIso(trip.SchedDoIso, out var schedDo))
+                    end = LateDriversAsLocal(schedDo);
+                else if (TryParseLateDriversIso(trip.SchedPuIso, out var schedPu))
+                    end = LateDriversAsLocal(schedPu);
+                if (end > lastEnd)
+                    lastEnd = end;
+            }
+            if (!any || !anyOpen || anyFuture)
+                return false;
+            return lastEnd != DateTime.MinValue && lastEnd <= now;
         }
 
         /// <summary>
@@ -600,6 +636,8 @@ namespace Hiatme_Tool_Suite_v3
 
         private readonly Dictionary<string, LateDriversFreeEdge> _ldFreeEdges =
             new Dictionary<string, LateDriversFreeEdge>(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> _ldFreeEdgeDismissed =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private bool _ldFreeEdgeUpdating;
         private bool _ldFreeEdgeHooked;
         private bool _ldFreeEdgeRestackQueued;
@@ -608,6 +646,7 @@ namespace Hiatme_Tool_Suite_v3
         {
             public string Driver;
             public bool Left;
+            public bool Skull;
         }
 
         private void LateDriversApplyFreeEdgeTest()
@@ -679,14 +718,24 @@ namespace Hiatme_Tool_Suite_v3
             int start = _ldDriverScrollOffset;
             int end = Math.Min(rows.Count, start + page);
             DateTime now = DateTime.Now;
+            bool today = string.Equals(
+                LateDriversSelectedServiceDateIso(),
+                now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                StringComparison.Ordinal);
             for (int i = 0; i < rows.Count; i++)
             {
-                if (rows[i] == null || !LateDriversDriverShowsFree(rows[i], now))
+                if (rows[i] == null || string.IsNullOrWhiteSpace(rows[i].Driver))
+                    continue;
+                string driver = rows[i].Driver.Trim();
+                bool openTickets = today && LateDriversDriverLeftOpenTickets(driver, now);
+                bool track = LateDriversDriverShowsFree(rows[i], now) || openTickets;
+                if (!track)
                     continue;
                 found.Add(new LateDriversOffscreenFree
                 {
-                    Driver = rows[i].Driver.Trim(),
+                    Driver = driver,
                     Left = i < start,
+                    Skull = openTickets,
                 });
             }
             return found;
@@ -746,12 +795,23 @@ namespace Hiatme_Tool_Suite_v3
             if (!tabPageLateDrivers.IsHandleCreated || tabPageLateDrivers.ClientSize.Width < 80)
                 return;
             var wanted = LateDriversOffscreenFreeDrivers();
+            var freeNow = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (LateDriversOffscreenFree item in wanted)
+            {
+                if (item != null && !string.IsNullOrWhiteSpace(item.Driver))
+                    freeNow.Add(item.Driver.Trim());
+            }
+            _ldFreeEdgeDismissed.RemoveWhere(name => !freeNow.Contains(name));
             var keep = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             int leftSlot = 0;
             int rightSlot = 0;
             foreach (LateDriversOffscreenFree item in wanted)
             {
-                if (string.IsNullOrWhiteSpace(item.Driver) || !keep.Add(item.Driver))
+                if (string.IsNullOrWhiteSpace(item.Driver))
+                    continue;
+                if (_ldFreeEdgeDismissed.Contains(item.Driver.Trim()))
+                    continue;
+                if (!keep.Add(item.Driver))
                     continue;
                 LateDriversFreeEdge edge;
                 bool created = false;
@@ -759,11 +819,16 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     edge = new LateDriversFreeEdge();
                     string driver = item.Driver;
-                    edge.Click += (_, __) => LateDriversRevealOffscreenDriver(driver);
+                    edge.Click += (_, __) =>
+                    {
+                        DismissLateDriversFreeEdge(driver);
+                        LateDriversRevealOffscreenDriver(driver);
+                    };
                     _ldFreeEdges[item.Driver] = edge;
                     created = true;
                 }
                 edge.Tag = item.Driver;
+                edge.UseMark(item.Skull ? LateDriversEdgeMark.Skull : LateDriversEdgeMark.Star);
                 int slot = item.Left ? leftSlot++ : rightSlot++;
                 PlaceLateDriversFreeEdge(edge, item.Left, slot, created);
             }
@@ -782,10 +847,10 @@ namespace Hiatme_Tool_Suite_v3
                 _ldFreeEdges.Remove(key);
                 if (edge == null || edge.IsDisposed)
                     continue;
-                if (edge.Parent != null)
-                    edge.Parent.Controls.Remove(edge);
-                edge.Dispose();
-            }
+            if (edge.Parent != null)
+                edge.Parent.Controls.Remove(edge);
+            edge.ReleaseWithSmoke();
+        }
             LateDriversQueueFreeEdgeRestack();
             SyncLateDriversHabitMarkers();
         }
@@ -799,6 +864,7 @@ namespace Hiatme_Tool_Suite_v3
 
         private void SyncLateDriversHabitMarkers()
         {
+            KeepBillingStarVisible();
             foreach (LateDriversFreeEdge edge in _ldFreeEdges.Values)
             {
                 if (edge != null && !edge.IsDisposed)
@@ -914,6 +980,33 @@ namespace Hiatme_Tool_Suite_v3
             edge.FlyTo(new Point(x, y), track, left, slot * 6);
         }
 
+        private void DismissLateDriversFreeEdge(string driver)
+        {
+            if (string.IsNullOrWhiteSpace(driver))
+                return;
+            string name = driver.Trim();
+            _ldFreeEdgeDismissed.Add(name);
+            LateDriversFreeEdge edge = null;
+            string key = null;
+            foreach (var kv in _ldFreeEdges)
+            {
+                if (kv.Key != null && LateDriversDriverNamesMatch(kv.Key, name))
+                {
+                    key = kv.Key;
+                    edge = kv.Value;
+                    break;
+                }
+            }
+            if (key == null)
+                return;
+            _ldFreeEdges.Remove(key);
+            if (edge == null || edge.IsDisposed)
+                return;
+            if (edge.Parent != null)
+                edge.Parent.Controls.Remove(edge);
+            edge.ReleaseWithSmoke();
+        }
+
         private void LateDriversRevealOffscreenDriver(string driver)
         {
             var rows = _ldStripDrivers;
@@ -1006,6 +1099,13 @@ namespace Hiatme_Tool_Suite_v3
             return null;
         }
 
+        private enum LateDriversEdgeMark
+        {
+            Star,
+            Dollar,
+            Skull,
+        }
+
         private sealed class LateDriversFreeEdge : Control
         {
             private const float Cx = 50f;
@@ -1033,6 +1133,7 @@ namespace Hiatme_Tool_Suite_v3
             // Driver Habits markers hide when that tab is closed. A suite tracker stays up
             // once this marker exists, which is only after its target is known.
             private bool _suiteWide;
+            private LateDriversEdgeMark _mark;
             private float _spin;
             private float _beat;
 
@@ -1070,6 +1171,11 @@ namespace Hiatme_Tool_Suite_v3
             {
                 _suiteWide = true;
                 ApplyToolGate();
+            }
+
+            public void UseMark(LateDriversEdgeMark mark)
+            {
+                _mark = mark;
             }
 
             public void ApplyToolGate()
@@ -1124,6 +1230,21 @@ namespace Hiatme_Tool_Suite_v3
                 if (!_timer.Enabled)
                     _timer.Start();
                 RestackSprite();
+            }
+
+            public void ReleaseWithSmoke()
+            {
+                try
+                {
+                    if (_host != null && !_host.IsDisposed && _host.IsHandleCreated && _launched && SpriteVisible)
+                    {
+                        LateDriversSmokePuff.Burst(
+                            _host,
+                            new Point(_pos.X + Width / 2, _pos.Y + Height / 2));
+                    }
+                }
+                catch { }
+                Dispose();
             }
 
             protected override void Dispose(bool disposing)
@@ -1271,13 +1392,178 @@ namespace Hiatme_Tool_Suite_v3
                 using (GraphicsPath path = GlyphPath())
                 using (var brush = new SolidBrush(Color.FromArgb(255, 196, 48)))
                     g.FillPath(brush, path);
-                using (GraphicsPath star = StarGlyph(10f))
-                using (var glow = new SolidBrush(Color.FromArgb(255, 196, 48)))
-                    g.FillPath(glow, star);
-                using (GraphicsPath core = StarGlyph(4.5f))
-                using (var brush = new SolidBrush(Color.FromArgb(255, 244, 180)))
-                    g.FillPath(brush, core);
+                if (_mark == LateDriversEdgeMark.Dollar)
+                    PaintDollar(g);
+                else if (_mark == LateDriversEdgeMark.Skull)
+                    PaintSkull(g);
+                else
+                {
+                    using (GraphicsPath star = StarGlyph(10f))
+                    using (var glow = new SolidBrush(Color.FromArgb(255, 196, 48)))
+                        g.FillPath(glow, star);
+                    using (GraphicsPath core = StarGlyph(4.5f))
+                    using (var brush = new SolidBrush(Color.FromArgb(255, 244, 180)))
+                        g.FillPath(brush, core);
+                }
                 g.Restore(state);
+            }
+
+            private static readonly Font DollarFont = new Font("Segoe UI", 16f, FontStyle.Bold);
+
+            private void PaintDollar(Graphics g)
+            {
+                float bob = (float)Math.Sin(_beat) * 1.6f;
+                float pulse = 0.86f + 0.16f * (float)(0.5 + 0.5 * Math.Sin(_beat * 2));
+                float rot = (float)Math.Sin(_beat) * 16f;
+                var state = g.Save();
+                g.TranslateTransform(Cx, Cy + bob);
+                g.RotateTransform(rot);
+                g.ScaleTransform(pulse, pulse);
+                var size = g.MeasureString("$", DollarFont, PointF.Empty, StringFormat.GenericTypographic);
+                using (var brush = new SolidBrush(Color.FromArgb(230, 28, 36)))
+                    g.DrawString("$", DollarFont, brush, -size.Width / 2f, -size.Height / 2f - 1f, StringFormat.GenericTypographic);
+                g.Restore(state);
+            }
+
+            private void PaintSkull(Graphics g)
+            {
+                float bob = (float)Math.Sin(_beat) * 1.4f;
+                float pulse = 0.88f + 0.14f * (float)(0.5 + 0.5 * Math.Sin(_beat * 2));
+                float rot = (float)Math.Sin(_beat) * 10f;
+                float jaw = 0.4f + 1.8f * (float)(0.5 + 0.5 * Math.Sin(_beat * 2.2));
+                var state = g.Save();
+                g.TranslateTransform(Cx, Cy + bob);
+                g.RotateTransform(rot);
+                g.ScaleTransform(pulse, pulse);
+                using (var bone = new Pen(Color.FromArgb(196, 24, 28), 2.6f))
+                {
+                    bone.StartCap = LineCap.Round;
+                    bone.EndCap = LineCap.Round;
+                    g.DrawLine(bone, -10f, -6f, 10f, 8f);
+                    g.DrawLine(bone, -10f, 8f, 10f, -6f);
+                }
+                using (var red = new SolidBrush(Color.FromArgb(214, 32, 36)))
+                {
+                    g.FillEllipse(red, -7.2f, -9.2f, 14.4f, 12.2f);
+                    g.FillEllipse(red, -6.2f, -2.4f, 12.4f, 8.6f);
+                }
+                using (var hole = new SolidBrush(Color.FromArgb(32, 12, 14)))
+                {
+                    g.FillEllipse(hole, -5.1f, -6.4f, 3.5f, 4.4f);
+                    g.FillEllipse(hole, 1.6f, -6.4f, 3.5f, 4.4f);
+                    g.FillPolygon(hole, new[]
+                    {
+                        new PointF(0f, -1.6f),
+                        new PointF(-1.3f, 1.1f),
+                        new PointF(1.3f, 1.1f),
+                    });
+                }
+                using (var tooth = new SolidBrush(Color.FromArgb(255, 236, 214)))
+                {
+                    for (int i = 0; i < 4; i++)
+                        g.FillRectangle(tooth, -4.6f + i * 2.35f, 2.1f, 1.5f, 2.1f);
+                    for (int i = 0; i < 3; i++)
+                        g.FillRectangle(tooth, -3.5f + i * 2.4f, 4.2f + jaw, 1.5f, 1.8f);
+                }
+                g.Restore(state);
+            }
+        }
+
+        private sealed class LateDriversSmokePuff
+        {
+            private const int Size = 180;
+            private readonly LateDriversLayeredSprite _sprite = new LateDriversLayeredSprite();
+            private readonly Form _host;
+            private readonly Point _center;
+            private readonly System.Windows.Forms.Timer _timer;
+            private readonly Puff[] _puffs;
+            private float _life;
+
+            private struct Puff
+            {
+                public float X, Y, R, Grow, DriftX, DriftY;
+            }
+
+            public static void Burst(Form host, Point centerClient)
+            {
+                var puff = new LateDriversSmokePuff(host, centerClient);
+                puff.Start();
+            }
+
+            private LateDriversSmokePuff(Form host, Point centerClient)
+            {
+                _host = host;
+                _center = centerClient;
+                var rng = new Random();
+                _puffs = new Puff[10];
+                for (int i = 0; i < _puffs.Length; i++)
+                {
+                    double ang = rng.NextDouble() * Math.PI * 2;
+                    float dist = 1f + (float)rng.NextDouble() * 7f;
+                    _puffs[i] = new Puff
+                    {
+                        X = (float)Math.Cos(ang) * dist,
+                        Y = (float)Math.Sin(ang) * dist,
+                        R = 7f + (float)rng.NextDouble() * 7f,
+                        Grow = 20f + (float)rng.NextDouble() * 18f,
+                        DriftX = (float)Math.Cos(ang) * (12f + (float)rng.NextDouble() * 18f),
+                        DriftY = (float)Math.Sin(ang) * (8f + (float)rng.NextDouble() * 12f) - 12f,
+                    };
+                }
+                _timer = new System.Windows.Forms.Timer { Interval = 32 };
+                _timer.Tick += (_, __) => Step();
+            }
+
+            private void Start()
+            {
+                if (_host == null || _host.IsDisposed || !_host.IsHandleCreated)
+                    return;
+                _sprite.Show(_host);
+                _timer.Start();
+                Paint();
+            }
+
+            private void Step()
+            {
+                _life += 0.04f;
+                if (_life >= 1f || _host == null || _host.IsDisposed)
+                {
+                    _timer.Stop();
+                    _timer.Dispose();
+                    if (_sprite != null && !_sprite.IsDisposed)
+                        _sprite.Dispose();
+                    return;
+                }
+                Paint();
+            }
+
+            private void Paint()
+            {
+                if (_host == null || _host.IsDisposed || !_host.IsHandleCreated || _sprite.IsDisposed || !_sprite.Visible)
+                    return;
+                using (var bmp = new Bitmap(Size, Size, PixelFormat.Format32bppArgb))
+                using (var g = Graphics.FromImage(bmp))
+                {
+                    g.Clear(Color.Transparent);
+                    g.SmoothingMode = SmoothingMode.AntiAlias;
+                    float fade = (1f - _life) * (1f - _life);
+                    int alpha = (int)(170 * fade);
+                    if (alpha < 1)
+                        alpha = 1;
+                    foreach (Puff puff in _puffs)
+                    {
+                        float x = Size / 2f + puff.X + puff.DriftX * _life;
+                        float y = Size / 2f + puff.Y + puff.DriftY * _life;
+                        float r = puff.R + puff.Grow * (float)Math.Sqrt(_life);
+                        using (var brush = new SolidBrush(Color.FromArgb(alpha, 186, 186, 192)))
+                            g.FillEllipse(brush, x - r, y - r, r * 2f, r * 2f);
+                        int hi = Math.Max(1, alpha / 2);
+                        using (var brush = new SolidBrush(Color.FromArgb(hi, 236, 236, 240)))
+                            g.FillEllipse(brush, x - r * 0.5f, y - r * 0.62f, r * 0.9f, r * 0.7f);
+                    }
+                    var origin = new Point(_center.X - Size / 2, _center.Y - Size / 2);
+                    _sprite.Present(bmp, _host.PointToScreen(origin));
+                }
             }
         }
 

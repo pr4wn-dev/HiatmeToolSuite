@@ -89,6 +89,7 @@ namespace Hiatme_Tool_Suite_v3
             RepositionScheduleActivityDrawer();
 
             InstallSchedulePresencePill();
+            InstallBillingDaysPill();
             InitDeskPoke();
             InitPlaybookAsk();
 
@@ -107,9 +108,12 @@ namespace Hiatme_Tool_Suite_v3
         {
             get
             {
-                if (_schedActPresencePill == null || _schedActPresencePill.IsDisposed || !_schedActPresencePill.Visible)
-                    return Rectangle.Empty;
-                return _schedActPresencePill.Bounds;
+                Rectangle bounds = Rectangle.Empty;
+                if (_schedActPresencePill != null && !_schedActPresencePill.IsDisposed && _schedActPresencePill.Visible)
+                    bounds = _schedActPresencePill.Bounds;
+                if (_billingDaysPill != null && !_billingDaysPill.IsDisposed && _billingDaysPill.Visible)
+                    bounds = bounds.IsEmpty ? _billingDaysPill.Bounds : Rectangle.Union(bounds, _billingDaysPill.Bounds);
+                return bounds;
             }
         }
 
@@ -160,6 +164,7 @@ namespace Hiatme_Tool_Suite_v3
             if (_schedActPresencePill.Location != want)
                 _schedActPresencePill.Location = want;
             _schedActPresencePill.BringToFront();
+            RepositionBillingDaysPill();
             if (_deskPokeOverlay != null && _deskPokeOverlay.Visible)
                 _deskPokeOverlay.BringToFront();
             Invalidate(new Rectangle(0, 0, Math.Max(1, ClientSize.Width), ChromeTitleHeight));
