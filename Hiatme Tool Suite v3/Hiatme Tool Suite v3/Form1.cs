@@ -9517,6 +9517,16 @@ namespace Hiatme_Tool_Suite_v3
                         InitializeLateDriversTab();
                     LayoutLateDriversTabPanels();
                     EnsureLateDriversFirstUseLoad();
+                    if (IsHandleCreated)
+                    {
+                        BeginInvoke(new Action(() =>
+                        {
+                            if (IsDisposed || !LateDriversHabitsToolIsOpen())
+                                return;
+                            LayoutLateDriversDriverStripRow();
+                            UpdateLateDriversFreeEdges();
+                        }));
+                    }
                 }
                 if (hiatmeTabControl.SelectedTab == tabPageMarketPerformance)
                 {

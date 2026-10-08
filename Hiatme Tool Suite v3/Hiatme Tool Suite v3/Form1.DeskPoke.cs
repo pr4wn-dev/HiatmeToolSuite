@@ -8,7 +8,10 @@ using System.IO;
 using System.Linq;
 using System.Media;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
+using NAudio.CoreAudioApi;
+using NAudio.Wave;
 
 namespace Hiatme_Tool_Suite_v3
 {
@@ -78,12 +81,17 @@ namespace Hiatme_Tool_Suite_v3
                     {
                         await SendDeskPokeAsync(target, "middle-finger", label).ConfigureAwait(true);
                     });
-                    var sendCowboy = new ToolStripMenuItem("Send cowboy kid", thumbCowboy, async (_, __) =>
-                    {
-                        await SendDeskPokeAsync(target, "cowboy-kid-pointing", label).ConfigureAwait(true);
-                    });
-                    person.DropDownItems.Add(sendMiddle);
-                    person.DropDownItems.Add(sendCowboy);
+                var sendCowboy = new ToolStripMenuItem("Send cowboy kid", thumbCowboy, async (_, __) =>
+                {
+                    await SendDeskPokeAsync(target, "cowboy-kid-pointing", label).ConfigureAwait(true);
+                });
+                var sendGetReady = new ToolStripMenuItem("Send get ready", DeskPokeCowboy.Thumb(), async (_, __) =>
+                {
+                    await SendDeskPokeAsync(target, "cowboy-get-ready", label).ConfigureAwait(true);
+                });
+                person.DropDownItems.Add(sendMiddle);
+                person.DropDownItems.Add(sendCowboy);
+                person.DropDownItems.Add(sendGetReady);
                     menu.Items.Add(person);
                 }
             }
@@ -99,6 +107,11 @@ namespace Hiatme_Tool_Suite_v3
             {
                 EnsureDeskPokeOverlay();
                 _deskPokeOverlay.ShowPoke("cowboy-kid-pointing", me);
+            });
+            testSelf.DropDownItems.Add("Get ready", DeskPokeCowboy.Thumb(), (_, __) =>
+            {
+                EnsureDeskPokeOverlay();
+                _deskPokeOverlay.ShowPoke("cowboy-get-ready", me);
             });
             menu.Items.Add(testSelf);
             menu.Items.Add("Open activity log", null, (_, __) => _ = OpenScheduleActivityDrawerAsync(-1));
@@ -135,6 +148,12 @@ namespace Hiatme_Tool_Suite_v3
         private MemoryStream _soundGummoStream;
         private string _from = "";
         private string _emojiId = "";
+        private bool _cowboy;
+        private DateTime _cowboyStartUtc;
+        private int _cowboyDigit = -1;
+        private int _cowboyFrame = -1;
+        private bool _cowboyLaughed;
+        private Image[] _cowboyFrames = new Image[0];
         private DateTime _lastAnimAtUtc = DateTime.UtcNow;
         private static readonly Font CaptionFont = new Font("Segoe UI Semibold", 28f);
         private static readonly Color[] StarPalette =
@@ -179,9 +198,27 @@ namespace Hiatme_Tool_Suite_v3
 
         public void ShowPoke(string emojiId, string fromDispatcher)
         {
-            _img = DeskPokeImages.Get(emojiId);
             _emojiId = (emojiId ?? "").Trim();
             _from = (fromDispatcher ?? "").Trim();
+            _cowboy = string.Equals(_emojiId, "cowboy-get-ready", StringComparison.OrdinalIgnoreCase);
+            _cowboyDigit = -1;
+            _cowboyFrame = -1;
+            _cowboyLaughed = false;
+            if (_cowboy)
+            {
+                _cowboyFrames = DeskPokeCowboy.Frames();
+                _cowboyStartUtc = DateTime.UtcNow;
+                _cowboyDigit = 4;
+                _cowboyFrame = 0;
+                _img = _cowboyFrames.Length > 0 ? _cowboyFrames[0] : null;
+                _life.Interval = 9200;
+                DeskPokeCowboy.PlayGetReady();
+            }
+            else
+            {
+                _img = DeskPokeImages.Get(emojiId);
+                _life.Interval = 4500;
+            }
             if (Parent != null)
             {
                 Bounds = Parent.ClientRectangle;
@@ -189,10 +226,13 @@ namespace Hiatme_Tool_Suite_v3
             }
             Visible = true;
             BringToFront();
-            SeedStars();
+            if (!_cowboy)
+                SeedStars();
             _lastAnimAtUtc = DateTime.UtcNow;
             _anim.Stop();
             _anim.Start();
+            if (_cowboy)
+                return;
             PlayCelebrationSound(emojiId);
             _life.Stop();
             _life.Start();
@@ -319,6 +359,8 @@ namespace Hiatme_Tool_Suite_v3
                     g.DrawImage(_img, dest, 0, 0, _img.Width, _img.Height, GraphicsUnit.Pixel, ia);
                 }
             }
+            if (_cowboy)
+                PaintCowboyCue(g);
             PaintStars(g);
             PaintCaption(g);
         }
@@ -326,6 +368,8 @@ namespace Hiatme_Tool_Suite_v3
         private string CaptionText()
         {
             string who = string.IsNullOrWhiteSpace(_from) ? "Someone" : _from;
+            if (string.Equals(_emojiId, "cowboy-get-ready", StringComparison.OrdinalIgnoreCase))
+                return "";
             if (string.Equals(_emojiId, "middle-finger", StringComparison.OrdinalIgnoreCase))
                 return who + " says go fuck yourself";
             if (string.Equals(_emojiId, "cowboy-kid-pointing", StringComparison.OrdinalIgnoreCase))
@@ -358,7 +402,14 @@ namespace Hiatme_Tool_Suite_v3
 
         private Rectangle EmojiRect()
         {
-            int side = Math.Max(180, (int)(Math.Min(Width, Height) * 0.62));
+            int side = _cowboy
+                ? Math.Max(220, (int)(Math.Min(Width, Height) * 0.52))
+                : Math.Max(180, (int)(Math.Min(Width, Height) * 0.62));
+            if (_cowboy)
+            {
+                int y = Math.Max(150, Height - side - 20);
+                return new Rectangle((Width - side) / 2, y, side, side);
+            }
             return new Rectangle((Width - side) / 2, (Height - side) / 2 - 12, side, side);
         }
 
@@ -421,6 +472,9 @@ namespace Hiatme_Tool_Suite_v3
                 return;
             }
 
+            if (_cowboy)
+                AdvanceCowboy();
+
             DateTime now = DateTime.UtcNow;
             float dt = (float)(now - _lastAnimAtUtc).TotalSeconds;
             _lastAnimAtUtc = now;
@@ -443,9 +497,69 @@ namespace Hiatme_Tool_Suite_v3
                 p.Angle += p.Spin * dt;
             }
 
-            if (_stars.Count == 0)
+            if (_stars.Count == 0 && !_cowboy)
                 _anim.Stop();
             Invalidate();
+        }
+
+        private void AdvanceCowboy()
+        {
+            const int lead = 2600;
+            int elapsed = (int)(DateTime.UtcNow - _cowboyStartUtc).TotalMilliseconds;
+            if (elapsed >= lead + 6000)
+            {
+                HidePoke();
+                return;
+            }
+            int frame = elapsed < lead + 3000 ? 0 : 1;
+            int digit = elapsed < lead
+                ? 4
+                : elapsed < lead + 1000
+                    ? 3
+                    : elapsed < lead + 2000
+                        ? 2
+                        : elapsed < lead + 3000
+                            ? 1
+                            : 0;
+            if (digit >= 1 && digit <= 3 && digit != _cowboyDigit)
+                DeskPokeCowboy.PlayBeep();
+            if (frame == 1 && _cowboyFrame != 1)
+                DeskPokeCowboy.PlaySwoosh();
+            if (!_cowboyLaughed && elapsed >= lead + 3500)
+            {
+                _cowboyLaughed = true;
+                DeskPokeCowboy.PlayLaugh();
+            }
+            _cowboyFrame = frame;
+            _cowboyDigit = digit;
+            if (_cowboyFrames.Length > 0)
+                _img = _cowboyFrames[Math.Min(frame, _cowboyFrames.Length - 1)];
+        }
+
+        private void PaintCowboyCue(Graphics g)
+        {
+            if (_cowboyDigit <= 0)
+                return;
+            bool ready = _cowboyDigit == 4;
+            string text = ready ? "GET READY!" : _cowboyDigit.ToString();
+            float px = ready ? 92f : 140f;
+            using (var font = new Font("Arial", px, FontStyle.Bold, GraphicsUnit.Pixel))
+            using (var path = new GraphicsPath())
+            {
+                var measured = g.MeasureString(text, font);
+                float x = (Width - measured.Width) / 2f;
+                path.AddString(
+                    text,
+                    font.FontFamily,
+                    (int)FontStyle.Bold,
+                    px,
+                    new PointF(x, 28f),
+                    StringFormat.GenericTypographic);
+                using (var pen = new Pen(Color.Black, ready ? 10f : 14f) { LineJoin = LineJoin.Round })
+                    g.DrawPath(pen, path);
+                using (var fill = new SolidBrush(Color.White))
+                    g.FillPath(fill, path);
+            }
         }
 
         private void PaintStars(Graphics g)
@@ -597,6 +711,245 @@ namespace Hiatme_Tool_Suite_v3
             catch
             {
                 return null;
+            }
+        }
+    }
+
+    internal static class DeskPokeCowboy
+    {
+        private static readonly object Sync = new object();
+        private static Image[] _frames;
+        private static Image _thumb;
+        private static byte[] _beep;
+        private static byte[] _swoosh;
+
+        [DllImport("winmm.dll", EntryPoint = "PlaySound", CharSet = CharSet.Unicode)]
+        private static extern bool PlaySoundFile(string sound, IntPtr module, uint flags);
+
+        [DllImport("winmm.dll", EntryPoint = "PlaySound")]
+        private static extern bool PlaySoundMemory(byte[] sound, IntPtr module, uint flags);
+
+        public static Image Thumb()
+        {
+            lock (Sync)
+            {
+                if (_thumb != null)
+                    return _thumb;
+                Image[] frames = Frames();
+                if (frames.Length == 0)
+                    return null;
+                var bmp = new Bitmap(18, 18, PixelFormat.Format32bppArgb);
+                using (var g = Graphics.FromImage(bmp))
+                {
+                    g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                    g.Clear(Color.Transparent);
+                    g.DrawImage(frames[0], new Rectangle(0, 0, 18, 18));
+                }
+                _thumb = bmp;
+                return _thumb;
+            }
+        }
+
+        public static Image[] Frames()
+        {
+            lock (Sync)
+            {
+                if (_frames != null)
+                    return _frames;
+                string folder = Folder();
+                var loaded = new List<Image>();
+                if (Directory.Exists(folder))
+                {
+                    foreach (string path in Directory.GetFiles(folder, "*.png").OrderBy(p => p, StringComparer.OrdinalIgnoreCase))
+                    {
+                        try
+                        {
+                            using (var stream = File.OpenRead(path))
+                                loaded.Add(new Bitmap(stream));
+                        }
+                        catch { }
+                    }
+                }
+                _frames = loaded.ToArray();
+                return _frames;
+            }
+        }
+
+        public static void PlayGetReady()
+        {
+            string path = Path.Combine(Folder(), "get-ready.wav");
+            if (!File.Exists(path))
+                return;
+            try { PlaySoundFile(path, IntPtr.Zero, 0x0001 | 0x00020000 | 0x0002); }
+            catch { }
+        }
+
+        public static void PlayBeep()
+        {
+            try
+            {
+                if (_beep == null)
+                    _beep = BuildTone(880, 4200, 16.0);
+                PlaySoundMemory(_beep, IntPtr.Zero, 0x0001 | 0x0004 | 0x0002);
+            }
+            catch { }
+        }
+
+        private static WasapiOut _laughOut;
+        private static MediaFoundationReader _laughReader;
+
+        public static void PlayLaugh()
+        {
+            StopLaugh();
+            string path = FindMp3("cancel-laugh");
+            if (path == null)
+                return;
+            try
+            {
+                _laughReader = new MediaFoundationReader(path);
+                _laughOut = new WasapiOut(AudioClientShareMode.Shared, 150);
+                _laughOut.Init(_laughReader);
+                _laughOut.Play();
+            }
+            catch
+            {
+                StopLaugh();
+            }
+        }
+
+        private static void StopLaugh()
+        {
+            WasapiOut output = _laughOut;
+            MediaFoundationReader reader = _laughReader;
+            _laughOut = null;
+            _laughReader = null;
+            if (output != null)
+            {
+                try { output.Stop(); } catch { }
+                try { output.Dispose(); } catch { }
+            }
+            if (reader != null)
+            {
+                try { reader.Dispose(); } catch { }
+            }
+        }
+
+        private static string FindMp3(string folderName)
+        {
+            string baseDir = AppDomain.CurrentDomain.BaseDirectory ?? "";
+            var dirs = new List<string>();
+            if (!string.IsNullOrEmpty(baseDir))
+            {
+                dirs.Add(Path.Combine(baseDir, "Resources", folderName));
+                var bin = Directory.GetParent(baseDir.TrimEnd('\\', '/'));
+                var project = bin == null ? null : bin.Parent;
+                if (project != null)
+                    dirs.Add(Path.Combine(project.FullName, "Resources", folderName));
+            }
+            foreach (string dir in dirs)
+            {
+                if (!Directory.Exists(dir))
+                    continue;
+                string[] files = Directory.GetFiles(dir, "*.mp3");
+                if (files.Length == 0)
+                    continue;
+                Array.Sort(files, StringComparer.OrdinalIgnoreCase);
+                return files[0];
+            }
+            return null;
+        }
+
+        public static void PlaySwoosh()
+        {
+            try
+            {
+                if (_swoosh == null)
+                    _swoosh = BuildSwoosh();
+                PlaySoundMemory(_swoosh, IntPtr.Zero, 0x0001 | 0x0004 | 0x0002);
+            }
+            catch { }
+        }
+
+        private static string Folder()
+        {
+            string nextToExe = Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory ?? "",
+                "Resources",
+                "cancel-character-anims",
+                "07");
+            if (Directory.Exists(nextToExe))
+                return nextToExe;
+            var bin = Directory.GetParent((AppDomain.CurrentDomain.BaseDirectory ?? "").TrimEnd('\\', '/'));
+            var project = bin == null ? null : bin.Parent;
+            if (project != null)
+            {
+                string src = Path.Combine(project.FullName, "Resources", "cancel-character-anims", "07");
+                if (Directory.Exists(src))
+                    return src;
+            }
+            return nextToExe;
+        }
+
+        private static byte[] BuildTone(int hz, int samples, double decay)
+        {
+            const int rate = 22050;
+            var pcm = new byte[samples * 2];
+            for (int i = 0; i < samples; i++)
+            {
+                double t = i / (double)rate;
+                double env = Math.Exp(-t * decay);
+                double tone = Math.Sin(2 * Math.PI * hz * t);
+                double square = tone >= 0 ? 1.0 : -1.0;
+                double sample = Math.Tanh((tone * 0.65 + square * 0.45) * env * 1.8);
+                short s = (short)(sample * short.MaxValue);
+                pcm[i * 2] = (byte)(s & 0xff);
+                pcm[i * 2 + 1] = (byte)((s >> 8) & 0xff);
+            }
+            return Wav(pcm, rate);
+        }
+
+        private static byte[] BuildSwoosh()
+        {
+            const int rate = 22050;
+            const int samples = 6800;
+            var pcm = new byte[samples * 2];
+            double phase = 0;
+            double overtone = 0;
+            for (int i = 0; i < samples; i++)
+            {
+                double t = i / (double)samples;
+                double freq = 160 + 1100 * Math.Pow(t, 0.4);
+                phase += 2 * Math.PI * freq / rate;
+                overtone += 2 * Math.PI * freq * 2 / rate;
+                double env = Math.Sin(Math.PI * Math.Pow(t, 0.8));
+                double sample = (Math.Sin(phase) * 0.82 + Math.Sin(overtone) * 0.16) * env;
+                short s = (short)(Math.Tanh(sample * 1.25) * short.MaxValue);
+                pcm[i * 2] = (byte)(s & 0xff);
+                pcm[i * 2 + 1] = (byte)((s >> 8) & 0xff);
+            }
+            return Wav(pcm, rate);
+        }
+
+        private static byte[] Wav(byte[] pcm, int rate)
+        {
+            using (var ms = new MemoryStream())
+            using (var w = new BinaryWriter(ms))
+            {
+                w.Write(new byte[] { (byte)'R', (byte)'I', (byte)'F', (byte)'F' });
+                w.Write(36 + pcm.Length);
+                w.Write(new byte[] { (byte)'W', (byte)'A', (byte)'V', (byte)'E' });
+                w.Write(new byte[] { (byte)'f', (byte)'m', (byte)'t', (byte)' ' });
+                w.Write(16);
+                w.Write((short)1);
+                w.Write((short)1);
+                w.Write(rate);
+                w.Write(rate * 2);
+                w.Write((short)2);
+                w.Write((short)16);
+                w.Write(new byte[] { (byte)'d', (byte)'a', (byte)'t', (byte)'a' });
+                w.Write(pcm.Length);
+                w.Write(pcm);
+                return ms.ToArray();
             }
         }
     }

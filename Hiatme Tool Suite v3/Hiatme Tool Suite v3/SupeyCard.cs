@@ -75,49 +75,93 @@ namespace Hiatme_Tool_Suite_v3
         public Surface SurfaceLevel
         {
             get => _surface;
-            set { _surface = value; BackColor = ResolveSurface(); Invalidate(); }
+            set
+            {
+                if (_surface == value)
+                    return;
+                _surface = value;
+                BackColor = ResolveSurface();
+                Invalidate();
+            }
         }
 
         /// <summary>Draw a 1px subtle themed border around the card.</summary>
         public bool ShowBorder
         {
             get => _showBorder;
-            set { _showBorder = value; Invalidate(); }
+            set
+            {
+                if (_showBorder == value)
+                    return;
+                _showBorder = value;
+                Invalidate();
+            }
         }
 
         /// <summary>Corner radius in px (0 = square, matches the flat Schedule Builder look).</summary>
         public int CornerRadius
         {
             get => _cornerRadius;
-            set { _cornerRadius = Math.Max(0, value); Invalidate(); }
+            set
+            {
+                int next = Math.Max(0, value);
+                if (_cornerRadius == next)
+                    return;
+                _cornerRadius = next;
+                Invalidate();
+            }
         }
 
         /// <summary>Marks the card active. Under <see cref="AccentLook.Hud"/> the edge is ignored.</summary>
         public AccentEdge Accent
         {
             get => _accentEdge;
-            set { _accentEdge = value; Invalidate(); }
+            set
+            {
+                if (_accentEdge == value)
+                    return;
+                _accentEdge = value;
+                Invalidate();
+            }
         }
 
         /// <summary>Which active-state treatment to paint.</summary>
         public AccentLook AccentStyle
         {
             get => _accentStyle;
-            set { _accentStyle = value; Invalidate(); }
+            set
+            {
+                if (_accentStyle == value)
+                    return;
+                _accentStyle = value;
+                Invalidate();
+            }
         }
 
         /// <summary>When set, paints the border in this color instead of <see cref="SupeyTheme.BorderSubtle"/>.</summary>
         public Color? BorderColorOverride
         {
             get => _borderColorOverride;
-            set { _borderColorOverride = value; Invalidate(); }
+            set
+            {
+                if (_borderColorOverride == value)
+                    return;
+                _borderColorOverride = value;
+                Invalidate();
+            }
         }
 
         /// <summary>When set, paints the accent stripe in this color instead of <see cref="SupeyTheme.AccentPrimary"/>.</summary>
         public Color? AccentColorOverride
         {
             get => _accentColorOverride;
-            set { _accentColorOverride = value; Invalidate(); }
+            set
+            {
+                if (_accentColorOverride == value)
+                    return;
+                _accentColorOverride = value;
+                Invalidate();
+            }
         }
 
         /// <summary>Accepted for Designer compatibility (MaterialCard elevation); unused by the flat skin.</summary>

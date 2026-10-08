@@ -99,6 +99,11 @@ namespace Hiatme_Tool_Suite_v3
             new List<HiatmeAiClient.LateDriversDriverSummary>();
         private int _ldDriverScrollOffset;
         private bool _ldDriverStripRendering;
+        private int _ldDriverStripBuiltWidth = -1;
+        // Control.Visible is false while another tool is open, even when these arrows
+        // are supposed to show. Layout uses this flag so maximize-off-tab cannot
+        // collapse them to zero width.
+        private bool _ldDriverStripNavShown;
         private readonly List<SupeyMaterialButton> _ldPeriodButtons = new List<SupeyMaterialButton>();
         private TableLayoutPanel ldScorecardHost;
         private readonly Dictionary<string, Label> _ldScoreValues =
@@ -662,7 +667,10 @@ namespace Hiatme_Tool_Suite_v3
                 Padding = new Padding(4, 0, 4, 0),
                 BackColor = Color.Transparent,
             };
-            ldDriverStrip.Resize += (_, __) => RenderLateDriversDriverStripPage();
+            ldDriverStrip.Resize += (_, __) => LateDriversDriverStripResized();
+            EnableFsControlDoubleBuffer(ldDriverStripHost);
+            EnableFsControlDoubleBuffer(ldDriverStripRow);
+            EnableFsControlDoubleBuffer(ldDriverStrip);
             ldDriverStripRow.Controls.Add(ldDriverStrip);
             ldDriverStripRow.Controls.Add(ldDriverPrevBtn);
             ldDriverStripRow.Controls.Add(ldDriverNextBtn);
@@ -2760,8 +2768,9 @@ namespace Hiatme_Tool_Suite_v3
                 return;
             int w = ldDriverStripRow.ClientSize.Width;
             int h = ldDriverStripRow.ClientSize.Height;
-            bool showNav = (ldDriverPrevBtn != null && !ldDriverPrevBtn.IsDisposed && ldDriverPrevBtn.Visible)
-                || (ldDriverNextBtn != null && !ldDriverNextBtn.IsDisposed && ldDriverNextBtn.Visible);
+            bool showNav = _ldDriverStripNavShown
+                && ((ldDriverPrevBtn != null && !ldDriverPrevBtn.IsDisposed)
+                    || (ldDriverNextBtn != null && !ldDriverNextBtn.IsDisposed));
             int nav = showNav ? LateDriversDriverNavBtnW : 0;
             int gap = showNav ? 4 : 0;
             int tileTop = Math.Max(0, (h - LateDriversDriverTileH) / 2);
@@ -2769,6 +2778,11 @@ namespace Hiatme_Tool_Suite_v3
                 ldDriverPrevBtn.SetBounds(0, tileTop, nav, LateDriversDriverTileH);
             if (ldDriverNextBtn != null && !ldDriverNextBtn.IsDisposed)
                 ldDriverNextBtn.SetBounds(Math.Max(0, w - nav), tileTop, nav, LateDriversDriverTileH);
+            if (showNav)
+            {
+                ldDriverPrevBtn?.BringToFront();
+                ldDriverNextBtn?.BringToFront();
+            }
             if (ldDriverStrip != null && !ldDriverStrip.IsDisposed)
             {
                 int left = nav + gap;
@@ -2816,6 +2830,15 @@ namespace Hiatme_Tool_Suite_v3
             RenderLateDriversDriverStripPage();
         }
 
+        private void LateDriversDriverStripResized()
+        {
+            if (ldDriverStrip == null || ldDriverStrip.IsDisposed || _ldDriverStripRendering)
+                return;
+            if (ldDriverStrip.ClientSize.Width == _ldDriverStripBuiltWidth)
+                return;
+            RenderLateDriversDriverStripPage();
+        }
+
         /// <summary>
         /// Dispose the driver-strip tiles (SupeyCards) and drop their references so their
         /// window handles, child labels and static ThemeChanged subscriptions are released.
@@ -2857,6 +2880,7 @@ namespace Hiatme_Tool_Suite_v3
                 // Decide overflow from the real page capacity (without nav first).
                 int pageNoNav = Math.Max(1, Math.Max(1, rowW / Math.Max(1, slot)) - 2);
                 bool canPage = rows.Count > pageNoNav;
+                _ldDriverStripNavShown = canPage;
                 if (ldDriverPrevBtn != null && !ldDriverPrevBtn.IsDisposed)
                     ldDriverPrevBtn.Visible = canPage;
                 if (ldDriverNextBtn != null && !ldDriverNextBtn.IsDisposed)
@@ -2948,6 +2972,8 @@ namespace Hiatme_Tool_Suite_v3
             finally
             {
                 ldDriverStrip.ResumeLayout(true);
+                if (ldDriverStrip != null && !ldDriverStrip.IsDisposed)
+                    _ldDriverStripBuiltWidth = ldDriverStrip.ClientSize.Width;
                 _ldDriverStripRendering = false;
                 RepositionLateDriversStars();
                 UpdateLateDriversFreeEdges();
@@ -3912,8 +3938,6 @@ namespace Hiatme_Tool_Suite_v3
         private void SelectLateDriversDriver(string driverName, string focusTripNo)
         {
             string next = string.IsNullOrWhiteSpace(driverName) ? null : driverName.Trim();
-            if (!string.IsNullOrEmpty(next))
-                DismissLateDriversFreeEdge(next);
             bool changed = !string.Equals(
                 _ldSelectedDriver ?? "",
                 next ?? "",

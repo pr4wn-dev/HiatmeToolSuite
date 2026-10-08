@@ -636,7 +636,9 @@ namespace Hiatme_Tool_Suite_v3
 
         private readonly Dictionary<string, LateDriversFreeEdge> _ldFreeEdges =
             new Dictionary<string, LateDriversFreeEdge>(StringComparer.OrdinalIgnoreCase);
-        private readonly HashSet<string> _ldFreeEdgeDismissed =
+        private readonly Dictionary<string, LateDriversHappyStar> _ldCornerMarks =
+            new Dictionary<string, LateDriversHappyStar>(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> _ldAnnouncedFree =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private bool _ldFreeEdgeUpdating;
         private bool _ldFreeEdgeHooked;
@@ -747,7 +749,9 @@ namespace Hiatme_Tool_Suite_v3
                 return null;
             foreach (SupeyCard tile in _ldDriverTiles)
             {
-                if (tile == null || tile.IsDisposed || !tile.Visible)
+                // Visible is false for every tile while another tool is open, because the
+                // tab page itself is hidden. The tile is still the on-screen tab.
+                if (tile == null || tile.IsDisposed)
                     continue;
                 var summary = tile.Tag as HiatmeAiClient.LateDriversDriverSummary;
                 if (summary == null || string.IsNullOrWhiteSpace(summary.Driver))
@@ -790,69 +794,126 @@ namespace Hiatme_Tool_Suite_v3
 
         private void UpdateLateDriversFreeEdgesCore()
         {
+            // A hidden Driver Habits page reports bad tab positions. Leave the circles
+            // where they were until that tool is on screen again.
+            if (!LateDriversHabitsToolIsOpen())
+            {
+                AnnounceNewlyFreeDrivers(LateDriversOffscreenFreeDrivers());
+                return;
+            }
             if (ldFreeEdgeLane != null && !ldFreeEdgeLane.IsDisposed && ldFreeEdgeLane.Visible)
                 ldFreeEdgeLane.Visible = false;
             if (!tabPageLateDrivers.IsHandleCreated || tabPageLateDrivers.ClientSize.Width < 80)
                 return;
             var wanted = LateDriversOffscreenFreeDrivers();
-            var freeNow = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            AnnounceNewlyFreeDrivers(wanted);
+            var showCircle = new Dictionary<string, LateDriversOffscreenFree>(StringComparer.OrdinalIgnoreCase);
+            var showCorner = new Dictionary<string, LateDriversOffscreenFree>(StringComparer.OrdinalIgnoreCase);
             foreach (LateDriversOffscreenFree item in wanted)
             {
-                if (item != null && !string.IsNullOrWhiteSpace(item.Driver))
-                    freeNow.Add(item.Driver.Trim());
-            }
-            _ldFreeEdgeDismissed.RemoveWhere(name => !freeNow.Contains(name));
-            var keep = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            int leftSlot = 0;
-            int rightSlot = 0;
-            foreach (LateDriversOffscreenFree item in wanted)
-            {
-                if (string.IsNullOrWhiteSpace(item.Driver))
+                if (item == null || string.IsNullOrWhiteSpace(item.Driver))
                     continue;
-                if (_ldFreeEdgeDismissed.Contains(item.Driver.Trim()))
-                    continue;
-                if (!keep.Add(item.Driver))
-                    continue;
-                LateDriversFreeEdge edge;
-                bool created = false;
-                if (!_ldFreeEdges.TryGetValue(item.Driver, out edge) || edge == null || edge.IsDisposed)
-                {
-                    edge = new LateDriversFreeEdge();
-                    string driver = item.Driver;
-                    edge.Click += (_, __) =>
-                    {
-                        DismissLateDriversFreeEdge(driver);
-                        LateDriversRevealOffscreenDriver(driver);
-                    };
-                    _ldFreeEdges[item.Driver] = edge;
-                    created = true;
-                }
-                edge.Tag = item.Driver;
-                edge.UseMark(item.Skull ? LateDriversEdgeMark.Skull : LateDriversEdgeMark.Star);
-                int slot = item.Left ? leftSlot++ : rightSlot++;
-                PlaceLateDriversFreeEdge(edge, item.Left, slot, created);
+                string driver = item.Driver.Trim();
+                if (LateDriversTileForDriver(driver) != null)
+                    showCorner[driver] = item;
+                else
+                    showCircle[driver] = item;
             }
 
-            var remove = new List<string>();
-            foreach (var kv in _ldFreeEdges)
+            var dropEdges = new List<string>();
+            foreach (string key in _ldFreeEdges.Keys)
             {
-                if (!keep.Contains(kv.Key))
-                    remove.Add(kv.Key);
+                if (!showCircle.ContainsKey(key))
+                    dropEdges.Add(key);
             }
-            foreach (string key in remove)
+            foreach (string key in dropEdges)
             {
                 LateDriversFreeEdge edge;
                 if (!_ldFreeEdges.TryGetValue(key, out edge))
                     continue;
                 _ldFreeEdges.Remove(key);
-                if (edge == null || edge.IsDisposed)
+                bool smoke = !showCorner.ContainsKey(key);
+                RetireLateDriversFreeEdge(edge, smoke);
+            }
+
+            int leftSlot = 0;
+            int rightSlot = 0;
+            foreach (LateDriversOffscreenFree item in showCircle.Values)
+            {
+                LateDriversFreeEdge edge;
+                if (!_ldFreeEdges.TryGetValue(item.Driver, out edge) || edge == null || edge.IsDisposed)
+                {
+                    edge = new LateDriversFreeEdge();
+                    string driver = item.Driver;
+                    edge.Click += (_, __) => LateDriversRevealOffscreenDriver(driver);
+                    _ldFreeEdges[item.Driver] = edge;
+                }
+                edge.Tag = item.Driver;
+                edge.UseMark(item.Skull ? LateDriversEdgeMark.Skull : LateDriversEdgeMark.Star);
+                int slot = item.Left ? leftSlot++ : rightSlot++;
+                PlaceLateDriversFreeEdge(edge, item.Left, slot, false);
+            }
+
+            var dropCorners = new List<string>();
+            foreach (string key in _ldCornerMarks.Keys)
+            {
+                if (!showCorner.ContainsKey(key))
+                    dropCorners.Add(key);
+            }
+            foreach (string key in dropCorners)
+            {
+                LateDriversHappyStar star;
+                if (!_ldCornerMarks.TryGetValue(key, out star))
                     continue;
-            if (edge.Parent != null)
-                edge.Parent.Controls.Remove(edge);
-            edge.ReleaseWithSmoke();
-        }
+                _ldCornerMarks.Remove(key);
+                bool smoke = !showCircle.ContainsKey(key);
+                RetireLateDriversCorner(star, smoke);
+            }
+            foreach (LateDriversOffscreenFree item in showCorner.Values)
+            {
+                SupeyCard tile = LateDriversTileForDriver(item.Driver);
+                if (tile == null)
+                    continue;
+                LateDriversHappyStar star;
+                if (!_ldCornerMarks.TryGetValue(item.Driver, out star) || star == null || star.IsDisposed)
+                {
+                    star = new LateDriversHappyStar();
+                    string driver = item.Driver;
+                    star.Click += (_, __) => SelectLateDriversDriver(driver, null);
+                    _ldCornerMarks[item.Driver] = star;
+                }
+                star.SetSkull(item.Skull);
+                PlaceLateDriversStar(tile, star);
+            }
+            if (_ldCornerMarks.Count > 0)
+                EnsureLateDriversStarDance();
             LateDriversQueueFreeEdgeRestack();
             SyncLateDriversHabitMarkers();
+        }
+
+        private void AnnounceNewlyFreeDrivers(List<LateDriversOffscreenFree> wanted)
+        {
+            var freeThisPass = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (wanted != null)
+            {
+                foreach (LateDriversOffscreenFree item in wanted)
+                {
+                    if (item == null || item.Skull || string.IsNullOrWhiteSpace(item.Driver))
+                        continue;
+                    freeThisPass.Add(item.Driver.Trim());
+                }
+            }
+            if (LateDriversHabitsToolIsOpen())
+            {
+                foreach (string name in freeThisPass)
+                {
+                    if (!_ldAnnouncedFree.Contains(name))
+                        TryPlayLateDriversFreeStarSound();
+                }
+            }
+            _ldAnnouncedFree.Clear();
+            foreach (string name in freeThisPass)
+                _ldAnnouncedFree.Add(name);
         }
 
         private bool LateDriversHabitsToolIsOpen()
@@ -980,31 +1041,36 @@ namespace Hiatme_Tool_Suite_v3
             edge.FlyTo(new Point(x, y), track, left, slot * 6);
         }
 
-        private void DismissLateDriversFreeEdge(string driver)
+        private static void RetireLateDriversFreeEdge(LateDriversFreeEdge edge, bool smoke)
         {
-            if (string.IsNullOrWhiteSpace(driver))
-                return;
-            string name = driver.Trim();
-            _ldFreeEdgeDismissed.Add(name);
-            LateDriversFreeEdge edge = null;
-            string key = null;
-            foreach (var kv in _ldFreeEdges)
-            {
-                if (kv.Key != null && LateDriversDriverNamesMatch(kv.Key, name))
-                {
-                    key = kv.Key;
-                    edge = kv.Value;
-                    break;
-                }
-            }
-            if (key == null)
-                return;
-            _ldFreeEdges.Remove(key);
             if (edge == null || edge.IsDisposed)
                 return;
             if (edge.Parent != null)
                 edge.Parent.Controls.Remove(edge);
-            edge.ReleaseWithSmoke();
+            if (smoke)
+                edge.ReleaseWithSmoke();
+            else
+                edge.Dispose();
+        }
+
+        private static void RetireLateDriversCorner(LateDriversHappyStar star, bool smoke)
+        {
+            if (star == null || star.IsDisposed)
+                return;
+            if (smoke && star.Parent != null)
+            {
+                Form form = star.FindForm();
+                if (form != null && !form.IsDisposed)
+                {
+                    Point screen = star.Parent.PointToScreen(new Point(
+                        star.Left + star.Width / 2,
+                        star.Top + star.Height / 2));
+                    LateDriversSmokePuff.Burst(form, form.PointToClient(screen));
+                }
+            }
+            if (star.Parent != null)
+                star.Parent.Controls.Remove(star);
+            star.Dispose();
         }
 
         private void LateDriversRevealOffscreenDriver(string driver)
@@ -1163,8 +1229,11 @@ namespace Hiatme_Tool_Suite_v3
 
             public void RestackSprite()
             {
-                if (_sprite != null && !_sprite.IsDisposed && _sprite.Visible)
-                    _sprite.BringToFront();
+                if (_sprite == null || _sprite.IsDisposed || !_sprite.Visible)
+                    return;
+                if (SupeyMenuState.IsOpen())
+                    return;
+                _sprite.BringToFront();
             }
 
             public void UseAcrossSuite()
@@ -1224,8 +1293,6 @@ namespace Hiatme_Tool_Suite_v3
                     _anchor = new PointF(spot.X, -Height - 24);
                     _pos = new Point(spot.X, -Height - 24);
                     Visible = true;
-                    if (MarkerAllowed())
-                        TryPlayLateDriversFreeStarSound();
                 }
                 if (!_timer.Enabled)
                     _timer.Start();
@@ -1420,7 +1487,7 @@ namespace Hiatme_Tool_Suite_v3
                 g.RotateTransform(rot);
                 g.ScaleTransform(pulse, pulse);
                 var size = g.MeasureString("$", DollarFont, PointF.Empty, StringFormat.GenericTypographic);
-                using (var brush = new SolidBrush(Color.FromArgb(230, 28, 36)))
+                using (var brush = new SolidBrush(Color.FromArgb(36, 176, 72)))
                     g.DrawString("$", DollarFont, brush, -size.Width / 2f, -size.Height / 2f - 1f, StringFormat.GenericTypographic);
                 g.Restore(state);
             }
@@ -2151,6 +2218,7 @@ namespace Hiatme_Tool_Suite_v3
         {
             private float _spin;
             private float _beat;
+            private bool _skull;
 
             private readonly LateDriversLayeredSprite _sprite = new LateDriversLayeredSprite();
 
@@ -2164,6 +2232,11 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             private bool _wanted;
+
+            public void SetSkull(bool skull)
+            {
+                _skull = skull;
+            }
 
             public bool IsShowing
             {
@@ -2235,12 +2308,17 @@ namespace Hiatme_Tool_Suite_v3
                     g.Clear(Color.Transparent);
                     g.SmoothingMode = SmoothingMode.AntiAlias;
                     g.PixelOffsetMode = PixelOffsetMode.HighQuality;
-                    using (GraphicsPath star = StarPath(13f))
-                    using (var glow = new SolidBrush(Color.FromArgb(255, 196, 48)))
-                        g.FillPath(glow, star);
-                    using (GraphicsPath core = StarPath(13f * 0.45f))
-                    using (var brush = new SolidBrush(Color.FromArgb(255, 244, 180)))
-                        g.FillPath(brush, core);
+                    if (_skull)
+                        PaintCornerSkull(g);
+                    else
+                    {
+                        using (GraphicsPath star = StarPath(13f))
+                        using (var glow = new SolidBrush(Color.FromArgb(255, 196, 48)))
+                            g.FillPath(glow, star);
+                        using (GraphicsPath core = StarPath(13f * 0.45f))
+                        using (var brush = new SolidBrush(Color.FromArgb(255, 244, 180)))
+                            g.FillPath(brush, core);
+                    }
                     int floatX = (int)(Math.Sin(_beat * 0.45) * 5);
                     int floatY = (int)(Math.Cos(_beat * 0.62) * 8);
                     Point at = Parent.PointToScreen(Location);
@@ -2283,6 +2361,49 @@ namespace Hiatme_Tool_Suite_v3
                     pts[i] = new PointF((float)Math.Cos(ang) * r, (float)Math.Sin(ang) * r);
                 }
                 return pts;
+            }
+
+            private void PaintCornerSkull(Graphics g)
+            {
+                float bob = (float)Math.Sin(_beat) * 1.2f;
+                float pulse = 0.88f + 0.14f * (float)(0.5 + 0.5 * Math.Sin(_beat * 2));
+                float rot = (float)Math.Sin(_beat) * 10f;
+                float jaw = 0.3f + 1.4f * (float)(0.5 + 0.5 * Math.Sin(_beat * 2.2));
+                var state = g.Save();
+                g.TranslateTransform(Width / 2f, Height / 2f + bob);
+                g.RotateTransform(rot);
+                g.ScaleTransform(pulse, pulse);
+                using (var bone = new Pen(Color.FromArgb(196, 24, 28), 2.2f))
+                {
+                    bone.StartCap = LineCap.Round;
+                    bone.EndCap = LineCap.Round;
+                    g.DrawLine(bone, -11f, -7f, 11f, 9f);
+                    g.DrawLine(bone, -11f, 9f, 11f, -7f);
+                }
+                using (var red = new SolidBrush(Color.FromArgb(214, 32, 36)))
+                {
+                    g.FillEllipse(red, -8f, -10f, 16f, 13f);
+                    g.FillEllipse(red, -6.8f, -2.2f, 13.6f, 9.2f);
+                }
+                using (var hole = new SolidBrush(Color.FromArgb(32, 12, 14)))
+                {
+                    g.FillEllipse(hole, -5.6f, -7f, 3.8f, 4.6f);
+                    g.FillEllipse(hole, 1.8f, -7f, 3.8f, 4.6f);
+                    g.FillPolygon(hole, new[]
+                    {
+                        new PointF(0f, -1.4f),
+                        new PointF(-1.4f, 1.3f),
+                        new PointF(1.4f, 1.3f),
+                    });
+                }
+                using (var tooth = new SolidBrush(Color.FromArgb(255, 236, 214)))
+                {
+                    for (int i = 0; i < 4; i++)
+                        g.FillRectangle(tooth, -5f + i * 2.5f, 2.4f, 1.6f, 2.2f);
+                    for (int i = 0; i < 3; i++)
+                        g.FillRectangle(tooth, -3.8f + i * 2.6f, 4.6f + jaw, 1.6f, 1.8f);
+                }
+                g.Restore(state);
             }
         }
 

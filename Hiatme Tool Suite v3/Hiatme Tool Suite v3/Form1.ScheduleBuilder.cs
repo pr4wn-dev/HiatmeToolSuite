@@ -1805,6 +1805,8 @@ namespace Hiatme_Tool_Suite_v3
             tip = (tip ?? "").Trim();
             if (tip.Length == 0 || _fsTripsLv == null || _fsTripsAlertTip == null)
                 return;
+            if (SupeyMenuState.IsOpen())
+                return;
 
             if (_fsTripsAlertTipActiveKind == kind && tip == _fsTripsAlertTipLastText)
                 return;

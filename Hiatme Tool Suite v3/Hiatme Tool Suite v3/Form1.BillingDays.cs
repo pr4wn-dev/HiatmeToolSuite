@@ -140,6 +140,7 @@ namespace Hiatme_Tool_Suite_v3
                 _billingStar = new LateDriversFreeEdge();
                 _billingStar.UseAcrossSuite();
                 _billingStar.UseMark(LateDriversEdgeMark.Dollar);
+                TryPlayLateDriversFreeStarSound();
                 _billingStar.Click += (_, __) =>
                 {
                     _billingStarDismissed = true;

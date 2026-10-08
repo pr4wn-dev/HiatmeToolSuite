@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace Hiatme_Tool_Suite_v3
@@ -47,6 +48,8 @@ namespace Hiatme_Tool_Suite_v3
             listView.ShowItemToolTips = false;
             listView.MouseMove += (s, e) =>
             {
+                if (SupeyMenuState.IsOpen())
+                    return;
                 var hit = listView.HitTest(e.Location);
                 string text = hit.Item?.ToolTipText;
                 tip.SetToolTip(listView, string.IsNullOrWhiteSpace(text) ? "" : text);
@@ -83,6 +86,11 @@ namespace Hiatme_Tool_Suite_v3
 
         private static void OnPopup(object sender, PopupEventArgs e)
         {
+            if (SupeyMenuState.IsOpen())
+            {
+                e.Cancel = true;
+                return;
+            }
             var tip = sender as ToolTip;
             string text = tip?.GetToolTip(e.AssociatedControl);
             if (string.IsNullOrEmpty(text) && tip?.Tag is Func<string> getText)
@@ -100,5 +108,49 @@ namespace Hiatme_Tool_Suite_v3
                 Math.Max(48, sz.Width + PadH * 2),
                 Math.Max(26, sz.Height + PadV + 2));
         }
+    }
+
+    internal static class SupeyMenuState
+    {
+        private delegate bool EnumThreadWndProc(IntPtr hWnd, IntPtr lParam);
+
+        private static readonly EnumThreadWndProc EnumProc = OnEnumThreadWindow;
+        private static bool _open;
+
+        public static bool IsOpen()
+        {
+            _open = false;
+            try
+            {
+                EnumThreadWindows(GetCurrentThreadId(), EnumProc, IntPtr.Zero);
+            }
+            catch
+            {
+                return false;
+            }
+            return _open;
+        }
+
+        private static bool OnEnumThreadWindow(IntPtr hWnd, IntPtr lParam)
+        {
+            if (!IsWindowVisible(hWnd))
+                return true;
+            var drop = Control.FromHandle(hWnd) as ToolStripDropDown;
+            if (drop != null && drop.Visible)
+            {
+                _open = true;
+                return false;
+            }
+            return true;
+        }
+
+        [DllImport("user32.dll")]
+        private static extern bool EnumThreadWindows(uint dwThreadId, EnumThreadWndProc lpfn, IntPtr lParam);
+
+        [DllImport("kernel32.dll")]
+        private static extern uint GetCurrentThreadId();
+
+        [DllImport("user32.dll")]
+        private static extern bool IsWindowVisible(IntPtr hWnd);
     }
 }
