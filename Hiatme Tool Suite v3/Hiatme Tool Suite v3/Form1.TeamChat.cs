@@ -42,6 +42,8 @@ namespace Hiatme_Tool_Suite_v3
             {
                 if (!on && _globalAiExpanded)
                     SetGlobalAiStatus("Chat offline \u2014 panel unreachable.", SupeyTheme.WarnText);
+                else if (on && _globalAiCts == null)
+                    SetGlobalAiStatus("Ready", SupeyTheme.SuccessText);
             };
             FormClosing += (_, __) =>
             {
