@@ -14,6 +14,12 @@ namespace Hiatme_Tool_Suite_v3
         private const int GlobalAiDockExpandedWidth = 392;
         private const int GlobalAiDockMinWidth = 300;
         private const int GlobalAiDockRightPad = 6;
+        private const string TeamChatHintManual = "Enter sends  \u00b7  Shift+Enter newline  \u00b7  @ai \u2192 copilot";
+        private const string TeamChatHintAutochat = "Chat with the team \u2014 Jojo joins in when he can help";
+        private const string TeamChatPlaceholderManual = "Message the team \u2014 @ai to ask the copilot\u2026";
+        private const string TeamChatPlaceholderAutochat = "Chat with the team \u2014 Jojo joins in when he can help";
+        private const string TeamChatEmptyManual = "Talk to the other desks here.\r\nStart with @ai to ask the copilot about this screen.";
+        private const string TeamChatEmptyAutochat = "Talk to the other desks here.\r\nJojo joins in when he can help.";
 
         private Panel _globalAiDock;
         private Panel _globalAiHeader;
@@ -172,7 +178,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 Dock = DockStyle.Bottom,
                 Height = 16,
-                Text = "Enter sends  ·  Shift+Enter newline  ·  @ai \u2192 copilot",
+                Text = TeamChatHintManual,
                 ForeColor = SupeyTheme.TextMuted,
                 BackColor = SupeyTheme.SurfaceElevated,
                 Font = SupeyTheme.CaptionFont,
@@ -202,7 +208,7 @@ namespace Hiatme_Tool_Suite_v3
             _globalAiPromptPlaceholder = new Label
             {
                 AutoSize = false,
-                Text = "Message the team \u2014 @ai to ask the copilot\u2026",
+                Text = TeamChatPlaceholderManual,
                 ForeColor = SupeyTheme.TextMuted,
                 BackColor = SupeyTheme.SurfaceElevated,
                 Font = SupeyTheme.BodyFont,
@@ -422,7 +428,7 @@ namespace Hiatme_Tool_Suite_v3
             _globalAiTranscript = new ChatTranscriptView
             {
                 Dock = DockStyle.Fill,
-                EmptyHint = "Talk to the other desks here.\r\nStart with @ai to ask the copilot about this screen.",
+                EmptyHint = TeamChatEmptyManual,
             };
             _globalAiTranscript.Click += (_, __) => _globalAiPrompt?.Focus();
             var transcriptPad = new Panel
@@ -481,6 +487,24 @@ namespace Hiatme_Tool_Suite_v3
             ApplyGlobalAiDockTheme();
             LayoutGlobalAiDock();
             InitTeamChat();
+            ApplyTeamChatAutochatCopy(_teamChat != null && _teamChat.Autochat);
+        }
+
+        /// <summary>
+        /// @ai instructions stay while the desk answers. Panel autochat drops them:
+        /// the room is just team chat, and Jojo joins on his own.
+        /// </summary>
+        private void ApplyTeamChatAutochatCopy(bool autochat)
+        {
+            if (_globalAiComposerHint != null && !_globalAiComposerHint.IsDisposed)
+                _globalAiComposerHint.Text = autochat ? TeamChatHintAutochat : TeamChatHintManual;
+            if (_globalAiPromptPlaceholder != null && !_globalAiPromptPlaceholder.IsDisposed)
+                _globalAiPromptPlaceholder.Text = autochat ? TeamChatPlaceholderAutochat : TeamChatPlaceholderManual;
+            if (_globalAiTranscript != null && !_globalAiTranscript.IsDisposed)
+            {
+                _globalAiTranscript.EmptyHint = autochat ? TeamChatEmptyAutochat : TeamChatEmptyManual;
+                _globalAiTranscript.Invalidate();
+            }
         }
 
         private void OnTitleBarAiClicked(object sender, EventArgs e)

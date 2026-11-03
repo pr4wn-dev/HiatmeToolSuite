@@ -37,6 +37,7 @@ namespace Hiatme_Tool_Suite_v3
             _teamChat = new TeamChatFeed(() => HiatmeAiSettings.LoadNoProbe());
             _teamChat.MessagesArrived += OnTeamChatMessages;
             _teamChat.TypingChanged += OnTeamChatTyping;
+            _teamChat.AutochatChanged += OnTeamChatAutochatChanged;
             _teamChat.ConnectivityChanged += on =>
             {
                 if (!on && _globalAiExpanded)
@@ -204,6 +205,16 @@ namespace Hiatme_Tool_Suite_v3
             string _;
             if (typing && TeamChatIsAiAddressed(text, out _)) typing = false;
             _teamChat.NotifyTyping(typing);
+        }
+
+        private void OnTeamChatAutochatChanged(bool on)
+        {
+            if (InvokeRequired)
+            {
+                BeginInvoke((Action)(() => OnTeamChatAutochatChanged(on)));
+                return;
+            }
+            ApplyTeamChatAutochatCopy(on);
         }
 
         private void OnTeamChatTyping(List<string> names)

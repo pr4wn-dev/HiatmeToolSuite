@@ -111,6 +111,7 @@ namespace Hiatme_Tool_Suite_v3
         public event Action<List<ChatMessage>> MessagesArrived;
         public event Action<List<string>> TypingChanged;
         public event Action<bool> ConnectivityChanged;
+        public event Action<bool> AutochatChanged;
 
         public bool Online { get; private set; } = true;
         /// <summary>
@@ -357,7 +358,9 @@ namespace Hiatme_Tool_Suite_v3
                 try { on = token.Value<bool>(); }
                 catch { on = false; }
             }
+            if (Autochat == on) return;
             Autochat = on;
+            try { AutochatChanged?.Invoke(on); } catch { }
         }
 
         private static string BaseUrl(HiatmeAiSettings settings)
