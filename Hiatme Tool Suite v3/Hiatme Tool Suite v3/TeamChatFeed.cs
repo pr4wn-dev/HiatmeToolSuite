@@ -49,7 +49,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 Seq = w.Seq,
                 Time = w.LocalTime,
-                Sender = kind == ChatMessageKind.Ai ? "AI" : (w.Dispatcher ?? ""),
+                Sender = kind == ChatMessageKind.Ai ? "Jojo" : (w.Dispatcher ?? ""),
                 ClientId = w.ClientId ?? "",
                 Kind = kind,
                 Text = w.Text ?? "",

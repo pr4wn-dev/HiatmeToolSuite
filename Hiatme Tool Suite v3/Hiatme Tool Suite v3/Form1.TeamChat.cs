@@ -269,7 +269,7 @@ namespace Hiatme_Tool_Suite_v3
             string me = _teamChat?.ClientId ?? "";
             // While autochat is on the panel posts the only AI line, so keep it even if
             // it is stamped with this desk. Otherwise that line was drawn here already.
-            bool panelAnswers = _teamChat != null && _teamChat.Autochat;
+            bool panelAnswers = true; // only the server posts AI lines
             var fresh = new List<ChatMessage>();
             foreach (var m in msgs)
             {
@@ -299,7 +299,7 @@ namespace Hiatme_Tool_Suite_v3
             var t = new ScheduleActivityToast
             {
                 Kind = ScheduleToastKind.Chat,
-                Who = m.Kind == ChatMessageKind.Ai ? "AI" : (string.IsNullOrEmpty(m.Sender) ? "Someone" : m.Sender),
+                Who = m.Kind == ChatMessageKind.Ai ? "Jojo" : (string.IsNullOrEmpty(m.Sender) ? "Someone" : m.Sender),
                 Verb = "chat",
                 SourceClientId = m.ClientId ?? "",
                 EventTs = new DateTimeOffset(m.Time).ToUnixTimeMilliseconds() / 1000.0,

@@ -496,6 +496,7 @@ namespace Hiatme_Tool_Suite_v3
         /// </summary>
         private void ApplyTeamChatAutochatCopy(bool autochat)
         {
+            autochat = true; // Jojo always lives on the server now.
             if (_globalAiComposerHint != null && !_globalAiComposerHint.IsDisposed)
                 _globalAiComposerHint.Text = autochat ? TeamChatHintAutochat : TeamChatHintManual;
             if (_globalAiPromptPlaceholder != null && !_globalAiPromptPlaceholder.IsDisposed)
@@ -683,7 +684,7 @@ namespace Hiatme_Tool_Suite_v3
                 try { posted = await TeamChatSendMineAsync(mine, mentionsAi: true).ConfigureAwait(true); }
                 catch { posted = null; }
 
-                if (posted != null && _teamChat != null && _teamChat.Autochat)
+                if (true) // Server Jojo is the only AI in team chat; the desk never answers locally.
                 {
                     _globalAiPrompt.Clear();
                     SetGlobalAiStatus("Ready", SupeyTheme.SuccessText);
