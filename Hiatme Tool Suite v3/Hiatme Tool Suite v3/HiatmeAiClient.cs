@@ -1460,6 +1460,10 @@ namespace Hiatme_Tool_Suite_v3
                         ["shift_start"] = d.ShiftStart ?? "",
                         ["shift_end"] = d.ShiftEnd ?? "",
                         ["vehicle_label"] = d.VehicleLabel ?? "",
+                        ["home_street"] = d.HomeStreet ?? "",
+                        ["home_city"] = d.HomeCity ?? "",
+                        ["home_state"] = d.HomeState ?? "",
+                        ["home_zip"] = d.HomeZip ?? "",
                     });
                 }
                 if (rows.Count == 0)
@@ -2184,6 +2188,12 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> PendingUploadLocks =
+            new System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.OrdinalIgnoreCase);
+
+        private static SemaphoreSlim GetPendingUploadLock(string serviceDateIso) =>
+            PendingUploadLocks.GetOrAdd((serviceDateIso ?? "").Trim(), _ => new SemaphoreSlim(1, 1));
+
         /// <summary>Background upload after save — never block the UI thread.</summary>
         public static void UploadScheduleWorkbookFireAndForget(
             HiatmeAiSettings settings,
@@ -2199,12 +2209,25 @@ namespace Hiatme_Tool_Suite_v3
 
             Task.Run(async () =>
             {
+                var gate = GetPendingUploadLock(serviceDateIso);
+                await gate.WaitAsync().ConfigureAwait(false);
                 try
                 {
+                    // If another path already flushed this pending upload, skip the duplicate PUT.
+                    if (string.Equals(source, "pending_retry", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(source, "schedule_builder_save", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var stillPending = ScheduleWorkbookResolver.GetPendingPublish(serviceDateIso);
+                        if (stillPending == null && string.Equals(source, "pending_retry", StringComparison.OrdinalIgnoreCase))
+                            return;
+                    }
+
                     var result = await UploadScheduleWorkbookAsync(
                         settings, serviceDateIso, workbookPath, source).ConfigureAwait(false);
                     if (result != null && result.Conflict)
                     {
+                        ScheduleWorkbookResolver.BackupLocalWorkbook(workbookPath, serviceDateIso);
+                        ScheduleWorkbookResolver.ClearPendingPublish(serviceDateIso);
                         HiatmeAiSettings.LogProbe(
                             "workbook upload stale " + serviceDateIso
                             + " — LOAD the published schedule before saving over it");
@@ -2222,7 +2245,15 @@ namespace Hiatme_Tool_Suite_v3
                     {
                         ScheduleWorkbookResolver.ClearPendingPublish(serviceDateIso);
                         if (result.Revision > 0)
+                        {
                             ScheduleWorkbookResolver.WriteLocalRevision(workbookPath, result.Revision);
+                            if (DateTime.TryParseExact(
+                                    serviceDateIso.Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture,
+                                    DateTimeStyles.None, out DateTime day))
+                            {
+                                ScheduleWorkbookResolver.MirrorCacheToDesktop(day, result.Revision);
+                            }
+                        }
                         HiatmeAiSettings.LogProbe(
                             "workbook upload ok " + serviceDateIso + " rev=" + result.Revision
                             + " etag=" + (result.Etag ?? ""));
@@ -2235,7 +2266,58 @@ namespace Hiatme_Tool_Suite_v3
                     HiatmeAiSettings.LogProbe("workbook upload exception " + serviceDateIso + " " + ex.Message
                         + " — queued until panel is back");
                 }
+                finally
+                {
+                    gate.Release();
+                }
             });
+        }
+
+        /// <summary>Await upload of a pending offline save for one date before reading from the server.</summary>
+        public static async Task FlushPendingWorkbookUploadForDateAsync(
+            HiatmeAiSettings settings,
+            string serviceDateIso,
+            CancellationToken cancellationToken = default)
+        {
+            if (settings == null || string.IsNullOrWhiteSpace(settings.BaseUrl) || string.IsNullOrWhiteSpace(serviceDateIso))
+                return;
+
+            var gate = GetPendingUploadLock(serviceDateIso);
+            await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                var item = ScheduleWorkbookResolver.GetPendingPublish(serviceDateIso);
+                if (item == null || string.IsNullOrWhiteSpace(item.WorkbookPath) || !File.Exists(item.WorkbookPath))
+                    return;
+
+                string src = string.IsNullOrWhiteSpace(item.Source) ? "pending_retry" : item.Source;
+                var result = await UploadScheduleWorkbookAsync(
+                    settings, item.ServiceDateIso, item.WorkbookPath, src, cancellationToken).ConfigureAwait(false);
+                if (result != null && result.Conflict)
+                {
+                    ScheduleWorkbookResolver.BackupLocalWorkbook(item.WorkbookPath, item.ServiceDateIso);
+                    ScheduleWorkbookResolver.ClearPendingPublish(item.ServiceDateIso);
+                }
+                else if (result != null && result.Ok)
+                {
+                    ScheduleWorkbookResolver.ClearPendingPublish(item.ServiceDateIso);
+                    if (result.Revision > 0)
+                    {
+                        ScheduleWorkbookResolver.WriteLocalRevision(item.WorkbookPath, result.Revision);
+                        if (DateTime.TryParseExact(
+                                item.ServiceDateIso.Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture,
+                                DateTimeStyles.None, out DateTime day))
+                        {
+                            ScheduleWorkbookResolver.MirrorCacheToDesktop(day, result.Revision);
+                        }
+                    }
+                }
+            }
+            catch { }
+            finally
+            {
+                gate.Release();
+            }
         }
 
         /// <summary>Flush SAVE uploads that failed while the panel was down.</summary>

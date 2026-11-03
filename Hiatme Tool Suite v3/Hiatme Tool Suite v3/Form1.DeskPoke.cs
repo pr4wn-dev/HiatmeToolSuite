@@ -74,7 +74,9 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     if (o == null || string.IsNullOrWhiteSpace(o.ClientId)) continue;
                     string name = string.IsNullOrWhiteSpace(o.Dispatcher) ? "?" : o.Dispatcher.Trim();
-                    var person = new ToolStripMenuItem(name);
+                    string version = (o.AppVersion ?? "").Trim();
+                    string caption = string.IsNullOrEmpty(version) ? name : name + "  ·  " + version;
+                    var person = new ToolStripMenuItem(caption);
                     string target = o.ClientId;
                     string label = name;
                     var sendMiddle = new ToolStripMenuItem("Send middle finger", thumbMiddle, async (_, __) =>

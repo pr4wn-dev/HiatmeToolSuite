@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
@@ -50,30 +50,52 @@ namespace Hiatme_Tool_Suite_v3
             _ = TeamChatLoadHistoryAsync();
         }
 
+        private Panel _teamChatTypingHost;
+        private JojoThinkingHead _teamChatJojoHead;
+
         private Control BuildTeamChatTypingLine()
         {
-            _teamChatTypingLbl = new Label
+            // Host row: [Jojo head when Jojo is thinking] [who is typing ...]
+            _teamChatTypingHost = new Panel
             {
                 Dock = DockStyle.Bottom,
-                Height = 18,
+                Height = 36,
                 Visible = false,
+                BackColor = SupeyTheme.Surface,
+                Padding = new Padding(14, 4, 14, 4),
+            };
+            _teamChatJojoHead = new JojoThinkingHead
+            {
+                Dock = DockStyle.Left,
+                Width = 28,
+                Visible = false,
+                BackColor = SupeyTheme.Surface,
+            };
+            var headGap = new Panel { Dock = DockStyle.Left, Width = 10, BackColor = SupeyTheme.Surface };
+            _teamChatTypingLbl = new Label
+            {
+                Dock = DockStyle.Fill,
                 Text = "",
+                AutoEllipsis = true,
                 ForeColor = SupeyTheme.TextMuted,
                 BackColor = SupeyTheme.Surface,
                 Font = SupeyTheme.CaptionFont,
                 TextAlign = ContentAlignment.MiddleLeft,
-                Padding = new Padding(2, 0, 0, 0),
+                Padding = new Padding(0),
                 UseMnemonic = false,
             };
+            _teamChatTypingHost.Controls.Add(_teamChatTypingLbl);
+            _teamChatTypingHost.Controls.Add(headGap);
+            _teamChatTypingHost.Controls.Add(_teamChatJojoHead);
+            headGap.Tag = "jojo-gap";
             _teamChatDotsTimer = new Timer { Interval = 420 };
             _teamChatDotsTimer.Tick += (_, __) =>
             {
                 _teamChatDots = (_teamChatDots + 1) % 4;
                 TeamChatRenderTyping();
             };
-            return _teamChatTypingLbl;
+            return _teamChatTypingHost;
         }
-
         private void TeamChatApplyTheme()
         {
             if (_teamChatTypingLbl == null || _teamChatTypingLbl.IsDisposed) return;
@@ -195,6 +217,14 @@ namespace Hiatme_Tool_Suite_v3
             bool show = _teamChatTyping.Count > 0;
             if (show && !_teamChatDotsTimer.Enabled) { _teamChatDots = 0; _teamChatDotsTimer.Start(); }
             if (!show && _teamChatDotsTimer.Enabled) _teamChatDotsTimer.Stop();
+            bool jojo = show && _teamChatTyping.Any(x => string.Equals((x ?? "").Trim(), "Jojo", StringComparison.OrdinalIgnoreCase));
+            if (_teamChatTypingHost != null && !_teamChatTypingHost.IsDisposed)
+            {
+                foreach (Control c in _teamChatTypingHost.Controls)
+                    if (Equals(c.Tag, "jojo-gap")) c.Visible = jojo;
+                _teamChatTypingHost.Visible = show;
+            }
+            if (_teamChatJojoHead != null && !_teamChatJojoHead.IsDisposed) _teamChatJojoHead.Visible = jojo;
             _teamChatTypingLbl.Visible = show;
             TeamChatRenderTyping();
         }
@@ -204,7 +234,8 @@ namespace Hiatme_Tool_Suite_v3
             if (_teamChatTypingLbl == null || _teamChatTypingLbl.IsDisposed || _teamChatTyping.Count == 0) return;
             string who;
             var n = _teamChatTyping;
-            if (n.Count == 1) who = n[0] + " is typing";
+            if (n.Count == 1 && string.Equals((n[0] ?? "").Trim(), "Jojo", StringComparison.OrdinalIgnoreCase)) who = "Jojo is thinking";
+            else if (n.Count == 1) who = n[0] + " is typing";
             else if (n.Count == 2) who = n[0] + " and " + n[1] + " are typing";
             else who = n[0] + ", " + n[1] + " and " + (n.Count - 2) + " more are typing";
             string dots = new string('\u00b7', _teamChatDots) + new string(' ', 3 - _teamChatDots);
@@ -300,6 +331,116 @@ namespace Hiatme_Tool_Suite_v3
             _schedActStack?.DismissWhere(x => x.Kind == ScheduleToastKind.Chat);
             if (!_teamChatHistoryLoaded) _ = TeamChatLoadHistoryAsync();
             else _globalAiTranscript?.ScrollToBottom();
+        }
+
+        /// <summary>
+        /// Little animated Jojo avatar (white round head, two slanted eyes) that glances
+        /// around while Jojo is working on an answer in the team chat.
+        /// </summary>
+        private sealed class JojoThinkingHead : Control
+        {
+            private readonly Timer _tick = new Timer { Interval = 16 };
+            private readonly Random _rng = new Random();
+            private float _gx, _gy, _tx, _ty, _tilt, _ttilt;
+            private DateTime _nextLook = DateTime.MinValue, _blinkStart = DateTime.MinValue, _nextBlink = DateTime.MinValue;
+            private readonly DateTime _t0 = DateTime.UtcNow;
+
+            public JojoThinkingHead()
+            {
+                SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer
+                       | ControlStyles.UserPaint | ControlStyles.ResizeRedraw | ControlStyles.SupportsTransparentBackColor, true);
+                _tick.Tick += (_, __) => Step();
+            }
+
+            // Animate whenever it is actually on screen.
+            protected override void OnVisibleChanged(EventArgs e)
+            {
+                base.OnVisibleChanged(e);
+                if (Visible) { _nextLook = DateTime.MinValue; _nextBlink = DateTime.UtcNow.AddMilliseconds(900); _tick.Start(); }
+                else { _tick.Stop(); _gx = _gy = _tx = _ty = _tilt = _ttilt = 0; }
+            }
+            protected override void OnHandleCreated(EventArgs e) { base.OnHandleCreated(e); if (Visible) _tick.Start(); }
+
+            private void Step()
+            {
+                if (!IsHandleCreated || IsDisposed) return;
+                var now = DateTime.UtcNow;
+                if (now >= _nextLook)
+                {
+                    int pick = _rng.Next(6);
+                    if (pick == 0) { _tx = 0; _ty = 0; }
+                    else
+                    {
+                        _tx = (pick % 2 == 0 ? -1f : 1f) * (0.55f + (float)_rng.NextDouble() * 0.45f);
+                        _ty = (float)(_rng.NextDouble() * 1.4 - 0.8);
+                    }
+                    _ttilt = _tx * 7f;
+                    _nextLook = now.AddMilliseconds(500 + _rng.Next(1100));
+                }
+                if (now >= _nextBlink)
+                {
+                    _blinkStart = now;
+                    _nextBlink = now.AddMilliseconds(_rng.Next(5) == 0 ? 260 : 2000 + _rng.Next(2800));
+                }
+                // eased follow
+                _gx += (_tx - _gx) * 0.16f;
+                _gy += (_ty - _gy) * 0.16f;
+                _tilt += (_ttilt - _tilt) * 0.10f;
+                Invalidate();
+            }
+
+            protected override void OnPaint(PaintEventArgs e)
+            {
+                var g = e.Graphics;
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                g.Clear(BackColor);
+                float d = Math.Min(ClientSize.Width, ClientSize.Height) - 4f;
+                if (d < 8) return;
+                double ms = (DateTime.UtcNow - _t0).TotalMilliseconds;
+                float bob = (float)Math.Sin(ms / 320.0) * 1.1f;
+                float cxH = ClientSize.Width / 2f, cyH = ClientSize.Height / 2f + bob - 0.5f;
+
+                var state = g.Save();
+                g.TranslateTransform(cxH, cyH);
+                g.RotateTransform(_tilt);
+
+                // soft shadow + head
+                using (var sh = new SolidBrush(Color.FromArgb(55, 0, 0, 0)))
+                    g.FillEllipse(sh, -d / 2f + 0.6f, -d / 2f + 1.4f, d, d);
+                var head = new RectangleF(-d / 2f, -d / 2f, d, d);
+                using (var lg = new System.Drawing.Drawing2D.LinearGradientBrush(head, Color.White, Color.FromArgb(222, 224, 228), 90f))
+                    g.FillEllipse(lg, head);
+                using (var rim = new Pen(Color.FromArgb(70, 0, 0, 0), 1f))
+                    g.DrawEllipse(rim, head);
+
+                // eyes: slanted rounded strokes upper-right, squash on blink
+                float blink = 1f;
+                double bt = (DateTime.UtcNow - _blinkStart).TotalMilliseconds;
+                if (bt >= 0 && bt < 150) blink = (float)Math.Abs(Math.Cos(bt / 150.0 * Math.PI)) * 0.85f + 0.15f;
+                float ex = d * 0.12f + _gx * d * 0.12f;
+                float ey = -d * 0.16f + _gy * d * 0.08f;
+                float len = d * 0.20f * blink;
+                float w = Math.Max(2f, d * 0.12f);
+                using (var pen = new Pen(Color.FromArgb(28, 30, 34), w)
+                { StartCap = System.Drawing.Drawing2D.LineCap.Round, EndCap = System.Drawing.Drawing2D.LineCap.Round })
+                {
+                    DrawEye(g, pen, ex - d * 0.12f, ey + d * 0.04f, len);
+                    DrawEye(g, pen, ex + d * 0.12f, ey - d * 0.03f, len);
+                }
+                g.Restore(state);
+            }
+
+            private static void DrawEye(Graphics g, Pen pen, float x, float y, float len)
+            {
+                float dx = len * 0.50f, dy = len * 0.87f;   // ~30 degree slant
+                g.DrawLine(pen, x - dx / 2, y - dy / 2, x + dx / 2, y + dy / 2);
+            }
+
+            protected override void Dispose(bool disposing)
+            {
+                if (disposing) { _tick.Stop(); _tick.Dispose(); }
+                base.Dispose(disposing);
+            }
         }
     }
 }

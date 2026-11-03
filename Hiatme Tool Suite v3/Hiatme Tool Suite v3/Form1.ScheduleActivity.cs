@@ -65,6 +65,11 @@ namespace Hiatme_Tool_Suite_v3
             _schedActFeed.ConnectivityChanged += on =>
             {
                 if (_schedActPresencePill != null) _schedActPresencePill.Online = on;
+                if (on)
+                {
+                    try { HiatmeAiClient.RetryPendingWorkbookUploads(HiatmeAiSettings.LoadNoProbe()); }
+                    catch { }
+                }
             };
 
             _schedActStack = new ScheduleActivityToastStack(this, ScheduleActivityBottomInset);
@@ -747,6 +752,14 @@ namespace Hiatme_Tool_Suite_v3
                     TripPhrase();
                     runs.Add(ScheduleToastRun.Body("to"));
                     runs.Add(ScheduleToastRun.ChipWarn("Cancels"));
+                    OtherDay();
+                    break;
+                case "new_trips":
+                    runs.Add(ScheduleToastRun.Body("synced"));
+                    TripPhrase();
+                    runs.Add(ScheduleToastRun.Body("from Modivcare"));
+                    runs.Add(ScheduleToastRun.Arrow());
+                    runs.Add(ScheduleToastRun.ChipAccent("Reserves"));
                     OtherDay();
                     break;
                 case "note":

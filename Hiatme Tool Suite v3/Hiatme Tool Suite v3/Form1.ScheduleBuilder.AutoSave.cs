@@ -116,6 +116,7 @@ namespace Hiatme_Tool_Suite_v3
                     return;
 
                 _fsPreferredSavePath = fsbuilder.LastExportPath;
+                try { ScheduleWorkbookResolver.MirrorCacheToDesktop(fsbuilder.ServiceDate); } catch { }
                 var upload = Task.Run(() => FsUploadSavedWorkbookToServerAsync(
                     fsbuilder.LastVerifiedExportPath ?? fsbuilder.LastExportPath));
                 if (!upload.Wait(TimeSpan.FromSeconds(2)))
@@ -144,10 +145,6 @@ namespace Hiatme_Tool_Suite_v3
             if (string.IsNullOrWhiteSpace(workbookPath) || !File.Exists(workbookPath))
                 return;
 
-            var settings = HiatmeAiSettings.Load();
-            if (settings == null || string.IsNullOrWhiteSpace(settings.BaseUrl))
-                return;
-
             DateTime serviceDate = fsbdatepicker?.Value.Date ?? DateTime.Today;
             if (fsbuilder != null)
             {
@@ -156,6 +153,20 @@ namespace Hiatme_Tool_Suite_v3
             }
 
             string iso = serviceDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+            // Always mirror the local cache to Desktop immediately on save so the desk's
+            // Desktop file is up to date even when the AI panel is offline.
+            ScheduleWorkbookResolver.MirrorCacheToDesktop(serviceDate);
+
+            var settings = HiatmeAiSettings.Load();
+            if (settings == null || string.IsNullOrWhiteSpace(settings.BaseUrl))
+            {
+                ScheduleWorkbookResolver.QueuePendingPublish(
+                    iso, workbookPath, "schedule_builder_save");
+                ScheduleActivityOnPublished(iso, 0);
+                return;
+            }
+
             try
             {
                 // Edits must reach the feed before the server's "saved" event, or the
@@ -182,9 +193,11 @@ namespace Hiatme_Tool_Suite_v3
                 {
                     ScheduleWorkbookResolver.QueuePendingPublish(
                         iso, workbookPath, "schedule_builder_save");
+                    ScheduleActivityOnPublished(iso, 0);
                 }
                 else
                 {
+                    ScheduleWorkbookResolver.ClearPendingPublish(iso);
                     if (result.Revision > 0)
                     {
                         ScheduleWorkbookResolver.WriteLocalRevision(workbookPath, result.Revision);
@@ -204,6 +217,7 @@ namespace Hiatme_Tool_Suite_v3
             {
                 ScheduleWorkbookResolver.QueuePendingPublish(
                     iso, workbookPath, "schedule_builder_save");
+                ScheduleActivityOnPublished(iso, 0);
                 HiatmeAiSettings.LogProbe(
                     "workbook upload exception " + iso + " " + ex.Message
                     + " — queued until panel is back");

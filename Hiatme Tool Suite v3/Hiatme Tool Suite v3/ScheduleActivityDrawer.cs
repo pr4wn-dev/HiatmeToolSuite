@@ -198,6 +198,7 @@ namespace Hiatme_Tool_Suite_v3
             switch (verb)
             {
                 case "saved": return SupeyTheme.SuccessText;
+                case "new_trips": return SupeyTheme.SuccessText;
                 case "opened":
                 case "closed": return SupeyTheme.TextMuted;
                 case "reroute":
@@ -212,6 +213,7 @@ namespace Hiatme_Tool_Suite_v3
             switch (verb)
             {
                 case "paste": return "pasted";
+                case "new_trips": return "new trips";
                 case "blank_row": return "spacing";
                 case "note": return "note";
                 case "suggest": return "suggest";
@@ -249,6 +251,7 @@ namespace Hiatme_Tool_Suite_v3
                 case "redo": return d.Label ?? "";
                 case "reroute": return string.IsNullOrEmpty(tripHead) ? "\u2192 Reroutes" : tripHead + " \u2192 Reroutes";
                 case "cancel": return string.IsNullOrEmpty(tripHead) ? "\u2192 Cancels" : tripHead + " \u2192 Cancels";
+                case "new_trips": return string.IsNullOrEmpty(tripHead) ? "Modivcare \u2192 Reserves" : tripHead + " \u2192 Reserves";
             }
             var parts = new[] { tripHead, tabs }.Where(s => !string.IsNullOrEmpty(s));
             string s2 = string.Join(" \u00b7 ", parts);

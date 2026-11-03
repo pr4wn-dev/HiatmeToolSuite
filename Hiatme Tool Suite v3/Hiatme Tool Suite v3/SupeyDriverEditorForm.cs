@@ -92,9 +92,9 @@ namespace Hiatme_Tool_Suite_v3
             int capacity;
             string capRaw = (_capacityTb.Text ?? "").Trim();
             if (!int.TryParse(capRaw, NumberStyles.Integer, CultureInfo.InvariantCulture, out capacity)
-                || capacity < 1 || capacity > 30)
+                || capacity < 1 || capacity > 6)
             {
-                MessageBox.Show(this, "Capacity must be a positive integer (1-30).", "Validation",
+                MessageBox.Show(this, "Capacity must be 1 to 6. Vans hold at most 6.", "Validation",
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 _capacityTb.Focus();
                 return;

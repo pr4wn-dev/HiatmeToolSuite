@@ -47,16 +47,23 @@ namespace Hiatme_Tool_Suite_v3
                 // Null is "could not ask", which is not the same as "the roster is empty".
                 // Blanking capacities somebody set because the panel was down for a minute
                 // would be far worse than running on yesterday's numbers.
-                if (shared == null || shared.Count == 0)
+                if (shared == null)
                     return;
 
-                var merged = SupeyDriverRosterStore.MergeShared(_supeyRoster, shared);
-                _supeyRoster.Clear();
-                _supeyRoster.AddRange(merged);
-                SupeyDriverRosterStore.Save(_supeyRoster);
+                if (shared.Count > 0)
+                {
+                    var merged = SupeyDriverRosterStore.MergeShared(_supeyRoster, shared);
+                    _supeyRoster.Clear();
+                    _supeyRoster.AddRange(merged);
+                    SupeyDriverRosterStore.Save(_supeyRoster);
 
-                if (rebuildLists != null)
-                    BeginInvoke(rebuildLists);
+                    if (rebuildLists != null)
+                        BeginInvoke(rebuildLists);
+                }
+
+                // Homes only live in this desk's file; the panel's Saved settings needs them
+                // for Mapping, so send the merged list back once the panel is reachable.
+                PushSharedRoster();
             }
             catch
             {

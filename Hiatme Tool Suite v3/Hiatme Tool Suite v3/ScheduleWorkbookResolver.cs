@@ -385,6 +385,20 @@ namespace Hiatme_Tool_Suite_v3
             catch { }
         }
 
+        public static ScheduleWorkbookPendingPublish GetPendingPublish(string serviceDateIso)
+        {
+            if (!string.IsNullOrEmpty(serviceDateIso))
+            {
+                string target = serviceDateIso.Trim();
+                foreach (var item in ListPendingPublishes())
+                {
+                    if (string.Equals(item.ServiceDateIso, target, StringComparison.OrdinalIgnoreCase))
+                        return item;
+                }
+            }
+            return null;
+        }
+
         public static List<ScheduleWorkbookPendingPublish> ListPendingPublishes()
         {
             var list = new List<ScheduleWorkbookPendingPublish>();
@@ -507,7 +521,32 @@ namespace Hiatme_Tool_Suite_v3
 
             settings = settings ?? HiatmeAiSettings.Load();
             if (settings != null && !string.IsNullOrWhiteSpace(settings.BaseUrl))
+            {
+                // Flush any offline save for THIS day before querying/downloading from the
+                // server; otherwise the server's pre-outage revision will overwrite the local
+                // cache before the background retry finishes.
+                await HiatmeAiClient.FlushPendingWorkbookUploadForDateAsync(settings, iso, cancellationToken)
+                    .ConfigureAwait(false);
                 HiatmeAiClient.RetryPendingWorkbookUploads(settings);
+            }
+
+            // If this desk still has an un-uploaded offline save for this day (e.g. panel is
+            // still down), open that saved copy directly instead of falling back to an older
+            // Desktop or pre-outage server file.
+            var pendingForDay = GetPendingPublish(iso);
+            if (pendingForDay != null
+                && !string.IsNullOrWhiteSpace(pendingForDay.WorkbookPath)
+                && File.Exists(pendingForDay.WorkbookPath))
+            {
+                return new ScheduleWorkbookResolveResult
+                {
+                    FullPath = pendingForDay.WorkbookPath,
+                    FileName = Path.GetFileName(pendingForDay.WorkbookPath),
+                    Source = "server_cache",
+                    Revision = ReadLocalRevision(pendingForDay.WorkbookPath),
+                    ServiceDateIso = iso,
+                };
+            }
 
             HiatmeScheduleWorkbookMeta meta = null;
             if (settings != null && !string.IsNullOrWhiteSpace(settings.BaseUrl))
@@ -523,6 +562,17 @@ namespace Hiatme_Tool_Suite_v3
             bool serverExists = meta != null && meta.Ok && meta.Exists;
             int serverRev = serverExists ? meta.Revision : 0;
             int localRev = desktopExists ? ReadLocalRevision(desktopPath) : 0;
+            string cachePath = LocalCachePath(serviceDate);
+            if (File.Exists(cachePath))
+            {
+                int cacheRev = ReadLocalRevision(cachePath);
+                if (cacheRev > localRev)
+                    localRev = cacheRev;
+                if (localRev > 0 && desktopExists && ReadLocalRevision(desktopPath) < localRev)
+                    WriteLocalRevision(desktopPath, localRev);
+                if (localRev > 0 && cacheRev < localRev)
+                    WriteLocalRevision(cachePath, localRev);
+            }
 
             // A published day is loaded from LocalAppData, never from Desktop\OneDrive.
             // OneDrive / Office keep serving Remie's yesterday even when the bytes on
@@ -542,6 +592,24 @@ namespace Hiatme_Tool_Suite_v3
                 return await ResolveFromServerCacheAsync(
                     serviceDate, iso, fileName, settings, meta, cancellationToken)
                     .ConfigureAwait(false);
+            }
+
+            string cacheFallback = LocalCachePath(serviceDate);
+            bool cacheExists = !string.IsNullOrWhiteSpace(cacheFallback) && File.Exists(cacheFallback);
+            if (cacheExists)
+            {
+                double? cacheMtime = FileUtcUnixSeconds(cacheFallback);
+                if (!desktopExists || LocalIsNewer(cacheMtime, desktopMtime))
+                {
+                    return new ScheduleWorkbookResolveResult
+                    {
+                        FullPath = cacheFallback,
+                        FileName = fileName,
+                        Source = "server_cache",
+                        Revision = ReadLocalRevision(cacheFallback),
+                        ServiceDateIso = iso,
+                    };
+                }
             }
 
             if (desktopExists)
@@ -706,12 +774,16 @@ namespace Hiatme_Tool_Suite_v3
                     meta.Etag.Trim(),
                     StringComparison.Ordinal))
             {
+                int rev = meta.Revision > 0 ? meta.Revision : ReadLocalRevision(cachePath);
+                if (rev > 0)
+                    WriteLocalRevision(cachePath, rev);
                 return new ScheduleWorkbookResolveResult
                 {
                     FullPath = cachePath,
                     FileName = meta.Filename ?? fileName,
                     Source = "server_cache",
                     Etag = meta.Etag,
+                    Revision = rev,
                     ServiceDateIso = iso,
                 };
             }
@@ -747,7 +819,12 @@ namespace Hiatme_Tool_Suite_v3
                 else if (meta != null && !string.IsNullOrWhiteSpace(meta.Etag))
                     WriteCachedEtag(cachePath, meta.Etag);
 
-                // Seed Desktop so the next resolve is local-fast and matches other desks.
+                    // Seed Desktop so the next resolve is local-fast and matches other desks.
+                int resolvedRev = download.Revision > 0
+                    ? download.Revision
+                    : (meta != null ? meta.Revision : 0);
+                if (resolvedRev > 0)
+                    WriteLocalRevision(cachePath, resolvedRev);
                 ScheduleExportPaths.GetDefaultWorkbookSaveLocation(
                     serviceDate, out _, out _, out string desktopPath);
                 if (!string.IsNullOrWhiteSpace(desktopPath))
@@ -761,11 +838,8 @@ namespace Hiatme_Tool_Suite_v3
                         ApplyServerMtimeToFile(desktopPath, download.Mtime ?? meta?.Mtime);
                         if (!string.IsNullOrWhiteSpace(download.Etag ?? meta?.Etag))
                             WriteCachedEtag(desktopPath, download.Etag ?? meta.Etag);
-                        int seedRev = download.Revision > 0
-                            ? download.Revision
-                            : (meta != null ? meta.Revision : 0);
-                        if (seedRev > 0)
-                            WriteLocalRevision(desktopPath, seedRev);
+                        if (resolvedRev > 0)
+                            WriteLocalRevision(desktopPath, resolvedRev);
                     }
                     catch
                     {
@@ -779,6 +853,7 @@ namespace Hiatme_Tool_Suite_v3
                     FileName = download.Filename ?? fileName,
                     Source = "server_cache",
                     Etag = download.Etag ?? meta?.Etag,
+                    Revision = resolvedRev,
                     ServiceDateIso = iso,
                 };
             }

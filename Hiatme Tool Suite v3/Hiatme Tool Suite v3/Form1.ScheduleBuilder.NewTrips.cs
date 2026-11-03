@@ -22,6 +22,10 @@ namespace Hiatme_Tool_Suite_v3
         private SupeyToolbarIconButton _fsSyncNewTripsBtn;
         private bool _fsSyncNewTripsRunning;
         private ToolTip _fsSyncNewTripsTip;
+        private Timer _fsBgNewTripsTimer;
+        private DateTime _fsLastLocalMcPollUtc = DateTime.MinValue;
+        private const int FsBgNewTripsTickMs = 60_000;
+        private const double FsOfflineMcPollCooldownMin = 10.0;
 
         internal void WireFsSyncNewTripsButton(Panel host)
         {
@@ -40,6 +44,85 @@ namespace Hiatme_Tool_Suite_v3
                 + "Also repairs trips whose fields were saved wrong (Age/State/Gender in date/time columns).");
 
             host.Controls.Add(_fsSyncNewTripsBtn);
+            EnsureFsBgNewTripsTimer();
+        }
+
+        private void EnsureFsBgNewTripsTimer()
+        {
+            if (_fsBgNewTripsTimer != null)
+                return;
+            _fsBgNewTripsTimer = new Timer { Interval = FsBgNewTripsTickMs };
+            _fsBgNewTripsTimer.Tick += async (_, __) => await FsTryBackgroundNewTripsPollAsync();
+            _fsBgNewTripsTimer.Start();
+            FormClosing += (_, __) =>
+            {
+                try { _fsBgNewTripsTimer?.Stop(); _fsBgNewTripsTimer?.Dispose(); }
+                catch { }
+            };
+        }
+
+        private async Task FsTryBackgroundNewTripsPollAsync()
+        {
+            if (_fsAppShuttingDown || _fsSyncNewTripsRunning || _fsLoadInFlight
+                || _fsAutoSaveInProgress || _fsScheduleBuilderExportBusy || _fsAssignRunning)
+                return;
+            if (fsbuilder == null || !_fsHasPreview || _fsLinesByTab == null || _fsLinesByTab.Count == 0)
+                return;
+            if (hiatmeTabControl == null || hiatmeTabControl.SelectedTab != tabPage6)
+                return;
+
+            DateTime serviceDate = FsBoardServiceDate();
+            if (serviceDate.Date < DateTime.Today)
+                return;
+
+            string iso = serviceDate.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+            bool? leased = null;
+            if (_schedActFeed != null)
+            {
+                try { leased = await _schedActFeed.ClaimModivcarePollLeaseAsync(iso).ConfigureAwait(true); }
+                catch { leased = null; }
+            }
+
+            if (leased == false)
+                return;
+            if (leased == null)
+            {
+                // Panel offline: fall back to a 10-minute per-desk cooldown so Modivcare is still
+                // checked gently without hammering it.
+                if ((DateTime.UtcNow - _fsLastLocalMcPollUtc).TotalMinutes < FsOfflineMcPollCooldownMin)
+                    return;
+            }
+
+            if (_fsSyncNewTripsRunning || _fsLoadInFlight || !_fsHasPreview || fsbuilder == null)
+                return;
+
+            _fsLastLocalMcPollUtc = DateTime.UtcNow;
+            _fsSyncNewTripsRunning = true;
+            try
+            {
+                var result = await FsSyncNewModivcareTripsAsync(serviceDate, quietBackground: true).ConfigureAwait(true);
+                if (result != null && result.HasAddedTrips)
+                {
+                    var added = result.Added.Select(a => a.Trip).Where(t => t != null).ToList();
+                    if (added.Count > 0)
+                    {
+                        ScheduleActivityStage("new_trips", added, null, "Reserves", "sync Modivcare new trips");
+                        FsPushUndoSnapshot("sync " + added.Count + " new Modivcare trip" + (added.Count == 1 ? "" : "s"));
+                        if (!string.IsNullOrWhiteSpace(_fsActiveDriverTab)
+                            && _fsActiveDriverTab.Equals("Reserves", StringComparison.OrdinalIgnoreCase))
+                        {
+                            ShowFsTripsForTab("Reserves", preserveScroll: true);
+                        }
+                        SetScheduleBuilderStatus("Modivcare · " + added.Count + " new trip"
+                            + (added.Count == 1 ? "" : "s") + " added to Reserves.");
+                    }
+                }
+            }
+            catch { }
+            finally
+            {
+                _fsSyncNewTripsRunning = false;
+            }
         }
 
         private async Task FsSyncNewTripsBtn_ClickAsync()
@@ -79,13 +162,19 @@ namespace Hiatme_Tool_Suite_v3
         /// trips not on the schedule anywhere to the Reserves tab. Reuses the live Modivcare session
         /// (only re-logs in when the session is dead). Fails soft — the load continues without the check.
         /// </summary>
-        private async Task<FsModivcareNewTripsSyncResult> FsSyncNewModivcareTripsAsync(DateTime serviceDate)
+        private async Task<FsModivcareNewTripsSyncResult> FsSyncNewModivcareTripsAsync(
+            DateTime serviceDate,
+            bool quietBackground = false)
         {
             if (fsbuilder == null || _fsLinesByTab == null || _fsLinesByTab.Count == 0)
                 return FsModivcareNewTripsSyncResult.EmptySchedule(serviceDate);
 
+            _fsLastLocalMcPollUtc = DateTime.UtcNow;
+
             void ProbeStatus(string text)
             {
+                if (quietBackground)
+                    return;
                 SetScheduleBuilderStatus(text);
                 UpdateTabLoadingOverlayMessage(tabPage6, text);
             }
@@ -113,7 +202,7 @@ namespace Hiatme_Tool_Suite_v3
             try
             {
                 ProbeStatus("Downloading Modivcare trip list…");
-                downloaded = await new MCTripDownloader()
+                downloaded = await new MCTripDownloader { SuppressUiDialogs = quietBackground }
                     .DownloadTripRecords(serviceDate, mcLoginHandler)
                     .ConfigureAwait(true);
             }
@@ -204,7 +293,8 @@ namespace Hiatme_Tool_Suite_v3
 
             if (newTrips.Count == 0)
             {
-                FsHideNewTripsBar();
+                if (!quietBackground)
+                    FsHideNewTripsBar();
                 return FsModivcareNewTripsSyncResult.Completed(
                     serviceDate,
                     (repairedCorrupt > 0
@@ -249,7 +339,8 @@ namespace Hiatme_Tool_Suite_v3
 
             if (actuallyAdded.Count == 0)
             {
-                FsHideNewTripsBar();
+                if (!quietBackground)
+                    FsHideNewTripsBar();
                 return FsModivcareNewTripsSyncResult.Completed(
                     serviceDate,
                     (repairedCorrupt > 0

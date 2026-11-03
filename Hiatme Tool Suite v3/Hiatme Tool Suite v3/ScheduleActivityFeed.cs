@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -131,6 +132,7 @@ namespace Hiatme_Tool_Suite_v3
         [JsonProperty("age_s")] public double AgeSeconds { get; set; }
         [JsonProperty("active")] public bool Active { get; set; }
         [JsonProperty("machine")] public string Machine { get; set; }
+        [JsonProperty("app_version")] public string AppVersion { get; set; }
     }
 
     internal sealed class DeskPokeMessage
@@ -371,6 +373,7 @@ namespace Hiatme_Tool_Suite_v3
                         ["unsaved"] = SafeInt(UnsavedCountProvider),
                         ["revision"] = SafeInt(LocalRevisionProvider),
                         ["builder_open"] = builderOpen,
+                        ["app_version"] = DeskAppVersion(),
                     };
                 }
                 var sent = await SendOffUiAsync(
@@ -520,6 +523,40 @@ namespace Hiatme_Tool_Suite_v3
             }
         }
 
+        /// <summary>
+        /// Ask the panel for the 5-minute Modivcare poll lease for <paramref name="serviceDateIso"/>.
+        /// Returns null when the panel is unreachable (so the caller can fall back to a local timer).
+        /// </summary>
+        public async Task<bool?> ClaimModivcarePollLeaseAsync(string serviceDateIso)
+        {
+            if (_disposed || string.IsNullOrWhiteSpace(serviceDateIso))
+                return false;
+            try
+            {
+                var settings = Settings;
+                string baseUrl = BaseUrl(settings);
+                if (baseUrl == null) return null;
+                var body = new JObject
+                {
+                    ["service_date"] = serviceDateIso.Trim(),
+                    ["dispatcher"] = DispatcherName,
+                    ["client_id"] = ClientId,
+                };
+                var sent = await SendOffUiAsync(
+                    HttpMethod.Post,
+                    baseUrl + "/api/hiatme/schedule/mc-poll-lease",
+                    settings,
+                    body.ToString(Formatting.None)).ConfigureAwait(true);
+                if (!sent.Ok) return null;
+                var root = JObject.Parse(string.IsNullOrWhiteSpace(sent.Body) ? "{}" : sent.Body);
+                return root["allowed"]?.Value<bool>() == true;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
         private void RaisePokes(JObject root)
         {
             if (root == null) return;
@@ -576,6 +613,16 @@ namespace Hiatme_Tool_Suite_v3
         {
             try { return Math.Max(0, f?.Invoke() ?? 0); }
             catch { return 0; }
+        }
+
+        private static string DeskAppVersion()
+        {
+            try
+            {
+                var version = Assembly.GetExecutingAssembly().GetName().Version;
+                return version == null ? "" : version.ToString();
+            }
+            catch { return ""; }
         }
 
         private void SetOnline(bool on)
