@@ -651,11 +651,22 @@ namespace Hiatme_Tool_Suite_v3
             _globalAiCts = new CancellationTokenSource();
             _globalAiSendBtn.Enabled = false;
             var mine = TeamChatEchoMine(raw, mentionsAi: true);
-            var askTask = TeamChatSendMineAsync(mine, mentionsAi: true);
-            SetGlobalAiStatus("Thinking...", SupeyTheme.TextMuted);
 
             try
             {
+                // The post response is what carries autochat. Wait for it before calling the copilot.
+                ChatMessage posted = null;
+                try { posted = await TeamChatSendMineAsync(mine, mentionsAi: true).ConfigureAwait(true); }
+                catch { posted = null; }
+
+                if (posted != null && _teamChat != null && _teamChat.Autochat)
+                {
+                    _globalAiPrompt.Clear();
+                    SetGlobalAiStatus("Ready", SupeyTheme.SuccessText);
+                    return;
+                }
+
+                SetGlobalAiStatus("Thinking...", SupeyTheme.TextMuted);
                 _globalAiSettings = _globalAiSettings ?? HiatmeAiSettings.Load();
                 var ctx = BuildGlobalAiContext();
                 var resp = await HiatmeAiClient.SendAssistantAsync(
@@ -671,7 +682,7 @@ namespace Hiatme_Tool_Suite_v3
                     AppendGlobalAiTranscript("AI · thinking", resp.Thinking);
                 var aiLine = AppendGlobalAiTranscript("AI", resp.Message ?? "");
                 // Everyone in the room sees the answer, threaded under the question.
-                _ = TeamChatPublishAiReplyAsync(askTask, aiLine);
+                _ = TeamChatPublishAiReplyAsync(Task.FromResult(posted), aiLine);
 
                 _globalAiPendingDraft = resp.Draft;
                 ShowGlobalAiDraftPreview(resp);

@@ -10,9 +10,10 @@ namespace Hiatme_Tool_Suite_v3
 {
     /// <summary>
     /// Team chat inside the AI dock: the room is the default target, "@ai …" hands a line
-    /// to the copilot and its answer is posted back for every desk. Typing shows above the
-    /// composer; while the dock is hidden, arrivals become HUD toasts and a badge on the
-    /// title-bar AI chip.
+    /// to the copilot and its answer is posted back for every desk. When the panel reports
+    /// autochat, that answer is the server's and the desk does not call the copilot again.
+    /// Typing shows above the composer; while the dock is hidden, arrivals become HUD toasts
+    /// and a badge on the title-bar AI chip.
     /// </summary>
     public partial class Form1
     {
@@ -255,12 +256,14 @@ namespace Hiatme_Tool_Suite_v3
         private void ApplyTeamChatMessages(List<ChatMessage> msgs)
         {
             string me = _teamChat?.ClientId ?? "";
+            // While autochat is on the panel posts the only AI line, so keep it even if
+            // it is stamped with this desk. Otherwise that line was drawn here already.
+            bool panelAnswers = _teamChat != null && _teamChat.Autochat;
             var fresh = new List<ChatMessage>();
             foreach (var m in msgs)
             {
                 if (m == null) continue;
-                // My own AI answers were drawn (and posted) here already.
-                if (m.Kind == ChatMessageKind.Ai && string.Equals(m.ClientId, me, StringComparison.Ordinal)) continue;
+                if (!panelAnswers && m.Kind == ChatMessageKind.Ai && string.Equals(m.ClientId, me, StringComparison.Ordinal)) continue;
                 if (m.Kind == ChatMessageKind.Me) continue;
                 if (_globalAiTranscript.Contains(m.Seq)) continue;
                 fresh.Add(m);

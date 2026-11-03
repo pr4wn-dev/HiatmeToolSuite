@@ -113,6 +113,11 @@ namespace Hiatme_Tool_Suite_v3
         public event Action<bool> ConnectivityChanged;
 
         public bool Online { get; private set; } = true;
+        /// <summary>
+        /// Latest chat response said the panel answers @ai itself.
+        /// Missing or false leaves this off so older panels still get a desk reply.
+        /// </summary>
+        public bool Autochat { get; private set; }
         public string DispatcherName => ScheduleActivityIdentity.DispatcherName();
         public string ClientId => ScheduleActivityIdentity.ClientId(Settings);
         public long Cursor => Interlocked.Read(ref _cursor);
@@ -183,6 +188,7 @@ namespace Hiatme_Tool_Suite_v3
                 SetOnline(true);
                 _typingSent = false;
                 var root = JObject.Parse(string.IsNullOrWhiteSpace(sent.Body) ? "{}" : sent.Body);
+                RememberAutochat(root);
                 var wire = root["message"]?.ToObject<TeamChatWire>();
                 long seq = root["seq"]?.Value<long>() ?? 0;
                 if (seq > Cursor) Interlocked.Exchange(ref _cursor, seq);
@@ -277,6 +283,7 @@ namespace Hiatme_Tool_Suite_v3
                 if (!sent.Ok) { SetOnline(false); return; }
                 SetOnline(true);
                 var root = JObject.Parse(string.IsNullOrWhiteSpace(sent.Body) ? "{}" : sent.Body);
+                RememberAutochat(root);
                 long seq = root["seq"]?.Value<long>() ?? 0;
                 var wires = root["messages"]?.ToObject<List<TeamChatWire>>() ?? new List<TeamChatWire>();
                 bool first = Cursor == 0;
@@ -305,6 +312,7 @@ namespace Hiatme_Tool_Suite_v3
                 if (!sent.Ok) { SetOnline(false); return new List<ChatMessage>(); }
                 SetOnline(true);
                 var root = JObject.Parse(string.IsNullOrWhiteSpace(sent.Body) ? "{}" : sent.Body);
+                RememberAutochat(root);
                 long seq = root["seq"]?.Value<long>() ?? 0;
                 if (seq > Cursor) Interlocked.Exchange(ref _cursor, seq);
                 var wires = root["messages"]?.ToObject<List<TeamChatWire>>() ?? new List<TeamChatWire>();
@@ -337,6 +345,19 @@ namespace Hiatme_Tool_Suite_v3
                     }
                 }
             }).ConfigureAwait(false);
+        }
+
+        /// <summary>POST, poll, and history all carry "autochat": true while the panel answers.</summary>
+        private void RememberAutochat(JObject root)
+        {
+            bool on = false;
+            var token = root?["autochat"];
+            if (token != null && token.Type == JTokenType.Boolean)
+            {
+                try { on = token.Value<bool>(); }
+                catch { on = false; }
+            }
+            Autochat = on;
         }
 
         private static string BaseUrl(HiatmeAiSettings settings)
